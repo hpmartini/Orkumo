@@ -8,3 +8,4 @@ export { Sidebar } from './Sidebar';
 export { SystemAlerts } from './SystemAlerts';
 export type { Alert } from './SystemAlerts';
 export { ErrorBoundary } from './ErrorBoundary';
+export { AdminPanel } from './AdminPanel';

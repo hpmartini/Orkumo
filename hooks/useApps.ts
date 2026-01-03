@@ -1,22 +1,27 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { AppConfig, AppStatus } from '../types';
-import { scanDirectory, generateMockLog } from '../services/mockOs';
-import { analyzeAppConfig } from '../services/geminiService';
+import {
+  fetchApps,
+  startApp,
+  stopApp,
+  restartApp,
+  subscribeToEvents,
+} from '../services/api';
 
-// Constants for simulation
-const SIMULATION_INTERVAL_MS = 1000;
-const LOG_RETENTION_COUNT = 50;
-const LOG_GENERATION_CHANCE = 0.2;
+// Constants for simulation (used as fallback when real stats unavailable)
+const STATS_UPDATE_INTERVAL_MS = 2000;
+const LOG_RETENTION_COUNT = 100;
 
 interface UseAppsReturn {
   apps: AppConfig[];
   loading: boolean;
+  error: string | null;
   selectedAppId: string | null;
   selectedApp: AppConfig | undefined;
   setSelectedAppId: (id: string | null) => void;
-  handleStartApp: (id: string) => void;
-  handleStopApp: (id: string) => void;
-  handleRestartApp: (id: string) => void;
+  handleStartApp: (id: string) => Promise<void>;
+  handleStopApp: (id: string) => Promise<void>;
+  handleRestartApp: (id: string) => Promise<void>;
   handleAnalyzeApp: (id: string) => Promise<void>;
   handleOpenInBrowser: (id: string) => void;
   refreshApps: () => Promise<void>;
@@ -28,48 +33,76 @@ export function useApps(): UseAppsReturn {
   const [apps, setApps] = useState<AppConfig[]>([]);
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Initial scan
+  // Fetch apps from backend
   const refreshApps = useCallback(async () => {
     setLoading(true);
+    setError(null);
     try {
-      const data = await scanDirectory();
+      const data = await fetchApps();
       setApps(data);
-    } catch (error) {
-      console.error('Failed to scan directory:', error);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch apps');
+      console.error('Failed to fetch apps:', err);
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Initial load
   useEffect(() => {
     refreshApps();
   }, [refreshApps]);
 
-  // Process simulation
+  // Subscribe to real-time events
   useEffect(() => {
-    intervalRef.current = setInterval(() => {
+    const unsubscribe = subscribeToEvents(
+      // On status change
+      ({ appId, status }) => {
+        setApps((currentApps) =>
+          currentApps.map((app) =>
+            app.id === appId
+              ? { ...app, status: status as AppStatus }
+              : app
+          )
+        );
+      },
+      // On log
+      ({ appId, message }) => {
+        setApps((currentApps) =>
+          currentApps.map((app) => {
+            if (app.id !== appId) return app;
+            const timestamp = new Date().toLocaleTimeString();
+            const newLogs = [...app.logs, `[${timestamp}] ${message}`].slice(-LOG_RETENTION_COUNT);
+            return { ...app, logs: newLogs };
+          })
+        );
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  // Simulate stats updates for running apps (until real metrics implemented)
+  useEffect(() => {
+    statsIntervalRef.current = setInterval(() => {
       setApps((currentApps) =>
         currentApps.map((app) => {
           if (app.status !== AppStatus.RUNNING) return app;
 
           // Update uptime
-          const newUptime = app.uptime + 1;
+          const newUptime = app.uptime + (STATS_UPDATE_INTERVAL_MS / 1000);
 
-          // Generate logs randomly
-          let newLogs = app.logs;
-          if (Math.random() < LOG_GENERATION_CHANCE) {
-            const log = generateMockLog(app.name, app.type);
-            newLogs = [...newLogs, log].slice(-LOG_RETENTION_COUNT);
-          }
-
-          // Smooth CPU transition
+          // Smooth CPU transition (simulated)
           const lastCpu = app.stats.cpu[app.stats.cpu.length - 1] || 0;
           const targetCpu = Math.random() * 40 + 10;
           const nextCpu = lastCpu + (targetCpu - lastCpu) * 0.2;
 
-          // Memory with jitter
+          // Memory with jitter (simulated)
           const lastMem = app.stats.memory[app.stats.memory.length - 1] || 100;
           const jitter = (Math.random() - 0.5) * 10;
           const nextMem = Math.max(50, Math.min(1024, lastMem + jitter));
@@ -77,7 +110,6 @@ export function useApps(): UseAppsReturn {
           return {
             ...app,
             uptime: newUptime,
-            logs: newLogs,
             stats: {
               cpu: [...app.stats.cpu.slice(1), nextCpu],
               memory: [...app.stats.memory.slice(1), nextMem],
@@ -85,77 +117,86 @@ export function useApps(): UseAppsReturn {
           };
         })
       );
-    }, SIMULATION_INTERVAL_MS);
+    }, STATS_UPDATE_INTERVAL_MS);
 
     return () => {
-      if (intervalRef.current) clearInterval(intervalRef.current);
+      if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
     };
   }, []);
 
-  const handleStartApp = useCallback((id: string) => {
+  const handleStartApp = useCallback(async (id: string) => {
+    const app = apps.find((a) => a.id === id);
+    if (!app) return;
+
+    // Set to starting
     setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id ? { ...app, status: AppStatus.STARTING } : app
+      currentApps.map((a) =>
+        a.id === id ? { ...a, status: AppStatus.STARTING } : a
       )
     );
 
-    setTimeout(() => {
+    try {
+      await startApp(id, app.path, app.startCommand || 'npm run dev');
+      // Status will be updated via SSE
+    } catch (err) {
+      console.error('Failed to start app:', err);
       setApps((currentApps) =>
-        currentApps.map((app) =>
-          app.id === id
+        currentApps.map((a) =>
+          a.id === id
             ? {
-                ...app,
-                status: AppStatus.RUNNING,
-                logs: [...app.logs, `[SYSTEM] Started process: ${app.startCommand}`],
+                ...a,
+                status: AppStatus.ERROR,
+                logs: [...a.logs, `[ERROR] Failed to start: ${err}`],
               }
-            : app
+            : a
         )
       );
-    }, 1500);
+    }
+  }, [apps]);
+
+  const handleStopApp = useCallback(async (id: string) => {
+    try {
+      await stopApp(id);
+      // Status will be updated via SSE
+    } catch (err) {
+      console.error('Failed to stop app:', err);
+    }
   }, []);
 
-  const handleStopApp = useCallback((id: string) => {
-    setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id
-          ? {
-              ...app,
-              status: AppStatus.STOPPED,
-              logs: [...app.logs, `[SYSTEM] Process terminated`],
-            }
-          : app
-      )
-    );
-  }, []);
+  const handleRestartApp = useCallback(async (id: string) => {
+    const app = apps.find((a) => a.id === id);
+    if (!app) return;
 
-  const handleRestartApp = useCallback((id: string) => {
     setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id
+      currentApps.map((a) =>
+        a.id === id
           ? {
-              ...app,
+              ...a,
               status: AppStatus.RESTARTING,
-              logs: [...app.logs, `[SYSTEM] Restarting process...`],
+              logs: [...a.logs, `[SYSTEM] Restarting process...`],
             }
-          : app
+          : a
       )
     );
 
-    setTimeout(() => {
+    try {
+      await restartApp(id);
+      // Status will be updated via SSE
+    } catch (err) {
+      console.error('Failed to restart app:', err);
       setApps((currentApps) =>
-        currentApps.map((app) =>
-          app.id === id
+        currentApps.map((a) =>
+          a.id === id
             ? {
-                ...app,
-                status: AppStatus.RUNNING,
-                uptime: 0,
-                logs: [...app.logs, `[SYSTEM] Process restarted: ${app.startCommand}`],
+                ...a,
+                status: AppStatus.ERROR,
+                logs: [...a.logs, `[ERROR] Failed to restart: ${err}`],
               }
-            : app
+            : a
         )
       );
-    }, 2000);
-  }, []);
+    }
+  }, [apps]);
 
   const handleAnalyzeApp = useCallback(async (id: string) => {
     let appName = '';
@@ -169,16 +210,14 @@ export function useApps(): UseAppsReturn {
 
     if (!appName) return;
 
+    // Use the analyze endpoint
+    const { analyzeAppConfig } = await import('../services/geminiService');
+
     const mockPackageJson = JSON.stringify(
       {
         name: appName,
-        scripts: {
-          dev: 'vite',
-          build: 'tsc && vite build',
-        },
-        dependencies: {
-          react: '^18.2.0',
-        },
+        scripts: { dev: 'vite', build: 'tsc && vite build' },
+        dependencies: { react: '^18.2.0' },
       },
       null,
       2
@@ -222,6 +261,7 @@ export function useApps(): UseAppsReturn {
   return {
     apps,
     loading,
+    error,
     selectedAppId,
     selectedApp,
     setSelectedAppId,

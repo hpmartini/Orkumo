@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { LayoutDashboard, RefreshCw } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, Settings } from 'lucide-react';
 import {
   Sidebar,
   DashboardOverview,
@@ -7,6 +7,7 @@ import {
   AppDetail,
   SystemAlerts,
   ErrorBoundary,
+  AdminPanel,
 } from './components';
 import { useApps } from './hooks';
 
@@ -16,6 +17,7 @@ function AppContent() {
   const {
     apps,
     loading,
+    error: _error,
     selectedAppId,
     selectedApp,
     setSelectedAppId,
@@ -30,6 +32,7 @@ function AppContent() {
   } = useApps();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [adminPanelOpen, setAdminPanelOpen] = useState(false);
 
   const handleSelectDashboard = () => {
     setActiveTab('dashboard');
@@ -79,6 +82,13 @@ function AppContent() {
               <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
               <span className="text-xs font-mono text-gray-400">Daemon Active</span>
             </div>
+            <button
+              onClick={() => setAdminPanelOpen(true)}
+              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+              title="Settings"
+            >
+              <Settings size={20} />
+            </button>
           </div>
         </header>
 
@@ -122,6 +132,13 @@ function AppContent() {
           )}
         </div>
       </main>
+
+      {/* Admin Panel Modal */}
+      <AdminPanel
+        isOpen={adminPanelOpen}
+        onClose={() => setAdminPanelOpen(false)}
+        onConfigChange={refreshApps}
+      />
     </div>
   );
 }
