@@ -1,12 +1,76 @@
 import { spawn } from 'child_process';
 import path from 'path';
 import { EventEmitter } from 'events';
+import pidusage from 'pidusage';
 
 // Store running processes
 const processes = new Map();
 
 // Event emitter for process events
 export const processEvents = new EventEmitter();
+
+// Allowlist of safe commands - prevents command injection
+const ALLOWED_COMMANDS = [
+  'npm',
+  'npx',
+  'yarn',
+  'pnpm',
+  'node',
+  'bun',
+];
+
+// Allowlist of safe npm script patterns
+const ALLOWED_SCRIPT_PATTERNS = [
+  /^(run\s+)?(dev|start|serve|develop|preview|build|test)$/,
+  /^start$/,
+];
+
+/**
+ * Validate that a command is safe to execute
+ */
+function validateCommand(command) {
+  const parts = command.trim().split(/\s+/);
+  const baseCmd = parts[0];
+
+  // Check if base command is in allowlist
+  if (!ALLOWED_COMMANDS.includes(baseCmd)) {
+    throw new Error(`Command '${baseCmd}' is not allowed. Allowed: ${ALLOWED_COMMANDS.join(', ')}`);
+  }
+
+  // For npm/yarn/pnpm, validate the script pattern
+  if (['npm', 'yarn', 'pnpm'].includes(baseCmd)) {
+    const scriptPart = parts.slice(1).join(' ');
+    const isValid = ALLOWED_SCRIPT_PATTERNS.some(pattern => pattern.test(scriptPart));
+    if (!isValid) {
+      throw new Error(`Script '${scriptPart}' is not allowed. Use standard scripts like 'dev', 'start', 'serve'.`);
+    }
+  }
+
+  // Check for dangerous characters that could enable injection
+  const dangerousPatterns = [';', '&&', '||', '|', '`', '$', '>', '<', '\\n', '\\r'];
+  for (const pattern of dangerousPatterns) {
+    if (command.includes(pattern)) {
+      throw new Error(`Command contains forbidden character: '${pattern}'`);
+    }
+  }
+
+  return true;
+}
+
+/**
+ * Get real CPU and memory usage for a process
+ */
+export async function getProcessStats(pid) {
+  try {
+    const stats = await pidusage(pid);
+    return {
+      cpu: stats.cpu,
+      memory: stats.memory / 1024 / 1024, // Convert to MB
+    };
+  } catch {
+    return { cpu: 0, memory: 0 };
+  }
+}
 
 /**
  * Get process info by app ID
@@ -35,6 +99,9 @@ export function getAllProcesses() {
  * Start a process for an app
  */
 export function startProcess(appId, appPath, command) {
+  // Validate command before execution (security check)
+  validateCommand(command);
+
   // Check if already running
   if (processes.has(appId)) {
     const existing = processes.get(appId);
@@ -43,8 +110,8 @@ export function startProcess(appId, appPath, command) {
     }
   }
 
-  // Parse command
-  const parts = command.split(' ');
+  // Parse command safely
+  const parts = command.trim().split(/\s+/);
   const cmd = parts[0];
   const args = parts.slice(1);
 

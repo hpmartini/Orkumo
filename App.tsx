@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { LayoutDashboard, RefreshCw, Settings } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, Settings, Menu, X } from 'lucide-react';
+import { Toaster } from 'react-hot-toast';
 import {
   Sidebar,
   DashboardOverview,
@@ -33,15 +34,18 @@ function AppContent() {
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleSelectDashboard = () => {
     setActiveTab('dashboard');
     setSelectedAppId(null);
+    setMobileMenuOpen(false);
   };
 
   const handleSelectApp = (id: string) => {
     setSelectedAppId(id);
     setActiveTab('apps');
+    setMobileMenuOpen(false);
   };
 
   if (loading) {
@@ -57,20 +61,62 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 font-sans flex overflow-hidden">
-      {/* Sidebar */}
-      <Sidebar
-        apps={apps}
-        selectedAppId={selectedAppId}
-        activeTab={activeTab}
-        onSelectDashboard={handleSelectDashboard}
-        onSelectApp={handleSelectApp}
+      {/* Toast notifications */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: '#1f2937',
+            color: '#f3f4f6',
+            border: '1px solid #374151',
+          },
+          success: {
+            iconTheme: { primary: '#10b981', secondary: '#f3f4f6' },
+          },
+          error: {
+            iconTheme: { primary: '#ef4444', secondary: '#f3f4f6' },
+          },
+        }}
       />
+
+      {/* Mobile menu overlay */}
+      {mobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 md:hidden"
+          onClick={() => setMobileMenuOpen(false)}
+        />
+      )}
+
+      {/* Sidebar - hidden on mobile unless menu is open */}
+      <div className={`
+        fixed md:relative inset-y-0 left-0 z-50
+        transform transition-transform duration-300 ease-in-out
+        ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <Sidebar
+          apps={apps}
+          selectedAppId={selectedAppId}
+          activeTab={activeTab}
+          onSelectDashboard={handleSelectDashboard}
+          onSelectApp={handleSelectApp}
+        />
+      </div>
 
       {/* Main Content */}
       <main className="flex-1 overflow-y-auto relative">
-        <header className="sticky top-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-8 py-4 flex items-center justify-between">
-          <div className="md:hidden flex items-center gap-2 text-blue-500 font-bold">
-            <LayoutDashboard /> DevOrbit
+        <header className="sticky top-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 md:px-8 py-4 flex items-center justify-between">
+          <div className="md:hidden flex items-center gap-3">
+            <button
+              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+              aria-label="Toggle menu"
+            >
+              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+            <div className="flex items-center gap-2 text-blue-500 font-bold">
+              <LayoutDashboard size={20} /> DevOrbit
+            </div>
           </div>
 
           <h2 className="text-xl font-semibold text-white hidden md:block">

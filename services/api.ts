@@ -159,29 +159,110 @@ export async function removeDirectory(path: string): Promise<Config> {
 }
 
 /**
- * Server-Sent Events for real-time updates
+ * Server-Sent Events for real-time updates with automatic reconnection
  */
 export function subscribeToEvents(
   onStatusChange: (data: { appId: string; status: string }) => void,
-  onLog: (data: { appId: string; type: string; message: string }) => void
+  onLog: (data: { appId: string; type: string; message: string }) => void,
+  onConnectionChange?: (connected: boolean) => void
 ): () => void {
-  const eventSource = new EventSource(`${API_BASE}/events`);
+  let eventSource: EventSource | null = null;
+  let reconnectAttempts = 0;
+  let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  let isClosing = false;
 
-  eventSource.addEventListener('process-status', (event) => {
-    const data = JSON.parse(event.data);
-    onStatusChange(data);
-  });
+  const MAX_RECONNECT_ATTEMPTS = 10;
+  const BASE_RECONNECT_DELAY = 1000;
+  const MAX_RECONNECT_DELAY = 30000;
 
-  eventSource.addEventListener('process-log', (event) => {
-    const data = JSON.parse(event.data);
-    onLog(data);
-  });
+  function getReconnectDelay(): number {
+    // Exponential backoff with jitter
+    const delay = Math.min(
+      BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts),
+      MAX_RECONNECT_DELAY
+    );
+    return delay + Math.random() * 1000;
+  }
 
-  eventSource.onerror = () => {
-    console.warn('SSE connection error, will retry...');
-  };
+  function connect() {
+    if (isClosing) return;
+
+    eventSource = new EventSource(`${API_BASE}/events`);
+
+    eventSource.addEventListener('connected', () => {
+      reconnectAttempts = 0;
+      onConnectionChange?.(true);
+    });
+
+    eventSource.addEventListener('heartbeat', () => {
+      // Heartbeat received, connection is healthy
+    });
+
+    eventSource.addEventListener('process-status', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        onStatusChange(data);
+      } catch (err) {
+        console.error('Failed to parse process-status event:', err);
+      }
+    });
+
+    eventSource.addEventListener('process-log', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        onLog(data);
+      } catch (err) {
+        console.error('Failed to parse process-log event:', err);
+      }
+    });
+
+    eventSource.onerror = () => {
+      onConnectionChange?.(false);
+      eventSource?.close();
+      eventSource = null;
+
+      if (!isClosing && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        const delay = getReconnectDelay();
+        console.warn(`SSE connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        reconnectTimeout = setTimeout(() => {
+          reconnectAttempts++;
+          connect();
+        }, delay);
+      } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('SSE max reconnection attempts reached');
+      }
+    };
+  }
+
+  connect();
 
   return () => {
-    eventSource.close();
+    isClosing = true;
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+    }
+    eventSource?.close();
   };
+}
+
+/**
+ * Fetch package.json content for an app
+ */
+export async function fetchAppPackage(id: string): Promise<{ fileName: string; content: string }> {
+  const response = await fetch(`${API_BASE}/apps/${id}/package`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch package.json');
+  }
+  return response.json();
+}
+
+/**
+ * Fetch real CPU/memory stats for an app
+ */
+export async function fetchAppStats(id: string): Promise<{ cpu: number; memory: number }> {
+  const response = await fetch(`${API_BASE}/apps/${id}/stats`);
+  if (!response.ok) {
+    return { cpu: 0, memory: 0 };
+  }
+  return response.json();
 }

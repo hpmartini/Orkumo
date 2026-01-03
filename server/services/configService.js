@@ -16,6 +16,81 @@ const defaultConfig = {
   excludePatterns: ['node_modules', '.git', 'dist', 'build', '.next'],
 };
 
+// Forbidden paths that should never be scanned (security)
+const FORBIDDEN_PATHS = [
+  '/etc',
+  '/var',
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/boot',
+  '/root',
+  '/sys',
+  '/proc',
+  '/dev',
+  '/.ssh',
+  '/.gnupg',
+  '/.aws',
+  '/.config',
+];
+
+/**
+ * Validate that a path is safe to scan
+ */
+function validatePath(dirPath) {
+  const absolutePath = path.resolve(dirPath);
+  const normalizedPath = path.normalize(absolutePath);
+
+  // Check if path tries to escape via ../
+  if (normalizedPath !== absolutePath) {
+    throw new Error('Path traversal detected');
+  }
+
+  // Check against forbidden paths
+  for (const forbidden of FORBIDDEN_PATHS) {
+    const forbiddenAbs = path.resolve(process.env.HOME || '/', forbidden);
+    if (normalizedPath.startsWith(forbiddenAbs) || normalizedPath === forbiddenAbs) {
+      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
+    }
+    // Also check absolute forbidden paths
+    if (normalizedPath.startsWith(forbidden) || normalizedPath === forbidden) {
+      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
+    }
+  }
+
+  // Check for hidden directories in home
+  const homeDir = process.env.HOME || '';
+  if (homeDir && normalizedPath.startsWith(homeDir)) {
+    const relativePath = normalizedPath.slice(homeDir.length);
+    if (relativePath.match(/^\/\.[^/]+/)) {
+      throw new Error('Scanning hidden directories in home is not allowed');
+    }
+  }
+
+  // Ensure path is a directory and exists
+  if (!fs.existsSync(normalizedPath)) {
+    throw new Error(`Directory does not exist: ${normalizedPath}`);
+  }
+
+  const stats = fs.statSync(normalizedPath);
+  if (!stats.isDirectory()) {
+    throw new Error(`Path is not a directory: ${normalizedPath}`);
+  }
+
+  // Check for symlinks that might escape
+  const realPath = fs.realpathSync(normalizedPath);
+  if (realPath !== normalizedPath) {
+    // Re-validate the real path
+    for (const forbidden of FORBIDDEN_PATHS) {
+      if (realPath.startsWith(forbidden)) {
+        throw new Error(`Symlink points to forbidden location`);
+      }
+    }
+  }
+
+  return normalizedPath;
+}
+
 /**
  * Ensures the data directory and config file exist
  */
@@ -57,15 +132,13 @@ export function updateConfig(updates) {
  * Add a directory to scan
  */
 export function addDirectory(dirPath) {
+  // Validate path for security (prevents path traversal and forbidden access)
+  const validatedPath = validatePath(dirPath);
+
   const config = getConfig();
-  const absolutePath = path.resolve(dirPath);
 
-  if (!fs.existsSync(absolutePath)) {
-    throw new Error(`Directory does not exist: ${absolutePath}`);
-  }
-
-  if (!config.directories.includes(absolutePath)) {
-    config.directories.push(absolutePath);
+  if (!config.directories.includes(validatedPath)) {
+    config.directories.push(validatedPath);
     updateConfig(config);
   }
 

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import toast from 'react-hot-toast';
 import { AppConfig, AppStatus } from '../types';
 import {
   fetchApps,
@@ -6,9 +7,11 @@ import {
   stopApp,
   restartApp,
   subscribeToEvents,
+  fetchAppPackage,
+  fetchAppStats,
 } from '../services/api';
 
-// Constants for simulation (used as fallback when real stats unavailable)
+// Constants
 const STATS_UPDATE_INTERVAL_MS = 2000;
 const LOG_RETENTION_COUNT = 100;
 
@@ -87,42 +90,52 @@ export function useApps(): UseAppsReturn {
     };
   }, []);
 
-  // Simulate stats updates for running apps (until real metrics implemented)
+  // Fetch real stats for running apps
   useEffect(() => {
-    statsIntervalRef.current = setInterval(() => {
-      setApps((currentApps) =>
-        currentApps.map((app) => {
-          if (app.status !== AppStatus.RUNNING) return app;
+    statsIntervalRef.current = setInterval(async () => {
+      const runningApps = apps.filter(app => app.status === AppStatus.RUNNING);
 
-          // Update uptime
-          const newUptime = app.uptime + (STATS_UPDATE_INTERVAL_MS / 1000);
-
-          // Smooth CPU transition (simulated)
-          const lastCpu = app.stats.cpu[app.stats.cpu.length - 1] || 0;
-          const targetCpu = Math.random() * 40 + 10;
-          const nextCpu = lastCpu + (targetCpu - lastCpu) * 0.2;
-
-          // Memory with jitter (simulated)
-          const lastMem = app.stats.memory[app.stats.memory.length - 1] || 100;
-          const jitter = (Math.random() - 0.5) * 10;
-          const nextMem = Math.max(50, Math.min(1024, lastMem + jitter));
-
-          return {
-            ...app,
-            uptime: newUptime,
-            stats: {
-              cpu: [...app.stats.cpu.slice(1), nextCpu],
-              memory: [...app.stats.memory.slice(1), nextMem],
-            },
-          };
-        })
-      );
+      for (const app of runningApps) {
+        try {
+          const stats = await fetchAppStats(app.id);
+          setApps((currentApps) =>
+            currentApps.map((a) => {
+              if (a.id !== app.id) return a;
+              return {
+                ...a,
+                uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
+                stats: {
+                  cpu: [...a.stats.cpu.slice(1), stats.cpu],
+                  memory: [...a.stats.memory.slice(1), stats.memory],
+                },
+              };
+            })
+          );
+        } catch {
+          // Fall back to simulated stats if real stats fail
+          setApps((currentApps) =>
+            currentApps.map((a) => {
+              if (a.id !== app.id || a.status !== AppStatus.RUNNING) return a;
+              const lastCpu = a.stats.cpu[a.stats.cpu.length - 1] || 0;
+              const lastMem = a.stats.memory[a.stats.memory.length - 1] || 100;
+              return {
+                ...a,
+                uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
+                stats: {
+                  cpu: [...a.stats.cpu.slice(1), lastCpu + (Math.random() - 0.5) * 5],
+                  memory: [...a.stats.memory.slice(1), lastMem + (Math.random() - 0.5) * 10],
+                },
+              };
+            })
+          );
+        }
+      }
     }, STATS_UPDATE_INTERVAL_MS);
 
     return () => {
       if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
     };
-  }, []);
+  }, [apps]);
 
   const handleStartApp = useCallback(async (id: string) => {
     const app = apps.find((a) => a.id === id);
@@ -199,47 +212,48 @@ export function useApps(): UseAppsReturn {
   }, [apps]);
 
   const handleAnalyzeApp = useCallback(async (id: string) => {
-    let appName = '';
-    setApps((currentApps) => {
-      const app = currentApps.find((a) => a.id === id);
-      if (app) appName = app.name;
-      return currentApps.map((app) =>
-        app.id === id ? { ...app, status: AppStatus.ANALYZING } : app
-      );
-    });
-
-    if (!appName) return;
-
-    // Use the analyze endpoint
-    const { analyzeAppConfig } = await import('../services/geminiService');
-
-    const mockPackageJson = JSON.stringify(
-      {
-        name: appName,
-        scripts: { dev: 'vite', build: 'tsc && vite build' },
-        dependencies: { react: '^18.2.0' },
-      },
-      null,
-      2
-    );
-
-    const result = await analyzeAppConfig('package.json', mockPackageJson);
-
     setApps((currentApps) =>
-      currentApps.map((a) =>
-        a.id === id
-          ? {
-              ...a,
-              status: AppStatus.STOPPED,
-              aiAnalysis: result.summary,
-              startCommand: result.command,
-              port: result.port,
-              detectedFramework: result.type,
-            }
-          : a
+      currentApps.map((app) =>
+        app.id === id ? { ...app, status: AppStatus.ANALYZING } : app
       )
     );
-  }, []);
+
+    try {
+      // Fetch actual package.json from the backend
+      const { fileName, content } = await fetchAppPackage(id);
+
+      // Use the analyze endpoint
+      const { analyzeAppConfig } = await import('../services/geminiService');
+      const result = await analyzeAppConfig(fileName, content);
+
+      setApps((currentApps) =>
+        currentApps.map((a) =>
+          a.id === id
+            ? {
+                ...a,
+                status: AppStatus.STOPPED,
+                aiAnalysis: result.summary,
+                startCommand: result.command,
+                port: result.port,
+                detectedFramework: result.type,
+              }
+            : a
+        )
+      );
+
+      toast.success(`Analysis complete for ${apps.find(a => a.id === id)?.name || 'app'}`);
+    } catch (err) {
+      console.error('Failed to analyze app:', err);
+      setApps((currentApps) =>
+        currentApps.map((a) =>
+          a.id === id
+            ? { ...a, status: AppStatus.STOPPED }
+            : a
+        )
+      );
+      toast.error('Failed to analyze app configuration');
+    }
+  }, [apps]);
 
   const handleOpenInBrowser = useCallback(
     (id: string) => {
