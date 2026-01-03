@@ -2,13 +2,22 @@
 
 ## Review Summary
 
-**Date:** 2026-01-03
+**Date:** 2026-01-03 (Updated)
 **Reviewer:** Claude Code
-**Scope:** Full codebase review comparing implementation vs CLAUDE.md requirements
+**Scope:** Full codebase review including backend services, frontend components, and API layer
 
 ### Overview
 
-The codebase has been significantly refactored from a 528-line monolithic `App.tsx` into a modular architecture with separate components, hooks, and a backend proxy for secure API handling.
+The codebase has evolved from a mock-only frontend to a full-stack application with:
+- Express backend server for process management and directory scanning
+- Real file system scanning with framework detection
+- Process spawning/killing with SSE real-time updates
+- Admin panel for directory configuration
+- Modular React component architecture
+
+**Recent Fixes Applied:**
+- Fixed sidebar selection bug (ID collision with SHA256 hash)
+- Fixed process PATH issue (local node_modules/.bin added to PATH)
 
 ---
 
@@ -16,101 +25,120 @@ The codebase has been significantly refactored from a 528-line monolithic `App.t
 
 ### Security
 
-- [x] **[SECURITY]** API key exposed in client bundle via `vite.config.ts:14-15` - ✅ Fixed: Created backend proxy server (`server/index.js`) that securely handles API key
-- [x] **[SECURITY]** No validation of AI response structure in `services/geminiService.ts:54` before `JSON.parse()` - ✅ Fixed: Added `isValidAnalysisResult` type guard
+- [ ] **[SECURITY]** Command injection vulnerability in `server/services/processService.js:70` - Command is passed to `spawn()` with `shell: true`. User-controlled commands from API could execute arbitrary code.
+  ```javascript
+  // VULNERABLE: command could be "npm run dev; rm -rf /"
+  const childProcess = spawn(cmd, args, { shell: true, ... });
+  ```
+  **Fix:** Validate commands against allowlist, or use spawn without shell and proper argument parsing.
+
+- [ ] **[SECURITY]** Path traversal risk in `server/services/configService.js:59-65` - `addDirectory()` accepts any path without validation. Attacker could add sensitive directories like `/etc` or `~/.ssh`.
+  **Fix:** Validate paths are within allowed parent directories, check for symlinks.
+
+- [ ] **[SECURITY]** No input validation/sanitization on Express endpoints in `server/index.js`. All `req.body` and `req.params` values used directly.
+  **Fix:** Add express-validator or zod schema validation.
+
+- [x] **[SECURITY]** API key exposed in client bundle - ✅ Fixed: Backend proxy server handles API key
 
 ### Bugs
 
-- [x] **[BUG]** Stale closure in `handleAnalyzeApp` - ✅ Fixed: Now uses callback pattern to get current state
-- [x] **[BUG]** Timer interval type mismatch - ✅ Fixed: Using `ReturnType<typeof setInterval>` in hooks/useApps.ts
+- [ ] **[BUG]** `handleAnalyzeApp` in `hooks/useApps.ts:216-224` uses hardcoded mock package.json instead of reading real file from the app's directory.
+  ```javascript
+  // Currently creates fake data:
+  const mockPackageJson = JSON.stringify({ name: appName, ... });
+  ```
+  **Fix:** Call backend endpoint to read actual package.json from app.path.
 
-### Missing Core Functionality
+- [ ] **[BUG]** SSE event handlers in `services/api.ts:170-177` don't handle JSON.parse errors - malformed server data could crash the app.
+  ```javascript
+  eventSource.addEventListener('process-status', (event) => {
+    const data = JSON.parse(event.data); // Could throw!
+    onStatusChange(data);
+  });
+  ```
 
-- [ ] **[FEATURE]** Implement real file system scanning to replace `services/mockOs.ts` mock data - CLAUDE.md requires scanning configured directories.
-- [ ] **[FEATURE]** Implement real process management (spawn/kill processes) - current start/stop only changes UI state.
-- [ ] **[FEATURE]** Implement real console output capture from spawned processes into terminal view.
+- [x] **[BUG]** Stale closure in `handleAnalyzeApp` - ✅ Fixed with callback pattern
+- [x] **[BUG]** Sidebar selection only selecting first app - ✅ Fixed with SHA256 ID generation
+- [x] **[BUG]** Process PATH missing node_modules/.bin - ✅ Fixed in processService.js
 
 ---
 
 ## 🟠 High Priority
 
-### Architecture Refactoring
+### Security & Reliability
 
-- [x] **[REFACTOR]** Decompose `App.tsx` (528 lines → 135 lines) into smaller components:
-  - ✅ `components/StatusBadge.tsx`
-  - ✅ `components/DashboardOverview.tsx`
-  - ✅ `components/AppList.tsx`
-  - ✅ `components/AppDetail.tsx`
-  - ✅ `components/Sidebar.tsx`
-  - ✅ `components/PerformanceCharts.tsx`
-  - ✅ `components/Terminal.tsx`
-  - ✅ `components/SystemAlerts.tsx`
-  - ✅ `components/ErrorBoundary.tsx`
+- [ ] **[SECURITY]** Add rate limiting to Express server - currently no protection against DoS.
+  **Fix:** Add `express-rate-limit` middleware.
 
-- [x] **[REFACTOR]** Extract state management into custom hooks:
-  - ✅ `hooks/useApps.ts` - app list state, CRUD operations, process simulation, and controls
+- [ ] **[SECURITY]** Process kill in `processService.js:169` uses `-pid` for process group kill which fails silently on some systems. Add proper error handling.
 
-- [ ] **[REFACTOR]** Create service layer abstraction in `services/`:
-  - `processService.ts` - process spawn/kill/monitor
-  - `fileSystemService.ts` - directory scanning
-  - `configService.ts` - app configuration persistence
+- [ ] **[RELIABILITY]** Memory leak potential in SSE clients `server/index.js:33-48`. The `sseClients` Set grows but only removes on 'close'. Add heartbeat/timeout cleanup.
+
+- [ ] **[RELIABILITY]** Add try-catch around JSON.parse in SSE handlers (`services/api.ts:170-177`).
 
 ### Missing Features (per CLAUDE.md)
 
-- [ ] **[FEATURE]** Create Admin Panel for directory configuration - CLAUDE.md specifies "directories can be configured on the admin panel"
-- [x] **[FEATURE]** Add restart functionality - ✅ Added restart button and handler in `AppDetail.tsx` and `useApps.ts`
+- [x] **[FEATURE]** Create Admin Panel for directory configuration - ✅ Implemented in `components/AdminPanel.tsx`
+- [x] **[FEATURE]** Implement real file system scanning - ✅ Implemented in `server/services/scannerService.js`
+- [x] **[FEATURE]** Implement real process management - ✅ Implemented in `server/services/processService.js`
 - [ ] **[FEATURE]** Add custom port setting UI in app detail view
-- [x] **[FEATURE]** Implement working "Open in browser" button - ✅ Now functional in `useApps.ts:handleOpenInBrowser`
-- [x] **[FEATURE]** Display addresses alongside ports per CLAUDE.md requirements - ✅ Added `addresses` field to types and display in `AppDetail.tsx`
 - [ ] **[FEATURE]** Add recommendations panel showing "possible optimizations, updates, etc."
+- [ ] **[FEATURE]** Implement real CPU/memory metrics using `pidusage` or similar (currently simulated in `useApps.ts:91-125`)
+
+### Architecture
+
+- [x] **[REFACTOR]** Decompose App.tsx into modular components - ✅ Done (9 components)
+- [x] **[REFACTOR]** Extract state management into custom hooks - ✅ Done (useApps.ts)
+- [ ] **[REFACTOR]** Add TypeScript to server code (currently plain .js files)
+- [ ] **[REFACTOR]** Create shared types package for frontend/backend type consistency
 
 ### Error Handling
 
-- [x] **[RELIABILITY]** Add React Error Boundary wrapper around main app - ✅ Added `ErrorBoundary.tsx` component
-- [x] **[RELIABILITY]** Add error handling for `scanDirectory()` failure - ✅ Added try/catch in `useApps.ts:refreshApps`
-- [ ] **[RELIABILITY]** Add retry logic for failed AI analysis requests
-
-### TypeScript
-
-- [x] **[TYPING]** Enable strict mode in `tsconfig.json` - ✅ Added `"strict": true` and related options
-- [x] **[TYPING]** Add missing status values to `AppStatus` enum - ✅ Added `CANCELLED`, `WAITING`, `RESTARTING`
-- [x] **[TYPING]** Add `addresses?: string[]` field to `AppConfig` interface - ✅ Done
+- [x] **[RELIABILITY]** Add React Error Boundary - ✅ Added `ErrorBoundary.tsx`
+- [ ] **[RELIABILITY]** Add retry logic with exponential backoff for failed API requests
+- [ ] **[RELIABILITY]** Add SSE reconnection logic with backoff (currently just warns on error)
 
 ---
 
 ## 🟡 Medium Priority
 
+### Type Safety
+
+- [ ] **[TYPING]** Remove unsafe type assertions in `services/api.ts:16-32`:
+  ```typescript
+  // Multiple `as` casts that could mask errors:
+  id: app.id as string,
+  name: app.name as string,
+  ```
+  **Fix:** Use zod or io-ts for runtime validation.
+
+- [ ] **[TYPING]** Add `@types/cors` and `@types/express` to devDependencies for server code.
+
+- [ ] **[TYPING]** Define proper interfaces for backend API responses.
+
 ### Performance
 
-- [ ] **[PERFORMANCE]** Optimize simulation interval - currently runs for ALL apps every 1s. Consider:
-  - Only simulate visible/selected app
-  - Use Web Workers for background processing
-  - Reduce frequency for non-focused apps
+- [ ] **[PERFORMANCE]** Stats simulation interval runs for ALL apps every 2s (`useApps.ts:92-120`). Consider:
+  - Only update visible/selected app
+  - Use requestAnimationFrame for UI updates
+  - Implement real metrics via backend
 
-- [x] **[PERFORMANCE]** Add `useMemo` for expensive calculations:
-  - ✅ `chartData` in `PerformanceCharts.tsx` now uses `useMemo`
+- [ ] **[PERFORMANCE]** Terminal renders all logs without virtualization (`Terminal.tsx:40-45`). Use `react-window` or `@tanstack/react-virtual` for large log lists.
 
-- [x] **[PERFORMANCE]** Add `useCallback` for handler functions - ✅ All handlers in `useApps.ts` wrapped with `useCallback`
+- [x] **[PERFORMANCE]** Add `useMemo` for chart data - ✅ Done in PerformanceCharts.tsx
 
-- [ ] **[PERFORMANCE]** Implement virtualization for log list in terminal view - currently renders all 50 logs
-
-### UI/UX Improvements
+### UI/UX
 
 - [ ] **[UI]** Add loading skeleton states during initial scan
 - [ ] **[UI]** Add toast notifications for actions (start, stop, analyze complete)
-- [ ] **[UI]** Improve mobile responsiveness - sidebar hidden on mobile but no hamburger menu
-- [ ] **[UI]** Add keyboard shortcuts for common actions (start/stop selected app)
-
-### Code Quality
-
-- [ ] **[REFACTOR]** Extract Tailwind color definitions from `index.html:17-23` to proper Tailwind config file
-- [x] **[REFACTOR]** Move hardcoded model name to server - ✅ Now in `server/index.js`
-- [x] **[REFACTOR]** Replace magic numbers in simulation logic with named constants - ✅ Added `SIMULATION_INTERVAL_MS`, `LOG_RETENTION_COUNT`, `LOG_GENERATION_CHANCE`
+- [ ] **[UI]** Improve mobile responsiveness - sidebar hidden but no hamburger menu
+- [ ] **[UI]** Add keyboard shortcuts (Ctrl+Enter to start, Ctrl+. to stop)
+- [ ] **[UI]** Show app's actual path in detail view header
 
 ### Data Persistence
 
-- [ ] **[FEATURE]** Persist app configurations to localStorage or IndexedDB
-- [ ] **[FEATURE]** Remember last selected app and active tab on page reload
+- [ ] **[FEATURE]** Remember last selected app on page reload (localStorage)
+- [ ] **[FEATURE]** Persist terminal scroll position per app
 
 ---
 
@@ -118,68 +146,100 @@ The codebase has been significantly refactored from a 528-line monolithic `App.t
 
 ### Testing
 
-- [ ] **[TESTING]** Set up Vitest testing framework - add to `package.json`
-- [ ] **[TESTING]** Add unit tests for `geminiService.ts` functions
-- [ ] **[TESTING]** Add unit tests for `mockOs.ts` functions
-- [ ] **[TESTING]** Add component tests for `StatusBadge`
-- [ ] **[TESTING]** Add integration tests for app lifecycle (start -> running -> stop)
+- [ ] **[TESTING]** Set up Vitest testing framework
+- [ ] **[TESTING]** Add unit tests for `scannerService.js` functions
+- [ ] **[TESTING]** Add unit tests for `processService.js` functions
+- [ ] **[TESTING]** Add component tests for StatusBadge, Terminal
+- [ ] **[TESTING]** Add E2E tests with Playwright for critical flows
 
 ### Documentation
 
-- [x] **[DOCS]** Add JSDoc comments to exported functions in services - ✅ Added to `geminiService.ts`
-- [ ] **[DOCS]** Add prop types documentation for components once extracted
-- [ ] **[DOCS]** Create API documentation for AI integration
+- [x] **[DOCS]** Add JSDoc to services - ✅ Added to key functions
+- [ ] **[DOCS]** Create API documentation (OpenAPI/Swagger spec)
+- [ ] **[DOCS]** Add README with setup instructions
 
-### Cleanup
+### Code Quality
 
-- [x] **[CLEANUP]** Remove unused `LineChart` import - ✅ Removed during refactor
-- [ ] **[CLEANUP]** Add `.nvmrc` or `engines` field to `package.json` for Node version specification
-- [ ] **[CLEANUP]** Add `index.css` file referenced in `index.html:46` but doesn't exist
+- [ ] **[CLEANUP]** Extract Tailwind custom colors from `index.html` to `tailwind.config.js`
+- [ ] **[CLEANUP]** Add `.nvmrc` with Node version
+- [ ] **[CLEANUP]** Consistent file naming (some PascalCase, some camelCase)
+- [ ] **[CLEANUP]** Remove unused `services/mockOs.ts` (replaced by real scanner)
 
 ### DevOps
 
 - [ ] **[DEVOPS]** Add ESLint configuration
 - [ ] **[DEVOPS]** Add Prettier configuration
-- [ ] **[DEVOPS]** Add pre-commit hooks with Husky
+- [ ] **[DEVOPS]** Add pre-commit hooks with Husky/lint-staged
 - [ ] **[DEVOPS]** Add GitHub Actions CI workflow
+- [ ] **[DEVOPS]** Add Dockerfile for containerized deployment
 
 ---
 
 ## Implementation Notes
 
-### Completed Changes (2026-01-03)
+### Completed (2026-01-03)
 
-1. **Backend Proxy Server** (`server/index.js`)
-   - Express server on port 3001
-   - Securely handles GEMINI_API_KEY
-   - POST `/api/analyze` endpoint for AI config analysis
-   - GET `/api/health` for status checks
+1. **Backend Services**
+   - `server/index.js` - Express API server with SSE support
+   - `server/services/configService.js` - Configuration persistence
+   - `server/services/scannerService.js` - Real file system scanning
+   - `server/services/processService.js` - Process spawn/kill management
 
-2. **Modular Component Architecture**
-   - 9 extracted components in `components/`
-   - 1 custom hook in `hooks/`
-   - Clean separation of concerns
+2. **Frontend Improvements**
+   - `services/api.ts` - Full API client with SSE subscription
+   - `components/AdminPanel.tsx` - Directory configuration UI
+   - Fixed ID generation for unique app selection
+   - Fixed PATH for local node_modules binaries
 
-3. **TypeScript Strict Mode**
-   - Full strict mode enabled
-   - All type errors resolved
+3. **Bug Fixes**
+   - SHA256 hash for unique project IDs
+   - Added node_modules/.bin to PATH for spawned processes
 
-4. **New Scripts**
-   - `npm run dev` - runs both backend and frontend concurrently
-   - `npm run server` - backend only
-   - `npm run client` - frontend only
+### Architecture Diagram
 
-### Remaining Work (Priority Order)
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     React Frontend                          │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐   │
+│  │  App.tsx │  │  Sidebar │  │AppDetail │  │ Terminal │   │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘   │
+│       │             │             │             │          │
+│       └─────────────┴──────┬──────┴─────────────┘          │
+│                            │                               │
+│                     ┌──────┴──────┐                        │
+│                     │  useApps()  │                        │
+│                     └──────┬──────┘                        │
+│                            │                               │
+│                     ┌──────┴──────┐                        │
+│                     │ services/   │                        │
+│                     │   api.ts    │ ──── SSE ────┐         │
+│                     └──────┬──────┘              │         │
+└────────────────────────────┼─────────────────────┼─────────┘
+                             │ HTTP               │
+┌────────────────────────────┼─────────────────────┼─────────┐
+│                     Express Server              │         │
+│                     ┌──────┴──────┐      ┌──────┴──────┐  │
+│                     │  index.js   │──────│ SSE Clients │  │
+│                     └──────┬──────┘      └─────────────┘  │
+│         ┌──────────────────┼──────────────────┐           │
+│   ┌─────┴─────┐    ┌───────┴───────┐   ┌──────┴──────┐   │
+│   │ configSvc │    │  scannerSvc   │   │ processSvc  │   │
+│   │  (JSON)   │    │ (fs.readdir)  │   │ (spawn/kill)│   │
+│   └───────────┘    └───────────────┘   └─────────────┘   │
+└─────────────────────────────────────────────────────────────┘
+```
 
-1. Implement real file system scanning
-2. Implement real process management
-3. Add admin panel for directory configuration
-4. Performance optimizations
-5. Testing setup
+### Tech Stack
 
-### Tech Stack Additions to Consider
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, Recharts
+- **Backend:** Express 5, Node.js ESM
+- **Real-time:** Server-Sent Events (SSE)
+- **AI:** Google Gemini API (via backend proxy)
 
-- **State Management:** Zustand (lightweight) or Jotai for complex state
-- **Process Management:** Node.js `child_process` via Electron or backend server
-- **Terminal:** xterm.js for real terminal emulation
-- **Testing:** Vitest + React Testing Library
+### Priority Order for Next Steps
+
+1. **Security hardening** (command injection, input validation)
+2. **Fix handleAnalyzeApp** to use real package.json
+3. **Add SSE error handling** and reconnection logic
+4. **Real CPU/memory metrics** using pidusage
+5. **Testing setup** with Vitest
