@@ -61,11 +61,20 @@ export function startProcess(appId, appPath, command) {
   processes.set(appId, processInfo);
   processEvents.emit('status', { appId, status: 'STARTING' });
 
+  // Build PATH with local node_modules/.bin
+  const localBinPath = path.join(appPath, 'node_modules', '.bin');
+  const currentPath = process.env.PATH || '';
+  const newPath = `${localBinPath}:${currentPath}`;
+
   // Spawn the process
   const childProcess = spawn(cmd, args, {
     cwd: appPath,
     shell: true,
-    env: { ...process.env, FORCE_COLOR: '1' },
+    env: {
+      ...process.env,
+      PATH: newPath,
+      FORCE_COLOR: '1',
+    },
   });
 
   processInfo.process = childProcess;

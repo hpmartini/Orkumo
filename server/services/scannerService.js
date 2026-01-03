@@ -1,6 +1,14 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import { getConfig } from './configService.js';
+
+/**
+ * Generate a unique ID from a project path using hash
+ */
+function generateProjectId(projectPath) {
+  return crypto.createHash('sha256').update(projectPath).digest('hex').slice(0, 16);
+}
 
 /**
  * Detect the project type from package.json
@@ -91,7 +99,7 @@ function scanProject(projectPath) {
     const port = detectPort(packageJson, type);
 
     return {
-      id: Buffer.from(projectPath).toString('base64').slice(0, 16),
+      id: generateProjectId(projectPath),
       name: packageJson.name || path.basename(projectPath),
       path: projectPath,
       type,
