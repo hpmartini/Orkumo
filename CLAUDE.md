@@ -25,6 +25,10 @@ The dashboard shows:
     - the status (running, error, cancelled, stopped, starting, analyzing, waiting, etc.)
     - the ports and adresses
     - controls: start, stop, restart, open in browser
+- Applications 
+    - are grouped by directory and subdirectory
+    - can be set as favorites and showed at the top in a separate favorites card
+    - can be archived, meaning they are hidden. at the bottom is a panel which opens the archive
 
 The details view for the applicaions show:
 - name
@@ -40,9 +44,12 @@ and provides basic control mechanisms, like:
 - start
 - stop
 - restart
+- installing dependencies (like npm install)
 - setting a specific port
 - open in browser
 - AI config
+
+The console output in the details view is a real webbased terminal emulator, supporting multiple tabs. On Default it shows just one tab with the console output. When adding more terminal tabs, each should run the default shell on start.
 
 
 ## Commands
