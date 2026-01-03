@@ -28,6 +28,8 @@ export interface AppConfig {
     memory: number[]; // history (MB)
   };
   aiAnalysis?: string;
+  isFavorite?: boolean;
+  isArchived?: boolean;
 }
 
 export interface SystemStats {

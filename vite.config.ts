@@ -9,8 +9,9 @@ export default defineConfig({
     proxy: {
       // Proxy API requests to backend server
       '/api': {
-        target: 'http://localhost:3001',
+        target: 'http://localhost:3099',
         changeOrigin: true,
+        ws: true, // Enable WebSocket proxying
       },
     },
   },

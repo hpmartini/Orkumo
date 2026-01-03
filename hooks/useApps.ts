@@ -27,6 +27,10 @@ interface UseAppsReturn {
   handleRestartApp: (id: string) => Promise<void>;
   handleAnalyzeApp: (id: string) => Promise<void>;
   handleOpenInBrowser: (id: string) => void;
+  handleToggleFavorite: (id: string) => void;
+  handleToggleArchive: (id: string) => void;
+  handleInstallDeps: (id: string) => Promise<void>;
+  handleSetPort: (id: string, port: number) => void;
   refreshApps: () => Promise<void>;
   runningCount: number;
   totalCpu: number;
@@ -45,7 +49,19 @@ export function useApps(): UseAppsReturn {
     setError(null);
     try {
       const data = await fetchApps();
-      setApps(data);
+      // Restore favorites/archived/ports from localStorage
+      const favorites = JSON.parse(localStorage.getItem('devOrbitFavorites') || '[]');
+      const archived = JSON.parse(localStorage.getItem('devOrbitArchived') || '[]');
+      const ports: Record<string, number> = JSON.parse(localStorage.getItem('devOrbitPorts') || '{}');
+      const enrichedData = data.map((app) => ({
+        ...app,
+        isFavorite: favorites.includes(app.id),
+        isArchived: archived.includes(app.id),
+        // Restore saved port if available
+        port: ports[app.id] ?? app.port,
+        addresses: ports[app.id] ? [`http://localhost:${ports[app.id]}`] : app.addresses,
+      }));
+      setApps(enrichedData);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch apps');
       console.error('Failed to fetch apps:', err);
@@ -78,7 +94,12 @@ export function useApps(): UseAppsReturn {
           currentApps.map((app) => {
             if (app.id !== appId) return app;
             const timestamp = new Date().toLocaleTimeString();
-            const newLogs = [...app.logs, `[${timestamp}] ${message}`].slice(-LOG_RETENTION_COUNT);
+            // Strip ANSI escape codes and split by newlines
+            // eslint-disable-next-line no-control-regex
+            const stripped = message.replace(/\x1b\[[0-9;]*m/g, '');
+            const lines = stripped.split(/\r?\n/).filter((line: string) => line.trim());
+            const newLogEntries = lines.map((line: string) => `[${timestamp}] ${line}`);
+            const newLogs = [...app.logs, ...newLogEntries].slice(-LOG_RETENTION_COUNT);
             return { ...app, logs: newLogs };
           })
         );
@@ -149,7 +170,8 @@ export function useApps(): UseAppsReturn {
     );
 
     try {
-      await startApp(id, app.path, app.startCommand || 'npm run dev');
+      // Pass the configured port to the backend
+      await startApp(id, app.path, app.startCommand || 'npm run dev', app.port);
       // Status will be updated via SSE
     } catch (err) {
       console.error('Failed to start app:', err);
@@ -265,6 +287,96 @@ export function useApps(): UseAppsReturn {
     [apps]
   );
 
+  const handleToggleFavorite = useCallback((id: string) => {
+    setApps((currentApps) =>
+      currentApps.map((app) =>
+        app.id === id ? { ...app, isFavorite: !app.isFavorite } : app
+      )
+    );
+    // Persist to localStorage
+    const favorites = JSON.parse(localStorage.getItem('devOrbitFavorites') || '[]');
+    const idx = favorites.indexOf(id);
+    if (idx === -1) {
+      favorites.push(id);
+    } else {
+      favorites.splice(idx, 1);
+    }
+    localStorage.setItem('devOrbitFavorites', JSON.stringify(favorites));
+  }, []);
+
+  const handleToggleArchive = useCallback((id: string) => {
+    setApps((currentApps) =>
+      currentApps.map((app) =>
+        app.id === id ? { ...app, isArchived: !app.isArchived } : app
+      )
+    );
+    // Persist to localStorage
+    const archived = JSON.parse(localStorage.getItem('devOrbitArchived') || '[]');
+    const idx = archived.indexOf(id);
+    if (idx === -1) {
+      archived.push(id);
+    } else {
+      archived.splice(idx, 1);
+    }
+    localStorage.setItem('devOrbitArchived', JSON.stringify(archived));
+  }, []);
+
+  const handleInstallDeps = useCallback(async (id: string) => {
+    const app = apps.find((a) => a.id === id);
+    if (!app) return;
+
+    // Use startApp with 'npm install' command
+    setApps((currentApps) =>
+      currentApps.map((a) =>
+        a.id === id
+          ? {
+              ...a,
+              status: AppStatus.STARTING,
+              logs: [...a.logs, `[SYSTEM] Installing dependencies...`],
+            }
+          : a
+      )
+    );
+
+    try {
+      await startApp(id, app.path, 'npm install');
+      toast.success(`Installing dependencies for ${app.name}`);
+    } catch (err) {
+      console.error('Failed to install deps:', err);
+      setApps((currentApps) =>
+        currentApps.map((a) =>
+          a.id === id
+            ? {
+                ...a,
+                status: AppStatus.ERROR,
+                logs: [...a.logs, `[ERROR] Failed to install: ${err}`],
+              }
+            : a
+        )
+      );
+      toast.error('Failed to install dependencies');
+    }
+  }, [apps]);
+
+  const handleSetPort = useCallback((id: string, port: number) => {
+    setApps((currentApps) =>
+      currentApps.map((app) =>
+        app.id === id
+          ? {
+              ...app,
+              port,
+              addresses: [`http://localhost:${port}`],
+            }
+          : app
+      )
+    );
+    // Persist to localStorage
+    const ports: Record<string, number> = JSON.parse(localStorage.getItem('devOrbitPorts') || '{}');
+    ports[id] = port;
+    localStorage.setItem('devOrbitPorts', JSON.stringify(ports));
+    toast.success(`Port updated to ${port}`);
+  }, []);
+
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;
   const totalCpu = apps.reduce(
@@ -284,6 +396,10 @@ export function useApps(): UseAppsReturn {
     handleRestartApp,
     handleAnalyzeApp,
     handleOpenInBrowser,
+    handleToggleFavorite,
+    handleToggleArchive,
+    handleInstallDeps,
+    handleSetPort,
     refreshApps,
     runningCount,
     totalCpu,

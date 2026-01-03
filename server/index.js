@@ -1,4 +1,6 @@
 import express from 'express';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
@@ -16,6 +18,13 @@ import {
   getProcessStats,
   processEvents,
 } from './services/processService.js';
+import {
+  createPtySession,
+  writeToPty,
+  resizePty,
+  killPtySession,
+  ptyEvents,
+} from './services/ptyService.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -54,6 +63,7 @@ const commandSchema = z.string().min(1).max(200);
 const startAppSchema = z.object({
   path: pathSchema,
   command: commandSchema,
+  port: z.number().int().min(1).max(65535).optional(),
 });
 
 const configUpdateSchema = z.object({
@@ -344,9 +354,9 @@ app.post('/api/scan', (req, res) => {
 app.post('/api/apps/:id/start', processLimiter, validateParams(idSchema), validate(startAppSchema), (req, res) => {
   try {
     const { id } = req.params;
-    const { path: appPath, command } = req.body;
+    const { path: appPath, command, port } = req.body;
 
-    const result = startProcess(id, appPath, command);
+    const result = startProcess(id, appPath, command, port);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -530,12 +540,110 @@ app.get('/api/health', (req, res) => {
 });
 
 // ============================================
-// Start Server
+// Start Server with WebSocket Support
 // ============================================
 
-app.listen(PORT, () => {
+const server = createServer(app);
+
+// WebSocket server for PTY communication
+const wss = new WebSocketServer({ server, path: '/api/pty' });
+
+// Store WebSocket -> sessionId mapping
+const wsSessionMap = new Map();
+
+wss.on('connection', (ws, req) => {
+  // Parse query params for session config
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const sessionId = url.searchParams.get('sessionId') || `pty-${Date.now()}`;
+  const cwd = url.searchParams.get('cwd') || process.env.HOME;
+  const cols = parseInt(url.searchParams.get('cols') || '80', 10);
+  const rows = parseInt(url.searchParams.get('rows') || '24', 10);
+
+  // Create PTY session
+  const result = createPtySession(sessionId, cwd, cols, rows);
+
+  if (!result.success) {
+    ws.send(JSON.stringify({ type: 'error', message: result.error }));
+    ws.close();
+    return;
+  }
+
+  wsSessionMap.set(ws, sessionId);
+
+  // Send session info
+  ws.send(JSON.stringify({
+    type: 'connected',
+    sessionId,
+    pid: result.pid,
+    shell: result.shell,
+  }));
+
+  // Handle incoming messages from client
+  ws.on('message', (message) => {
+    try {
+      const data = JSON.parse(message.toString());
+
+      switch (data.type) {
+        case 'input':
+          // Write user input to PTY
+          writeToPty(sessionId, data.data);
+          break;
+
+        case 'resize':
+          // Resize PTY
+          if (data.cols && data.rows) {
+            resizePty(sessionId, data.cols, data.rows);
+          }
+          break;
+
+        case 'ping':
+          ws.send(JSON.stringify({ type: 'pong' }));
+          break;
+
+        default:
+          console.warn('Unknown PTY message type:', data.type);
+      }
+    } catch (err) {
+      // If not JSON, treat as raw input
+      writeToPty(sessionId, message.toString());
+    }
+  });
+
+  // Handle WebSocket close
+  ws.on('close', () => {
+    wsSessionMap.delete(ws);
+    killPtySession(sessionId);
+  });
+
+  ws.on('error', (err) => {
+    console.error('WebSocket error:', err);
+    wsSessionMap.delete(ws);
+    killPtySession(sessionId);
+  });
+});
+
+// Forward PTY data to corresponding WebSocket clients
+ptyEvents.on('data', ({ sessionId, data }) => {
+  for (const [ws, wsSessionId] of wsSessionMap) {
+    if (wsSessionId === sessionId && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'output', data }));
+    }
+  }
+});
+
+// Handle PTY exit events
+ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
+  for (const [ws, wsSessionId] of wsSessionMap) {
+    if (wsSessionId === sessionId && ws.readyState === ws.OPEN) {
+      ws.send(JSON.stringify({ type: 'exit', exitCode, signal }));
+    }
+  }
+});
+
+server.listen(PORT, () => {
   console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
   console.log(`   AI Features: ${apiKey ? '✅ Enabled' : '❌ Disabled (no API key)'}`);
+  console.log(`   WebSocket PTY: ws://localhost:${PORT}/api/pty`);
   console.log(`   Endpoints:`);
   console.log(`   - GET  /api/apps         - List discovered apps`);
   console.log(`   - GET  /api/config       - Get configuration`);
@@ -543,4 +651,5 @@ app.listen(PORT, () => {
   console.log(`   - POST /api/apps/:id/start  - Start an app`);
   console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
   console.log(`   - GET  /api/events       - SSE for real-time updates`);
+  console.log(`   - WS   /api/pty          - WebSocket for terminal`);
 });

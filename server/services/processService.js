@@ -97,8 +97,12 @@ export function getAllProcesses() {
 
 /**
  * Start a process for an app
+ * @param {string} appId - Unique app identifier
+ * @param {string} appPath - Path to the app directory
+ * @param {string} command - Command to run
+ * @param {number} [port] - Optional port number to set as PORT env variable
  */
-export function startProcess(appId, appPath, command) {
+export function startProcess(appId, appPath, command, port) {
   // Validate command before execution (security check)
   validateCommand(command);
 
@@ -120,6 +124,7 @@ export function startProcess(appId, appPath, command) {
     appId,
     appPath,
     command,
+    port,
     status: 'STARTING',
     startTime: null,
     logs: [],
@@ -133,15 +138,23 @@ export function startProcess(appId, appPath, command) {
   const currentPath = process.env.PATH || '';
   const newPath = `${localBinPath}:${currentPath}`;
 
+  // Build environment variables, including PORT if specified
+  const env = {
+    ...process.env,
+    PATH: newPath,
+    FORCE_COLOR: '1',
+  };
+
+  // Set PORT env variable if configured
+  if (port) {
+    env.PORT = String(port);
+  }
+
   // Spawn the process
   const childProcess = spawn(cmd, args, {
     cwd: appPath,
     shell: true,
-    env: {
-      ...process.env,
-      PATH: newPath,
-      FORCE_COLOR: '1',
-    },
+    env,
   });
 
   processInfo.process = childProcess;
@@ -261,7 +274,7 @@ export function restartProcess(appId) {
     throw new Error('Process info not found');
   }
 
-  const { appPath, command } = processInfo;
+  const { appPath, command, port } = processInfo;
 
   // Stop if running
   if (processInfo.status === 'RUNNING') {
@@ -271,7 +284,7 @@ export function restartProcess(appId) {
   // Wait a bit then start
   return new Promise((resolve) => {
     setTimeout(() => {
-      const result = startProcess(appId, appPath, command);
+      const result = startProcess(appId, appPath, command, port);
       resolve(result);
     }, 1000);
   });

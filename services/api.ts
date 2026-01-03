@@ -35,11 +35,11 @@ export async function fetchApps(): Promise<AppConfig[]> {
 /**
  * Start an app process
  */
-export async function startApp(id: string, appPath: string, command: string): Promise<{ pid: number; status: string }> {
+export async function startApp(id: string, appPath: string, command: string, port?: number): Promise<{ pid: number; status: string }> {
   const response = await fetch(`${API_BASE}/apps/${id}/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ path: appPath, command }),
+    body: JSON.stringify({ path: appPath, command, port }),
   });
 
   if (!response.ok) {

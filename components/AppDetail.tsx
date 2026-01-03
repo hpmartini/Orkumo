@@ -1,9 +1,21 @@
-import React from 'react';
-import { Play, Square, RefreshCw, Zap, Globe, Box } from 'lucide-react';
+import React, { useState } from 'react';
+import {
+  Play,
+  Square,
+  RefreshCw,
+  Zap,
+  Globe,
+  Box,
+  FolderOpen,
+  Package,
+  Settings2,
+  Check,
+  X,
+} from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { PerformanceCharts } from './PerformanceCharts';
-import { Terminal } from './Terminal';
+import { XTerminal } from './XTerminal';
 
 interface AppDetailProps {
   app: AppConfig | null;
@@ -12,6 +24,8 @@ interface AppDetailProps {
   onRestart: (id: string) => void;
   onAnalyze: (id: string) => void;
   onOpenInBrowser: (id: string) => void;
+  onInstallDeps?: (id: string) => void;
+  onSetPort?: (id: string, port: number) => void;
 }
 
 export const AppDetail: React.FC<AppDetailProps> = ({
@@ -21,7 +35,12 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onRestart,
   onAnalyze,
   onOpenInBrowser,
+  onInstallDeps,
+  onSetPort,
 }) => {
+  const [showPortEditor, setShowPortEditor] = useState(false);
+  const [portValue, setPortValue] = useState('');
+
   if (!app) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-500 h-[60vh]">
@@ -48,31 +67,105 @@ export const AppDetail: React.FC<AppDetailProps> = ({
     app.status !== AppStatus.ANALYZING &&
     app.status !== AppStatus.STARTING;
 
+  const canInstall = app.status === AppStatus.STOPPED || app.status === AppStatus.ERROR;
+
+  const handlePortSubmit = () => {
+    const port = parseInt(portValue, 10);
+    if (port && port > 0 && port < 65536 && onSetPort) {
+      onSetPort(app.id, port);
+      setShowPortEditor(false);
+      setPortValue('');
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
       <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-white mb-2 flex items-center gap-3">
+          <div className="space-y-3">
+            {/* App Name & Status */}
+            <h1 className="text-2xl font-bold text-white flex items-center gap-3">
               {app.name}
               <StatusBadge status={app.status} />
             </h1>
-            <p className="text-gray-400 text-sm font-mono bg-gray-900/50 px-3 py-1 rounded inline-block">
-              {app.startCommand || 'npm run dev'}
-            </p>
-            {app.port && (
-              <p className="text-gray-500 text-xs mt-2">
-                Port: {app.port}
-                {app.addresses && app.addresses.length > 0 && (
-                  <span className="ml-2">
-                    ({app.addresses.join(', ')})
-                  </span>
-                )}
-              </p>
+
+            {/* Directory Path */}
+            <div className="flex items-center gap-2 text-gray-400 text-sm">
+              <FolderOpen size={16} className="text-blue-400 shrink-0" />
+              <span className="font-mono bg-gray-900/50 px-2 py-0.5 rounded truncate max-w-md" title={app.path}>
+                {app.path}
+              </span>
+            </div>
+
+            {/* Technology/Framework */}
+            {app.detectedFramework && (
+              <div className="flex items-center gap-2 text-gray-400 text-sm">
+                <Package size={16} className="text-purple-400 shrink-0" />
+                <span>{app.detectedFramework}</span>
+              </div>
             )}
+
+            {/* Start Command */}
+            <div className="flex items-center gap-2">
+              <span className="text-gray-500 text-xs">Command:</span>
+              <code className="text-gray-300 text-sm font-mono bg-gray-900/50 px-2 py-0.5 rounded">
+                {app.startCommand || 'npm run dev'}
+              </code>
+            </div>
+
+            {/* Port & Addresses */}
+            <div className="flex items-center gap-3 flex-wrap">
+              <div className="flex items-center gap-2">
+                <span className="text-gray-500 text-xs">Port:</span>
+                {showPortEditor ? (
+                  <div className="flex items-center gap-1">
+                    <input
+                      type="number"
+                      value={portValue}
+                      onChange={(e) => setPortValue(e.target.value)}
+                      placeholder={String(app.port || 3000)}
+                      className="w-20 px-2 py-1 bg-gray-900 border border-gray-700 rounded text-sm font-mono focus:outline-none focus:border-blue-500"
+                      min="1"
+                      max="65535"
+                    />
+                    <button
+                      onClick={handlePortSubmit}
+                      className="p-1 text-emerald-400 hover:bg-gray-700 rounded"
+                    >
+                      <Check size={14} />
+                    </button>
+                    <button
+                      onClick={() => setShowPortEditor(false)}
+                      className="p-1 text-gray-400 hover:bg-gray-700 rounded"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => {
+                      setPortValue(String(app.port || 3000));
+                      setShowPortEditor(true);
+                    }}
+                    className="flex items-center gap-1 text-cyan-400 font-mono text-sm hover:text-cyan-300 transition-colors"
+                    title="Click to change port"
+                  >
+                    {app.port || 3000}
+                    <Settings2 size={12} className="opacity-50" />
+                  </button>
+                )}
+              </div>
+              {app.addresses && app.addresses.length > 0 && (
+                <span className="text-gray-500 text-xs">
+                  ({app.addresses.join(', ')})
+                </span>
+              )}
+            </div>
           </div>
-          <div className="flex gap-3 flex-wrap">
+
+          {/* Action Buttons */}
+          <div className="flex gap-2 flex-wrap">
             {canStop ? (
               <button
                 onClick={() => onStop(app.id)}
@@ -98,17 +191,28 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             <button
               onClick={() => onRestart(app.id)}
               disabled={app.status !== AppStatus.RUNNING}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
               title="Restart application"
             >
               <RefreshCw size={18} />
-              Restart
             </button>
+
+            {onInstallDeps && (
+              <button
+                onClick={() => onInstallDeps(app.id)}
+                disabled={!canInstall}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                title="Install dependencies (npm install)"
+              >
+                <Package size={18} />
+                <span className="hidden lg:inline">Install</span>
+              </button>
+            )}
 
             <button
               onClick={() => onAnalyze(app.id)}
               disabled={!canAnalyze}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50"
               title="Use AI to detect config"
             >
               {app.status === AppStatus.ANALYZING ? (
@@ -116,20 +220,21 @@ export const AppDetail: React.FC<AppDetailProps> = ({
               ) : (
                 <Zap size={18} />
               )}
-              AI Config
+              <span className="hidden lg:inline">AI Config</span>
             </button>
 
             <button
               onClick={() => onOpenInBrowser(app.id)}
               disabled={app.status !== AppStatus.RUNNING}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50"
+              className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50"
+              title="Open in browser"
             >
               <Globe size={18} />
-              Open
             </button>
           </div>
         </div>
 
+        {/* AI Analysis Result */}
         {app.aiAnalysis && (
           <div className="mt-4 p-3 bg-blue-500/10 border border-blue-500/20 rounded-lg flex items-start gap-3">
             <Zap className="text-blue-400 shrink-0 mt-0.5" size={16} />
@@ -144,8 +249,9 @@ export const AppDetail: React.FC<AppDetailProps> = ({
         memoryHistory={app.stats.memory}
       />
 
-      {/* Terminal */}
-      <Terminal
+      {/* Terminal with tabs support */}
+      <XTerminal
+        cwd={app.path}
         logs={app.logs}
         isRunning={app.status === AppStatus.RUNNING}
       />
