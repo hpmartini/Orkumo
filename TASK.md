@@ -8,7 +8,7 @@
 
 ### Overview
 
-The current implementation is a **prototype/MVP** with significant gaps between the documented vision and actual functionality. The codebase uses mock data exclusively and lacks real OS integration, admin configuration, and several documented features.
+The codebase has been significantly refactored from a 528-line monolithic `App.tsx` into a modular architecture with separate components, hooks, and a backend proxy for secure API handling.
 
 ---
 
@@ -16,13 +16,13 @@ The current implementation is a **prototype/MVP** with significant gaps between 
 
 ### Security
 
-- [ ] **[SECURITY]** API key exposed in client bundle via `vite.config.ts:14-15` - extractable from browser DevTools. Move to server-side proxy or use authenticated backend.
-- [ ] **[SECURITY]** No validation of AI response structure in `services/geminiService.ts:54` before `JSON.parse()` - potential for malformed responses to crash app.
+- [x] **[SECURITY]** API key exposed in client bundle via `vite.config.ts:14-15` - ✅ Fixed: Created backend proxy server (`server/index.js`) that securely handles API key
+- [x] **[SECURITY]** No validation of AI response structure in `services/geminiService.ts:54` before `JSON.parse()` - ✅ Fixed: Added `isValidAnalysisResult` type guard
 
 ### Bugs
 
-- [ ] **[BUG]** Stale closure in `handleAnalyzeApp` at `App.tsx:134` - uses `apps` from render scope instead of callback pattern. Should use `setApps(currentApps => ...)` pattern consistently.
-- [ ] **[BUG]** Timer interval type mismatch at `App.tsx:49` - `intervalRef` typed as `number` but `window.setInterval` returns `number` in browser (correct) vs `NodeJS.Timeout` in Node. Add explicit browser typing.
+- [x] **[BUG]** Stale closure in `handleAnalyzeApp` - ✅ Fixed: Now uses callback pattern to get current state
+- [x] **[BUG]** Timer interval type mismatch - ✅ Fixed: Using `ReturnType<typeof setInterval>` in hooks/useApps.ts
 
 ### Missing Core Functionality
 
@@ -36,19 +36,19 @@ The current implementation is a **prototype/MVP** with significant gaps between 
 
 ### Architecture Refactoring
 
-- [ ] **[REFACTOR]** Decompose `App.tsx` (528 lines) into smaller components:
-  - Extract `StatusBadge` to `components/StatusBadge.tsx`
-  - Extract `DashboardOverview` to `components/DashboardOverview.tsx`
-  - Extract `AppList` to `components/AppList.tsx`
-  - Extract `AppDetail` to `components/AppDetail.tsx`
-  - Extract `Sidebar` to `components/Sidebar.tsx`
-  - Extract `PerformanceCharts` to `components/PerformanceCharts.tsx`
-  - Extract `Terminal` to `components/Terminal.tsx`
+- [x] **[REFACTOR]** Decompose `App.tsx` (528 lines → 135 lines) into smaller components:
+  - ✅ `components/StatusBadge.tsx`
+  - ✅ `components/DashboardOverview.tsx`
+  - ✅ `components/AppList.tsx`
+  - ✅ `components/AppDetail.tsx`
+  - ✅ `components/Sidebar.tsx`
+  - ✅ `components/PerformanceCharts.tsx`
+  - ✅ `components/Terminal.tsx`
+  - ✅ `components/SystemAlerts.tsx`
+  - ✅ `components/ErrorBoundary.tsx`
 
-- [ ] **[REFACTOR]** Extract state management into custom hooks:
-  - `useApps()` - app list state and CRUD operations
-  - `useProcessSimulation()` - interval-based stats simulation
-  - `useAppControls()` - start/stop/restart handlers
+- [x] **[REFACTOR]** Extract state management into custom hooks:
+  - ✅ `hooks/useApps.ts` - app list state, CRUD operations, process simulation, and controls
 
 - [ ] **[REFACTOR]** Create service layer abstraction in `services/`:
   - `processService.ts` - process spawn/kill/monitor
@@ -58,23 +58,23 @@ The current implementation is a **prototype/MVP** with significant gaps between 
 ### Missing Features (per CLAUDE.md)
 
 - [ ] **[FEATURE]** Create Admin Panel for directory configuration - CLAUDE.md specifies "directories can be configured on the admin panel"
-- [ ] **[FEATURE]** Add restart functionality - button and handler missing
+- [x] **[FEATURE]** Add restart functionality - ✅ Added restart button and handler in `AppDetail.tsx` and `useApps.ts`
 - [ ] **[FEATURE]** Add custom port setting UI in app detail view
-- [ ] **[FEATURE]** Implement working "Open in browser" button at `App.tsx:313-319` - currently disabled
-- [ ] **[FEATURE]** Display addresses alongside ports per CLAUDE.md requirements
+- [x] **[FEATURE]** Implement working "Open in browser" button - ✅ Now functional in `useApps.ts:handleOpenInBrowser`
+- [x] **[FEATURE]** Display addresses alongside ports per CLAUDE.md requirements - ✅ Added `addresses` field to types and display in `AppDetail.tsx`
 - [ ] **[FEATURE]** Add recommendations panel showing "possible optimizations, updates, etc."
 
 ### Error Handling
 
-- [ ] **[RELIABILITY]** Add React Error Boundary wrapper around main app to prevent full crashes
-- [ ] **[RELIABILITY]** Add error handling for `scanDirectory()` failure in `App.tsx:52-57`
+- [x] **[RELIABILITY]** Add React Error Boundary wrapper around main app - ✅ Added `ErrorBoundary.tsx` component
+- [x] **[RELIABILITY]** Add error handling for `scanDirectory()` failure - ✅ Added try/catch in `useApps.ts:refreshApps`
 - [ ] **[RELIABILITY]** Add retry logic for failed AI analysis requests
 
 ### TypeScript
 
-- [ ] **[TYPING]** Enable strict mode in `tsconfig.json` - add `"strict": true`
-- [ ] **[TYPING]** Add missing status values to `AppStatus` enum in `types.ts`: `CANCELLED`, `WAITING` (per CLAUDE.md)
-- [ ] **[TYPING]** Add `addresses?: string[]` field to `AppConfig` interface
+- [x] **[TYPING]** Enable strict mode in `tsconfig.json` - ✅ Added `"strict": true` and related options
+- [x] **[TYPING]** Add missing status values to `AppStatus` enum - ✅ Added `CANCELLED`, `WAITING`, `RESTARTING`
+- [x] **[TYPING]** Add `addresses?: string[]` field to `AppConfig` interface - ✅ Done
 
 ---
 
@@ -82,17 +82,15 @@ The current implementation is a **prototype/MVP** with significant gaps between 
 
 ### Performance
 
-- [ ] **[PERFORMANCE]** Optimize simulation interval in `App.tsx:61-100` - currently runs for ALL apps every 1s. Consider:
+- [ ] **[PERFORMANCE]** Optimize simulation interval - currently runs for ALL apps every 1s. Consider:
   - Only simulate visible/selected app
   - Use Web Workers for background processing
   - Reduce frequency for non-focused apps
 
-- [ ] **[PERFORMANCE]** Add `useMemo` for expensive calculations:
-  - `totalCpu` calculation at `App.tsx:165`
-  - `chartData` in `renderAppDetail` at `App.tsx:264-268`
+- [x] **[PERFORMANCE]** Add `useMemo` for expensive calculations:
+  - ✅ `chartData` in `PerformanceCharts.tsx` now uses `useMemo`
 
-- [ ] **[PERFORMANCE]** Add `useCallback` for handler functions passed to child components:
-  - `handleStartApp`, `handleStopApp`, `handleAnalyzeApp`
+- [x] **[PERFORMANCE]** Add `useCallback` for handler functions - ✅ All handlers in `useApps.ts` wrapped with `useCallback`
 
 - [ ] **[PERFORMANCE]** Implement virtualization for log list in terminal view - currently renders all 50 logs
 
@@ -106,8 +104,8 @@ The current implementation is a **prototype/MVP** with significant gaps between 
 ### Code Quality
 
 - [ ] **[REFACTOR]** Extract Tailwind color definitions from `index.html:17-23` to proper Tailwind config file
-- [ ] **[REFACTOR]** Move hardcoded model name `"gemini-3-flash-preview"` in `geminiService.ts:35` to environment variable
-- [ ] **[REFACTOR]** Replace magic numbers in simulation logic with named constants (e.g., `LOG_RETENTION_COUNT = 50`)
+- [x] **[REFACTOR]** Move hardcoded model name to server - ✅ Now in `server/index.js`
+- [x] **[REFACTOR]** Replace magic numbers in simulation logic with named constants - ✅ Added `SIMULATION_INTERVAL_MS`, `LOG_RETENTION_COUNT`, `LOG_GENERATION_CHANCE`
 
 ### Data Persistence
 
@@ -128,13 +126,13 @@ The current implementation is a **prototype/MVP** with significant gaps between 
 
 ### Documentation
 
-- [ ] **[DOCS]** Add JSDoc comments to exported functions in services
+- [x] **[DOCS]** Add JSDoc comments to exported functions in services - ✅ Added to `geminiService.ts`
 - [ ] **[DOCS]** Add prop types documentation for components once extracted
 - [ ] **[DOCS]** Create API documentation for AI integration
 
 ### Cleanup
 
-- [ ] **[CLEANUP]** Remove unused `LineChart` import in `App.tsx:17` (only `AreaChart` is used)
+- [x] **[CLEANUP]** Remove unused `LineChart` import - ✅ Removed during refactor
 - [ ] **[CLEANUP]** Add `.nvmrc` or `engines` field to `package.json` for Node version specification
 - [ ] **[CLEANUP]** Add `index.css` file referenced in `index.html:46` but doesn't exist
 
@@ -149,16 +147,35 @@ The current implementation is a **prototype/MVP** with significant gaps between 
 
 ## Implementation Notes
 
-### Recommended Order
+### Completed Changes (2026-01-03)
 
-1. Fix critical security issues first (API key exposure)
-2. Fix bugs (stale closure)
-3. Refactor App.tsx into components (enables parallel work)
-4. Implement real file system scanning
-5. Implement real process management
-6. Add admin panel
-7. Performance optimizations
-8. Testing
+1. **Backend Proxy Server** (`server/index.js`)
+   - Express server on port 3001
+   - Securely handles GEMINI_API_KEY
+   - POST `/api/analyze` endpoint for AI config analysis
+   - GET `/api/health` for status checks
+
+2. **Modular Component Architecture**
+   - 9 extracted components in `components/`
+   - 1 custom hook in `hooks/`
+   - Clean separation of concerns
+
+3. **TypeScript Strict Mode**
+   - Full strict mode enabled
+   - All type errors resolved
+
+4. **New Scripts**
+   - `npm run dev` - runs both backend and frontend concurrently
+   - `npm run server` - backend only
+   - `npm run client` - frontend only
+
+### Remaining Work (Priority Order)
+
+1. Implement real file system scanning
+2. Implement real process management
+3. Add admin panel for directory configuration
+4. Performance optimizations
+5. Testing setup
 
 ### Tech Stack Additions to Consider
 

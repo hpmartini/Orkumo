@@ -24,6 +24,22 @@
       ]
     },
     "allowImportingTsExtensions": true,
-    "noEmit": true
-  }
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": [
+    "*.ts",
+    "*.tsx",
+    "components/**/*",
+    "hooks/**/*",
+    "services/**/*",
+    "server/**/*"
+  ],
+  "exclude": [
+    "node_modules"
+  ]
 }

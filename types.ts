@@ -3,15 +3,21 @@ export enum AppStatus {
   RUNNING = 'RUNNING',
   ERROR = 'ERROR',
   STARTING = 'STARTING',
-  ANALYZING = 'ANALYZING'
+  ANALYZING = 'ANALYZING',
+  CANCELLED = 'CANCELLED',
+  WAITING = 'WAITING',
+  RESTARTING = 'RESTARTING'
 }
+
+export type AppType = 'vite' | 'next' | 'node' | 'static' | 'unknown';
 
 export interface AppConfig {
   id: string;
   name: string;
   path: string;
-  type: 'vite' | 'next' | 'node' | 'static' | 'unknown';
+  type: AppType;
   port?: number;
+  addresses?: string[];
   startCommand?: string;
   detectedFramework?: string;
   status: AppStatus;

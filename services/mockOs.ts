@@ -57,7 +57,7 @@ export const scanDirectory = async (): Promise<AppConfig[]> => {
   })) as AppConfig[];
 };
 
-export const generateMockLog = (appName: string, type: string): string => {
+export const generateMockLog = (_appName: string, type: string): string => {
   const timestamp = new Date().toLocaleTimeString();
   const logs = [
     `[${type}] HMR update: /src/App.tsx`,
