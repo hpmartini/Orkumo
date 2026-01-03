@@ -1,11 +1,11 @@
 import express from 'express';
-import { createServer } from 'http';
-import { WebSocketServer } from 'ws';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
+import { createServer } from 'http';
+import { WebSocketServer } from 'ws';
 import { getConfig, updateConfig, addDirectory, removeDirectory } from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
 import {
@@ -559,40 +559,55 @@ wss.on('connection', (ws, req) => {
   const cols = parseInt(url.searchParams.get('cols') || '80', 10);
   const rows = parseInt(url.searchParams.get('rows') || '24', 10);
 
-  // Create PTY session
-  const result = createPtySession(sessionId, cwd, cols, rows);
+  console.log(`[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}`);
 
-  if (!result.success) {
-    ws.send(JSON.stringify({ type: 'error', message: result.error }));
+  // Create PTY session
+  try {
+    const result = createPtySession(sessionId, cwd, cols, rows);
+
+    if (!result.success) {
+      console.error(`[PTY] Failed to create session ${sessionId}:`, result.error);
+      ws.send(JSON.stringify({ type: 'error', message: result.error }));
+      ws.close();
+      return;
+    }
+
+    wsSessionMap.set(ws, sessionId);
+
+    // Send session info
+    ws.send(JSON.stringify({
+      type: 'connected',
+      sessionId,
+      pid: result.pid,
+      shell: result.shell,
+    }));
+
+    console.log(`[PTY] Session ${sessionId} created successfully, pid=${result.pid}`);
+  } catch (err) {
+    console.error(`[PTY] Exception creating session ${sessionId}:`, err);
+    ws.send(JSON.stringify({ type: 'error', message: err.message }));
     ws.close();
     return;
   }
 
-  wsSessionMap.set(ws, sessionId);
-
-  // Send session info
-  ws.send(JSON.stringify({
-    type: 'connected',
-    sessionId,
-    pid: result.pid,
-    shell: result.shell,
-  }));
-
   // Handle incoming messages from client
   ws.on('message', (message) => {
+    const sid = wsSessionMap.get(ws);
+    if (!sid) return;
+
     try {
       const data = JSON.parse(message.toString());
 
       switch (data.type) {
         case 'input':
           // Write user input to PTY
-          writeToPty(sessionId, data.data);
+          writeToPty(sid, data.data);
           break;
 
         case 'resize':
           // Resize PTY
           if (data.cols && data.rows) {
-            resizePty(sessionId, data.cols, data.rows);
+            resizePty(sid, data.cols, data.rows);
           }
           break;
 
@@ -601,24 +616,31 @@ wss.on('connection', (ws, req) => {
           break;
 
         default:
-          console.warn('Unknown PTY message type:', data.type);
+          console.warn('[PTY] Unknown message type:', data.type);
       }
     } catch (err) {
       // If not JSON, treat as raw input
-      writeToPty(sessionId, message.toString());
+      writeToPty(sid, message.toString());
     }
   });
 
   // Handle WebSocket close
   ws.on('close', () => {
-    wsSessionMap.delete(ws);
-    killPtySession(sessionId);
+    const sid = wsSessionMap.get(ws);
+    if (sid) {
+      console.log(`[PTY] Session ${sid} closed`);
+      wsSessionMap.delete(ws);
+      killPtySession(sid);
+    }
   });
 
   ws.on('error', (err) => {
-    console.error('WebSocket error:', err);
-    wsSessionMap.delete(ws);
-    killPtySession(sessionId);
+    const sid = wsSessionMap.get(ws);
+    console.error(`[PTY] WebSocket error for session ${sid}:`, err);
+    if (sid) {
+      wsSessionMap.delete(ws);
+      killPtySession(sid);
+    }
   });
 });
 
@@ -633,6 +655,7 @@ ptyEvents.on('data', ({ sessionId, data }) => {
 
 // Handle PTY exit events
 ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
+  console.log(`[PTY] Session ${sessionId} exited with code=${exitCode}, signal=${signal}`);
   for (const [ws, wsSessionId] of wsSessionMap) {
     if (wsSessionId === sessionId && ws.readyState === ws.OPEN) {
       ws.send(JSON.stringify({ type: 'exit', exitCode, signal }));

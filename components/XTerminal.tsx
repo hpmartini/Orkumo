@@ -24,11 +24,14 @@ interface XTerminalProps {
   isRunning?: boolean;
 }
 
-// Server port from Vite env or default
-const WS_URL = `ws://localhost:${import.meta.env.VITE_SERVER_PORT || '3001'}/api/pty`;
+// WebSocket URL - use current host to leverage Vite proxy
+const getWsUrl = () => {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  return `${protocol}//${window.location.host}/api/pty`;
+};
 
 export const XTerminal: React.FC<XTerminalProps> = ({
-  cwd = process.env.HOME || '~',
+  cwd = '~',
   logs = [],
   isRunning = false,
 }) => {
@@ -114,7 +117,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       fitAddon.fit();
 
       // Connect WebSocket
-      const wsUrl = `${WS_URL}?sessionId=${tab.sessionId}&cwd=${encodeURIComponent(cwd)}&cols=${terminal.cols}&rows=${terminal.rows}`;
+      const wsUrl = `${getWsUrl()}?sessionId=${tab.sessionId}&cwd=${encodeURIComponent(cwd)}&cols=${terminal.cols}&rows=${terminal.rows}`;
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
@@ -279,7 +282,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
       // Create new session
       const newSessionId = `session-${Date.now()}`;
-      const wsUrl = `${WS_URL}?sessionId=${newSessionId}&cwd=${encodeURIComponent(cwd)}&cols=${tab.terminal.cols}&rows=${tab.terminal.rows}`;
+      const wsUrl = `${getWsUrl()}?sessionId=${newSessionId}&cwd=${encodeURIComponent(cwd)}&cols=${tab.terminal.cols}&rows=${tab.terminal.rows}`;
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
@@ -345,13 +348,21 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
         {/* Terminal tabs */}
         {tabs.map((tab) => (
-          <button
+          <div
             key={tab.id}
+            role="button"
+            tabIndex={0}
             onClick={() => {
               setActiveTabId(tab.id);
               setShowLogsTab(false);
             }}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono transition-colors group shrink-0 ${
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                setActiveTabId(tab.id);
+                setShowLogsTab(false);
+              }
+            }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-xs font-mono transition-colors group shrink-0 cursor-pointer ${
               activeTabId === tab.id
                 ? 'bg-gray-800 text-white'
                 : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/50'
@@ -369,7 +380,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
             >
               <X size={12} />
             </button>
-          </button>
+          </div>
         ))}
 
         {/* Add tab button */}

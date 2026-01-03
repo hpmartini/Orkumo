@@ -249,11 +249,11 @@ export const AppDetail: React.FC<AppDetailProps> = ({
         memoryHistory={app.stats.memory}
       />
 
-      {/* Terminal with tabs support */}
+      {/* XTerminal with tabs */}
       <XTerminal
-        cwd={app.path}
         logs={app.logs}
         isRunning={app.status === AppStatus.RUNNING}
+        cwd={app.path}
       />
     </div>
   );
