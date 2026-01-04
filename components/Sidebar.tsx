@@ -7,6 +7,10 @@ import {
   Star,
   Archive,
   Folder,
+  Play,
+  Square,
+  RefreshCw,
+  Globe,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 
@@ -18,6 +22,10 @@ interface SidebarProps {
   onSelectApp: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
   onToggleArchive?: (id: string) => void;
+  onStart?: (id: string) => void;
+  onStop?: (id: string) => void;
+  onRestart?: (id: string) => void;
+  onOpenInBrowser?: (id: string) => void;
 }
 
 interface GroupedApps {
@@ -32,6 +40,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectApp,
   onToggleFavorite,
   onToggleArchive,
+  onStart,
+  onStop,
+  onRestart,
+  onOpenInBrowser,
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive] = useState(false);
@@ -75,11 +87,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
     });
   };
 
+  const isLoading = (status: AppStatus) =>
+    status === AppStatus.STARTING ||
+    status === AppStatus.ANALYZING ||
+    status === AppStatus.RESTARTING;
+
+  const canStart = (status: AppStatus) =>
+    status === AppStatus.STOPPED ||
+    status === AppStatus.ERROR ||
+    status === AppStatus.CANCELLED;
+
   const renderAppItem = (app: AppConfig, showFavoriteIcon = true) => (
-    <button
+    <div
       key={app.id}
+      role="button"
+      tabIndex={0}
       onClick={() => onSelectApp(app.id)}
-      className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between group transition-all ${
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') onSelectApp(app.id);
+      }}
+      className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between group transition-all cursor-pointer ${
         selectedAppId === app.id
           ? 'bg-gray-800 text-white'
           : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
@@ -92,12 +119,74 @@ export const Sidebar: React.FC<SidebarProps> = ({
               ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
               : app.status === AppStatus.ERROR
               ? 'bg-red-500'
+              : app.status === AppStatus.STARTING || app.status === AppStatus.RESTARTING
+              ? 'bg-yellow-500 animate-pulse'
               : 'bg-gray-600'
           }`}
         />
         <span className="truncate text-sm">{app.name}</span>
       </div>
-      <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {/* Quick Actions */}
+        {app.status === AppStatus.RUNNING ? (
+          <>
+            {onStop && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onStop(app.id);
+                }}
+                className="p-1 rounded hover:bg-red-500/20 text-red-400"
+                title="Stop"
+              >
+                <Square size={12} fill="currentColor" />
+              </button>
+            )}
+            {onRestart && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onRestart(app.id);
+                }}
+                className="p-1 rounded hover:bg-gray-700 text-gray-500"
+                title="Restart"
+              >
+                <RefreshCw size={12} />
+              </button>
+            )}
+            {onOpenInBrowser && (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenInBrowser(app.id);
+                }}
+                className="p-1 rounded hover:bg-gray-700 text-blue-400"
+                title="Open in browser"
+              >
+                <Globe size={12} />
+              </button>
+            )}
+          </>
+        ) : (
+          onStart && canStart(app.status) && (
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                onStart(app.id);
+              }}
+              disabled={isLoading(app.status)}
+              className="p-1 rounded hover:bg-emerald-500/20 text-emerald-400 disabled:opacity-50"
+              title="Start"
+            >
+              {isLoading(app.status) ? (
+                <RefreshCw size={12} className="animate-spin" />
+              ) : (
+                <Play size={12} fill="currentColor" />
+              )}
+            </button>
+          )
+        )}
+        {/* Favorite & Archive */}
         {showFavoriteIcon && onToggleFavorite && (
           <button
             onClick={(e) => {
@@ -109,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             }`}
             title={app.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
           >
-            <Star size={14} fill={app.isFavorite ? 'currentColor' : 'none'} />
+            <Star size={12} fill={app.isFavorite ? 'currentColor' : 'none'} />
           </button>
         )}
         {onToggleArchive && (
@@ -121,11 +210,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             className="p-1 rounded hover:bg-gray-700 text-gray-500"
             title={app.isArchived ? 'Unarchive' : 'Archive'}
           >
-            <Archive size={14} />
+            <Archive size={12} />
           </button>
         )}
       </div>
-    </button>
+    </div>
   );
 
   return (

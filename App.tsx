@@ -107,6 +107,10 @@ function AppContent() {
           onSelectApp={handleSelectApp}
           onToggleFavorite={handleToggleFavorite}
           onToggleArchive={handleToggleArchive}
+          onStart={handleStartApp}
+          onStop={handleStopApp}
+          onRestart={handleRestartApp}
+          onOpenInBrowser={handleOpenInBrowser}
         />
       </div>
 
