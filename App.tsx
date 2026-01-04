@@ -210,7 +210,7 @@ function AppContent() {
                     </h3>
                   </div>
                   <AppList
-                    apps={apps}
+                    apps={apps.filter(app => !app.isArchived)}
                     selectedAppId={selectedAppId}
                     onSelectApp={handleSelectApp}
                     onRefresh={refreshApps}
