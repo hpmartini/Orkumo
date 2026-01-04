@@ -11,6 +11,7 @@ import {
   Settings2,
   Check,
   X,
+  Pencil,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
@@ -26,6 +27,7 @@ interface AppDetailProps {
   onOpenInBrowser: (id: string) => void;
   onInstallDeps?: (id: string) => void;
   onSetPort?: (id: string, port: number) => void;
+  onRename?: (id: string, newName: string) => void;
 }
 
 export const AppDetail: React.FC<AppDetailProps> = ({
@@ -37,9 +39,12 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onOpenInBrowser,
   onInstallDeps,
   onSetPort,
+  onRename,
 }) => {
   const [showPortEditor, setShowPortEditor] = useState(false);
   const [portValue, setPortValue] = useState('');
+  const [showNameEditor, setShowNameEditor] = useState(false);
+  const [nameValue, setNameValue] = useState('');
 
   if (!app) {
     return (
@@ -78,6 +83,15 @@ export const AppDetail: React.FC<AppDetailProps> = ({
     }
   };
 
+  const handleNameSubmit = () => {
+    const trimmedName = nameValue.trim();
+    if (trimmedName && trimmedName !== app.name && onRename) {
+      onRename(app.id, trimmedName);
+      setShowNameEditor(false);
+      setNameValue('');
+    }
+  };
+
   return (
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
       {/* Header */}
@@ -85,10 +99,58 @@ export const AppDetail: React.FC<AppDetailProps> = ({
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="space-y-3">
             {/* App Name & Status */}
-            <h1 className="text-2xl font-bold text-white flex items-center gap-3">
-              {app.name}
+            <div className="flex items-center gap-3">
+              {showNameEditor ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={nameValue}
+                    onChange={(e) => setNameValue(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') handleNameSubmit();
+                      if (e.key === 'Escape') setShowNameEditor(false);
+                    }}
+                    placeholder={app.name}
+                    className="text-2xl font-bold bg-gray-900 border border-gray-600 rounded-lg px-3 py-1 text-white focus:outline-none focus:border-blue-500 w-64"
+                    autoFocus
+                  />
+                  <button
+                    onClick={handleNameSubmit}
+                    className="p-2 text-emerald-400 hover:bg-gray-700 rounded-lg transition-colors"
+                    title="Save"
+                  >
+                    <Check size={20} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowNameEditor(false);
+                      setNameValue('');
+                    }}
+                    className="p-2 text-gray-400 hover:bg-gray-700 rounded-lg transition-colors"
+                    title="Cancel"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+              ) : (
+                <h1 className="text-2xl font-bold text-white flex items-center gap-3 group">
+                  {app.name}
+                  {onRename && (
+                    <button
+                      onClick={() => {
+                        setNameValue(app.name);
+                        setShowNameEditor(true);
+                      }}
+                      className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-700 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                      title="Rename application"
+                    >
+                      <Pencil size={16} />
+                    </button>
+                  )}
+                </h1>
+              )}
               <StatusBadge status={app.status} />
-            </h1>
+            </div>
 
             {/* Directory Path */}
             <div className="flex items-center gap-2 text-gray-400 text-sm">

@@ -33,6 +33,7 @@ interface UseAppsReturn {
   handleToggleArchive: (id: string) => void;
   handleInstallDeps: (id: string) => Promise<void>;
   handleSetPort: (id: string, port: number) => void;
+  handleRename: (id: string, newName: string) => void;
   refreshApps: () => Promise<void>;
   runningCount: number;
   totalCpu: number;
@@ -51,12 +52,15 @@ export function useApps(): UseAppsReturn {
     setError(null);
     try {
       const data = await fetchApps();
-      // Restore favorites/archived/ports from localStorage
+      // Restore favorites/archived/ports/names from localStorage
       const favorites = JSON.parse(localStorage.getItem('devOrbitFavorites') || '[]');
       const archived = JSON.parse(localStorage.getItem('devOrbitArchived') || '[]');
       const ports: Record<string, number> = JSON.parse(localStorage.getItem('devOrbitPorts') || '{}');
+      const names: Record<string, string> = JSON.parse(localStorage.getItem('devOrbitNames') || '{}');
       const enrichedData = data.map((app) => ({
         ...app,
+        // Restore saved name if available
+        name: names[app.id] ?? app.name,
         isFavorite: favorites.includes(app.id),
         isArchived: archived.includes(app.id),
         // Restore saved port if available
@@ -379,6 +383,20 @@ export function useApps(): UseAppsReturn {
     toast.success(`Port updated to ${port}`);
   }, []);
 
+  const handleRename = useCallback((id: string, newName: string) => {
+    const oldName = apps.find(a => a.id === id)?.name;
+    setApps((currentApps) =>
+      currentApps.map((app) =>
+        app.id === id ? { ...app, name: newName } : app
+      )
+    );
+    // Persist to localStorage
+    const names: Record<string, string> = JSON.parse(localStorage.getItem('devOrbitNames') || '{}');
+    names[id] = newName;
+    localStorage.setItem('devOrbitNames', JSON.stringify(names));
+    toast.success(`Renamed "${oldName}" to "${newName}"`);
+  }, [apps]);
+
   const handleOpenInFinder = useCallback((id: string) => {
     const app = apps.find((a) => a.id === id);
     if (!app) return;
@@ -428,6 +446,7 @@ export function useApps(): UseAppsReturn {
     handleToggleArchive,
     handleInstallDeps,
     handleSetPort,
+    handleRename,
     refreshApps,
     runningCount,
     totalCpu,

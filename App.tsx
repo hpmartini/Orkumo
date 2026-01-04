@@ -37,6 +37,7 @@ function AppContent() {
     handleToggleArchive,
     handleInstallDeps,
     handleSetPort,
+    handleRename,
     refreshApps,
     runningCount,
     totalCpu,
@@ -255,6 +256,7 @@ function AppContent() {
               onOpenInBrowser={handleOpenInBrowser}
               onInstallDeps={handleInstallDeps}
               onSetPort={handleSetPort}
+              onRename={handleRename}
             />
           )}
         </div>
