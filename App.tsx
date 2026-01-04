@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { LayoutDashboard, RefreshCw, Settings, Menu, X } from 'lucide-react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { LayoutDashboard, RefreshCw, Settings, Menu, X, GripVertical } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import {
   Sidebar,
@@ -56,6 +56,55 @@ function AppContent() {
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Resizable sidebar
+  const MIN_SIDEBAR_WIDTH = 200;
+  const MAX_SIDEBAR_WIDTH = 400;
+  const DEFAULT_SIDEBAR_WIDTH = 256; // 16rem = 256px
+
+  const [sidebarWidth, setSidebarWidth] = useState(() => {
+    const saved = localStorage.getItem('devOrbitSidebarWidth');
+    return saved ? parseInt(saved, 10) : DEFAULT_SIDEBAR_WIDTH;
+  });
+  const [isResizing, setIsResizing] = useState(false);
+  const resizeRef = useRef<HTMLDivElement>(null);
+
+  // Persist sidebar width
+  useEffect(() => {
+    localStorage.setItem('devOrbitSidebarWidth', String(sidebarWidth));
+  }, [sidebarWidth]);
+
+  // Handle resize
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    setIsResizing(true);
+  }, []);
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return;
+      const newWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, e.clientX));
+      setSidebarWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove);
+      document.addEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    };
+  }, [isResizing]);
+
   const handleSelectDashboard = () => {
     setActiveTab('dashboard');
     setSelectedAppId(null);
@@ -100,7 +149,10 @@ function AppContent() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-900 text-gray-100 font-sans flex overflow-hidden">
+    <div
+      className="min-h-screen bg-gray-900 text-gray-100 font-sans flex overflow-hidden"
+      style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}
+    >
       {/* Toast notifications */}
       <Toaster
         position="top-right"
@@ -129,11 +181,14 @@ function AppContent() {
       )}
 
       {/* Sidebar - fixed position, doesn't scroll with content */}
-      <div className={`
-        fixed inset-y-0 left-0 z-50
-        transform transition-transform duration-300 ease-in-out
-        ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-      `}>
+      <div
+        className={`
+          fixed inset-y-0 left-0 z-50
+          transform transition-transform duration-300 ease-in-out
+          ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        `}
+        style={{ width: sidebarWidth }}
+      >
         <Sidebar
           apps={apps}
           selectedAppId={selectedAppId}
@@ -147,10 +202,30 @@ function AppContent() {
           onRestart={handleRestartApp}
           onOpenInBrowser={handleOpenInBrowser}
         />
+        {/* Resize handle */}
+        <div
+          ref={resizeRef}
+          onMouseDown={handleMouseDown}
+          className={`
+            hidden md:flex absolute top-0 right-0 w-1 h-full cursor-col-resize
+            items-center justify-center group
+            hover:bg-blue-500/30 transition-colors
+            ${isResizing ? 'bg-blue-500/50' : ''}
+          `}
+        >
+          <div className={`
+            absolute right-0 w-4 h-12 flex items-center justify-center
+            rounded-r bg-gray-800/80 border border-l-0 border-gray-700
+            opacity-0 group-hover:opacity-100 transition-opacity
+            ${isResizing ? 'opacity-100' : ''}
+          `}>
+            <GripVertical size={12} className="text-gray-500" />
+          </div>
+        </div>
       </div>
 
       {/* Main Content - with left margin for fixed sidebar */}
-      <main className="flex-1 flex flex-col overflow-auto relative md:ml-64">
+      <main className="flex-1 flex flex-col overflow-auto relative ml-0 md:ml-[var(--sidebar-width)]">
         {/* App Tabs - only show when tabs exist */}
         {tabs.length > 0 && (
           <AppTabs

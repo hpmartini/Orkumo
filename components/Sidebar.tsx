@@ -218,7 +218,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   );
 
   return (
-    <aside className="w-64 bg-gray-950 border-r border-gray-800 flex flex-col h-full">
+    <aside className="w-full bg-gray-950 border-r border-gray-800 flex flex-col h-full">
       <div className="p-6 border-b border-gray-800">
         <div className="flex items-center gap-2 text-blue-500 font-bold text-xl tracking-tight">
           <LayoutDashboard />
