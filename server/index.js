@@ -27,6 +27,9 @@ import {
 } from './services/ptyService.js';
 import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
+import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
+import { applicationsRepository } from './db/repositories/applicationsRepository.js';
+import { terminalSessionManager } from './services/TerminalSessionManager.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -537,8 +540,156 @@ app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
     aiEnabled: !!apiKey,
+    databaseConnected: isDatabaseConnected(),
+    terminalSessions: terminalSessionManager.getStats(),
     timestamp: new Date().toISOString()
   });
+});
+
+// ============================================
+// Database Application Endpoints
+// ============================================
+
+/**
+ * PUT /api/apps/:id/preferences
+ * Update app preferences (favorite, archive, custom port)
+ */
+app.put('/api/apps/:id/preferences', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const result = await applicationsRepository.updatePreferences(id, req.body);
+
+    if (result) {
+      res.json(result);
+    } else {
+      res.status(404).json({ error: 'App not found or no valid updates' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/favorite
+ * Toggle favorite status
+ */
+app.post('/api/apps/:id/favorite', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = await applicationsRepository.toggleFavorite(id);
+    res.json({ success });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/archive
+ * Toggle archive status
+ */
+app.post('/api/apps/:id/archive', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = await applicationsRepository.toggleArchive(id);
+    res.json({ success });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/apps/:id/history
+ * Get run history for an app
+ */
+app.get('/api/apps/:id/history', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const limit = parseInt(req.query.limit) || 10;
+    const history = await applicationsRepository.getRunHistory(id, limit);
+    res.json(history);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Terminal Session Endpoints
+// ============================================
+
+/**
+ * GET /api/terminal/sessions
+ * Get all active terminal sessions
+ */
+app.get('/api/terminal/sessions', (req, res) => {
+  try {
+    const sessions = terminalSessionManager.getActiveSessions();
+    res.json(sessions.map(s => ({
+      id: s.id,
+      appId: s.appId,
+      cwd: s.cwd,
+      createdAt: s.createdAt,
+      lastActivity: s.lastActivity,
+      bufferSize: s.outputBuffer?.length || 0,
+    })));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/terminal/sessions/recent
+ * Get recent terminal sessions (for recovery UI)
+ */
+app.get('/api/terminal/sessions/recent', async (req, res) => {
+  try {
+    const limit = parseInt(req.query.limit) || 10;
+    const sessions = await terminalSessionManager.getRecentSessions(limit);
+    res.json(sessions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/terminal/sessions/:id/buffer
+ * Get output buffer for a session
+ */
+app.get('/api/terminal/sessions/:id/buffer', (req, res) => {
+  try {
+    const { id } = req.params;
+    const lastN = parseInt(req.query.lines) || 100;
+    const buffer = terminalSessionManager.getOutputBuffer(id, lastN);
+    res.json({ lines: buffer });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/terminal/sessions/:id
+ * Close a terminal session
+ */
+app.delete('/api/terminal/sessions/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = await terminalSessionManager.closeSession(id);
+    res.json({ success });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/terminal/stats
+ * Get terminal session statistics
+ */
+app.get('/api/terminal/stats', (req, res) => {
+  try {
+    const stats = terminalSessionManager.getStats();
+    res.json(stats);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ============================================
@@ -818,16 +969,26 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
   }
 });
 
-server.listen(PORT, () => {
-  console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
-  console.log(`   AI Features: ${apiKey ? '✅ Enabled' : '❌ Disabled (no API key)'}`);
-  console.log(`   WebSocket PTY: ws://localhost:${PORT}/api/pty`);
-  console.log(`   Endpoints:`);
-  console.log(`   - GET  /api/apps         - List discovered apps`);
-  console.log(`   - GET  /api/config       - Get configuration`);
-  console.log(`   - PUT  /api/config       - Update configuration`);
-  console.log(`   - POST /api/apps/:id/start  - Start an app`);
-  console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
-  console.log(`   - GET  /api/events       - SSE for real-time updates`);
-  console.log(`   - WS   /api/pty          - WebSocket for terminal`);
-});
+// Initialize database before starting server
+async function startServer() {
+  // Try to connect to database (non-blocking)
+  const dbConnected = await initializeDatabase();
+
+  server.listen(PORT, () => {
+    console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
+    console.log(`   AI Features: ${apiKey ? '✅ Enabled' : '❌ Disabled (no API key)'}`);
+    console.log(`   Database: ${dbConnected ? '✅ Connected' : '⚠️  Not connected (using file storage)'}`);
+    console.log(`   WebSocket PTY: ws://localhost:${PORT}/api/pty`);
+    console.log(`   Endpoints:`);
+    console.log(`   - GET  /api/apps            - List discovered apps`);
+    console.log(`   - GET  /api/config          - Get configuration`);
+    console.log(`   - GET  /api/ports/check/:p  - Check port availability`);
+    console.log(`   - GET  /api/terminal/sessions - List terminal sessions`);
+    console.log(`   - POST /api/apps/:id/start  - Start an app`);
+    console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
+    console.log(`   - GET  /api/events          - SSE for real-time updates`);
+    console.log(`   - WS   /api/pty             - WebSocket for terminal`);
+  });
+}
+
+startServer().catch(console.error);
