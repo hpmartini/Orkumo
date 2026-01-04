@@ -25,6 +25,8 @@ import {
   killPtySession,
   ptyEvents,
 } from './services/ptyService.js';
+import { portManager } from './services/PortManager.js';
+import { exec } from 'child_process';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -537,6 +539,159 @@ app.get('/api/health', (req, res) => {
     aiEnabled: !!apiKey,
     timestamp: new Date().toISOString()
   });
+});
+
+// ============================================
+// Port Management Endpoints
+// ============================================
+
+/**
+ * GET /api/ports/check/:port
+ * Check if a port is available
+ */
+app.get('/api/ports/check/:port', async (req, res) => {
+  try {
+    const port = parseInt(req.params.port, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: 'Invalid port number' });
+    }
+
+    const available = await portManager.isPortAvailable(port);
+    const processInfo = available ? null : await portManager.getProcessOnPort(port);
+
+    res.json({
+      port,
+      available,
+      process: processInfo,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/ports/available
+ * Find next available port
+ */
+app.get('/api/ports/available', async (req, res) => {
+  try {
+    const startPort = parseInt(req.query.start, 10) || 3000;
+    const endPort = parseInt(req.query.end, 10) || 4000;
+
+    const port = await portManager.findAvailablePort(startPort, endPort);
+    res.json({ port });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/ports/allocate
+ * Allocate a port for an app
+ */
+app.post('/api/ports/allocate', async (req, res) => {
+  try {
+    const { appId, preferredPort } = req.body;
+    if (!appId) {
+      return res.status(400).json({ error: 'appId is required' });
+    }
+
+    const result = await portManager.allocatePort(appId, preferredPort);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/ports/kill/:port
+ * Kill process on a specific port
+ */
+app.post('/api/ports/kill/:port', processLimiter, async (req, res) => {
+  try {
+    const port = parseInt(req.params.port, 10);
+    if (isNaN(port) || port < 1 || port > 65535) {
+      return res.status(400).json({ error: 'Invalid port number' });
+    }
+
+    const result = await portManager.killProcessOnPort(port);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/ports/scan
+ * Scan a range of ports for usage
+ */
+app.get('/api/ports/scan', async (req, res) => {
+  try {
+    const startPort = parseInt(req.query.start, 10) || 3000;
+    const endPort = parseInt(req.query.end, 10) || 3100;
+
+    const results = await portManager.scanPortRange(startPort, endPort);
+    res.json(results);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Finder/Terminal Integration Endpoints
+// ============================================
+
+/**
+ * POST /api/apps/:id/open-finder
+ * Open app directory in Finder (macOS)
+ */
+app.post('/api/apps/:id/open-finder', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const apps = scanAllDirectories();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    // macOS: open in Finder
+    exec(`open "${app.path}"`, (error) => {
+      if (error) {
+        return res.status(500).json({ error: 'Failed to open Finder' });
+      }
+      res.json({ success: true });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/open-terminal
+ * Open app directory in Terminal (macOS)
+ */
+app.post('/api/apps/:id/open-terminal', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const apps = scanAllDirectories();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    // macOS: open Terminal at path
+    const script = `tell application "Terminal" to do script "cd '${app.path}'"`;
+    exec(`osascript -e '${script}'`, (error) => {
+      if (error) {
+        return res.status(500).json({ error: 'Failed to open Terminal' });
+      }
+      res.json({ success: true });
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
 });
 
 // ============================================

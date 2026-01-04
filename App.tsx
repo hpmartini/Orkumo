@@ -10,6 +10,8 @@ import {
   Recommendations,
   ErrorBoundary,
   AdminPanel,
+  AppTabs,
+  useAppTabs,
 } from './components';
 import { useApps } from './hooks';
 
@@ -28,6 +30,8 @@ function AppContent() {
     handleRestartApp,
     handleAnalyzeApp,
     handleOpenInBrowser,
+    handleOpenInFinder,
+    handleOpenInTerminal,
     handleToggleFavorite,
     handleToggleArchive,
     handleInstallDeps,
@@ -36,6 +40,15 @@ function AppContent() {
     runningCount,
     totalCpu,
   } = useApps();
+
+  // App tabs management
+  const {
+    tabs,
+    activeTabId,
+    closeTab,
+    reorderTabs,
+    selectTab,
+  } = useAppTabs(apps);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -49,8 +62,28 @@ function AppContent() {
 
   const handleSelectApp = (id: string) => {
     setSelectedAppId(id);
+    selectTab(id); // Also open as tab
     setActiveTab('apps');
     setMobileMenuOpen(false);
+  };
+
+  const handleTabSelect = (id: string) => {
+    setSelectedAppId(id);
+    setActiveTab('apps');
+  };
+
+  const handleTabClose = (id: string) => {
+    closeTab(id);
+    // If closing the active tab, switch to dashboard or another tab
+    if (selectedAppId === id) {
+      const remainingTabs = tabs.filter(t => t.appId !== id);
+      if (remainingTabs.length > 0) {
+        setSelectedAppId(remainingTabs[remainingTabs.length - 1].appId);
+      } else {
+        setSelectedAppId(null);
+        setActiveTab('dashboard');
+      }
+    }
   };
 
   if (loading) {
@@ -115,7 +148,18 @@ function AppContent() {
       </div>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto relative">
+      <main className="flex-1 flex flex-col overflow-hidden relative">
+        {/* App Tabs - only show when tabs exist */}
+        {tabs.length > 0 && (
+          <AppTabs
+            tabs={tabs}
+            activeTabId={activeTabId}
+            onSelectTab={handleTabSelect}
+            onCloseTab={handleTabClose}
+            onReorderTabs={reorderTabs}
+          />
+        )}
+
         <header className="sticky top-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 md:px-8 py-4 flex items-center justify-between">
           <div className="md:hidden flex items-center gap-3">
             <button
@@ -170,6 +214,14 @@ function AppContent() {
                     selectedAppId={selectedAppId}
                     onSelectApp={handleSelectApp}
                     onRefresh={refreshApps}
+                    onStart={handleStartApp}
+                    onStop={handleStopApp}
+                    onRestart={handleRestartApp}
+                    onOpenInBrowser={handleOpenInBrowser}
+                    onToggleFavorite={handleToggleFavorite}
+                    onToggleArchive={handleToggleArchive}
+                    onOpenInFinder={handleOpenInFinder}
+                    onOpenInTerminal={handleOpenInTerminal}
                   />
                 </div>
 

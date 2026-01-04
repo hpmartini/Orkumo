@@ -2,6 +2,21 @@
 
 This document outlines the planned features and their implementation details for future development.
 
+## Implementation Status
+
+| Feature | Status | Notes |
+|---------|--------|-------|
+| Kebab Menu | ✅ Completed | `components/KebabMenu.tsx` - Full implementation with all menu items |
+| Browser-Style Tabs | ✅ Completed | `components/AppTabs.tsx` - Drag-drop, keyboard nav, auto-open |
+| Port Conflict Auto-Fix | ✅ Completed | `server/services/PortManager.js` + `PortConflictModal.tsx` |
+| Docker Compose Detection | ✅ Completed | `server/services/DockerComposeService.js` - Parse & manage |
+| Docker Deployment | ✅ Completed | `Dockerfile`, `docker-compose.yml`, `docker/init-db.sql` |
+| Open in Finder/Terminal | ✅ Completed | API endpoints in `server/index.js` |
+| Database Integration | 🔲 Pending | Schema ready in `docker/init-db.sql` |
+| Persistent Terminals | 🔲 Pending | Schema ready, needs session manager |
+
+---
+
 ---
 
 ## 1. Persistent Terminal Sessions (Backend)

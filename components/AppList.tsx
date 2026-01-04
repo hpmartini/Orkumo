@@ -1,13 +1,22 @@
 import React from 'react';
-import { FolderSearch, Box, Settings } from 'lucide-react';
+import { FolderSearch, Box } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
+import { KebabMenu, createAppMenuItems } from './KebabMenu';
 
 interface AppListProps {
   apps: AppConfig[];
   selectedAppId: string | null;
   onSelectApp: (id: string) => void;
   onRefresh?: () => void;
+  onStart?: (id: string) => void;
+  onStop?: (id: string) => void;
+  onRestart?: (id: string) => void;
+  onOpenInBrowser?: (id: string) => void;
+  onToggleFavorite?: (id: string) => void;
+  onToggleArchive?: (id: string) => void;
+  onOpenInFinder?: (id: string) => void;
+  onOpenInTerminal?: (id: string) => void;
 }
 
 export const AppList: React.FC<AppListProps> = ({
@@ -15,6 +24,14 @@ export const AppList: React.FC<AppListProps> = ({
   selectedAppId,
   onSelectApp,
   onRefresh,
+  onStart,
+  onStop,
+  onRestart,
+  onOpenInBrowser,
+  onToggleFavorite,
+  onToggleArchive,
+  onOpenInFinder,
+  onOpenInTerminal,
 }) => {
   return (
     <div className="bg-gray-800 rounded-xl border border-gray-700 overflow-hidden">
@@ -42,27 +59,49 @@ export const AppList: React.FC<AppListProps> = ({
             <div className="flex items-center gap-4">
               <div
                 className={`w-2 h-10 rounded-full ${
-                  app.status === AppStatus.RUNNING ? 'bg-emerald-500' : 'bg-gray-600'
+                  app.status === AppStatus.RUNNING
+                    ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
+                    : app.status === AppStatus.STARTING || app.status === AppStatus.RESTARTING
+                    ? 'bg-yellow-500 animate-pulse'
+                    : app.status === AppStatus.ERROR
+                    ? 'bg-red-500'
+                    : 'bg-gray-600'
                 }`}
               ></div>
               <div>
                 <h3 className="text-white font-medium flex items-center gap-2">
                   {app.name}
                   {app.status === AppStatus.RUNNING && app.port && (
-                    <span className="text-xs text-gray-500">:{app.port}</span>
+                    <span className="text-xs text-gray-500 font-mono">:{app.port}</span>
                   )}
                 </h3>
                 <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
-                  <span>{app.detectedFramework}</span>
-                  <span>•</span>
-                  <span>{app.path}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-gray-700/50">{app.detectedFramework}</span>
+                  <span className="truncate max-w-[200px]" title={app.path}>{app.path}</span>
                 </div>
               </div>
             </div>
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3">
               <StatusBadge status={app.status} />
               <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                <Settings size={16} className="text-gray-400" />
+                <KebabMenu
+                  items={createAppMenuItems({
+                    appId: app.id,
+                    status: app.status,
+                    isFavorite: app.isFavorite,
+                    isArchived: app.isArchived,
+                    hasPort: !!app.port,
+                    onStart,
+                    onStop,
+                    onRestart,
+                    onOpenInBrowser,
+                    onToggleFavorite,
+                    onToggleArchive,
+                    onOpenInFinder,
+                    onOpenInTerminal,
+                  })}
+                  position="left"
+                />
               </div>
             </div>
           </div>

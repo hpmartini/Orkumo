@@ -11,3 +11,6 @@ export type { Alert } from './SystemAlerts';
 export { Recommendations } from './Recommendations';
 export { ErrorBoundary } from './ErrorBoundary';
 export { AdminPanel } from './AdminPanel';
+export { KebabMenu, createAppMenuItems } from './KebabMenu';
+export { AppTabs, useAppTabs, createTabsFromApps } from './AppTabs';
+export { PortConflictModal } from './PortConflictModal';

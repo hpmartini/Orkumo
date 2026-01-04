@@ -1,0 +1,62 @@
+# Dependencies
+node_modules
+.pnp
+.pnp.js
+
+# Testing
+coverage
+
+# Build
+dist
+build
+.next
+out
+
+# Environment files
+.env
+.env.local
+.env.development
+.env.test
+.env.production
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.docker
+
+# Git
+.git
+.gitignore
+
+# Documentation
+README.md
+IMPLEMENTATION_PLAN.md
+CLAUDE.md
+docs
+
+# Tests
+__tests__
+*.test.js
+*.test.ts
+*.spec.js
+*.spec.ts
+
+# Misc
+.eslintcache
+*.tgz

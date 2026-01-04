@@ -27,6 +27,8 @@ interface UseAppsReturn {
   handleRestartApp: (id: string) => Promise<void>;
   handleAnalyzeApp: (id: string) => Promise<void>;
   handleOpenInBrowser: (id: string) => void;
+  handleOpenInFinder: (id: string) => void;
+  handleOpenInTerminal: (id: string) => void;
   handleToggleFavorite: (id: string) => void;
   handleToggleArchive: (id: string) => void;
   handleInstallDeps: (id: string) => Promise<void>;
@@ -377,6 +379,30 @@ export function useApps(): UseAppsReturn {
     toast.success(`Port updated to ${port}`);
   }, []);
 
+  const handleOpenInFinder = useCallback((id: string) => {
+    const app = apps.find((a) => a.id === id);
+    if (!app) return;
+    // Use the API to open in Finder (macOS)
+    fetch(`/api/apps/${id}/open-finder`, { method: 'POST' })
+      .catch(() => {
+        // Fallback: copy path to clipboard
+        navigator.clipboard.writeText(app.path);
+        toast.success('Path copied to clipboard');
+      });
+  }, [apps]);
+
+  const handleOpenInTerminal = useCallback((id: string) => {
+    const app = apps.find((a) => a.id === id);
+    if (!app) return;
+    // Use the API to open in Terminal
+    fetch(`/api/apps/${id}/open-terminal`, { method: 'POST' })
+      .catch(() => {
+        // Fallback: copy path to clipboard
+        navigator.clipboard.writeText(`cd "${app.path}"`);
+        toast.success('Terminal command copied to clipboard');
+      });
+  }, [apps]);
+
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;
   const totalCpu = apps.reduce(
@@ -396,6 +422,8 @@ export function useApps(): UseAppsReturn {
     handleRestartApp,
     handleAnalyzeApp,
     handleOpenInBrowser,
+    handleOpenInFinder,
+    handleOpenInTerminal,
     handleToggleFavorite,
     handleToggleArchive,
     handleInstallDeps,
