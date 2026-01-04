@@ -12,6 +12,7 @@ import {
   Check,
   X,
   Pencil,
+  Star,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
@@ -28,6 +29,7 @@ interface AppDetailProps {
   onInstallDeps?: (id: string) => void;
   onSetPort?: (id: string, port: number) => void;
   onRename?: (id: string, newName: string) => void;
+  onToggleFavorite?: (id: string) => void;
 }
 
 export const AppDetail: React.FC<AppDetailProps> = ({
@@ -40,6 +42,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onInstallDeps,
   onSetPort,
   onRename,
+  onToggleFavorite,
 }) => {
   const [showPortEditor, setShowPortEditor] = useState(false);
   const [portValue, setPortValue] = useState('');
@@ -150,6 +153,19 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                 </h1>
               )}
               <StatusBadge status={app.status} />
+              {onToggleFavorite && (
+                <button
+                  onClick={() => onToggleFavorite(app.id)}
+                  className={`p-1.5 rounded-lg transition-all ${
+                    app.isFavorite
+                      ? 'text-yellow-400 hover:bg-yellow-500/20'
+                      : 'text-gray-500 hover:text-yellow-400 hover:bg-gray-700'
+                  }`}
+                  title={app.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+                >
+                  <Star size={20} fill={app.isFavorite ? 'currentColor' : 'none'} />
+                </button>
+              )}
             </div>
 
             {/* Directory Path */}

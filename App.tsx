@@ -257,6 +257,7 @@ function AppContent() {
               onInstallDeps={handleInstallDeps}
               onSetPort={handleSetPort}
               onRename={handleRename}
+              onToggleFavorite={handleToggleFavorite}
             />
           )}
         </div>
