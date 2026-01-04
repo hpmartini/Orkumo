@@ -333,6 +333,9 @@ function AppContent() {
               onSetPort={handleSetPort}
               onRename={handleRename}
               onToggleFavorite={handleToggleFavorite}
+              onToggleArchive={handleToggleArchive}
+              onOpenInFinder={handleOpenInFinder}
+              onOpenInTerminal={handleOpenInTerminal}
             />
           )}
         </div>

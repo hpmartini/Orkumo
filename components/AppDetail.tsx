@@ -13,11 +13,14 @@ import {
   X,
   Pencil,
   Star,
+  Archive,
+  Terminal,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { PerformanceCharts } from './PerformanceCharts';
 import { XTerminal } from './XTerminal';
+import { KebabMenu, createAppMenuItems } from './KebabMenu';
 
 interface AppDetailProps {
   app: AppConfig | null;
@@ -30,6 +33,9 @@ interface AppDetailProps {
   onSetPort?: (id: string, port: number) => void;
   onRename?: (id: string, newName: string) => void;
   onToggleFavorite?: (id: string) => void;
+  onToggleArchive?: (id: string) => void;
+  onOpenInFinder?: (id: string) => void;
+  onOpenInTerminal?: (id: string) => void;
 }
 
 export const AppDetail: React.FC<AppDetailProps> = ({
@@ -43,6 +49,9 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onSetPort,
   onRename,
   onToggleFavorite,
+  onToggleArchive,
+  onOpenInFinder,
+  onOpenInTerminal,
 }) => {
   const [showPortEditor, setShowPortEditor] = useState(false);
   const [portValue, setPortValue] = useState('');
@@ -202,10 +211,15 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                       type="number"
                       value={portValue}
                       onChange={(e) => setPortValue(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') handlePortSubmit();
+                        if (e.key === 'Escape') setShowPortEditor(false);
+                      }}
                       placeholder={String(app.port || 3000)}
                       className="w-20 px-2 py-1 bg-gray-900 border border-gray-700 rounded text-sm font-mono focus:outline-none focus:border-blue-500"
                       min="1"
                       max="65535"
+                      autoFocus
                     />
                     <button
                       onClick={handlePortSubmit}
@@ -309,6 +323,38 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             >
               <Globe size={18} />
             </button>
+
+            {onOpenInFinder && (
+              <button
+                onClick={() => onOpenInFinder(app.id)}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all"
+                title="Open in Finder"
+              >
+                <FolderOpen size={18} />
+              </button>
+            )}
+
+            {onOpenInTerminal && (
+              <button
+                onClick={() => onOpenInTerminal(app.id)}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all"
+                title="Open in Terminal"
+              >
+                <Terminal size={18} />
+              </button>
+            )}
+
+            {onToggleArchive && (
+              <button
+                onClick={() => onToggleArchive(app.id)}
+                className={`flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all ${
+                  app.isArchived ? 'text-orange-400' : ''
+                }`}
+                title={app.isArchived ? 'Unarchive' : 'Archive'}
+              >
+                <Archive size={18} />
+              </button>
+            )}
           </div>
         </div>
 
