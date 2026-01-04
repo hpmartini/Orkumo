@@ -4,6 +4,7 @@ export { XTerminal } from './XTerminal';
 export { PerformanceCharts } from './PerformanceCharts';
 export { DashboardOverview } from './DashboardOverview';
 export { AppList } from './AppList';
+export { FavoritesList } from './FavoritesList';
 export { AppDetail } from './AppDetail';
 export { Sidebar } from './Sidebar';
 export { SystemAlerts } from './SystemAlerts';

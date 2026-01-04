@@ -5,6 +5,7 @@ import {
   Sidebar,
   DashboardOverview,
   AppList,
+  FavoritesList,
   AppDetail,
   SystemAlerts,
   Recommendations,
@@ -126,9 +127,9 @@ function AppContent() {
         />
       )}
 
-      {/* Sidebar - hidden on mobile unless menu is open */}
+      {/* Sidebar - fixed position, doesn't scroll with content */}
       <div className={`
-        fixed md:relative inset-y-0 left-0 z-50
+        fixed inset-y-0 left-0 z-50
         transform transition-transform duration-300 ease-in-out
         ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
       `}>
@@ -147,8 +148,8 @@ function AppContent() {
         />
       </div>
 
-      {/* Main Content */}
-      <main className="flex-1 flex flex-col overflow-hidden relative">
+      {/* Main Content - with left margin for fixed sidebar */}
+      <main className="flex-1 flex flex-col overflow-auto relative md:ml-64">
         {/* App Tabs - only show when tabs exist */}
         {tabs.length > 0 && (
           <AppTabs
@@ -209,8 +210,21 @@ function AppContent() {
                       Application Registry
                     </h3>
                   </div>
+                  {/* Favorites Section */}
+                  <FavoritesList
+                    apps={apps}
+                    selectedAppId={selectedAppId}
+                    onSelectApp={handleSelectApp}
+                    onStart={handleStartApp}
+                    onStop={handleStopApp}
+                    onRestart={handleRestartApp}
+                    onOpenInBrowser={handleOpenInBrowser}
+                    onToggleFavorite={handleToggleFavorite}
+                    onToggleArchive={handleToggleArchive}
+                  />
+                  {/* All Applications */}
                   <AppList
-                    apps={apps.filter(app => !app.isArchived)}
+                    apps={apps.filter(app => !app.isArchived && !app.isFavorite)}
                     selectedAppId={selectedAppId}
                     onSelectApp={handleSelectApp}
                     onRefresh={refreshApps}
