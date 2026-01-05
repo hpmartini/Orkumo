@@ -6,11 +6,7 @@ import { z } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
-import path from 'path';
-import { fileURLToPath } from 'url';
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
 import { getConfig, updateConfig, addDirectory, removeDirectory } from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
 import {
@@ -62,10 +58,6 @@ const processLimiter = rateLimit({
 app.use(cors());
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
-
-// Serve static files from the built frontend in production
-const distPath = path.join(__dirname, '..', 'dist');
-app.use(express.static(distPath));
 
 // ============================================
 // Input Validation Schemas (Zod)
@@ -989,19 +981,12 @@ app.post('/api/apps/:id/open-terminal', validateParams(idSchema), (req, res) => 
 });
 
 // ============================================
-// SPA Fallback - Serve index.html for all non-API routes
+// 404 Handler for API routes
 // ============================================
 
-app.use((req, res, next) => {
-  // Skip API routes
-  if (req.path.startsWith('/api')) {
-    return res.status(404).json({ error: 'Not found' });
-  }
-  // Serve index.html for all other GET requests (SPA routing)
-  if (req.method === 'GET') {
-    return res.sendFile(path.join(distPath, 'index.html'));
-  }
-  next();
+app.use((req, res) => {
+  // API-only server - return 404 for unknown routes
+  res.status(404).json({ error: 'Not found' });
 });
 
 // ============================================
