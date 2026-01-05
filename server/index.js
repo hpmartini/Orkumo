@@ -35,6 +35,7 @@ import { exec } from 'child_process';
 import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
 import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
+import { settingsService } from './services/settingsService.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -276,6 +277,139 @@ app.delete('/api/config/directories', validate(directorySchema), (req, res) => {
     res.json(config);
   } catch (error) {
     res.status(400).json({ error: error.message });
+  }
+});
+
+// ============================================
+// Settings Persistence Endpoints
+// ============================================
+
+/**
+ * GET /api/settings
+ * Get all user settings (favorites, archived, custom ports, names)
+ */
+app.get('/api/settings', (req, res) => {
+  try {
+    const settings = settingsService.getSettings();
+    res.json(settings);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settings/import
+ * Import settings (for migration from localStorage)
+ */
+app.post('/api/settings/import', (req, res) => {
+  try {
+    const { favorites, archived, customPorts, customNames } = req.body;
+    const settings = settingsService.importSettings({
+      favorites,
+      archived,
+      customPorts,
+      customNames,
+    });
+    res.json(settings);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/favorite/:id
+ * Toggle or set favorite status for an app
+ */
+app.put('/api/settings/favorite/:id', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const { value } = req.body;
+
+    let isFavorite;
+    if (value === undefined) {
+      // Toggle
+      isFavorite = settingsService.toggleFavorite(id);
+    } else {
+      // Set explicitly
+      isFavorite = settingsService.setFavorite(id, !!value);
+    }
+
+    res.json({ id, isFavorite });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/archive/:id
+ * Toggle or set archive status for an app
+ */
+app.put('/api/settings/archive/:id', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const { value } = req.body;
+
+    let isArchived;
+    if (value === undefined) {
+      // Toggle
+      isArchived = settingsService.toggleArchive(id);
+    } else {
+      // Set explicitly
+      isArchived = settingsService.setArchive(id, !!value);
+    }
+
+    res.json({ id, isArchived });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/port/:id
+ * Set custom port for an app
+ */
+app.put('/api/settings/port/:id', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const { port } = req.body;
+
+    // Validate port
+    if (port !== null && port !== undefined) {
+      const portNum = parseInt(port, 10);
+      if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+        return res.status(400).json({ error: 'Invalid port number' });
+      }
+      settingsService.setPort(id, portNum);
+      res.json({ id, port: portNum });
+    } else {
+      // Clear custom port
+      settingsService.setPort(id, null);
+      res.json({ id, port: null });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/name/:id
+ * Set custom name for an app
+ */
+app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const { name } = req.body;
+
+    if (name && typeof name === 'string' && name.trim().length > 0) {
+      settingsService.setName(id, name.trim());
+      res.json({ id, name: name.trim() });
+    } else {
+      // Clear custom name
+      settingsService.setName(id, null);
+      res.json({ id, name: null });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

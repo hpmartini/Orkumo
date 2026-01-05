@@ -266,3 +266,108 @@ export async function fetchAppStats(id: string): Promise<{ cpu: number; memory: 
   }
   return response.json();
 }
+
+// ============================================
+// Settings API - Backend persistence
+// ============================================
+
+export interface AppSettings {
+  favorites: string[];
+  archived: string[];
+  customPorts: Record<string, number>;
+  customNames: Record<string, string>;
+  version: number;
+}
+
+/**
+ * Fetch all user settings from backend
+ */
+export async function fetchSettings(): Promise<AppSettings> {
+  const response = await fetch(`${API_BASE}/settings`);
+  if (!response.ok) {
+    // Return default settings if fetch fails
+    return {
+      favorites: [],
+      archived: [],
+      customPorts: {},
+      customNames: {},
+      version: 1,
+    };
+  }
+  return response.json();
+}
+
+/**
+ * Import settings from localStorage (migration)
+ */
+export async function importSettings(settings: Partial<AppSettings>): Promise<AppSettings> {
+  const response = await fetch(`${API_BASE}/settings/import`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to import settings');
+  }
+  return response.json();
+}
+
+/**
+ * Toggle or set favorite status for an app
+ */
+export async function updateFavorite(id: string, value?: boolean): Promise<{ id: string; isFavorite: boolean }> {
+  const response = await fetch(`${API_BASE}/settings/favorite/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value !== undefined ? { value } : {}),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update favorite');
+  }
+  return response.json();
+}
+
+/**
+ * Toggle or set archive status for an app
+ */
+export async function updateArchive(id: string, value?: boolean): Promise<{ id: string; isArchived: boolean }> {
+  const response = await fetch(`${API_BASE}/settings/archive/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(value !== undefined ? { value } : {}),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update archive');
+  }
+  return response.json();
+}
+
+/**
+ * Set custom port for an app
+ */
+export async function updatePort(id: string, port: number | null): Promise<{ id: string; port: number | null }> {
+  const response = await fetch(`${API_BASE}/settings/port/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ port }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update port');
+  }
+  return response.json();
+}
+
+/**
+ * Set custom name for an app
+ */
+export async function updateName(id: string, name: string | null): Promise<{ id: string; name: string | null }> {
+  const response = await fetch(`${API_BASE}/settings/name/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update name');
+  }
+  return response.json();
+}

@@ -9,11 +9,54 @@ import {
   subscribeToEvents,
   fetchAppPackage,
   fetchAppStats,
+  fetchSettings,
+  importSettings,
+  updateFavorite,
+  updateArchive,
+  updatePort,
+  updateName,
 } from '../services/api';
 
 // Constants
 const STATS_UPDATE_INTERVAL_MS = 2000;
 const LOG_RETENTION_COUNT = 100;
+const LOCALSTORAGE_MIGRATED_KEY = 'devOrbitMigratedToBackend';
+
+/**
+ * Migrate localStorage settings to backend (one-time migration)
+ */
+async function migrateLocalStorageToBackend(): Promise<void> {
+  // Check if already migrated
+  if (localStorage.getItem(LOCALSTORAGE_MIGRATED_KEY)) {
+    return;
+  }
+
+  // Collect existing localStorage data
+  const favorites = JSON.parse(localStorage.getItem('devOrbitFavorites') || '[]');
+  const archived = JSON.parse(localStorage.getItem('devOrbitArchived') || '[]');
+  const customPorts = JSON.parse(localStorage.getItem('devOrbitPorts') || '{}');
+  const customNames = JSON.parse(localStorage.getItem('devOrbitNames') || '{}');
+
+  // Only migrate if there's data to migrate
+  if (favorites.length > 0 || archived.length > 0 ||
+      Object.keys(customPorts).length > 0 || Object.keys(customNames).length > 0) {
+    try {
+      await importSettings({ favorites, archived, customPorts, customNames });
+      console.log('Successfully migrated settings from localStorage to backend');
+    } catch (err) {
+      console.error('Failed to migrate settings to backend:', err);
+      // Don't mark as migrated if it failed, so we can retry
+      return;
+    }
+  }
+
+  // Mark as migrated and clean up old localStorage keys
+  localStorage.setItem(LOCALSTORAGE_MIGRATED_KEY, 'true');
+  localStorage.removeItem('devOrbitFavorites');
+  localStorage.removeItem('devOrbitArchived');
+  localStorage.removeItem('devOrbitPorts');
+  localStorage.removeItem('devOrbitNames');
+}
 
 interface UseAppsReturn {
   apps: AppConfig[];
@@ -29,11 +72,11 @@ interface UseAppsReturn {
   handleOpenInBrowser: (id: string) => void;
   handleOpenInFinder: (id: string) => void;
   handleOpenInTerminal: (id: string) => void;
-  handleToggleFavorite: (id: string) => void;
-  handleToggleArchive: (id: string) => void;
+  handleToggleFavorite: (id: string) => Promise<void>;
+  handleToggleArchive: (id: string) => Promise<void>;
   handleInstallDeps: (id: string) => Promise<void>;
-  handleSetPort: (id: string, port: number) => void;
-  handleRename: (id: string, newName: string) => void;
+  handleSetPort: (id: string, port: number) => Promise<void>;
+  handleRename: (id: string, newName: string) => Promise<void>;
   refreshApps: () => Promise<void>;
   runningCount: number;
   totalCpu: number;
@@ -51,21 +94,27 @@ export function useApps(): UseAppsReturn {
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchApps();
-      // Restore favorites/archived/ports/names from localStorage
-      const favorites = JSON.parse(localStorage.getItem('devOrbitFavorites') || '[]');
-      const archived = JSON.parse(localStorage.getItem('devOrbitArchived') || '[]');
-      const ports: Record<string, number> = JSON.parse(localStorage.getItem('devOrbitPorts') || '{}');
-      const names: Record<string, string> = JSON.parse(localStorage.getItem('devOrbitNames') || '{}');
+      // First, migrate any existing localStorage settings to backend (one-time)
+      await migrateLocalStorageToBackend();
+
+      // Fetch apps and settings from backend in parallel
+      const [data, settings] = await Promise.all([
+        fetchApps(),
+        fetchSettings(),
+      ]);
+
+      // Enrich app data with backend settings
       const enrichedData = data.map((app) => ({
         ...app,
-        // Restore saved name if available
-        name: names[app.id] ?? app.name,
-        isFavorite: favorites.includes(app.id),
-        isArchived: archived.includes(app.id),
-        // Restore saved port if available
-        port: ports[app.id] ?? app.port,
-        addresses: ports[app.id] ? [`http://localhost:${ports[app.id]}`] : app.addresses,
+        // Apply custom name if available
+        name: settings.customNames[app.id] ?? app.name,
+        isFavorite: settings.favorites.includes(app.id),
+        isArchived: settings.archived.includes(app.id),
+        // Apply custom port if available
+        port: settings.customPorts[app.id] ?? app.port,
+        addresses: settings.customPorts[app.id]
+          ? [`http://localhost:${settings.customPorts[app.id]}`]
+          : app.addresses,
       }));
       setApps(enrichedData);
     } catch (err) {
@@ -293,39 +342,70 @@ export function useApps(): UseAppsReturn {
     [apps]
   );
 
-  const handleToggleFavorite = useCallback((id: string) => {
-    setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id ? { ...app, isFavorite: !app.isFavorite } : app
-      )
-    );
-    // Persist to localStorage
-    const favorites = JSON.parse(localStorage.getItem('devOrbitFavorites') || '[]');
-    const idx = favorites.indexOf(id);
-    if (idx === -1) {
-      favorites.push(id);
-    } else {
-      favorites.splice(idx, 1);
-    }
-    localStorage.setItem('devOrbitFavorites', JSON.stringify(favorites));
-  }, []);
+  const handleToggleFavorite = useCallback(async (id: string) => {
+    // Optimistically update UI
+    const currentApp = apps.find((a) => a.id === id);
+    const newFavoriteState = !currentApp?.isFavorite;
 
-  const handleToggleArchive = useCallback((id: string) => {
     setApps((currentApps) =>
       currentApps.map((app) =>
-        app.id === id ? { ...app, isArchived: !app.isArchived } : app
+        app.id === id ? { ...app, isFavorite: newFavoriteState } : app
       )
     );
-    // Persist to localStorage
-    const archived = JSON.parse(localStorage.getItem('devOrbitArchived') || '[]');
-    const idx = archived.indexOf(id);
-    if (idx === -1) {
-      archived.push(id);
-    } else {
-      archived.splice(idx, 1);
+
+    // Persist to backend
+    try {
+      await updateFavorite(id, newFavoriteState);
+    } catch (err) {
+      console.error('Failed to update favorite:', err);
+      // Revert on failure
+      setApps((currentApps) =>
+        currentApps.map((app) =>
+          app.id === id ? { ...app, isFavorite: !newFavoriteState } : app
+        )
+      );
+      toast.error('Failed to update favorite');
     }
-    localStorage.setItem('devOrbitArchived', JSON.stringify(archived));
-  }, []);
+  }, [apps]);
+
+  const handleToggleArchive = useCallback(async (id: string) => {
+    // Optimistically update UI
+    const currentApp = apps.find((a) => a.id === id);
+    const newArchiveState = !currentApp?.isArchived;
+
+    setApps((currentApps) =>
+      currentApps.map((app) =>
+        app.id === id
+          ? {
+              ...app,
+              isArchived: newArchiveState,
+              // Remove from favorites when archiving (backend does this too)
+              isFavorite: newArchiveState ? false : app.isFavorite,
+            }
+          : app
+      )
+    );
+
+    // Persist to backend
+    try {
+      await updateArchive(id, newArchiveState);
+    } catch (err) {
+      console.error('Failed to update archive:', err);
+      // Revert on failure
+      setApps((currentApps) =>
+        currentApps.map((app) =>
+          app.id === id
+            ? {
+                ...app,
+                isArchived: !newArchiveState,
+                isFavorite: currentApp?.isFavorite ?? false,
+              }
+            : app
+        )
+      );
+      toast.error('Failed to update archive');
+    }
+  }, [apps]);
 
   const handleInstallDeps = useCallback(async (id: string) => {
     const app = apps.find((a) => a.id === id);
@@ -364,7 +444,11 @@ export function useApps(): UseAppsReturn {
     }
   }, [apps]);
 
-  const handleSetPort = useCallback((id: string, port: number) => {
+  const handleSetPort = useCallback(async (id: string, port: number) => {
+    const currentApp = apps.find((a) => a.id === id);
+    const oldPort = currentApp?.port;
+
+    // Optimistically update UI
     setApps((currentApps) =>
       currentApps.map((app) =>
         app.id === id
@@ -376,25 +460,54 @@ export function useApps(): UseAppsReturn {
           : app
       )
     );
-    // Persist to localStorage
-    const ports: Record<string, number> = JSON.parse(localStorage.getItem('devOrbitPorts') || '{}');
-    ports[id] = port;
-    localStorage.setItem('devOrbitPorts', JSON.stringify(ports));
-    toast.success(`Port updated to ${port}`);
-  }, []);
 
-  const handleRename = useCallback((id: string, newName: string) => {
-    const oldName = apps.find(a => a.id === id)?.name;
+    // Persist to backend
+    try {
+      await updatePort(id, port);
+      toast.success(`Port updated to ${port}`);
+    } catch (err) {
+      console.error('Failed to update port:', err);
+      // Revert on failure
+      setApps((currentApps) =>
+        currentApps.map((app) =>
+          app.id === id
+            ? {
+                ...app,
+                port: oldPort ?? 3000,
+                addresses: oldPort ? [`http://localhost:${oldPort}`] : app.addresses,
+              }
+            : app
+        )
+      );
+      toast.error('Failed to update port');
+    }
+  }, [apps]);
+
+  const handleRename = useCallback(async (id: string, newName: string) => {
+    const currentApp = apps.find((a) => a.id === id);
+    const oldName = currentApp?.name;
+
+    // Optimistically update UI
     setApps((currentApps) =>
       currentApps.map((app) =>
         app.id === id ? { ...app, name: newName } : app
       )
     );
-    // Persist to localStorage
-    const names: Record<string, string> = JSON.parse(localStorage.getItem('devOrbitNames') || '{}');
-    names[id] = newName;
-    localStorage.setItem('devOrbitNames', JSON.stringify(names));
-    toast.success(`Renamed "${oldName}" to "${newName}"`);
+
+    // Persist to backend
+    try {
+      await updateName(id, newName);
+      toast.success(`Renamed "${oldName}" to "${newName}"`);
+    } catch (err) {
+      console.error('Failed to rename app:', err);
+      // Revert on failure
+      setApps((currentApps) =>
+        currentApps.map((app) =>
+          app.id === id ? { ...app, name: oldName ?? app.name } : app
+        )
+      );
+      toast.error('Failed to rename app');
+    }
   }, [apps]);
 
   const handleOpenInFinder = useCallback((id: string) => {
