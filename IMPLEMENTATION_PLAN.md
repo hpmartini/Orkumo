@@ -15,8 +15,8 @@ This document outlines the planned features, architecture decisions, and impleme
 | Resizable Sidebar | ✅ Completed | Drag to resize, persisted to localStorage |
 | Refresh Buttons | ✅ Completed | Global and per-folder refresh in sidebar |
 | Favorite Button in Detail | ✅ Completed | Star button in AppDetail header |
-| **Backend Persistence** | 🚧 In Progress | File-based JSON storage for settings |
-| **Architecture Refactor** | 🚧 In Progress | Proper backend/frontend separation |
+| **Backend Persistence** | ✅ Completed | `server/services/settingsService.js` + `hooks/useApps.ts` |
+| **Architecture Refactor** | ✅ Completed | Backend/frontend separation with REST API |
 | Database Integration | 🔲 Pending | Schema ready, needs PostgreSQL connection |
 | Persistent Terminals | 🔲 Pending | Session manager created, needs full integration |
 
@@ -239,8 +239,8 @@ volumes:
 
 | Priority | Feature | Status | Impact |
 |----------|---------|--------|--------|
-| 1 | **Backend Settings Persistence** | 🚧 In Progress | Critical - Data loss prevention |
-| 2 | **Docker Build Verification** | 🚧 In Progress | Critical - Feature parity |
+| 1 | **Backend Settings Persistence** | ✅ Completed | Critical - Data loss prevention |
+| 2 | **Docker Build Verification** | ✅ Completed | Critical - Feature parity |
 | 3 | Database Integration | 🔲 Pending | Medium - Scalability |
 | 4 | Persistent Terminals | 🔲 Pending | Medium - UX improvement |
 | 5 | Docker Compose Management UI | 🔲 Pending | Low - Power user feature |
