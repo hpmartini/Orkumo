@@ -75,8 +75,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     }
   };
 
-  // Group apps by parent directory, separate favorites and archived
-  const { favorites, grouped, archived } = useMemo(() => {
+  // Group apps by parent directory, separate favorites and archived, sort alphabetically
+  const { favorites, grouped, sortedDirs, archived } = useMemo(() => {
     const favs: AppConfig[] = [];
     const arch: AppConfig[] = [];
     const groups: GroupedApps = {};
@@ -99,7 +99,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
       groups[displayDir].push(app);
     });
 
-    return { favorites: favs, grouped: groups, archived: arch };
+    // Sort apps within each folder alphabetically
+    Object.keys(groups).forEach((dir) => {
+      groups[dir].sort((a, b) => a.name.localeCompare(b.name));
+    });
+
+    // Sort favorites alphabetically
+    favs.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Sort archived alphabetically
+    arch.sort((a, b) => a.name.localeCompare(b.name));
+
+    // Sort folder names alphabetically
+    const sortedDirNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+    return { favorites: favs, grouped: groups, sortedDirs: sortedDirNames, archived: arch };
   }, [apps]);
 
   const toggleDir = (dir: string) => {
@@ -295,40 +309,43 @@ export const Sidebar: React.FC<SidebarProps> = ({
           )}
         </div>
 
-        {Object.entries(grouped).map(([dir, dirApps]) => (
-          <div key={dir} className="space-y-1">
-            <div className="group flex items-center">
-              <button
-                onClick={() => toggleDir(dir)}
-                className="flex-1 text-left px-2 py-1.5 rounded-l flex items-center gap-2 text-gray-500 hover:text-gray-300 hover:bg-gray-900/50 transition-colors"
-              >
-                {expandedDirs.has(dir) ? (
-                  <ChevronDown size={14} />
-                ) : (
-                  <ChevronRight size={14} />
-                )}
-                <Folder size={14} />
-                <span className="text-sm truncate">{dir}</span>
-                <span className="ml-auto text-xs text-gray-600">{dirApps.length}</span>
-              </button>
-              {onRefreshDirectory && (
+        {sortedDirs.map((dir) => {
+          const dirApps = grouped[dir];
+          return (
+            <div key={dir} className="space-y-1">
+              <div className="group flex items-center">
                 <button
-                  onClick={(e) => handleRefreshDir(dir, e)}
-                  disabled={refreshingDir !== null}
-                  className="p-1.5 rounded-r opacity-0 group-hover:opacity-100 hover:bg-gray-800 text-gray-500 hover:text-gray-300 transition-all disabled:opacity-50"
-                  title={`Refresh ${dir}`}
+                  onClick={() => toggleDir(dir)}
+                  className="flex-1 text-left px-2 py-1.5 rounded-l flex items-center gap-2 text-gray-500 hover:text-gray-300 hover:bg-gray-900/50 transition-colors"
                 >
-                  <RefreshCw size={12} className={refreshingDir === dir ? 'animate-spin' : ''} />
+                  {expandedDirs.has(dir) ? (
+                    <ChevronDown size={14} />
+                  ) : (
+                    <ChevronRight size={14} />
+                  )}
+                  <Folder size={14} />
+                  <span className="text-sm truncate">{dir}</span>
+                  <span className="ml-auto text-xs text-gray-600">{dirApps.length}</span>
                 </button>
+                {onRefreshDirectory && (
+                  <button
+                    onClick={(e) => handleRefreshDir(dir, e)}
+                    disabled={refreshingDir !== null}
+                    className="p-1.5 rounded-r opacity-0 group-hover:opacity-100 hover:bg-gray-800 text-gray-500 hover:text-gray-300 transition-all disabled:opacity-50"
+                    title={`Refresh ${dir}`}
+                  >
+                    <RefreshCw size={12} className={refreshingDir === dir ? 'animate-spin' : ''} />
+                  </button>
+                )}
+              </div>
+              {expandedDirs.has(dir) && (
+                <div className="ml-4 space-y-1 border-l border-gray-800 pl-2">
+                  {dirApps.map((app) => renderAppItem(app))}
+                </div>
               )}
             </div>
-            {expandedDirs.has(dir) && (
-              <div className="ml-4 space-y-1 border-l border-gray-800 pl-2">
-                {dirApps.map((app) => renderAppItem(app))}
-              </div>
-            )}
-          </div>
-        ))}
+          );
+        })}
       </nav>
 
       {/* Archive Section */}
