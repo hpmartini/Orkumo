@@ -51,6 +51,22 @@ and provides basic control mechanisms, like:
 
 The console output in the details view is a real webbased terminal emulator, supporting multiple tabs. On Default it shows just one tab with the console output. When adding more terminal tabs, each should run the default shell on start.
 
+- On demand, detect all ports of the favorite projects to resolve conflicts
+- Make sure the projects are started with their configured (or at build time set up) ports
+- Docker-Projekt-Support
+    - detect containers and setup (docker file and, docker compose file)
+    - configure project, so it can run and manage the containers
+    - ability to control each container in the details view
+- Open in external IDE from details view
+- Open new terminal tab with claude code
+additional options:
+    - `-c` for continuing the last session
+    - `--dangerously-skip-permissions`
+- On details view add a “sub view” for coding with this elements as side-by-side view:
+    - Terminals (reuse the terminals from the default details view)
+    - Web-IDE (VS-Code) einbauen
+    - Browser-View im I-Frame mit Debugger einbauen
+
 
 ## Commands
 
