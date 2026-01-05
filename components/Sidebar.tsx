@@ -311,17 +311,14 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <span className="text-sm truncate">{dir}</span>
                 <span className="ml-auto text-xs text-gray-600">{dirApps.length}</span>
               </button>
-              {onRefresh && (
+              {onRefreshDirectory && (
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleRefreshAll();
-                  }}
-                  disabled={isRefreshing}
+                  onClick={(e) => handleRefreshDir(dir, e)}
+                  disabled={refreshingDir !== null}
                   className="p-1.5 rounded-r opacity-0 group-hover:opacity-100 hover:bg-gray-800 text-gray-500 hover:text-gray-300 transition-all disabled:opacity-50"
                   title={`Refresh ${dir}`}
                 >
-                  <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
+                  <RefreshCw size={12} className={refreshingDir === dir ? 'animate-spin' : ''} />
                 </button>
               )}
             </div>
