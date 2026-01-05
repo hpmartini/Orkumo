@@ -137,6 +137,17 @@ function AppContent() {
     }
   };
 
+  // Rename handler that prompts for the new name
+  const handleRenamePrompt = useCallback((id: string) => {
+    const app = apps.find(a => a.id === id);
+    if (!app) return;
+
+    const newName = window.prompt('Enter new name:', app.name);
+    if (newName && newName.trim() && newName !== app.name) {
+      handleRename(id, newName.trim());
+    }
+  }, [apps, handleRename]);
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
@@ -201,7 +212,11 @@ function AppContent() {
           onStop={handleStopApp}
           onRestart={handleRestartApp}
           onOpenInBrowser={handleOpenInBrowser}
+          onOpenInFinder={handleOpenInFinder}
+          onOpenInTerminal={handleOpenInTerminal}
+          onRename={handleRenamePrompt}
           onRefresh={refreshApps}
+          mainDirectory="Projects"
         />
         {/* Resize handle */}
         <div
@@ -315,6 +330,7 @@ function AppContent() {
                     onToggleArchive={handleToggleArchive}
                     onOpenInFinder={handleOpenInFinder}
                     onOpenInTerminal={handleOpenInTerminal}
+                    onRename={handleRenamePrompt}
                   />
                 </div>
 

@@ -7,12 +7,14 @@ import {
   Star,
   Archive,
   Folder,
+  FolderRoot,
   Play,
   Square,
   RefreshCw,
   Globe,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
+import { KebabMenu, createAppMenuItems } from './KebabMenu';
 
 interface SidebarProps {
   apps: AppConfig[];
@@ -26,8 +28,12 @@ interface SidebarProps {
   onStop?: (id: string) => void;
   onRestart?: (id: string) => void;
   onOpenInBrowser?: (id: string) => void;
+  onOpenInFinder?: (id: string) => void;
+  onOpenInTerminal?: (id: string) => void;
+  onRename?: (id: string) => void;
   onRefresh?: () => Promise<void>;
   onRefreshDirectory?: (directory: string) => Promise<void>;
+  mainDirectory?: string; // The main/root project directory to highlight
 }
 
 interface GroupedApps {
@@ -46,8 +52,12 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onStop,
   onRestart,
   onOpenInBrowser,
+  onOpenInFinder,
+  onOpenInTerminal,
+  onRename,
   onRefresh,
   onRefreshDirectory,
+  mainDirectory = 'Projects',
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive] = useState(false);
@@ -110,11 +120,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
     // Sort archived alphabetically
     arch.sort((a, b) => a.name.localeCompare(b.name));
 
-    // Sort folder names alphabetically
-    const sortedDirNames = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    // Sort folder names: main directory first, then alphabetically
+    const sortedDirNames = Object.keys(groups).sort((a, b) => {
+      // Main directory always first
+      if (a.toLowerCase() === mainDirectory.toLowerCase()) return -1;
+      if (b.toLowerCase() === mainDirectory.toLowerCase()) return 1;
+      return a.localeCompare(b);
+    });
 
     return { favorites: favs, grouped: groups, sortedDirs: sortedDirNames, archived: arch };
-  }, [apps]);
+  }, [apps, mainDirectory]);
 
   const toggleDir = (dir: string) => {
     setExpandedDirs((prev) => {
@@ -138,7 +153,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     status === AppStatus.ERROR ||
     status === AppStatus.CANCELLED;
 
-  const renderAppItem = (app: AppConfig, showFavoriteIcon = true) => (
+  const renderAppItem = (app: AppConfig) => (
     <div
       key={app.id}
       role="button"
@@ -183,18 +198,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 <Square size={12} fill="currentColor" />
               </button>
             )}
-            {onRestart && (
-              <button
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onRestart(app.id);
-                }}
-                className="p-1 rounded hover:bg-gray-700 text-gray-500"
-                title="Restart"
-              >
-                <RefreshCw size={12} />
-              </button>
-            )}
             {onOpenInBrowser && (
               <button
                 onClick={(e) => {
@@ -227,33 +230,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )
         )}
-        {/* Favorite & Archive */}
-        {showFavoriteIcon && onToggleFavorite && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFavorite(app.id);
-            }}
-            className={`p-1 rounded hover:bg-gray-700 ${
-              app.isFavorite ? 'text-yellow-400' : 'text-gray-500'
-            }`}
-            title={app.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
-          >
-            <Star size={12} fill={app.isFavorite ? 'currentColor' : 'none'} />
-          </button>
-        )}
-        {onToggleArchive && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleArchive(app.id);
-            }}
-            className="p-1 rounded hover:bg-gray-700 text-gray-500"
-            title={app.isArchived ? 'Unarchive' : 'Archive'}
-          >
-            <Archive size={12} />
-          </button>
-        )}
+        {/* Kebab Menu */}
+        <KebabMenu
+          items={createAppMenuItems({
+            appId: app.id,
+            status: app.status,
+            isFavorite: app.isFavorite,
+            isArchived: app.isArchived,
+            hasPort: !!app.port,
+            onStart,
+            onStop,
+            onRestart,
+            onOpenInBrowser,
+            onToggleFavorite,
+            onToggleArchive,
+            onOpenInFinder,
+            onOpenInTerminal,
+            onRename,
+          })}
+          position="left"
+          size="sm"
+        />
       </div>
     </div>
   );
@@ -311,21 +308,32 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {sortedDirs.map((dir) => {
           const dirApps = grouped[dir];
+          const isMainDir = dir.toLowerCase() === mainDirectory.toLowerCase();
           return (
             <div key={dir} className="space-y-1">
               <div className="group flex items-center">
                 <button
                   onClick={() => toggleDir(dir)}
-                  className="flex-1 text-left px-2 py-1.5 rounded-l flex items-center gap-2 text-gray-500 hover:text-gray-300 hover:bg-gray-900/50 transition-colors"
+                  className={`flex-1 text-left px-2 py-1.5 rounded-l flex items-center gap-2 transition-colors ${
+                    isMainDir
+                      ? 'text-blue-400 hover:text-blue-300 hover:bg-blue-900/20 font-medium'
+                      : 'text-gray-500 hover:text-gray-300 hover:bg-gray-900/50'
+                  }`}
                 >
                   {expandedDirs.has(dir) ? (
                     <ChevronDown size={14} />
                   ) : (
                     <ChevronRight size={14} />
                   )}
-                  <Folder size={14} />
+                  {isMainDir ? (
+                    <FolderRoot size={14} className="text-blue-400" />
+                  ) : (
+                    <Folder size={14} />
+                  )}
                   <span className="text-sm truncate">{dir}</span>
-                  <span className="ml-auto text-xs text-gray-600">{dirApps.length}</span>
+                  <span className={`ml-auto text-xs ${isMainDir ? 'text-blue-500' : 'text-gray-600'}`}>
+                    {dirApps.length}
+                  </span>
                 </button>
                 {onRefreshDirectory && (
                   <button
@@ -339,7 +347,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </div>
               {expandedDirs.has(dir) && (
-                <div className="ml-4 space-y-1 border-l border-gray-800 pl-2">
+                <div className={`ml-4 space-y-1 pl-2 ${isMainDir ? 'border-l border-blue-800/50' : 'border-l border-gray-800'}`}>
                   {dirApps.map((app) => renderAppItem(app))}
                 </div>
               )}
@@ -364,7 +372,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
           {showArchive && (
             <div className="px-4 pb-3 space-y-1">
-              {archived.map((app) => renderAppItem(app, false))}
+              {archived.map((app) => renderAppItem(app))}
             </div>
           )}
         </div>

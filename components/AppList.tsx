@@ -17,6 +17,7 @@ interface AppListProps {
   onToggleArchive?: (id: string) => void;
   onOpenInFinder?: (id: string) => void;
   onOpenInTerminal?: (id: string) => void;
+  onRename?: (id: string) => void;
 }
 
 interface GroupedApps {
@@ -36,6 +37,7 @@ export const AppList: React.FC<AppListProps> = ({
   onToggleArchive,
   onOpenInFinder,
   onOpenInTerminal,
+  onRename,
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
@@ -139,6 +141,7 @@ export const AppList: React.FC<AppListProps> = ({
               onToggleArchive,
               onOpenInFinder,
               onOpenInTerminal,
+              onRename,
             })}
             position="left"
           />
