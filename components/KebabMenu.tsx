@@ -147,7 +147,7 @@ export const KebabMenu: React.FC<KebabMenuProps> = ({
   const menuContent = isOpen ? (
     <div
       ref={menuRef}
-      className="fixed z-[9999] py-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl min-w-[180px] animate-in fade-in zoom-in-95 duration-150"
+      className="fixed z-[9999] py-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl min-w-[180px]"
       style={{
         top: menuPosition.openAbove ? 'auto' : menuPosition.top,
         bottom: menuPosition.openAbove ? window.innerHeight - menuPosition.top : 'auto',

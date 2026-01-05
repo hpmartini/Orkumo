@@ -614,15 +614,17 @@ app.post('/api/analyze', async (req, res) => {
   try {
     const ai = new GoogleGenAI({ apiKey });
 
-    const prompt = `
-      You are a DevOps expert. Analyze the following configuration file content (e.g., package.json or README) for a web application.
-      Filename: ${fileName}
-      Content:
-      ${fileContent.substring(0, 3000)}
+    const prompt = `Analyze this configuration file for a web application.
 
-      Determine the best command to run this application in development mode, the likely port it will use, and the project type.
-      Return a JSON object with keys: command (string), port (number), type (string enum: vite, next, node, static, unknown), and summary (string, short description).
-    `;
+Filename: ${fileName}
+Content:
+${fileContent.substring(0, 3000)}
+
+Return a JSON object with:
+- command: The command to run this app in dev mode (e.g., "npm run dev", "yarn dev")
+- port: The port number the app will run on (e.g., 3000, 5173)
+- type: One of: "vite", "next", "node", "static", "unknown"
+- summary: A short one-sentence description of the project`;
 
     const response = await ai.models.generateContent({
       model: 'gemini-2.0-flash',
@@ -632,33 +634,73 @@ app.post('/api/analyze', async (req, res) => {
         responseSchema: {
           type: Type.OBJECT,
           properties: {
-            command: { type: Type.STRING },
-            port: { type: Type.NUMBER },
-            type: { type: Type.STRING },
-            summary: { type: Type.STRING },
+            command: { type: Type.STRING, description: 'Development command like npm run dev' },
+            port: { type: Type.NUMBER, description: 'Port number like 3000 or 5173' },
+            type: { type: Type.STRING, enum: ['vite', 'next', 'node', 'static', 'unknown'] },
+            summary: { type: Type.STRING, description: 'One sentence project description' },
           },
+          required: ['command', 'port', 'type', 'summary'],
         }
       }
     });
 
     const text = response.text;
+    console.log('[Analyze] Raw AI response:', text);
+
     if (!text) {
-      throw new Error('No response from AI');
+      console.error('[Analyze] No response text from AI');
+      return res.status(500).json({
+        error: 'No response from AI',
+        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' }
+      });
     }
 
-    const parsed = JSON.parse(text);
-    if (!parsed.command || typeof parsed.port !== 'number' || !parsed.type || !parsed.summary) {
-      throw new Error('Invalid response structure from AI');
+    let parsed;
+    try {
+      parsed = JSON.parse(text);
+    } catch (parseError) {
+      console.error('[Analyze] JSON parse error:', parseError.message);
+      console.error('[Analyze] Raw text was:', text);
+      return res.status(500).json({
+        error: 'Failed to parse AI response as JSON',
+        rawResponse: text.substring(0, 500),
+        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' }
+      });
     }
 
-    res.json(parsed);
+    // Validate and provide defaults for missing fields
+    // Required fields: command, port, type are critical - summary can be generated
+    const criticalMissing = [];
+    if (!parsed.command) criticalMissing.push('command');
+    if (typeof parsed.port !== 'number') criticalMissing.push('port');
+    if (!parsed.type) criticalMissing.push('type');
+
+    if (criticalMissing.length > 0) {
+      console.error('[Analyze] Critical fields missing:', criticalMissing);
+      console.error('[Analyze] Parsed response:', JSON.stringify(parsed, null, 2));
+      return res.status(500).json({
+        error: `Invalid response structure: missing ${criticalMissing.join(', ')}`,
+        parsedResponse: parsed,
+        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' }
+      });
+    }
+
+    // Provide default summary if missing
+    const result = {
+      command: parsed.command,
+      port: parsed.port,
+      type: parsed.type,
+      summary: parsed.summary || `${parsed.type} project running on port ${parsed.port}`
+    };
+
+    console.log('[Analyze] Success:', result);
+    res.json(result);
   } catch (error) {
-    console.error('Gemini analysis failed:', error);
-    res.json({
-      command: 'npm run dev',
-      port: 3000,
-      type: 'unknown',
-      summary: 'Analysis failed. Defaulting to standard configuration.'
+    console.error('[Analyze] Unexpected error:', error.message);
+    console.error('[Analyze] Stack:', error.stack);
+    return res.status(500).json({
+      error: error.message,
+      fallback: { command: 'npm run dev', port: 3000, type: 'unknown' }
     });
   }
 });

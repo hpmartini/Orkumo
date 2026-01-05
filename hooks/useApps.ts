@@ -320,7 +320,8 @@ export function useApps(): UseAppsReturn {
 
       toast.success(`Analysis complete for ${apps.find(a => a.id === id)?.name || 'app'}`);
     } catch (err) {
-      console.error('Failed to analyze app:', err);
+      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+      console.error('Failed to analyze app:', errorMessage);
       setApps((currentApps) =>
         currentApps.map((a) =>
           a.id === id
@@ -328,7 +329,7 @@ export function useApps(): UseAppsReturn {
             : a
         )
       );
-      toast.error('Failed to analyze app configuration');
+      toast.error(`Analysis failed: ${errorMessage}`);
     }
   }, [apps]);
 

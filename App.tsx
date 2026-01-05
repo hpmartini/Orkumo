@@ -331,6 +331,7 @@ function AppContent() {
                     onOpenInFinder={handleOpenInFinder}
                     onOpenInTerminal={handleOpenInTerminal}
                     onRename={handleRenamePrompt}
+                    mainDirectory="projects"
                   />
                 </div>
 

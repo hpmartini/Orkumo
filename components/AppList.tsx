@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { FolderOpen, Box, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { FolderOpen, FolderRoot, Box, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -18,6 +18,7 @@ interface AppListProps {
   onOpenInFinder?: (id: string) => void;
   onOpenInTerminal?: (id: string) => void;
   onRename?: (id: string) => void;
+  mainDirectory?: string;
 }
 
 interface GroupedApps {
@@ -38,11 +39,12 @@ export const AppList: React.FC<AppListProps> = ({
   onOpenInFinder,
   onOpenInTerminal,
   onRename,
+  mainDirectory = 'projects',
 }) => {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [collapsedFolders, setCollapsedFolders] = useState<Set<string>>(new Set());
 
-  // Group apps by parent folder and sort alphabetically
+  // Group apps by parent folder and sort alphabetically with main folder first
   const groupedApps = useMemo(() => {
     const groups: GroupedApps = {};
 
@@ -62,11 +64,15 @@ export const AppList: React.FC<AppListProps> = ({
       groups[folder].sort((a, b) => a.name.localeCompare(b.name));
     });
 
-    // Return sorted folder names
-    const sortedFolders = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+    // Sort folder names: main directory first, then alphabetically
+    const sortedFolders = Object.keys(groups).sort((a, b) => {
+      if (a.toLowerCase() === mainDirectory.toLowerCase()) return -1;
+      if (b.toLowerCase() === mainDirectory.toLowerCase()) return 1;
+      return a.localeCompare(b);
+    });
 
     return { groups, sortedFolders };
-  }, [apps]);
+  }, [apps, mainDirectory]);
 
   const handleRefresh = async () => {
     if (!onRefresh || isRefreshing) return;
@@ -173,23 +179,32 @@ export const AppList: React.FC<AppListProps> = ({
           const folderApps = groupedApps.groups[folder];
           const isCollapsed = collapsedFolders.has(folder);
           const runningCount = folderApps.filter(a => a.status === AppStatus.RUNNING).length;
+          const isMainDir = folder.toLowerCase() === mainDirectory.toLowerCase();
 
           return (
             <div key={folder}>
               {/* Folder divider header */}
               <button
                 onClick={() => toggleFolder(folder)}
-                className="w-full px-4 py-3 flex items-center justify-between bg-gray-750 border-y border-gray-700/50 hover:bg-gray-700/50 transition-colors"
+                className={`w-full px-4 py-3 flex items-center justify-between border-y transition-colors ${
+                  isMainDir
+                    ? 'bg-blue-900/20 border-blue-800/50 hover:bg-blue-900/30'
+                    : 'bg-gray-750 border-gray-700/50 hover:bg-gray-700/50'
+                }`}
               >
-                <div className="flex items-center gap-2 text-gray-300">
+                <div className={`flex items-center gap-2 ${isMainDir ? 'text-blue-300' : 'text-gray-300'}`}>
                   {isCollapsed ? (
-                    <ChevronRight size={16} className="text-gray-500" />
+                    <ChevronRight size={16} className={isMainDir ? 'text-blue-400' : 'text-gray-500'} />
                   ) : (
-                    <ChevronDown size={16} className="text-gray-500" />
+                    <ChevronDown size={16} className={isMainDir ? 'text-blue-400' : 'text-gray-500'} />
                   )}
-                  <FolderOpen size={16} className="text-blue-400" />
+                  {isMainDir ? (
+                    <FolderRoot size={16} className="text-blue-400" />
+                  ) : (
+                    <FolderOpen size={16} className="text-blue-400" />
+                  )}
                   <span className="font-medium">{folder}</span>
-                  <span className="text-xs text-gray-500">({folderApps.length})</span>
+                  <span className={`text-xs ${isMainDir ? 'text-blue-400' : 'text-gray-500'}`}>({folderApps.length})</span>
                 </div>
                 {runningCount > 0 && (
                   <span className="flex items-center gap-1 text-xs text-emerald-400">
