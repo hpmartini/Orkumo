@@ -26,6 +26,8 @@ interface SidebarProps {
   onStop?: (id: string) => void;
   onRestart?: (id: string) => void;
   onOpenInBrowser?: (id: string) => void;
+  onRefresh?: () => Promise<void>;
+  onRefreshDirectory?: (directory: string) => Promise<void>;
 }
 
 interface GroupedApps {
@@ -44,9 +46,34 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onStop,
   onRestart,
   onOpenInBrowser,
+  onRefresh,
+  onRefreshDirectory,
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive] = useState(false);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const [refreshingDir, setRefreshingDir] = useState<string | null>(null);
+
+  const handleRefreshAll = async () => {
+    if (!onRefresh || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
+
+  const handleRefreshDir = async (dir: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!onRefreshDirectory || refreshingDir) return;
+    setRefreshingDir(dir);
+    try {
+      await onRefreshDirectory(dir);
+    } finally {
+      setRefreshingDir(null);
+    }
+  };
 
   // Group apps by parent directory, separate favorites and archived
   const { favorites, grouped, archived } = useMemo(() => {
@@ -254,25 +281,50 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* Grouped Apps by Directory */}
-        <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-600 uppercase tracking-wider">
-          Projects
+        <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-600 uppercase tracking-wider flex items-center justify-between">
+          <span>Projects</span>
+          {onRefresh && (
+            <button
+              onClick={handleRefreshAll}
+              disabled={isRefreshing}
+              className="p-1 rounded hover:bg-gray-800 text-gray-500 hover:text-gray-300 transition-colors disabled:opacity-50"
+              title="Refresh all projects"
+            >
+              <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
+            </button>
+          )}
         </div>
 
         {Object.entries(grouped).map(([dir, dirApps]) => (
           <div key={dir} className="space-y-1">
-            <button
-              onClick={() => toggleDir(dir)}
-              className="w-full text-left px-2 py-1.5 rounded flex items-center gap-2 text-gray-500 hover:text-gray-300 hover:bg-gray-900/50 transition-colors"
-            >
-              {expandedDirs.has(dir) ? (
-                <ChevronDown size={14} />
-              ) : (
-                <ChevronRight size={14} />
+            <div className="group flex items-center">
+              <button
+                onClick={() => toggleDir(dir)}
+                className="flex-1 text-left px-2 py-1.5 rounded-l flex items-center gap-2 text-gray-500 hover:text-gray-300 hover:bg-gray-900/50 transition-colors"
+              >
+                {expandedDirs.has(dir) ? (
+                  <ChevronDown size={14} />
+                ) : (
+                  <ChevronRight size={14} />
+                )}
+                <Folder size={14} />
+                <span className="text-sm truncate">{dir}</span>
+                <span className="ml-auto text-xs text-gray-600">{dirApps.length}</span>
+              </button>
+              {onRefresh && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleRefreshAll();
+                  }}
+                  disabled={isRefreshing}
+                  className="p-1.5 rounded-r opacity-0 group-hover:opacity-100 hover:bg-gray-800 text-gray-500 hover:text-gray-300 transition-all disabled:opacity-50"
+                  title={`Refresh ${dir}`}
+                >
+                  <RefreshCw size={12} className={isRefreshing ? 'animate-spin' : ''} />
+                </button>
               )}
-              <Folder size={14} />
-              <span className="text-sm truncate">{dir}</span>
-              <span className="ml-auto text-xs text-gray-600">{dirApps.length}</span>
-            </button>
+            </div>
             {expandedDirs.has(dir) && (
               <div className="ml-4 space-y-1 border-l border-gray-800 pl-2">
                 {dirApps.map((app) => renderAppItem(app))}

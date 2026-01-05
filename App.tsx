@@ -201,6 +201,7 @@ function AppContent() {
           onStop={handleStopApp}
           onRestart={handleRestartApp}
           onOpenInBrowser={handleOpenInBrowser}
+          onRefresh={refreshApps}
         />
         {/* Resize handle */}
         <div
@@ -226,18 +227,20 @@ function AppContent() {
 
       {/* Main Content - with left margin for fixed sidebar */}
       <main className="flex-1 flex flex-col overflow-auto relative ml-0 md:ml-[var(--sidebar-width)]">
-        {/* App Tabs - only show when tabs exist */}
+        {/* App Tabs - sticky at top, only show when tabs exist */}
         {tabs.length > 0 && (
-          <AppTabs
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onSelectTab={handleTabSelect}
-            onCloseTab={handleTabClose}
-            onReorderTabs={reorderTabs}
-          />
+          <div className="sticky top-0 z-30">
+            <AppTabs
+              tabs={tabs}
+              activeTabId={activeTabId}
+              onSelectTab={handleTabSelect}
+              onCloseTab={handleTabClose}
+              onReorderTabs={reorderTabs}
+            />
+          </div>
         )}
 
-        <header className="sticky top-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 md:px-8 py-4 flex items-center justify-between">
+        <header className={`sticky ${tabs.length > 0 ? 'top-10' : 'top-0'} z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 md:px-8 py-4 flex items-center justify-between`}>
           <div className="md:hidden flex items-center gap-3">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}

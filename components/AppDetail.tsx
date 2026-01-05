@@ -20,7 +20,6 @@ import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { PerformanceCharts } from './PerformanceCharts';
 import { XTerminal } from './XTerminal';
-import { KebabMenu, createAppMenuItems } from './KebabMenu';
 
 interface AppDetailProps {
   app: AppConfig | null;
