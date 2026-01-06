@@ -280,4 +280,88 @@ describe('IDESelector', () => {
       });
     });
   });
+
+  describe('Fallback behavior', () => {
+    it('should fall back to first IDE when preferred IDE is not installed', async () => {
+      // Mock only 2 IDEs, but preferred is a third one
+      const availableIDEs = [mockIDEs[0], mockIDEs[1]];
+      vi.mocked(api.fetchInstalledIDEs).mockResolvedValue(availableIDEs);
+      vi.mocked(api.openInIDE).mockResolvedValue({ success: true, ide: 'Visual Studio Code', message: 'Success' });
+
+      const user = userEvent.setup();
+      render(<IDESelector appId="app-1" preferredIDE="webstorm" />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Open in Visual Studio Code/i)).toBeInTheDocument();
+      });
+
+      // Should default to first available IDE (vscode) since preferred (webstorm) is not available
+      const button = screen.getByRole('button', { name: /Open in Visual Studio Code/i });
+      expect(button).toBeInTheDocument();
+    });
+  });
+
+  describe('Race condition prevention', () => {
+    it('should prevent rapid successive clicks (debouncing)', async () => {
+      vi.mocked(api.fetchInstalledIDEs).mockResolvedValue([mockIDEs[0]]);
+      vi.mocked(api.openInIDE).mockResolvedValue({ success: true, ide: 'Visual Studio Code', message: 'Success' });
+
+      const user = userEvent.setup();
+      render(<IDESelector appId="app-1" />);
+
+      await waitFor(() => {
+        expect(screen.getByText(/Open in Visual Studio Code/i)).toBeInTheDocument();
+      });
+
+      const button = screen.getByRole('button');
+
+      // Click multiple times rapidly
+      await user.click(button);
+      await user.click(button);
+      await user.click(button);
+
+      // API should only be called once due to debouncing
+      await waitFor(() => {
+        expect(api.openInIDE).toHaveBeenCalledTimes(1);
+      });
+    });
+  });
+
+  describe('Dropdown click outside behavior', () => {
+    it('should close dropdown when clicking outside', async () => {
+      vi.mocked(api.fetchInstalledIDEs).mockResolvedValue(mockIDEs);
+      vi.mocked(api.openInIDE).mockResolvedValue({ success: true, ide: 'Visual Studio Code', message: 'Success' });
+
+      const user = userEvent.setup();
+      const { container } = render(
+        <div>
+          <IDESelector appId="app-1" />
+          <div data-testid="outside">Outside element</div>
+        </div>
+      );
+
+      await waitFor(() => {
+        expect(screen.getByText(/Open in Visual Studio Code/i)).toBeInTheDocument();
+      });
+
+      // Open dropdown
+      const dropdownButton = screen.getByRole('button', { name: /Open in Visual Studio Code/i });
+      await user.click(dropdownButton);
+
+      // Verify dropdown is open (should show other IDEs)
+      await waitFor(() => {
+        expect(screen.getByText('Cursor')).toBeInTheDocument();
+        expect(screen.getByText('WebStorm')).toBeInTheDocument();
+      });
+
+      // Click outside
+      const outsideElement = screen.getByTestId('outside');
+      fireEvent.mouseDown(outsideElement);
+
+      // Dropdown should close (IDE options should not be visible)
+      await waitFor(() => {
+        expect(screen.queryByText('Cursor')).not.toBeInTheDocument();
+      });
+    });
+  });
 });

@@ -4,46 +4,73 @@ import os from 'os';
 import path from 'path';
 
 /**
+ * Custom error codes for IDE operations
+ */
+export const IDEErrorCodes = {
+  IDE_NOT_SUPPORTED: 'IDE_NOT_SUPPORTED',
+  IDE_NOT_INSTALLED: 'IDE_NOT_INSTALLED',
+  INVALID_PROJECT_PATH: 'INVALID_PROJECT_PATH',
+  LAUNCH_FAILED: 'LAUNCH_FAILED',
+  PERMISSION_DENIED: 'PERMISSION_DENIED',
+};
+
+/**
+ * Custom error class for IDE operations
+ */
+class IDEError extends Error {
+  constructor(message, code) {
+    super(message);
+    this.name = 'IDEError';
+    this.code = code;
+  }
+}
+
+/**
  * IDE Service - Detects and launches external IDEs
  */
 class IDEService {
   constructor() {
     this.platform = os.platform();
     this.idePaths = this._getIDEPaths();
+    this.detectionCache = null;
+    this.cacheTimestamp = null;
+    this.CACHE_TTL = 5 * 60 * 1000; // 5 minutes
   }
 
   /**
    * Get IDE paths for current platform
+   * Supports environment variables for custom paths:
+   * VSCODE_PATH, CURSOR_PATH, WEBSTORM_PATH, etc.
    * @returns {Object} Map of IDE ID to path or command
    */
   _getIDEPaths() {
     const paths = {
       darwin: {
-        vscode: '/Applications/Visual Studio Code.app',
-        cursor: '/Applications/Cursor.app',
-        webstorm: '/Applications/WebStorm.app',
-        intellij: '/Applications/IntelliJ IDEA.app',
-        phpstorm: '/Applications/PhpStorm.app',
-        pycharm: '/Applications/PyCharm.app',
-        sublime: '/Applications/Sublime Text.app',
+        vscode: process.env.VSCODE_PATH || '/Applications/Visual Studio Code.app',
+        cursor: process.env.CURSOR_PATH || '/Applications/Cursor.app',
+        webstorm: process.env.WEBSTORM_PATH || '/Applications/WebStorm.app',
+        intellij: process.env.INTELLIJ_PATH || '/Applications/IntelliJ IDEA.app',
+        phpstorm: process.env.PHPSTORM_PATH || '/Applications/PhpStorm.app',
+        pycharm: process.env.PYCHARM_PATH || '/Applications/PyCharm.app',
+        sublime: process.env.SUBLIME_PATH || '/Applications/Sublime Text.app',
       },
       linux: {
-        vscode: ['/usr/bin/code', '/snap/bin/code', '/var/lib/flatpak/exports/bin/com.visualstudio.code'],
-        cursor: ['/usr/bin/cursor', '/snap/bin/cursor'],
-        webstorm: ['/usr/local/bin/webstorm', '/snap/bin/webstorm'],
-        intellij: ['/usr/local/bin/idea', '/snap/bin/intellij-idea-community', '/snap/bin/intellij-idea-ultimate'],
-        phpstorm: ['/usr/local/bin/phpstorm', '/snap/bin/phpstorm'],
-        pycharm: ['/usr/local/bin/pycharm', '/snap/bin/pycharm-community', '/snap/bin/pycharm-professional'],
-        sublime: ['/usr/bin/subl', '/snap/bin/sublime-text'],
+        vscode: process.env.VSCODE_PATH ? [process.env.VSCODE_PATH] : ['/usr/bin/code', '/snap/bin/code', '/var/lib/flatpak/exports/bin/com.visualstudio.code'],
+        cursor: process.env.CURSOR_PATH ? [process.env.CURSOR_PATH] : ['/usr/bin/cursor', '/snap/bin/cursor'],
+        webstorm: process.env.WEBSTORM_PATH ? [process.env.WEBSTORM_PATH] : ['/usr/local/bin/webstorm', '/snap/bin/webstorm'],
+        intellij: process.env.INTELLIJ_PATH ? [process.env.INTELLIJ_PATH] : ['/usr/local/bin/idea', '/snap/bin/intellij-idea-community', '/snap/bin/intellij-idea-ultimate'],
+        phpstorm: process.env.PHPSTORM_PATH ? [process.env.PHPSTORM_PATH] : ['/usr/local/bin/phpstorm', '/snap/bin/phpstorm'],
+        pycharm: process.env.PYCHARM_PATH ? [process.env.PYCHARM_PATH] : ['/usr/local/bin/pycharm', '/snap/bin/pycharm-community', '/snap/bin/pycharm-professional'],
+        sublime: process.env.SUBLIME_PATH ? [process.env.SUBLIME_PATH] : ['/usr/bin/subl', '/snap/bin/sublime-text'],
       },
       win32: {
-        vscode: 'C:\\Program Files\\Microsoft VS Code\\Code.exe',
-        cursor: path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Cursor', 'Cursor.exe'),
-        webstorm: 'C:\\Program Files\\JetBrains\\WebStorm\\bin\\webstorm64.exe',
-        intellij: 'C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe',
-        phpstorm: 'C:\\Program Files\\JetBrains\\PhpStorm\\bin\\phpstorm64.exe',
-        pycharm: 'C:\\Program Files\\JetBrains\\PyCharm\\bin\\pycharm64.exe',
-        sublime: 'C:\\Program Files\\Sublime Text\\sublime_text.exe',
+        vscode: process.env.VSCODE_PATH || 'C:\\Program Files\\Microsoft VS Code\\Code.exe',
+        cursor: process.env.CURSOR_PATH || path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Cursor', 'Cursor.exe'),
+        webstorm: process.env.WEBSTORM_PATH || 'C:\\Program Files\\JetBrains\\WebStorm\\bin\\webstorm64.exe',
+        intellij: process.env.INTELLIJ_PATH || 'C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe',
+        phpstorm: process.env.PHPSTORM_PATH || 'C:\\Program Files\\JetBrains\\PhpStorm\\bin\\phpstorm64.exe',
+        pycharm: process.env.PYCHARM_PATH || 'C:\\Program Files\\JetBrains\\PyCharm\\bin\\pycharm64.exe',
+        sublime: process.env.SUBLIME_PATH || 'C:\\Program Files\\Sublime Text\\sublime_text.exe',
       },
     };
     return paths[this.platform] || {};
@@ -87,24 +114,38 @@ class IDEService {
   }
 
   /**
-   * Detect all installed IDEs on the system
+   * Detect all installed IDEs on the system (with caching)
+   * @param {boolean} forceRefresh - Skip cache and force re-detection
    * @returns {Promise<Array>} List of installed IDEs
    */
-  async detectInstalledIDEs() {
-    const installed = [];
+  async detectInstalledIDEs(forceRefresh = false) {
+    const now = Date.now();
 
-    for (const [ideId, idePath] of Object.entries(this.idePaths)) {
-      const installedPath = await this._isInstalled(idePath);
-      if (installedPath) {
-        installed.push({
-          id: ideId,
-          name: this._getIDEName(ideId),
-          path: installedPath,
-        });
-      }
+    // Return cached result if valid and not forcing refresh
+    if (!forceRefresh && this.detectionCache && this.cacheTimestamp && (now - this.cacheTimestamp < this.CACHE_TTL)) {
+      return this.detectionCache;
     }
 
-    return installed;
+    const installed = [];
+
+    // Parallelize IDE detection for better performance
+    const checks = Object.entries(this.idePaths).map(async ([ideId, idePath]) => {
+      const installedPath = await this._isInstalled(idePath);
+      return installedPath ? {
+        id: ideId,
+        name: this._getIDEName(ideId),
+        path: installedPath,
+      } : null;
+    });
+
+    const results = await Promise.all(checks);
+    const filteredResults = results.filter(Boolean);
+
+    // Update cache
+    this.detectionCache = filteredResults;
+    this.cacheTimestamp = now;
+
+    return filteredResults;
   }
 
   /**
@@ -117,20 +158,35 @@ class IDEService {
     const idePath = this.idePaths[ideId];
 
     if (!idePath) {
-      throw new Error(`IDE '${ideId}' is not supported on ${this.platform}`);
+      throw new IDEError(
+        `IDE '${ideId}' is not supported on ${this.platform}`,
+        IDEErrorCodes.IDE_NOT_SUPPORTED
+      );
     }
 
     const installedPath = await this._isInstalled(idePath);
     if (!installedPath) {
       const pathStr = Array.isArray(idePath) ? idePath.join(', ') : idePath;
-      throw new Error(`IDE '${this._getIDEName(ideId)}' is not installed. Checked: ${pathStr}`);
+      throw new IDEError(
+        `IDE '${this._getIDEName(ideId)}' is not installed. Checked: ${pathStr}`,
+        IDEErrorCodes.IDE_NOT_INSTALLED
+      );
     }
 
     // Verify project path exists
     try {
       await fs.promises.access(projectPath, fs.constants.F_OK);
-    } catch {
-      throw new Error(`Project directory does not exist: ${projectPath}`);
+    } catch (error) {
+      if (error.code === 'EACCES') {
+        throw new IDEError(
+          `Permission denied: Cannot access project directory ${projectPath}`,
+          IDEErrorCodes.PERMISSION_DENIED
+        );
+      }
+      throw new IDEError(
+        `Project directory does not exist: ${projectPath}`,
+        IDEErrorCodes.INVALID_PROJECT_PATH
+      );
     }
 
     // Use spawn to avoid shell interpretation and prevent command injection
@@ -161,20 +217,37 @@ class IDEService {
       });
 
       child.on('error', (error) => {
-        reject(new Error(`Failed to launch IDE: ${error.message}`));
+        const errorCode = error.code === 'EACCES' ? IDEErrorCodes.PERMISSION_DENIED : IDEErrorCodes.LAUNCH_FAILED;
+        reject(new IDEError(`Failed to launch IDE: ${error.message}`, errorCode));
       });
 
       // Detach and allow the process to continue independently
       child.unref();
 
-      // Assume success if no immediate error
+      // Check if the process exits immediately (which indicates failure)
+      let hasExited = false;
+      child.on('exit', (code) => {
+        if (code !== 0 && code !== null) {
+          hasExited = true;
+        }
+      });
+
+      // Wait a bit to see if the IDE launches successfully
+      // Note: We cannot definitively verify IDE launch success, but we can check for immediate failures
       setTimeout(() => {
-        resolve({
-          success: true,
-          ide: this._getIDEName(ideId),
-          message: `Successfully opened project in ${this._getIDEName(ideId)}`,
-        });
-      }, 100);
+        if (hasExited) {
+          reject(new IDEError(
+            `IDE failed to launch (process exited with error)`,
+            IDEErrorCodes.LAUNCH_FAILED
+          ));
+        } else {
+          resolve({
+            success: true,
+            ide: this._getIDEName(ideId),
+            message: `Launched ${this._getIDEName(ideId)} (process started successfully)`,
+          });
+        }
+      }, 200);
     });
   }
 }

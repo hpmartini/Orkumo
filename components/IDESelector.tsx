@@ -18,16 +18,29 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
   const [installedIDEs, setInstalledIDEs] = useState<IDE[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [detecting, setDetecting] = useState(true);
+  const [detectionError, setDetectionError] = useState<string | null>(null);
+  const [lastClickTime, setLastClickTime] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
+  const fetchIDEs = async () => {
+    setDetecting(true);
+    setDetectionError(null);
+    try {
+      const ides = await fetchInstalledIDEs();
+      setInstalledIDEs(ides);
+      setDetectionError(null);
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : 'Failed to detect IDEs';
+      setDetectionError(errorMessage);
+      setInstalledIDEs([]);
+    } finally {
+      setDetecting(false);
+    }
+  };
+
   useEffect(() => {
-    fetchInstalledIDEs()
-      .then(setInstalledIDEs)
-      .catch((error) => {
-        console.error('Failed to fetch installed IDEs:', error);
-        // Set empty array on error to prevent component from crashing
-        setInstalledIDEs([]);
-      });
+    fetchIDEs();
   }, []);
 
   // Close dropdown when clicking outside
@@ -48,6 +61,13 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
   }, [isOpen]);
 
   const handleOpenIDE = async (ideId: string) => {
+    // Debouncing: Prevent rapid clicks within 1 second
+    const now = Date.now();
+    if (now - lastClickTime < 1000) {
+      return;
+    }
+    setLastClickTime(now);
+
     setLoading(true);
     try {
       const result = await openInIDE(appId, ideId);
@@ -55,13 +75,36 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
       toast.success(result.message || `Opened in ${result.ide}`);
       onSuccess?.();
     } catch (error) {
-      console.error('Failed to open IDE:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       toast.error(`Failed to open IDE: ${errorMessage}`);
     } finally {
       setLoading(false);
     }
   };
+
+  // Show loading state during detection
+  if (detecting) {
+    return (
+      <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-700 text-gray-400 text-sm rounded-lg">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        <span>Detecting IDEs...</span>
+      </div>
+    );
+  }
+
+  // Show error with retry button if detection failed
+  if (detectionError) {
+    return (
+      <button
+        onClick={fetchIDEs}
+        className="flex items-center gap-2 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm rounded-lg transition-colors"
+        title="Click to retry IDE detection"
+      >
+        <Code className="w-4 h-4" />
+        <span>Retry IDE Detection</span>
+      </button>
+    );
+  }
 
   // Don't render if no IDEs are installed
   if (installedIDEs.length === 0) {

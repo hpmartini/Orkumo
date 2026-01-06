@@ -357,7 +357,7 @@ function AppContent() {
               onToggleArchive={handleToggleArchive}
               onOpenInFinder={handleOpenInFinder}
               onOpenInTerminal={handleOpenInTerminal}
-              preferredIDE={selectedApp && settings ? settings.preferredIDEs?.[selectedApp.id] : null}
+              preferredIDE={selectedApp && settings?.preferredIDEs?.[selectedApp.id] || null}
             />
           )}
         </div>

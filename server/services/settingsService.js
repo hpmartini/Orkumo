@@ -34,14 +34,21 @@ function ensureSettingsFile() {
 }
 
 /**
- * Read settings from file
+ * Read settings from file with automatic migration
  * @returns {object} Settings object
  */
 function readSettings() {
   ensureSettingsFile();
   try {
     const data = fs.readFileSync(SETTINGS_FILE, 'utf-8');
-    return { ...defaultSettings, ...JSON.parse(data) };
+    const loadedSettings = JSON.parse(data);
+
+    // Migrate: Ensure preferredIDEs exists (added in v1.1)
+    if (!loadedSettings.preferredIDEs) {
+      loadedSettings.preferredIDEs = {};
+    }
+
+    return { ...defaultSettings, ...loadedSettings };
   } catch (error) {
     console.error('Failed to read settings:', error);
     return { ...defaultSettings };

@@ -461,8 +461,18 @@ app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), validat
 
     res.json(result);
   } catch (error) {
-    console.error(`[IDE] Failed to open IDE for app ${id}:`, error.message);
-    res.status(500).json({ error: error.message });
+    console.error(`[IDE] Failed to open IDE for app ${req.params.id}:`, error.message);
+
+    // Send appropriate status code based on error type
+    const statusCode = error.code === 'IDE_NOT_INSTALLED' ? 404 :
+                      error.code === 'IDE_NOT_SUPPORTED' ? 400 :
+                      error.code === 'INVALID_PROJECT_PATH' ? 404 :
+                      error.code === 'PERMISSION_DENIED' ? 403 : 500;
+
+    res.status(statusCode).json({
+      error: error.message,
+      code: error.code || 'UNKNOWN_ERROR',
+    });
   }
 });
 
