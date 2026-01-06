@@ -45,7 +45,7 @@ export const ConsoleLogEntry = ({ log }: ConsoleLogEntryProps) => {
             {typeof arg === 'object' ? (
               <pre className="text-xs overflow-x-auto">{JSON.stringify(arg, null, 2)}</pre>
             ) : (
-              arg
+              String(arg)
             )}
           </div>
         ))}

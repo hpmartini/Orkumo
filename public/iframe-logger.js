@@ -3,6 +3,9 @@
   if (window.__DEVORBIT_LOGGER__) return;
   window.__DEVORBIT_LOGGER__ = true;
 
+  // Target origin for postMessage security
+  const targetOrigin = window.location.origin;
+
   // Store original console methods
   const originalConsole = {
     log: console.log,
@@ -44,7 +47,7 @@
           args: serializeArgs(args),
           timestamp: Date.now(),
           url: window.location.href,
-        }, '*');
+        }, targetOrigin);
       } catch (e) {
         // Silent fail if postMessage blocked
       }
@@ -63,7 +66,7 @@
       timestamp: Date.now(),
       url: window.location.href,
       uncaught: true,
-    }, '*');
+    }, targetOrigin);
   });
 
   // Capture unhandled promise rejections
@@ -71,38 +74,42 @@
     window.parent.postMessage({
       type: 'devorbit-console',
       method: 'error',
-      args: serializeArgs([`Unhandled Promise Rejection: ${event.reason}`]),
+      args: serializeArgs([event.reason]),
       timestamp: Date.now(),
       url: window.location.href,
       uncaught: true,
-    }, '*');
+    }, targetOrigin);
   });
 
   // Intercept fetch
   const originalFetch = window.fetch;
   window.fetch = function(...args) {
     const startTime = Date.now();
-    const url = args[0];
+    const url = typeof args[0] === 'string'
+      ? args[0]
+      : args[0] instanceof Request
+        ? args[0].url
+        : String(args[0]);
 
     return originalFetch.apply(this, args).then(response => {
       const duration = Date.now() - startTime;
       window.parent.postMessage({
         type: 'devorbit-network',
         method: 'fetch',
-        url: typeof url === 'string' ? url : url.url,
+        url: url,
         status: response.status,
         duration,
         timestamp: startTime,
-      }, '*');
+      }, targetOrigin);
       return response;
     }).catch(error => {
       window.parent.postMessage({
         type: 'devorbit-network',
         method: 'fetch',
-        url: typeof url === 'string' ? url : url.url,
+        url: url,
         error: error.message,
         timestamp: startTime,
-      }, '*');
+      }, targetOrigin);
       throw error;
     });
   };
@@ -117,18 +124,24 @@
   };
 
   XMLHttpRequest.prototype.send = function() {
-    this.addEventListener('load', function() {
+    const logXHR = function() {
       if (this._devorbit) {
         window.parent.postMessage({
           type: 'devorbit-network',
           method: this._devorbit.method,
           url: this._devorbit.url,
-          status: this.status,
+          status: this.status || 0,
+          error: this.status === 0 ? 'Network Error' : undefined,
           duration: Date.now() - this._devorbit.startTime,
           timestamp: this._devorbit.startTime,
-        }, '*');
+        }, targetOrigin);
       }
-    });
+    };
+
+    this.addEventListener('load', logXHR);
+    this.addEventListener('error', logXHR);
+    this.addEventListener('abort', logXHR);
+    this.addEventListener('timeout', logXHR);
     return originalXHRSend.apply(this, arguments);
   };
 

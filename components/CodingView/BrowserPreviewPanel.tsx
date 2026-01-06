@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   RefreshCw,
   ExternalLink,
@@ -17,6 +17,7 @@ import type { LucideIcon } from 'lucide-react';
 import type { ConsoleLog, NetworkLog } from '../../types';
 import { ConsoleLogEntry } from './ConsoleLogEntry';
 import { NetworkLogEntry } from './NetworkLogEntry';
+import { DevToolsErrorBoundary } from './DevToolsErrorBoundary';
 
 interface BrowserPreviewPanelProps {
   url: string;
@@ -51,15 +52,23 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
   useEffect(() => {
     setCurrentUrl(url);
     setUrlError(null); // Clear error when URL prop updates
+    setConsoleLogs([]); // Clear old logs
+    setNetworkLogs([]);
   }, [url]);
 
   // Listen for console and network messages from iframe
   useEffect(() => {
     const handler = (event: MessageEvent) => {
+      // Validate origin - only accept from localhost/127.0.0.1
+      const allowedOrigins = ['http://localhost', 'http://127.0.0.1', 'https://localhost', 'https://127.0.0.1'];
+      if (!allowedOrigins.some(origin => event.origin.startsWith(origin))) {
+        return;
+      }
+
       // Handle console messages
       if (event.data?.type === 'devorbit-console') {
         const log: ConsoleLog = {
-          id: `${event.data.timestamp}-${Math.random()}`,
+          id: crypto.randomUUID(),
           method: event.data.method,
           args: event.data.args,
           timestamp: event.data.timestamp,
@@ -68,14 +77,16 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
         };
 
         setConsoleLogs((prev) => {
-          const newLogs = [...prev, log];
-          return newLogs.slice(-MAX_LOGS);
+          const newLogs = prev.length >= MAX_LOGS
+            ? [...prev.slice(1), log]
+            : [...prev, log];
+          return newLogs;
         });
       }
       // Handle network messages
       else if (event.data?.type === 'devorbit-network') {
         const log: NetworkLog = {
-          id: `${event.data.timestamp}-${Math.random()}`,
+          id: crypto.randomUUID(),
           method: event.data.method,
           url: event.data.url,
           status: event.data.status,
@@ -85,8 +96,10 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
         };
 
         setNetworkLogs((prev) => {
-          const newLogs = [...prev, log];
-          return newLogs.slice(-MAX_LOGS);
+          const newLogs = prev.length >= MAX_LOGS
+            ? [...prev.slice(1), log]
+            : [...prev, log];
+          return newLogs;
         });
       }
     };
@@ -120,6 +133,20 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
     setConsoleLogs([]);
     setNetworkLogs([]);
   };
+
+  // Memoize filtered console logs
+  const filteredConsoleLogs = useMemo(
+    () =>
+      consoleLogs.filter(
+        (log) =>
+          (filter === 'all' || log.method === filter) &&
+          (searchTerm === '' ||
+            log.args.some((arg) =>
+              String(arg).toLowerCase().includes(searchTerm.toLowerCase())
+            ))
+      ),
+    [consoleLogs, filter, searchTerm]
+  );
 
   const handleRefresh = () => {
     // Basic URL validation to prevent javascript: and data: URIs
@@ -250,8 +277,11 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
           <div className="h-64 border-t border-gray-700 flex flex-col bg-gray-950">
             {/* DevTools Header */}
             <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-700">
-              <div className="flex gap-2">
+              <div className="flex gap-2" role="tablist">
                 <button
+                  role="tab"
+                  aria-selected={activeTab === 'console'}
+                  aria-controls="console-panel"
                   onClick={() => setActiveTab('console')}
                   className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
                     activeTab === 'console'
@@ -263,6 +293,9 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
                   Console ({consoleLogs.length})
                 </button>
                 <button
+                  role="tab"
+                  aria-selected={activeTab === 'network'}
+                  aria-controls="network-panel"
                   onClick={() => setActiveTab('network')}
                   className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
                     activeTab === 'network'
@@ -344,33 +377,35 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
             {/* Logs Content */}
             <div className="flex-1 overflow-auto p-2 font-mono text-xs">
               {activeTab === 'console' ? (
-                consoleLogs.length === 0 ? (
-                  <div className="text-gray-600 text-center py-4">
-                    No console output yet
-                  </div>
-                ) : (
-                  (() => {
-                    const filteredLogs = consoleLogs.filter(
-                      (log) =>
-                        (filter === 'all' || log.method === filter) &&
-                        (searchTerm === '' ||
-                          log.args.some((arg) =>
-                            String(arg).toLowerCase().includes(searchTerm.toLowerCase())
-                          ))
-                    );
-                    return filteredLogs.length === 0 ? (
-                      <div className="text-gray-600 text-center py-4">
-                        No logs match the current filter
-                      </div>
-                    ) : (
-                      filteredLogs.map((log) => <ConsoleLogEntry key={log.id} log={log} />)
-                    );
-                  })()
-                )
-              ) : networkLogs.length === 0 ? (
-                <div className="text-gray-600 text-center py-4">No network requests yet</div>
+                <div id="console-panel" role="tabpanel">
+                  {consoleLogs.length === 0 ? (
+                    <div className="text-gray-600 text-center py-4">
+                      No console output yet
+                    </div>
+                  ) : filteredConsoleLogs.length === 0 ? (
+                    <div className="text-gray-600 text-center py-4">
+                      No logs match the current filter
+                    </div>
+                  ) : (
+                    filteredConsoleLogs.map((log) => (
+                      <DevToolsErrorBoundary key={log.id}>
+                        <ConsoleLogEntry log={log} />
+                      </DevToolsErrorBoundary>
+                    ))
+                  )}
+                </div>
               ) : (
-                networkLogs.map((log) => <NetworkLogEntry key={log.id} log={log} />)
+                <div id="network-panel" role="tabpanel">
+                  {networkLogs.length === 0 ? (
+                    <div className="text-gray-600 text-center py-4">No network requests yet</div>
+                  ) : (
+                    networkLogs.map((log) => (
+                      <DevToolsErrorBoundary key={log.id}>
+                        <NetworkLogEntry log={log} />
+                      </DevToolsErrorBoundary>
+                    ))
+                  )}
+                </div>
               )}
             </div>
           </div>
