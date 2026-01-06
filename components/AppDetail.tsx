@@ -113,10 +113,13 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   return (
     <div className="flex flex-col h-full">
       {/* View Switcher Tabs */}
-      <div className="flex border-b border-gray-700 bg-gray-850">
+      <div className="flex border-b border-gray-700 bg-gray-850" role="tablist" aria-label="Application view switcher">
         <button
           onClick={() => setActiveView('details')}
-          className={`px-4 py-2 font-medium transition-colors ${
+          role="tab"
+          aria-selected={activeView === 'details'}
+          aria-controls="details-panel"
+          className={`px-4 py-2 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset ${
             activeView === 'details'
               ? 'text-blue-400 border-b-2 border-blue-400'
               : 'text-gray-400 hover:text-white'
@@ -126,7 +129,10 @@ export const AppDetail: React.FC<AppDetailProps> = ({
         </button>
         <button
           onClick={() => setActiveView('coding')}
-          className={`px-4 py-2 font-medium transition-colors ${
+          role="tab"
+          aria-selected={activeView === 'coding'}
+          aria-controls="coding-panel"
+          className={`px-4 py-2 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset ${
             activeView === 'coding'
               ? 'text-blue-400 border-b-2 border-blue-400'
               : 'text-gray-400 hover:text-white'
@@ -139,7 +145,12 @@ export const AppDetail: React.FC<AppDetailProps> = ({
       {/* View Content */}
       <div className="flex-1 overflow-hidden">
         {activeView === 'details' ? (
-          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 p-6">
+          <div
+            id="details-panel"
+            role="tabpanel"
+            aria-labelledby="details-tab"
+            className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 p-6"
+          >
             {/* Header */}
             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
               <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">

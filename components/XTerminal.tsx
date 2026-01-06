@@ -189,11 +189,14 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
   // Initialize terminal when tab becomes active
   useEffect(() => {
-    if (activeTabId) {
+    if (activeTabId && terminalContainerRef.current) {
       const tab = tabs.find((t) => t.id === activeTabId);
       if (tab && !tab.terminal) {
-        // Small delay to ensure container is mounted
-        setTimeout(() => initializeTerminal(activeTabId), 50);
+        // Use requestAnimationFrame to ensure DOM is ready after layout
+        const rafId = requestAnimationFrame(() => {
+          initializeTerminal(activeTabId);
+        });
+        return () => cancelAnimationFrame(rafId);
       }
     }
   }, [activeTabId, tabs, initializeTerminal]);
@@ -230,15 +233,17 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     };
   }, [tabs, activeTabId]);
 
-  // Cleanup on unmount
+  // Cleanup on unmount - properly capture current tabs in closure
   useEffect(() => {
     return () => {
-      tabs.forEach((tab) => {
+      // Capture current tabs in closure to properly cleanup all tabs
+      const currentTabs = tabs;
+      currentTabs.forEach((tab) => {
         tab.ws?.close();
         tab.terminal?.dispose();
       });
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tabs]);
 
   // Close a tab
   const closeTab = useCallback(

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet } from 'lucide-react';
+import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet, AlertCircle } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
 interface BrowserPreviewPanelProps {
@@ -20,10 +20,12 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [iframeKey, setIframeKey] = useState(0);
   const [currentUrl, setCurrentUrl] = useState(url);
+  const [urlError, setUrlError] = useState<string | null>(null);
 
   // Sync currentUrl with url prop when it changes (e.g., app restarts on different port)
   useEffect(() => {
     setCurrentUrl(url);
+    setUrlError(null); // Clear error when URL prop updates
   }, [url]);
 
   const handleRefresh = () => {
@@ -31,12 +33,13 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
     try {
       const parsed = new URL(currentUrl);
       if (!['http:', 'https:'].includes(parsed.protocol)) {
-        console.error('Invalid protocol - only http and https are allowed');
+        setUrlError('Invalid protocol - only http and https are allowed');
         return;
       }
+      setUrlError(null);
       setIframeKey(prev => prev + 1);
     } catch (e) {
-      console.error('Invalid URL');
+      setUrlError('Invalid URL format');
     }
   };
 
@@ -65,36 +68,51 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
       </div>
 
       {/* URL Bar */}
-      <div className="flex items-center gap-2 p-2 bg-gray-800 border-b border-gray-700">
-        <button
-          onClick={handleRefresh}
-          className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw className="w-4 h-4" />
-        </button>
-        <input
-          value={currentUrl}
-          onChange={(e) => setCurrentUrl(e.target.value)}
-          className="flex-1 bg-gray-900 px-3 py-1 rounded text-sm"
-          onKeyDown={(e) => e.key === 'Enter' && handleRefresh()}
-        />
-        <button
-          onClick={() => window.open(currentUrl, '_blank')}
-          className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-          title="Open in new tab"
-        >
-          <ExternalLink className="w-4 h-4" />
-        </button>
+      <div className="bg-gray-800 border-b border-gray-700">
+        <div className="flex items-center gap-2 p-2">
+          <button
+            onClick={handleRefresh}
+            className="p-1.5 hover:bg-gray-700 rounded transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw className="w-4 h-4" />
+          </button>
+          <input
+            value={currentUrl}
+            onChange={(e) => {
+              setCurrentUrl(e.target.value);
+              setUrlError(null); // Clear error on input change
+            }}
+            className={`flex-1 bg-gray-900 px-3 py-1 rounded text-sm ${
+              urlError ? 'border border-red-500/50' : ''
+            }`}
+            onKeyDown={(e) => e.key === 'Enter' && handleRefresh()}
+          />
+          <button
+            onClick={() => window.open(currentUrl, '_blank')}
+            className="p-1.5 hover:bg-gray-700 rounded transition-colors"
+            title="Open in new tab"
+          >
+            <ExternalLink className="w-4 h-4" />
+          </button>
+        </div>
+        {urlError && (
+          <div className="px-2 pb-2 flex items-center gap-2 text-red-400 text-xs">
+            <AlertCircle className="w-3 h-3" />
+            {urlError}
+          </div>
+        )}
       </div>
 
       {/* Viewport Controls */}
-      <div className="flex gap-1 p-2 bg-gray-850 border-b border-gray-700">
+      <div className="flex gap-1 p-2 bg-gray-850 border-b border-gray-700" role="group" aria-label="Viewport size selector">
         {Object.entries(VIEWPORTS).map(([key, { label, icon: Icon }]) => (
           <button
             key={key}
             onClick={() => setViewport(key as Viewport)}
-            className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
+            aria-label={`Switch to ${label} viewport`}
+            aria-pressed={viewport === key}
+            className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
               viewport === key
                 ? 'bg-blue-600 text-white'
                 : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
@@ -117,9 +135,14 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
             src={currentUrl}
             className="w-full h-full bg-white shadow-lg"
             style={{ border: '1px solid #e5e7eb' }}
-            // Security note: allow-same-origin is needed for local dev servers
-            // that use postMessage. This is safe for local development only.
-            sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
+            // Security note: allow-same-origin + allow-scripts is required for local dev servers
+            // that use postMessage and hot reload. This combination allows iframe to access parent,
+            // but is acceptable because:
+            // 1. This dashboard is for LOCAL DEVELOPMENT ONLY (not production)
+            // 2. All previewed apps are trusted code running on localhost
+            // 3. This enables essential features like HMR (Hot Module Replacement)
+            // For production deployments, consider removing allow-same-origin or using different origin
+            sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
             title="App Preview"
           />
         </div>
