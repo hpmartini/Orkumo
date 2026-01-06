@@ -25,6 +25,7 @@ function AppContent() {
     error: _error,
     selectedAppId,
     selectedApp,
+    settings,
     setSelectedAppId,
     handleStartApp,
     handleStopApp,
@@ -355,6 +356,7 @@ function AppContent() {
               onToggleArchive={handleToggleArchive}
               onOpenInFinder={handleOpenInFinder}
               onOpenInTerminal={handleOpenInTerminal}
+              preferredIDE={selectedApp && settings?.preferredIDEs?.[selectedApp.id] || null}
             />
           )}
         </div>

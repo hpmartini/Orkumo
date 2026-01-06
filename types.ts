@@ -38,3 +38,9 @@ export interface SystemStats {
   totalCpuUsage: number;
   totalMemoryUsage: number;
 }
+
+export interface IDE {
+  id: string;
+  name: string;
+  path: string;
+}

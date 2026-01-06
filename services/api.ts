@@ -221,6 +221,12 @@ export function subscribeToEvents(
       eventSource?.close();
       eventSource = null;
 
+      // Clear existing timeout before setting new one to prevent memory leaks
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+
       if (!isClosing && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         const delay = getReconnectDelay();
         console.warn(`SSE connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
@@ -276,6 +282,7 @@ export interface AppSettings {
   archived: string[];
   customPorts: Record<string, number>;
   customNames: Record<string, string>;
+  preferredIDEs?: Record<string, string>;
   version: number;
 }
 
@@ -368,6 +375,59 @@ export async function updateName(id: string, name: string | null): Promise<{ id:
   });
   if (!response.ok) {
     throw new Error('Failed to update name');
+  }
+  return response.json();
+}
+
+// ============================================
+// IDE Integration API
+// ============================================
+
+export interface IDE {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/**
+ * Get list of installed IDEs on the system
+ */
+export async function fetchInstalledIDEs(): Promise<IDE[]> {
+  const response = await fetch(`${API_BASE}/ides/installed`);
+  if (!response.ok) {
+    return [];
+  }
+  const data = await response.json();
+  return data.ides || [];
+}
+
+/**
+ * Open app in specified IDE
+ */
+export async function openInIDE(appId: string, ideId: string): Promise<{ success: boolean; ide: string; message?: string }> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/open-ide`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ide: ideId }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to open IDE');
+  }
+  return response.json();
+}
+
+/**
+ * Set preferred IDE for an app
+ */
+export async function updatePreferredIDE(appId: string, ideId: string | null): Promise<{ id: string; ide: string | null }> {
+  const response = await fetch(`${API_BASE}/settings/preferred-ide/${appId}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ide: ideId }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update preferred IDE');
   }
   return response.json();
 }

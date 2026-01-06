@@ -15,6 +15,7 @@ import {
   updateArchive,
   updatePort,
   updateName,
+  AppSettings,
 } from '../services/api';
 
 // Constants
@@ -64,6 +65,7 @@ interface UseAppsReturn {
   error: string | null;
   selectedAppId: string | null;
   selectedApp: AppConfig | undefined;
+  settings: AppSettings | null;
   setSelectedAppId: (id: string | null) => void;
   handleStartApp: (id: string) => Promise<void>;
   handleStopApp: (id: string) => Promise<void>;
@@ -87,6 +89,7 @@ export function useApps(): UseAppsReturn {
   const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Fetch apps from backend
@@ -98,22 +101,25 @@ export function useApps(): UseAppsReturn {
       await migrateLocalStorageToBackend();
 
       // Fetch apps and settings from backend in parallel
-      const [data, settings] = await Promise.all([
+      const [data, fetchedSettings] = await Promise.all([
         fetchApps(),
         fetchSettings(),
       ]);
+
+      // Store settings in state
+      setSettings(fetchedSettings);
 
       // Enrich app data with backend settings
       const enrichedData = data.map((app) => ({
         ...app,
         // Apply custom name if available
-        name: settings.customNames[app.id] ?? app.name,
-        isFavorite: settings.favorites.includes(app.id),
-        isArchived: settings.archived.includes(app.id),
+        name: fetchedSettings.customNames[app.id] ?? app.name,
+        isFavorite: fetchedSettings.favorites.includes(app.id),
+        isArchived: fetchedSettings.archived.includes(app.id),
         // Apply custom port if available
-        port: settings.customPorts[app.id] ?? app.port,
-        addresses: settings.customPorts[app.id]
-          ? [`http://localhost:${settings.customPorts[app.id]}`]
+        port: fetchedSettings.customPorts[app.id] ?? app.port,
+        addresses: fetchedSettings.customPorts[app.id]
+          ? [`http://localhost:${fetchedSettings.customPorts[app.id]}`]
           : app.addresses,
       }));
       setApps(enrichedData);
@@ -548,6 +554,7 @@ export function useApps(): UseAppsReturn {
     error,
     selectedAppId,
     selectedApp,
+    settings,
     setSelectedAppId,
     handleStartApp,
     handleStopApp,

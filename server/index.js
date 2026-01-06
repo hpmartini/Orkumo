@@ -32,6 +32,7 @@ import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
 import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
+import { ideService } from './services/ideService.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -53,6 +54,13 @@ const processLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 20, // limit process operations to 20 per minute
   message: { error: 'Too many process operations, please slow down' },
+});
+
+// Rate limit for IDE launch operations
+const ideLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10, // limit IDE launches to 10 per minute
+  message: { error: 'Too many IDE launch requests, please slow down' },
 });
 
 app.use(cors());
@@ -85,6 +93,12 @@ const directorySchema = z.object({
 const analyzeSchema = z.object({
   fileName: z.string().min(1).max(100),
   fileContent: z.string().min(1).max(50000),
+});
+
+const ideIdSchema = z.enum(['vscode', 'cursor', 'webstorm', 'intellij', 'phpstorm', 'pycharm', 'sublime']);
+
+const openIdeSchema = z.object({
+  ide: ideIdSchema,
 });
 
 /**
@@ -399,6 +413,108 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
       // Clear custom name
       settingsService.setName(id, null);
       res.json({ id, name: null });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// IDE Integration Endpoints
+// ============================================
+
+/**
+ * GET /api/ides/installed
+ * Detect and return all installed IDEs on the system
+ * Query params:
+ *   - refresh=true: Force cache invalidation and re-detect IDEs
+ */
+app.get('/api/ides/installed', async (req, res) => {
+  try {
+    const forceRefresh = req.query.refresh === 'true';
+    const ides = await ideService.detectInstalledIDEs(forceRefresh);
+    res.json({ ides });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/open-ide
+ * Open app directory in specified IDE
+ */
+app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), validate(openIdeSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ide } = req.body;
+
+    // Verify IDE is actually installed before attempting to launch
+    const installedIDEs = await ideService.detectInstalledIDEs();
+    if (!installedIDEs.some(i => i.id === ide)) {
+      return res.status(404).json({
+        error: 'IDE not installed',
+        code: 'IDE_NOT_INSTALLED',
+      });
+    }
+
+    // Get app directory from config
+    const apps = scanAllDirectories();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    // Open in IDE
+    const result = await ideService.openInIDE(app.path, ide);
+
+    // Save preferred IDE to settings
+    settingsService.setPreferredIDE(id, ide);
+
+    res.json(result);
+  } catch (error) {
+    console.error(`[IDE] Failed to open IDE for app ${req.params.id}:`, error.message);
+
+    // Invalidate cache on IDE_NOT_INSTALLED errors (IDE may have been uninstalled)
+    if (error.code === 'IDE_NOT_INSTALLED') {
+      ideService.detectionCache = null;
+      ideService.cacheTimestamp = null;
+    }
+
+    // Send appropriate status code based on error type
+    const statusCode = error.code === 'IDE_NOT_INSTALLED' ? 404 :
+                      error.code === 'IDE_NOT_SUPPORTED' ? 400 :
+                      error.code === 'INVALID_PROJECT_PATH' ? 404 :
+                      error.code === 'PERMISSION_DENIED' ? 403 : 500;
+
+    // Sanitize error messages to avoid exposing sensitive paths
+    const sanitizedMessage = error.code === 'PERMISSION_DENIED' ? 'Permission denied accessing project directory' :
+                            error.code === 'INVALID_PROJECT_PATH' ? 'Project directory not found' :
+                            error.message;
+
+    res.status(statusCode).json({
+      error: sanitizedMessage,
+      code: error.code || 'UNKNOWN_ERROR',
+    });
+  }
+});
+
+/**
+ * PUT /api/settings/preferred-ide/:id
+ * Set preferred IDE for an app
+ */
+app.put('/api/settings/preferred-ide/:id', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ide } = req.body;
+
+    if (ide && typeof ide === 'string' && ide.trim().length > 0) {
+      settingsService.setPreferredIDE(id, ide.trim());
+      res.json({ id, ide: ide.trim() });
+    } else {
+      // Clear preferred IDE
+      settingsService.setPreferredIDE(id, null);
+      res.json({ id, ide: null });
     }
   } catch (error) {
     res.status(500).json({ error: error.message });
