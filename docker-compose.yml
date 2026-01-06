@@ -7,7 +7,7 @@ services:
       context: .
       dockerfile: Dockerfile.frontend
     ports:
-      - "${DEVORBIT_PORT:-3099}:80"
+      - "${DEVORBIT_PORT:-3000}:80"
     depends_on:
       api:
         condition: service_healthy
