@@ -20,7 +20,6 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
   const [loading, setLoading] = useState(false);
   const [detecting, setDetecting] = useState(true);
   const [detectionError, setDetectionError] = useState<string | null>(null);
-  const [lastClickTime, setLastClickTime] = useState(0);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   const fetchIDEs = async () => {
@@ -61,12 +60,10 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
   }, [isOpen]);
 
   const handleOpenIDE = async (ideId: string) => {
-    // Debouncing: Prevent rapid clicks within 1 second
-    const now = Date.now();
-    if (now - lastClickTime < 1000) {
+    // Prevent multiple simultaneous launches using the loading state
+    if (loading) {
       return;
     }
-    setLastClickTime(now);
 
     setLoading(true);
     try {
@@ -75,8 +72,14 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
       toast.success(result.message || `Opened in ${result.ide}`);
       onSuccess?.();
     } catch (error) {
+      // Display user-friendly error messages without exposing sensitive paths
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      toast.error(`Failed to open IDE: ${errorMessage}`);
+      const sanitizedMessage = errorMessage.includes('Permission denied') ?
+        'Permission denied. Please check directory access.' :
+        errorMessage.includes('does not exist') ?
+        'Project directory not found.' :
+        `Failed to open IDE: ${errorMessage}`;
+      toast.error(sanitizedMessage);
     } finally {
       setLoading(false);
     }

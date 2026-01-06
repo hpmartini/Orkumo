@@ -304,7 +304,13 @@ describe('IDESelector', () => {
   describe('Race condition prevention', () => {
     it('should prevent rapid successive clicks (debouncing)', async () => {
       vi.mocked(api.fetchInstalledIDEs).mockResolvedValue([mockIDEs[0]]);
-      vi.mocked(api.openInIDE).mockResolvedValue({ success: true, ide: 'Visual Studio Code', message: 'Success' });
+
+      // Create a promise that we can control to simulate a slow API call
+      let resolveOpenIDE: (value: any) => void;
+      const openIDEPromise = new Promise(resolve => {
+        resolveOpenIDE = resolve;
+      });
+      vi.mocked(api.openInIDE).mockReturnValue(openIDEPromise as any);
 
       const user = userEvent.setup();
       render(<IDESelector appId="app-1" />);
@@ -315,15 +321,16 @@ describe('IDESelector', () => {
 
       const button = screen.getByRole('button');
 
-      // Click multiple times rapidly
+      // Click multiple times rapidly while the first call is still pending
       await user.click(button);
       await user.click(button);
       await user.click(button);
 
-      // API should only be called once due to debouncing
-      await waitFor(() => {
-        expect(api.openInIDE).toHaveBeenCalledTimes(1);
-      });
+      // API should only be called once because loading state prevents subsequent calls
+      expect(api.openInIDE).toHaveBeenCalledTimes(1);
+
+      // Resolve the promise to clean up
+      resolveOpenIDE!({ success: true, ide: 'Visual Studio Code', message: 'Success' });
     });
   });
 

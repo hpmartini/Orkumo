@@ -221,6 +221,12 @@ export function subscribeToEvents(
       eventSource?.close();
       eventSource = null;
 
+      // Clear existing timeout before setting new one to prevent memory leaks
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+
       if (!isClosing && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         const delay = getReconnectDelay();
         console.warn(`SSE connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);

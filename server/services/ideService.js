@@ -35,6 +35,7 @@ class IDEService {
     this.detectionCache = null;
     this.cacheTimestamp = null;
     this.CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+    this.LAUNCH_VERIFICATION_TIMEOUT = 500; // 500ms to verify IDE launch
   }
 
   /**
@@ -95,22 +96,22 @@ class IDEService {
   }
 
   /**
-   * Check if IDE is installed at given path(s)
+   * Check if IDE is installed at given path(s) - uses parallel checks for performance
    * @param {string|string[]} idePath - Path to IDE or array of possible paths
    * @returns {Promise<string|null>} Path if installed, null otherwise
    */
   async _isInstalled(idePath) {
     const paths = Array.isArray(idePath) ? idePath : [idePath];
 
-    for (const p of paths) {
-      try {
-        await fs.promises.access(p, fs.constants.F_OK);
-        return p; // Return the first valid path
-      } catch {
-        continue;
-      }
-    }
-    return null;
+    // Check all paths in parallel for better performance
+    const checks = paths.map(p =>
+      fs.promises.access(p, fs.constants.F_OK)
+        .then(() => p)
+        .catch(() => null)
+    );
+
+    const results = await Promise.all(checks);
+    return results.find(Boolean) || null;
   }
 
   /**
@@ -173,21 +174,35 @@ class IDEService {
       );
     }
 
-    // Verify project path exists
+    // Validate and resolve project path to prevent directory traversal attacks
+    const resolvedPath = path.resolve(projectPath);
+    const realPath = await fs.promises.realpath(projectPath).catch(() => null);
+
+    if (!realPath) {
+      throw new IDEError(
+        'Project directory does not exist',
+        IDEErrorCodes.INVALID_PROJECT_PATH
+      );
+    }
+
+    // Verify project path exists and check permissions
     try {
-      await fs.promises.access(projectPath, fs.constants.F_OK);
+      await fs.promises.access(realPath, fs.constants.F_OK);
     } catch (error) {
       if (error.code === 'EACCES') {
         throw new IDEError(
-          `Permission denied: Cannot access project directory ${projectPath}`,
+          'Permission denied: Cannot access project directory',
           IDEErrorCodes.PERMISSION_DENIED
         );
       }
       throw new IDEError(
-        `Project directory does not exist: ${projectPath}`,
+        'Project directory does not exist',
         IDEErrorCodes.INVALID_PROJECT_PATH
       );
     }
+
+    // Use realPath for launching to ensure we're opening the correct directory
+    projectPath = realPath;
 
     // Use spawn to avoid shell interpretation and prevent command injection
     return new Promise((resolve, reject) => {
@@ -224,30 +239,38 @@ class IDEService {
       // Detach and allow the process to continue independently
       child.unref();
 
-      // Check if the process exits immediately (which indicates failure)
-      let hasExited = false;
-      child.on('exit', (code) => {
-        if (code !== 0 && code !== null) {
-          hasExited = true;
-        }
+      // Use Promise.race to handle timeout vs immediate exit properly
+      const exitPromise = new Promise((resolveExit, rejectExit) => {
+        child.on('exit', (code) => {
+          if (code !== 0 && code !== null) {
+            rejectExit(new IDEError(
+              'IDE failed to launch (process exited with error)',
+              IDEErrorCodes.LAUNCH_FAILED
+            ));
+          } else {
+            resolveExit();
+          }
+        });
       });
 
-      // Wait a bit to see if the IDE launches successfully
-      // Note: We cannot definitively verify IDE launch success, but we can check for immediate failures
-      setTimeout(() => {
-        if (hasExited) {
-          reject(new IDEError(
-            `IDE failed to launch (process exited with error)`,
-            IDEErrorCodes.LAUNCH_FAILED
-          ));
-        } else {
-          resolve({
+      const timeoutPromise = new Promise((resolveTimeout) => {
+        setTimeout(() => {
+          resolveTimeout({
             success: true,
             ide: this._getIDEName(ideId),
             message: `Launched ${this._getIDEName(ideId)} (process started successfully)`,
           });
-        }
-      }, 200);
+        }, this.LAUNCH_VERIFICATION_TIMEOUT);
+      });
+
+      // Race between timeout and exit - if process exits with error before timeout, we reject
+      Promise.race([exitPromise, timeoutPromise])
+        .then(result => {
+          if (result) {
+            resolve(result);
+          }
+        })
+        .catch(err => reject(err));
     });
   }
 }

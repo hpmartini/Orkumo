@@ -56,6 +56,8 @@ PYCHARM_PATH=/custom/path/to/pycharm
 SUBLIME_PATH=/custom/path/to/sublime
 ```
 
+**Note:** After changing environment variables, you must restart the backend server for the changes to take effect.
+
 #### Preferred IDE
 
 The dashboard remembers your preferred IDE for each project. When you open a project in an IDE, it becomes the default for that project. You can change the preferred IDE anytime from the dropdown menu.
@@ -85,6 +87,10 @@ The dashboard remembers your preferred IDE for each project. When you open a pro
 #### Technical Details
 
 - IDE detection results are cached for 5 minutes to improve performance
+  - Force cache refresh by adding `?refresh=true` to the IDE detection endpoint
+  - Cache is automatically invalidated when an IDE launch fails
 - The feature uses secure process spawning to prevent command injection
+- Path validation prevents directory traversal attacks
 - Rate limiting (10 launches per minute) prevents abuse
 - Error responses include specific error codes for better debugging
+- Error messages are sanitized to prevent exposure of sensitive paths

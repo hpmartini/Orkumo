@@ -426,10 +426,13 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
 /**
  * GET /api/ides/installed
  * Detect and return all installed IDEs on the system
+ * Query params:
+ *   - refresh=true: Force cache invalidation and re-detect IDEs
  */
 app.get('/api/ides/installed', async (req, res) => {
   try {
-    const ides = await ideService.detectInstalledIDEs();
+    const forceRefresh = req.query.refresh === 'true';
+    const ides = await ideService.detectInstalledIDEs(forceRefresh);
     res.json({ ides });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -444,6 +447,15 @@ app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), validat
   try {
     const { id } = req.params;
     const { ide } = req.body;
+
+    // Verify IDE is actually installed before attempting to launch
+    const installedIDEs = await ideService.detectInstalledIDEs();
+    if (!installedIDEs.some(i => i.id === ide)) {
+      return res.status(404).json({
+        error: 'IDE not installed',
+        code: 'IDE_NOT_INSTALLED',
+      });
+    }
 
     // Get app directory from config
     const apps = scanAllDirectories();
@@ -463,14 +475,25 @@ app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), validat
   } catch (error) {
     console.error(`[IDE] Failed to open IDE for app ${req.params.id}:`, error.message);
 
+    // Invalidate cache on IDE_NOT_INSTALLED errors (IDE may have been uninstalled)
+    if (error.code === 'IDE_NOT_INSTALLED') {
+      ideService.detectionCache = null;
+      ideService.cacheTimestamp = null;
+    }
+
     // Send appropriate status code based on error type
     const statusCode = error.code === 'IDE_NOT_INSTALLED' ? 404 :
                       error.code === 'IDE_NOT_SUPPORTED' ? 400 :
                       error.code === 'INVALID_PROJECT_PATH' ? 404 :
                       error.code === 'PERMISSION_DENIED' ? 403 : 500;
 
+    // Sanitize error messages to avoid exposing sensitive paths
+    const sanitizedMessage = error.code === 'PERMISSION_DENIED' ? 'Permission denied accessing project directory' :
+                            error.code === 'INVALID_PROJECT_PATH' ? 'Project directory not found' :
+                            error.message;
+
     res.status(statusCode).json({
-      error: error.message,
+      error: sanitizedMessage,
       code: error.code || 'UNKNOWN_ERROR',
     });
   }
