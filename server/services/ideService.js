@@ -27,15 +27,96 @@ class IDEError extends Error {
 
 /**
  * IDE Service - Detects and launches external IDEs
+ * Supports both built-in IDE detection and custom user-defined IDEs
  */
 class IDEService {
   constructor() {
     this.platform = os.platform();
     this.idePaths = this._getIDEPaths();
+    this.customIDEs = new Map(); // User-defined custom IDEs
     this.detectionCache = null;
     this.cacheTimestamp = null;
     this.CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     this.LAUNCH_VERIFICATION_TIMEOUT = 500; // 500ms to verify IDE launch
+    this._loadCustomIDEs();
+  }
+
+  /**
+   * Load custom IDEs from settings file
+   */
+  _loadCustomIDEs() {
+    try {
+      const settingsPath = path.join(process.cwd(), 'data', 'custom-ides.json');
+      if (fs.existsSync(settingsPath)) {
+        const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
+        if (data.customIDEs && Array.isArray(data.customIDEs)) {
+          data.customIDEs.forEach(ide => {
+            this.customIDEs.set(ide.id, ide);
+          });
+        }
+      }
+    } catch (error) {
+      console.warn('[IDE] Failed to load custom IDEs:', error.message);
+    }
+  }
+
+  /**
+   * Save custom IDEs to settings file
+   */
+  _saveCustomIDEs() {
+    try {
+      const settingsPath = path.join(process.cwd(), 'data', 'custom-ides.json');
+      const dir = path.dirname(settingsPath);
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+      const data = { customIDEs: Array.from(this.customIDEs.values()) };
+      fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2));
+    } catch (error) {
+      console.error('[IDE] Failed to save custom IDEs:', error.message);
+    }
+  }
+
+  /**
+   * Add a custom IDE
+   * @param {string} id - Unique identifier
+   * @param {string} name - Display name
+   * @param {string} idePath - Path to IDE application
+   * @returns {Object} Added IDE info
+   */
+  addCustomIDE(id, name, idePath) {
+    const normalizedId = id.toLowerCase().replace(/[^a-z0-9-]/g, '-');
+    const ide = { id: normalizedId, name, path: idePath, custom: true };
+    this.customIDEs.set(normalizedId, ide);
+    this._saveCustomIDEs();
+    // Invalidate cache
+    this.detectionCache = null;
+    this.cacheTimestamp = null;
+    return ide;
+  }
+
+  /**
+   * Remove a custom IDE
+   * @param {string} id - IDE identifier
+   * @returns {boolean} Success
+   */
+  removeCustomIDE(id) {
+    const result = this.customIDEs.delete(id);
+    if (result) {
+      this._saveCustomIDEs();
+      // Invalidate cache
+      this.detectionCache = null;
+      this.cacheTimestamp = null;
+    }
+    return result;
+  }
+
+  /**
+   * Get all custom IDEs
+   * @returns {Array} List of custom IDEs
+   */
+  getCustomIDEs() {
+    return Array.from(this.customIDEs.values());
   }
 
   /**
@@ -49,11 +130,15 @@ class IDEService {
       darwin: {
         vscode: process.env.VSCODE_PATH || '/Applications/Visual Studio Code.app',
         cursor: process.env.CURSOR_PATH || '/Applications/Cursor.app',
+        antigravity: process.env.ANTIGRAVITY_PATH || '/Applications/Antigravity.app',
         webstorm: process.env.WEBSTORM_PATH || '/Applications/WebStorm.app',
         intellij: process.env.INTELLIJ_PATH || '/Applications/IntelliJ IDEA.app',
         phpstorm: process.env.PHPSTORM_PATH || '/Applications/PhpStorm.app',
         pycharm: process.env.PYCHARM_PATH || '/Applications/PyCharm.app',
         sublime: process.env.SUBLIME_PATH || '/Applications/Sublime Text.app',
+        zed: process.env.ZED_PATH || '/Applications/Zed.app',
+        fleet: process.env.FLEET_PATH || '/Applications/Fleet.app',
+        nova: process.env.NOVA_PATH || '/Applications/Nova.app',
       },
       linux: {
         vscode: process.env.VSCODE_PATH ? [process.env.VSCODE_PATH] : ['/usr/bin/code', '/snap/bin/code', '/var/lib/flatpak/exports/bin/com.visualstudio.code'],
@@ -86,12 +171,20 @@ class IDEService {
     const names = {
       vscode: 'Visual Studio Code',
       cursor: 'Cursor',
+      antigravity: 'Antigravity',
       webstorm: 'WebStorm',
       intellij: 'IntelliJ IDEA',
       phpstorm: 'PhpStorm',
       pycharm: 'PyCharm',
       sublime: 'Sublime Text',
+      zed: 'Zed',
+      fleet: 'Fleet',
+      nova: 'Nova',
     };
+    // Check custom IDEs for name
+    if (this.customIDEs.has(ideId)) {
+      return this.customIDEs.get(ideId).name;
+    }
     return names[ideId] || ideId;
   }
 
@@ -127,8 +220,6 @@ class IDEService {
       return this.detectionCache;
     }
 
-    const installed = [];
-
     // Parallelize IDE detection for better performance
     const checks = Object.entries(this.idePaths).map(async ([ideId, idePath]) => {
       const installedPath = await this._isInstalled(idePath);
@@ -136,17 +227,35 @@ class IDEService {
         id: ideId,
         name: this._getIDEName(ideId),
         path: installedPath,
+        custom: false,
       } : null;
     });
 
     const results = await Promise.all(checks);
-    const filteredResults = results.filter(Boolean);
+    const builtInIDEs = results.filter(Boolean);
+
+    // Check custom IDEs
+    const customChecks = Array.from(this.customIDEs.values()).map(async (ide) => {
+      const installedPath = await this._isInstalled(ide.path);
+      return installedPath ? {
+        id: ide.id,
+        name: ide.name,
+        path: installedPath,
+        custom: true,
+      } : null;
+    });
+
+    const customResults = await Promise.all(customChecks);
+    const installedCustomIDEs = customResults.filter(Boolean);
+
+    // Combine built-in and custom IDEs
+    const allIDEs = [...builtInIDEs, ...installedCustomIDEs];
 
     // Update cache
-    this.detectionCache = filteredResults;
+    this.detectionCache = allIDEs;
     this.cacheTimestamp = now;
 
-    return filteredResults;
+    return allIDEs;
   }
 
   /**
@@ -156,7 +265,16 @@ class IDEService {
    * @returns {Promise<Object>} Result of operation
    */
   async openInIDE(projectPath, ideId) {
-    const idePath = this.idePaths[ideId];
+    // Check built-in IDEs first, then custom IDEs
+    let idePath = this.idePaths[ideId];
+    let ideName = this._getIDEName(ideId);
+
+    // Check if it's a custom IDE
+    if (!idePath && this.customIDEs.has(ideId)) {
+      const customIDE = this.customIDEs.get(ideId);
+      idePath = customIDE.path;
+      ideName = customIDE.name;
+    }
 
     if (!idePath) {
       throw new IDEError(
@@ -169,7 +287,7 @@ class IDEService {
     if (!installedPath) {
       const pathStr = Array.isArray(idePath) ? idePath.join(', ') : idePath;
       throw new IDEError(
-        `IDE '${this._getIDEName(ideId)}' is not installed. Checked: ${pathStr}`,
+        `IDE '${ideName}' is not installed. Checked: ${pathStr}`,
         IDEErrorCodes.IDE_NOT_INSTALLED
       );
     }

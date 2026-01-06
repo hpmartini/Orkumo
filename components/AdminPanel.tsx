@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Settings, FolderPlus, Trash2, RefreshCw, X, Save } from 'lucide-react';
-import { fetchConfig, addDirectory, removeDirectory, updateConfig, Config } from '../services/api';
+import { Settings, FolderPlus, Trash2, RefreshCw, X, Save, Code, Plus } from 'lucide-react';
+import { fetchConfig, addDirectory, removeDirectory, updateConfig, Config, fetchInstalledIDEs, fetchCustomIDEs, addCustomIDE, removeCustomIDE, IDE } from '../services/api';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -15,11 +15,65 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [newDirectory, setNewDirectory] = useState('');
   const [scanDepth, setScanDepth] = useState(2);
 
+  // IDE settings state
+  const [installedIDEs, setInstalledIDEs] = useState<IDE[]>([]);
+  const [customIDEs, setCustomIDEs] = useState<IDE[]>([]);
+  const [showAddIDE, setShowAddIDE] = useState(false);
+  const [newIDE, setNewIDE] = useState({ id: '', name: '', path: '' });
+  const [ideLoading, setIdeLoading] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       loadConfig();
+      loadIDEs();
     }
   }, [isOpen]);
+
+  const loadIDEs = async () => {
+    setIdeLoading(true);
+    try {
+      const [installed, custom] = await Promise.all([
+        fetchInstalledIDEs(),
+        fetchCustomIDEs()
+      ]);
+      setInstalledIDEs(installed);
+      setCustomIDEs(custom);
+    } catch (err) {
+      console.error('Failed to load IDEs:', err);
+    } finally {
+      setIdeLoading(false);
+    }
+  };
+
+  const handleAddCustomIDE = async () => {
+    if (!newIDE.id.trim() || !newIDE.name.trim() || !newIDE.path.trim()) return;
+
+    setIdeLoading(true);
+    setError(null);
+    try {
+      await addCustomIDE(newIDE.id.trim(), newIDE.name.trim(), newIDE.path.trim());
+      setNewIDE({ id: '', name: '', path: '' });
+      setShowAddIDE(false);
+      await loadIDEs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to add custom IDE');
+    } finally {
+      setIdeLoading(false);
+    }
+  };
+
+  const handleRemoveCustomIDE = async (id: string) => {
+    setIdeLoading(true);
+    setError(null);
+    try {
+      await removeCustomIDE(id);
+      await loadIDEs();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove custom IDE');
+    } finally {
+      setIdeLoading(false);
+    }
+  };
 
   const loadConfig = async () => {
     setLoading(true);
@@ -219,6 +273,141 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                 </span>
               ))}
             </div>
+          </div>
+
+          {/* IDE Settings Section */}
+          <div className="pt-4 border-t border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Code className="text-blue-400" size={18} />
+                <label className="text-sm font-medium text-gray-300">
+                  IDE Configuration
+                </label>
+              </div>
+              <button
+                onClick={() => setShowAddIDE(!showAddIDE)}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors"
+              >
+                <Plus size={14} />
+                Add Custom IDE
+              </button>
+            </div>
+
+            {/* Add Custom IDE Form */}
+            {showAddIDE && (
+              <div className="mb-4 p-4 bg-gray-900 rounded-lg border border-gray-700 space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    ID (lowercase, no spaces)
+                  </label>
+                  <input
+                    type="text"
+                    value={newIDE.id}
+                    onChange={(e) => setNewIDE({ ...newIDE, id: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
+                    placeholder="my-editor"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    value={newIDE.name}
+                    onChange={(e) => setNewIDE({ ...newIDE, name: e.target.value })}
+                    placeholder="My Code Editor"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-400 mb-1">
+                    Application Path
+                  </label>
+                  <input
+                    type="text"
+                    value={newIDE.path}
+                    onChange={(e) => setNewIDE({ ...newIDE, path: e.target.value })}
+                    placeholder="/Applications/MyEditor.app"
+                    className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={handleAddCustomIDE}
+                    disabled={ideLoading || !newIDE.id || !newIDE.name || !newIDE.path}
+                    className="flex-1 px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Add IDE
+                  </button>
+                  <button
+                    onClick={() => {
+                      setShowAddIDE(false);
+                      setNewIDE({ id: '', name: '', path: '' });
+                    }}
+                    className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-gray-300 text-sm rounded transition-colors"
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Detected IDEs */}
+            <div className="mb-3">
+              <p className="text-xs text-gray-500 mb-2">Detected IDEs</p>
+              {ideLoading && installedIDEs.length === 0 ? (
+                <div className="flex items-center gap-2 py-2">
+                  <RefreshCw className="animate-spin text-blue-500" size={14} />
+                  <span className="text-sm text-gray-400">Detecting IDEs...</span>
+                </div>
+              ) : installedIDEs.filter(ide => !ide.custom).length === 0 ? (
+                <p className="text-sm text-gray-500 py-2">No IDEs detected</p>
+              ) : (
+                <div className="space-y-1">
+                  {installedIDEs.filter(ide => !ide.custom).map((ide) => (
+                    <div
+                      key={ide.id}
+                      className="flex items-center justify-between p-2 bg-gray-900 rounded border border-gray-700"
+                    >
+                      <div>
+                        <span className="text-sm text-white">{ide.name}</span>
+                        <span className="text-xs text-gray-500 ml-2 font-mono">{ide.id}</span>
+                      </div>
+                      <span className="text-xs text-green-400">Installed</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Custom IDEs */}
+            {customIDEs.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-500 mb-2">Custom IDEs</p>
+                <div className="space-y-1">
+                  {customIDEs.map((ide) => (
+                    <div
+                      key={ide.id}
+                      className="flex items-center justify-between p-2 bg-gray-900 rounded border border-gray-700 group"
+                    >
+                      <div>
+                        <span className="text-sm text-white">{ide.name}</span>
+                        <span className="text-xs text-gray-500 ml-2 font-mono">{ide.id}</span>
+                      </div>
+                      <button
+                        onClick={() => handleRemoveCustomIDE(ide.id)}
+                        disabled={ideLoading}
+                        className="p-1.5 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
+                        title="Remove custom IDE"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         </div>
 

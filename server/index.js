@@ -95,10 +95,17 @@ const analyzeSchema = z.object({
   fileContent: z.string().min(1).max(50000),
 });
 
-const ideIdSchema = z.enum(['vscode', 'cursor', 'webstorm', 'intellij', 'phpstorm', 'pycharm', 'sublime']);
+// IDE ID can be built-in or custom (alphanumeric with dashes)
+const ideIdSchema = z.string().min(1).max(50).regex(/^[a-z0-9-]+$/);
 
 const openIdeSchema = z.object({
   ide: ideIdSchema,
+});
+
+const addCustomIdeSchema = z.object({
+  id: z.string().min(1).max(50),
+  name: z.string().min(1).max(100),
+  path: z.string().min(1).max(500),
 });
 
 /**
@@ -496,6 +503,51 @@ app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), validat
       error: sanitizedMessage,
       code: error.code || 'UNKNOWN_ERROR',
     });
+  }
+});
+
+/**
+ * GET /api/ides/custom
+ * Get all custom IDEs
+ */
+app.get('/api/ides/custom', (req, res) => {
+  try {
+    const customIDEs = ideService.getCustomIDEs();
+    res.json({ ides: customIDEs });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/ides/custom
+ * Add a custom IDE
+ */
+app.post('/api/ides/custom', validate(addCustomIdeSchema), (req, res) => {
+  try {
+    const { id, name, path } = req.body;
+    const ide = ideService.addCustomIDE(id, name, path);
+    res.json({ success: true, ide });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/ides/custom/:id
+ * Remove a custom IDE
+ */
+app.delete('/api/ides/custom/:id', validateParams(ideIdSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const success = ideService.removeCustomIDE(id);
+    if (success) {
+      res.json({ success: true, message: `Custom IDE '${id}' removed` });
+    } else {
+      res.status(404).json({ error: 'Custom IDE not found' });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

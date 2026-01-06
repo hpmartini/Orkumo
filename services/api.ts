@@ -387,6 +387,7 @@ export interface IDE {
   id: string;
   name: string;
   path: string;
+  custom?: boolean;
 }
 
 /**
@@ -430,4 +431,47 @@ export async function updatePreferredIDE(appId: string, ideId: string | null): P
     throw new Error('Failed to update preferred IDE');
   }
   return response.json();
+}
+
+/**
+ * Get all custom IDEs
+ */
+export async function fetchCustomIDEs(): Promise<IDE[]> {
+  const response = await fetch(`${API_BASE}/ides/custom`);
+  if (!response.ok) {
+    return [];
+  }
+  const data = await response.json();
+  return data.ides || [];
+}
+
+/**
+ * Add a custom IDE
+ */
+export async function addCustomIDE(id: string, name: string, path: string): Promise<IDE> {
+  const response = await fetch(`${API_BASE}/ides/custom`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ id, name, path }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to add custom IDE');
+  }
+  const data = await response.json();
+  return data.ide;
+}
+
+/**
+ * Remove a custom IDE
+ */
+export async function removeCustomIDE(id: string): Promise<boolean> {
+  const response = await fetch(`${API_BASE}/ides/custom/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to remove custom IDE');
+  }
+  return true;
 }
