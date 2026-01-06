@@ -44,13 +44,7 @@ function AppContent() {
   } = useApps();
 
   // App tabs management
-  const {
-    tabs,
-    activeTabId,
-    closeTab,
-    reorderTabs,
-    selectTab,
-  } = useAppTabs(apps);
+  const { tabs, activeTabId, closeTab, reorderTabs, selectTab } = useAppTabs(apps);
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -127,7 +121,7 @@ function AppContent() {
     closeTab(id);
     // If closing the active tab, switch to dashboard or another tab
     if (selectedAppId === id) {
-      const remainingTabs = tabs.filter(t => t.appId !== id);
+      const remainingTabs = tabs.filter((t) => t.appId !== id);
       if (remainingTabs.length > 0) {
         setSelectedAppId(remainingTabs[remainingTabs.length - 1].appId);
       } else {
@@ -138,15 +132,18 @@ function AppContent() {
   };
 
   // Rename handler that prompts for the new name
-  const handleRenamePrompt = useCallback((id: string) => {
-    const app = apps.find(a => a.id === id);
-    if (!app) return;
+  const handleRenamePrompt = useCallback(
+    (id: string) => {
+      const app = apps.find((a) => a.id === id);
+      if (!app) return;
 
-    const newName = window.prompt('Enter new name:', app.name);
-    if (newName && newName.trim() && newName !== app.name) {
-      handleRename(id, newName.trim());
-    }
-  }, [apps, handleRename]);
+      const newName = window.prompt('Enter new name:', app.name);
+      if (newName && newName.trim() && newName !== app.name) {
+        handleRename(id, newName.trim());
+      }
+    },
+    [apps, handleRename]
+  );
 
   if (loading) {
     return (
@@ -229,12 +226,14 @@ function AppContent() {
             ${isResizing ? 'bg-blue-500/50' : ''}
           `}
         >
-          <div className={`
+          <div
+            className={`
             absolute right-0 w-4 h-12 flex items-center justify-center
             rounded-r bg-gray-800/80 border border-l-0 border-gray-700
             opacity-0 group-hover:opacity-100 transition-opacity
             ${isResizing ? 'opacity-100' : ''}
-          `}>
+          `}
+          >
             <GripVertical size={12} className="text-gray-500" />
           </div>
         </div>
@@ -255,7 +254,9 @@ function AppContent() {
           </div>
         )}
 
-        <header className={`sticky ${tabs.length > 0 ? 'top-10' : 'top-0'} z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 md:px-8 py-4 flex items-center justify-between`}>
+        <header
+          className={`sticky ${tabs.length > 0 ? 'top-10' : 'top-0'} z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 md:px-8 py-4 flex items-center justify-between`}
+        >
           <div className="md:hidden flex items-center gap-3">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -265,7 +266,7 @@ function AppContent() {
               {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
             <div className="flex items-center gap-2 text-blue-500 font-bold">
-              <LayoutDashboard size={20} /> DevOrbit
+              <LayoutDashboard size={20} /> DevHub
             </div>
           </div>
 
@@ -300,9 +301,7 @@ function AppContent() {
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 space-y-6">
                   <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-gray-200">
-                      Application Registry
-                    </h3>
+                    <h3 className="text-lg font-semibold text-gray-200">Application Registry</h3>
                   </div>
                   {/* Favorites Section */}
                   <FavoritesList
@@ -318,7 +317,7 @@ function AppContent() {
                   />
                   {/* All Applications */}
                   <AppList
-                    apps={apps.filter(app => !app.isArchived && !app.isFavorite)}
+                    apps={apps.filter((app) => !app.isArchived && !app.isFavorite)}
                     selectedAppId={selectedAppId}
                     onSelectApp={handleSelectApp}
                     onRefresh={refreshApps}

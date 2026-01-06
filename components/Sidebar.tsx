@@ -149,9 +149,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     status === AppStatus.RESTARTING;
 
   const canStart = (status: AppStatus) =>
-    status === AppStatus.STOPPED ||
-    status === AppStatus.ERROR ||
-    status === AppStatus.CANCELLED;
+    status === AppStatus.STOPPED || status === AppStatus.ERROR || status === AppStatus.CANCELLED;
 
   const renderAppItem = (app: AppConfig) => (
     <div
@@ -174,10 +172,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
             app.status === AppStatus.RUNNING
               ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
               : app.status === AppStatus.ERROR
-              ? 'bg-red-500'
-              : app.status === AppStatus.STARTING || app.status === AppStatus.RESTARTING
-              ? 'bg-yellow-500 animate-pulse'
-              : 'bg-gray-600'
+                ? 'bg-red-500'
+                : app.status === AppStatus.STARTING || app.status === AppStatus.RESTARTING
+                  ? 'bg-yellow-500 animate-pulse'
+                  : 'bg-gray-600'
           }`}
         />
         <span className="truncate text-sm">{app.name}</span>
@@ -212,7 +210,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
             )}
           </>
         ) : (
-          onStart && canStart(app.status) && (
+          onStart &&
+          canStart(app.status) && (
             <button
               onClick={(e) => {
                 e.stopPropagation();
@@ -258,9 +257,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   return (
     <aside className="w-full bg-gray-950 border-r border-gray-800 flex flex-col h-full">
       <div className="p-6 border-b border-gray-800">
-        <div className="flex items-center gap-2 text-blue-500 font-bold text-xl tracking-tight">
-          <LayoutDashboard />
-          DevOrbit
+        <div className="flex items-center gap-2">
+          <img src="/logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
+          <span className="text-blue-500 font-bold text-xl tracking-tight">DevHub</span>
         </div>
       </div>
 
@@ -285,9 +284,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <Star size={12} fill="currentColor" />
               Favorites
             </div>
-            <div className="space-y-1">
-              {favorites.map((app) => renderAppItem(app))}
-            </div>
+            <div className="space-y-1">{favorites.map((app) => renderAppItem(app))}</div>
           </>
         )}
 
@@ -320,18 +317,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                       : 'text-gray-500 hover:text-gray-300 hover:bg-gray-900/50'
                   }`}
                 >
-                  {expandedDirs.has(dir) ? (
-                    <ChevronDown size={14} />
-                  ) : (
-                    <ChevronRight size={14} />
-                  )}
+                  {expandedDirs.has(dir) ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
                   {isMainDir ? (
                     <FolderRoot size={14} className="text-blue-400" />
                   ) : (
                     <Folder size={14} />
                   )}
                   <span className="text-sm truncate">{dir}</span>
-                  <span className={`ml-auto text-xs ${isMainDir ? 'text-blue-500' : 'text-gray-600'}`}>
+                  <span
+                    className={`ml-auto text-xs ${isMainDir ? 'text-blue-500' : 'text-gray-600'}`}
+                  >
                     {dirApps.length}
                   </span>
                 </button>
@@ -347,7 +342,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 )}
               </div>
               {expandedDirs.has(dir) && (
-                <div className={`ml-4 space-y-1 pl-2 ${isMainDir ? 'border-l border-blue-800/50' : 'border-l border-gray-800'}`}>
+                <div
+                  className={`ml-4 space-y-1 pl-2 ${isMainDir ? 'border-l border-blue-800/50' : 'border-l border-gray-800'}`}
+                >
                   {dirApps.map((app) => renderAppItem(app))}
                 </div>
               )}
@@ -371,9 +368,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             {showArchive ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
           {showArchive && (
-            <div className="px-4 pb-3 space-y-1">
-              {archived.map((app) => renderAppItem(app))}
-            </div>
+            <div className="px-4 pb-3 space-y-1">{archived.map((app) => renderAppItem(app))}</div>
           )}
         </div>
       )}
@@ -388,10 +383,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="text-sm font-medium truncate">Admin User</div>
             <div className="text-xs text-gray-500">Local Environment</div>
           </div>
-          <Settings
-            size={16}
-            className="text-gray-500 cursor-pointer hover:text-white shrink-0"
-          />
+          <Settings size={16} className="text-gray-500 cursor-pointer hover:text-white shrink-0" />
         </div>
       </div>
     </aside>

@@ -43,10 +43,7 @@ export const PortConflictModal: React.FC<PortConflictModalProps> = ({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       {/* Backdrop */}
-      <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
 
       {/* Modal */}
       <div className="relative bg-gray-800 rounded-xl border border-gray-700 shadow-2xl w-full max-w-md mx-4 animate-in zoom-in-95 fade-in duration-200">
@@ -69,25 +66,21 @@ export const PortConflictModal: React.FC<PortConflictModalProps> = ({
         {/* Content */}
         <div className="p-4 space-y-4">
           <p className="text-gray-300">
-            Port <span className="font-mono text-yellow-400">{requestedPort}</span> is
-            already in use.
+            Port <span className="font-mono text-yellow-400">{requestedPort}</span> is already in
+            use.
           </p>
 
           {conflictingProcess && (
             <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
               <p className="text-sm text-gray-400">Currently used by:</p>
               <div className="mt-1 flex items-center justify-between">
-                <span className="text-white font-medium">
-                  {conflictingProcess.name}
-                </span>
+                <span className="text-white font-medium">{conflictingProcess.name}</span>
                 <span className="text-xs text-gray-500 font-mono">
                   PID: {conflictingProcess.pid}
                 </span>
               </div>
               {conflictingProcess.isDevOrbitApp && (
-                <p className="mt-1 text-xs text-blue-400">
-                  This is a DevOrbit managed app
-                </p>
+                <p className="mt-1 text-xs text-blue-400">This is a DevHub managed app</p>
               )}
             </div>
           )}
@@ -97,9 +90,7 @@ export const PortConflictModal: React.FC<PortConflictModalProps> = ({
 
             {/* Option 1: Use alternative port */}
             <div className="bg-gray-900/50 rounded-lg p-3 border border-gray-700">
-              <label className="block text-sm text-gray-300 mb-2">
-                Use a different port:
-              </label>
+              <label className="block text-sm text-gray-300 mb-2">Use a different port:</label>
               <div className="flex gap-2">
                 <input
                   type="number"
