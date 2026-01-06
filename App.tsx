@@ -290,7 +290,7 @@ function AppContent() {
           </div>
         </header>
 
-        <div className={`${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'pt-24' : 'pt-16'}`}>
+        <div className={`${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'mt-[6.5rem]' : 'mt-16'}`}>
           {activeTab === 'dashboard' ? (
             <div className="space-y-8 animate-in fade-in duration-500">
               <DashboardOverview
