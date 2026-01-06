@@ -21,6 +21,7 @@ import { StatusBadge } from './StatusBadge';
 import { PerformanceCharts } from './PerformanceCharts';
 import { XTerminal } from './XTerminal';
 import { IDESelector } from './IDESelector';
+import { CodingView } from './CodingView';
 
 interface AppDetailProps {
   app: AppConfig | null;
@@ -39,6 +40,8 @@ interface AppDetailProps {
   preferredIDE?: string | null;
 }
 
+type ViewMode = 'details' | 'coding';
+
 export const AppDetail: React.FC<AppDetailProps> = ({
   app,
   onStart,
@@ -55,6 +58,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onOpenInTerminal,
   preferredIDE,
 }) => {
+  const [activeView, setActiveView] = useState<ViewMode>('details');
   const [showPortEditor, setShowPortEditor] = useState(false);
   const [portValue, setPortValue] = useState('');
   const [showNameEditor, setShowNameEditor] = useState(false);
@@ -107,9 +111,37 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   };
 
   return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
-      {/* Header */}
-      <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
+    <div className="flex flex-col h-full">
+      {/* View Switcher Tabs */}
+      <div className="flex border-b border-gray-700 bg-gray-850">
+        <button
+          onClick={() => setActiveView('details')}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeView === 'details'
+              ? 'text-blue-400 border-b-2 border-blue-400'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Details
+        </button>
+        <button
+          onClick={() => setActiveView('coding')}
+          className={`px-4 py-2 font-medium transition-colors ${
+            activeView === 'coding'
+              ? 'text-blue-400 border-b-2 border-blue-400'
+              : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Coding
+        </button>
+      </div>
+
+      {/* View Content */}
+      <div className="flex-1 overflow-hidden">
+        {activeView === 'details' ? (
+          <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 p-6">
+            {/* Header */}
+            <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
           <div className="space-y-3">
             {/* App Name & Status */}
@@ -374,18 +406,23 @@ export const AppDetail: React.FC<AppDetailProps> = ({
         )}
       </div>
 
-      {/* Performance Charts */}
-      <PerformanceCharts
-        cpuHistory={app.stats.cpu}
-        memoryHistory={app.stats.memory}
-      />
+            {/* Performance Charts */}
+            <PerformanceCharts
+              cpuHistory={app.stats.cpu}
+              memoryHistory={app.stats.memory}
+            />
 
-      {/* XTerminal with tabs */}
-      <XTerminal
-        logs={app.logs}
-        isRunning={app.status === AppStatus.RUNNING}
-        cwd={app.path}
-      />
+            {/* XTerminal with tabs */}
+            <XTerminal
+              logs={app.logs}
+              isRunning={app.status === AppStatus.RUNNING}
+              cwd={app.path}
+            />
+          </div>
+        ) : (
+          <CodingView app={app} />
+        )}
+      </div>
     </div>
   );
 };
