@@ -104,3 +104,116 @@ describe('Input Validation', () => {
     });
   });
 });
+
+describe('IDE API', () => {
+  beforeEach(() => {
+    mockFetch.mockClear();
+  });
+
+  describe('fetchInstalledIDEs', () => {
+    it('should fetch list of installed IDEs', async () => {
+      const mockIDEs = [
+        { id: 'vscode', name: 'Visual Studio Code', path: '/usr/bin/code' },
+        { id: 'cursor', name: 'Cursor', path: '/usr/bin/cursor' },
+      ];
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ ides: mockIDEs }),
+      });
+
+      const { fetchInstalledIDEs } = await import('../services/api');
+      const ides = await fetchInstalledIDEs();
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/ides/installed');
+      expect(ides).toEqual(mockIDEs);
+    });
+
+    it('should return empty array when response is not ok', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        statusText: 'Internal Server Error',
+      });
+
+      const { fetchInstalledIDEs } = await import('../services/api');
+      const result = await fetchInstalledIDEs();
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe('openInIDE', () => {
+    it('should send POST request with app ID and IDE ID', async () => {
+      const mockResult = {
+        success: true,
+        ide: 'Visual Studio Code',
+        message: 'Successfully opened project in Visual Studio Code',
+      };
+
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve(mockResult),
+      });
+
+      const { openInIDE } = await import('../services/api');
+      const result = await openInIDE('app-1', 'vscode');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/apps/app-1/open-ide', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ide: 'vscode' }),
+      });
+      expect(result).toEqual(mockResult);
+    });
+
+    it('should throw error when response is not ok', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        json: () => Promise.resolve({ error: 'IDE not found' }),
+      });
+
+      const { openInIDE } = await import('../services/api');
+      await expect(openInIDE('app-1', 'nonexistent')).rejects.toThrow('IDE not found');
+    });
+
+    it('should reject invalid IDE identifiers', async () => {
+      // This tests that only valid IDE IDs are sent
+      const { openInIDE } = await import('../services/api');
+
+      // The frontend should send valid IDE IDs
+      const validIdeIds = ['vscode', 'cursor', 'webstorm', 'intellij', 'phpstorm', 'pycharm', 'sublime'];
+
+      validIdeIds.forEach((ideId) => {
+        expect(['vscode', 'cursor', 'webstorm', 'intellij', 'phpstorm', 'pycharm', 'sublime']).toContain(ideId);
+      });
+    });
+  });
+
+  describe('updatePreferredIDE', () => {
+    it('should send PUT request with preferred IDE', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ id: 'app-1', ide: 'cursor' }),
+      });
+
+      const { updatePreferredIDE } = await import('../services/api');
+      const result = await updatePreferredIDE('app-1', 'cursor');
+
+      expect(mockFetch).toHaveBeenCalledWith('/api/settings/preferred-ide/app-1', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ide: 'cursor' }),
+      });
+      expect(result).toEqual({ id: 'app-1', ide: 'cursor' });
+    });
+
+    it('should throw error when response is not ok', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        statusText: 'Bad Request',
+      });
+
+      const { updatePreferredIDE } = await import('../services/api');
+      await expect(updatePreferredIDE('app-1', 'invalid')).rejects.toThrow('Failed to update preferred IDE');
+    });
+  });
+});

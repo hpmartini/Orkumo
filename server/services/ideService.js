@@ -147,8 +147,9 @@ class IDEService {
           args = [projectPath];
           break;
         case 'win32':
-          cmd = 'cmd.exe';
-          args = ['/c', 'start', '', installedPath, projectPath];
+          // Use installedPath directly to avoid shell interpretation
+          cmd = installedPath;
+          args = [projectPath];
           break;
         default:
           return reject(new Error(`Unsupported platform: ${this.platform}`));

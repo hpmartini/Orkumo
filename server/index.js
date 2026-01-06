@@ -95,6 +95,12 @@ const analyzeSchema = z.object({
   fileContent: z.string().min(1).max(50000),
 });
 
+const ideIdSchema = z.enum(['vscode', 'cursor', 'webstorm', 'intellij', 'phpstorm', 'pycharm', 'sublime']);
+
+const openIdeSchema = z.object({
+  ide: ideIdSchema,
+});
+
 /**
  * Validate request body with zod schema
  */
@@ -434,14 +440,10 @@ app.get('/api/ides/installed', async (req, res) => {
  * POST /api/apps/:id/open-ide
  * Open app directory in specified IDE
  */
-app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), async (req, res) => {
+app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), validate(openIdeSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const { ide } = req.body;
-
-    if (!ide || typeof ide !== 'string') {
-      return res.status(400).json({ error: 'IDE identifier is required' });
-    }
 
     // Get app directory from config
     const apps = scanAllDirectories();

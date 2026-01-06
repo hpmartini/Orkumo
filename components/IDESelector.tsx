@@ -69,8 +69,9 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
   }
 
   // Find the default IDE (preferred or first available)
+  // If preferred IDE is not found, fall back to first available IDE
   const defaultIDE = preferredIDE
-    ? installedIDEs.find(ide => ide.id === preferredIDE)
+    ? installedIDEs.find(ide => ide.id === preferredIDE) || installedIDEs[0]
     : installedIDEs[0];
 
   // If only one IDE is installed, show simple button
