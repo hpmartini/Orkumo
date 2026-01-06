@@ -2,7 +2,7 @@ import { Panel, Group, Separator } from 'react-resizable-panels';
 import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
 import { BrowserPreviewPanel } from './BrowserPreviewPanel';
-import { AppConfig } from '../../types';
+import { AppConfig, AppStatus } from '../../types';
 
 interface CodingViewProps {
   app: AppConfig;
@@ -14,7 +14,12 @@ export function CodingView({ app }: CodingViewProps) {
       <Group direction="horizontal" id={`coding-layout-${app.id}`}>
         {/* Terminals Panel */}
         <Panel defaultSize={25} minSize={15} maxSize={40}>
-          <TerminalsPanel appId={app.id} directory={app.path} />
+          <TerminalsPanel
+            appId={app.id}
+            directory={app.path}
+            logs={app.logs}
+            isRunning={app.status === AppStatus.RUNNING}
+          />
         </Panel>
 
         <Separator className="w-1 bg-gray-700 hover:bg-blue-500 transition-colors" />

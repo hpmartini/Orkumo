@@ -1,26 +1,43 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { RefreshCw, ExternalLink, Monitor, Smartphone, Tablet } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
 interface BrowserPreviewPanelProps {
   url: string;
+  // appId will be used for panel state persistence in Phase 2
   appId: string;
 }
 
 type Viewport = 'desktop' | 'tablet' | 'mobile';
 
-const VIEWPORTS: Record<Viewport, { width: string; label: string; icon: any }> = {
+const VIEWPORTS: Record<Viewport, { width: string; label: string; icon: LucideIcon }> = {
   desktop: { width: '100%', label: 'Desktop', icon: Monitor },
   tablet: { width: '768px', label: 'Tablet', icon: Tablet },
   mobile: { width: '375px', label: 'Mobile', icon: Smartphone },
 };
 
-export function BrowserPreviewPanel({ url, appId }: BrowserPreviewPanelProps) {
+export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) => {
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [iframeKey, setIframeKey] = useState(0);
   const [currentUrl, setCurrentUrl] = useState(url);
 
+  // Sync currentUrl with url prop when it changes (e.g., app restarts on different port)
+  useEffect(() => {
+    setCurrentUrl(url);
+  }, [url]);
+
   const handleRefresh = () => {
-    setIframeKey(prev => prev + 1);
+    // Basic URL validation to prevent javascript: and data: URIs
+    try {
+      const parsed = new URL(currentUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        console.error('Invalid protocol - only http and https are allowed');
+        return;
+      }
+      setIframeKey(prev => prev + 1);
+    } catch (e) {
+      console.error('Invalid URL');
+    }
   };
 
   if (!url) {
@@ -90,16 +107,18 @@ export function BrowserPreviewPanel({ url, appId }: BrowserPreviewPanelProps) {
       </div>
 
       {/* iframe Container */}
-      <div className="flex-1 overflow-auto bg-white p-4">
+      <div className="flex-1 flex overflow-auto bg-white p-4">
         <div
-          className="mx-auto transition-all duration-300"
+          className="w-full"
           style={{ width: VIEWPORTS[viewport].width }}
         >
           <iframe
             key={iframeKey}
             src={currentUrl}
-            className="w-full bg-white shadow-lg"
-            style={{ height: 'calc(100vh - 250px)', border: '1px solid #e5e7eb' }}
+            className="w-full h-full bg-white shadow-lg"
+            style={{ border: '1px solid #e5e7eb' }}
+            // Security note: allow-same-origin is needed for local dev servers
+            // that use postMessage. This is safe for local development only.
             sandbox="allow-scripts allow-same-origin allow-forms allow-popups"
             title="App Preview"
           />
