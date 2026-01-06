@@ -241,7 +241,7 @@ function AppContent() {
       </div>
 
       {/* Main Content - with left margin for fixed sidebar */}
-      <main className="flex-1 flex flex-col overflow-auto relative ml-0 md:ml-[var(--sidebar-width)]">
+      <main className={`flex-1 flex flex-col relative ml-0 md:ml-[var(--sidebar-width)] ${activeTab === 'dashboard' ? 'overflow-auto' : 'overflow-hidden'}`}>
         {/* App Tabs - sticky at top, only show when tabs exist */}
         {tabs.length > 0 && (
           <div className="sticky top-0 z-30">
@@ -290,7 +290,7 @@ function AppContent() {
           </div>
         </header>
 
-        <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20">
+        <div className={`${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'}`}>
           {activeTab === 'dashboard' ? (
             <div className="space-y-8 animate-in fade-in duration-500">
               <DashboardOverview

@@ -31,7 +31,8 @@ class IDEError extends Error {
  */
 class IDEService {
   constructor() {
-    this.platform = os.platform();
+    // Use HOST_PLATFORM env var if set (for Docker on macOS), otherwise detect
+    this.platform = process.env.HOST_PLATFORM || os.platform();
     this.idePaths = this._getIDEPaths();
     this.customIDEs = new Map(); // User-defined custom IDEs
     this.detectionCache = null;
@@ -39,6 +40,7 @@ class IDEService {
     this.CACHE_TTL = 5 * 60 * 1000; // 5 minutes
     this.LAUNCH_VERIFICATION_TIMEOUT = 500; // 500ms to verify IDE launch
     this._loadCustomIDEs();
+    console.log(`[IDE] Service initialized with platform: ${this.platform}`);
   }
 
   /**

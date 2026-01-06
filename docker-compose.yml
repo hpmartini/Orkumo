@@ -37,6 +37,8 @@ services:
       # Mount user's home Projects directory (read-only for scanning)
       - ${HOME}/Projects:/Users/example/Projects:ro
       - ${HOME}/PROJECTS:/Users/example/PROJECTS:ro
+      # Mount Applications for IDE detection (read-only)
+      - /Applications:/Applications:ro
       # Persist app data
       - devorbit-data:/app/data
       # Persist terminal sessions
@@ -45,6 +47,8 @@ services:
       - NODE_ENV=production
       - SERVER_PORT=3099
       - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Override platform for IDE detection (container is linux, but host is darwin)
+      - HOST_PLATFORM=darwin
       - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/devorbit
       - REDIS_URL=redis://redis:6379
       - SCAN_DIRECTORIES=/projects
