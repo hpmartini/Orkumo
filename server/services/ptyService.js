@@ -12,30 +12,33 @@ const ptySessions = new Map();
 // Event emitter for PTY events
 export const ptyEvents = new EventEmitter();
 
-// Default shell based on platform
-// For Docker/Alpine Linux, use /bin/sh as zsh may not be available
-const getDefaultShell = () => {
+// Default shell based on platform - uses user's configured shell from environment
+// Cached at module load time to ensure consistent shell across all sessions
+const defaultShell = (() => {
   if (os.platform() === 'win32') {
     return 'powershell.exe';
   }
-  // Check common shells in order of preference
-  const shells = [
-    process.env.SHELL,
-    '/bin/zsh',
-    '/bin/bash',
-    '/bin/ash',  // Alpine Linux default
-    '/bin/sh',
-  ].filter(Boolean);
 
-  for (const shell of shells) {
+  // Use the user's configured shell from environment variable
+  const userShell = process.env.SHELL;
+  if (userShell && fs.existsSync(userShell)) {
+    console.log(`[PTY] Using user's default shell: ${userShell}`);
+    return userShell;
+  }
+
+  // Fallback for Docker/containers where SHELL may not be set
+  const fallbackShells = ['/bin/zsh', '/bin/bash', '/bin/ash', '/bin/sh'];
+  for (const shell of fallbackShells) {
     if (fs.existsSync(shell)) {
+      console.log(`[PTY] SHELL env not set, using fallback: ${shell}`);
       return shell;
     }
   }
-  return '/bin/sh';
-};
 
-const defaultShell = getDefaultShell();
+  return '/bin/sh';
+})();
+
+console.log(`[PTY] Service initialized with default shell: ${defaultShell}`);
 
 /**
  * Create a new PTY session
@@ -51,16 +54,32 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
     killPtySession(sessionId);
   }
 
+  // Validate CWD exists, fallback to /tmp or HOME
+  let workingDir = cwd;
+  if (!fs.existsSync(workingDir)) {
+    console.warn(`[PTY] CWD ${workingDir} doesn't exist, using fallback`);
+    workingDir = fs.existsSync('/tmp') ? '/tmp' : (process.env.HOME || '/');
+  }
+
+  const shell = defaultShell;
+  console.log(`[PTY] Creating session with shell: ${shell}, cwd: ${workingDir}`);
+
   try {
-    const ptyProcess = pty.spawn(defaultShell, [], {
+    // Use -l for login shell to ensure proper initialization (zsh and bash)
+    const shellArgs = shell.includes('zsh') || shell.includes('bash') ? ['--login'] : [];
+
+    const ptyProcess = pty.spawn(shell, shellArgs, {
       name: 'xterm-256color',
       cols,
       rows,
-      cwd,
+      cwd: workingDir,
       env: {
         ...process.env,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
+        HOME: process.env.HOME || '/root',
+        USER: process.env.USER || 'root',
+        SHELL: shell,
       },
     });
 
@@ -68,6 +87,7 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
       id: sessionId,
       pty: ptyProcess,
       cwd,
+      shell,
       createdAt: Date.now(),
     };
 
@@ -88,7 +108,7 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
       success: true,
       sessionId,
       pid: ptyProcess.pid,
-      shell: defaultShell,
+      shell,
     };
   } catch (error) {
     console.error(`Failed to create PTY session ${sessionId}:`, error);

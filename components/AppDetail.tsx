@@ -149,7 +149,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             id="details-panel"
             role="tabpanel"
             aria-labelledby="details-tab"
-            className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 p-6"
+            className="h-full overflow-y-auto space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 p-6"
           >
             {/* Header */}
             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">

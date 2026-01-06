@@ -42,6 +42,12 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const tabsRef = useRef<TerminalTab[]>([]);
+
+  // Keep tabs ref in sync for cleanup
+  useEffect(() => {
+    tabsRef.current = tabs;
+  }, [tabs]);
 
   // Auto-scroll logs to bottom
   useEffect(() => {
@@ -233,17 +239,16 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     };
   }, [tabs, activeTabId]);
 
-  // Cleanup on unmount - properly capture current tabs in closure
+  // Cleanup on unmount only (not on every tabs change)
   useEffect(() => {
     return () => {
-      // Capture current tabs in closure to properly cleanup all tabs
-      const currentTabs = tabs;
-      currentTabs.forEach((tab) => {
+      // Use ref to get current tabs without dependency issues
+      tabsRef.current.forEach((tab) => {
         tab.ws?.close();
         tab.terminal?.dispose();
       });
     };
-  }, [tabs]);
+  }, []); // Empty deps - only runs on unmount
 
   // Close a tab
   const closeTab = useCallback(
@@ -332,7 +337,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
   return (
-    <div className="bg-gray-950 rounded-xl border border-gray-800 shadow-inner overflow-hidden flex flex-col h-[400px]">
+    <div className="bg-gray-950 rounded-xl border border-gray-800 shadow-inner overflow-hidden flex flex-col min-h-[400px]">
       {/* Tab bar */}
       <div className="bg-gray-900 px-2 py-1 border-b border-gray-800 flex items-center gap-1 shrink-0 overflow-x-auto">
         {/* Logs tab */}
