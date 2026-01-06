@@ -573,6 +573,182 @@ app.put('/api/settings/preferred-ide/:id', validateParams(idSchema), (req, res) 
   }
 });
 
+// ============================================
+// File System Endpoints (for Monaco Editor)
+// ============================================
+
+/**
+ * GET /api/files/tree
+ * Get file tree for a directory
+ */
+app.get('/api/files/tree', async (req, res) => {
+  try {
+    const { path: dirPath, depth = 3 } = req.query;
+    if (!dirPath) {
+      return res.status(400).json({ error: 'path is required' });
+    }
+
+    const { default: fs } = await import('fs');
+    const { default: pathModule } = await import('path');
+
+    const buildTree = (dir, currentDepth = 0, maxDepth = parseInt(depth)) => {
+      if (currentDepth >= maxDepth) return [];
+
+      try {
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        return entries
+          .filter(entry => !entry.name.startsWith('.') && entry.name !== 'node_modules')
+          .sort((a, b) => {
+            // Directories first
+            if (a.isDirectory() && !b.isDirectory()) return -1;
+            if (!a.isDirectory() && b.isDirectory()) return 1;
+            return a.name.localeCompare(b.name);
+          })
+          .map(entry => {
+            const fullPath = pathModule.join(dir, entry.name);
+            const node = {
+              name: entry.name,
+              path: fullPath,
+              isDirectory: entry.isDirectory(),
+            };
+            if (entry.isDirectory()) {
+              node.children = buildTree(fullPath, currentDepth + 1, maxDepth);
+            }
+            return node;
+          });
+      } catch (err) {
+        return [];
+      }
+    };
+
+    const tree = buildTree(dirPath);
+    res.json({ tree });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/files/read
+ * Read a file's content
+ */
+app.get('/api/files/read', async (req, res) => {
+  try {
+    const { path: filePath } = req.query;
+    if (!filePath) {
+      return res.status(400).json({ error: 'path is required' });
+    }
+
+    const { default: fs } = await import('fs');
+    const { default: pathModule } = await import('path');
+
+    // Security: ensure path is within allowed directories
+    const config = getConfig();
+    const allowedDirs = config.directories || [];
+    const realPath = fs.realpathSync(filePath);
+    const isAllowed = allowedDirs.some(dir => realPath.startsWith(fs.realpathSync(dir)));
+
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const stats = fs.statSync(filePath);
+    if (stats.isDirectory()) {
+      return res.status(400).json({ error: 'Cannot read directory' });
+    }
+
+    // Limit file size to 1MB
+    if (stats.size > 1024 * 1024) {
+      return res.status(400).json({ error: 'File too large (max 1MB)' });
+    }
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    const ext = pathModule.extname(filePath).slice(1);
+
+    res.json({
+      path: filePath,
+      content,
+      language: getLanguageFromExtension(ext),
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/files/write
+ * Write content to a file
+ */
+app.put('/api/files/write', async (req, res) => {
+  try {
+    const { path: filePath, content } = req.body;
+    if (!filePath || content === undefined) {
+      return res.status(400).json({ error: 'path and content are required' });
+    }
+
+    const { default: fs } = await import('fs');
+
+    // Security: ensure path is within allowed directories
+    const config = getConfig();
+    const allowedDirs = config.directories || [];
+    const realPath = fs.existsSync(filePath) ? fs.realpathSync(filePath) : filePath;
+    const isAllowed = allowedDirs.some(dir => {
+      const realDir = fs.realpathSync(dir);
+      return realPath.startsWith(realDir);
+    });
+
+    if (!isAllowed) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    fs.writeFileSync(filePath, content, 'utf-8');
+    res.json({ success: true, path: filePath });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Helper to map file extensions to Monaco language IDs
+function getLanguageFromExtension(ext) {
+  const map = {
+    js: 'javascript',
+    jsx: 'javascript',
+    ts: 'typescript',
+    tsx: 'typescript',
+    json: 'json',
+    html: 'html',
+    htm: 'html',
+    css: 'css',
+    scss: 'scss',
+    less: 'less',
+    md: 'markdown',
+    py: 'python',
+    rb: 'ruby',
+    go: 'go',
+    rs: 'rust',
+    java: 'java',
+    c: 'c',
+    cpp: 'cpp',
+    h: 'c',
+    hpp: 'cpp',
+    sh: 'shell',
+    bash: 'shell',
+    zsh: 'shell',
+    yaml: 'yaml',
+    yml: 'yaml',
+    xml: 'xml',
+    sql: 'sql',
+    graphql: 'graphql',
+    vue: 'vue',
+    svelte: 'svelte',
+  };
+  return map[ext] || 'plaintext';
+}
+
 /**
  * GET /api/apps/:id/package
  * Read actual package.json from an app's directory

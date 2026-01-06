@@ -3,8 +3,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
-# Install runtime dependencies for node-pty
-RUN apk add --no-cache python3 make g++ linux-headers curl
+# Install runtime dependencies for node-pty and shell support
+RUN apk add --no-cache python3 make g++ linux-headers curl bash
 
 # Copy package files
 COPY package*.json ./

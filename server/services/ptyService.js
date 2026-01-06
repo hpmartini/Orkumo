@@ -3,6 +3,7 @@
  */
 import * as pty from 'node-pty';
 import os from 'os';
+import fs from 'fs';
 import { EventEmitter } from 'events';
 
 // Store active PTY sessions
@@ -12,9 +13,29 @@ const ptySessions = new Map();
 export const ptyEvents = new EventEmitter();
 
 // Default shell based on platform
-const defaultShell = os.platform() === 'win32'
-  ? 'powershell.exe'
-  : process.env.SHELL || '/bin/zsh';
+// For Docker/Alpine Linux, use /bin/sh as zsh may not be available
+const getDefaultShell = () => {
+  if (os.platform() === 'win32') {
+    return 'powershell.exe';
+  }
+  // Check common shells in order of preference
+  const shells = [
+    process.env.SHELL,
+    '/bin/zsh',
+    '/bin/bash',
+    '/bin/ash',  // Alpine Linux default
+    '/bin/sh',
+  ].filter(Boolean);
+
+  for (const shell of shells) {
+    if (fs.existsSync(shell)) {
+      return shell;
+    }
+  }
+  return '/bin/sh';
+};
+
+const defaultShell = getDefaultShell();
 
 /**
  * Create a new PTY session
