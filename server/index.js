@@ -32,6 +32,7 @@ import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
 import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
+import { ideService } from './services/ideService.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -399,6 +400,78 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
       // Clear custom name
       settingsService.setName(id, null);
       res.json({ id, name: null });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// IDE Integration Endpoints
+// ============================================
+
+/**
+ * GET /api/ides/installed
+ * Detect and return all installed IDEs on the system
+ */
+app.get('/api/ides/installed', async (req, res) => {
+  try {
+    const ides = await ideService.detectInstalledIDEs();
+    res.json({ ides });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/open-ide
+ * Open app directory in specified IDE
+ */
+app.post('/api/apps/:id/open-ide', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ide } = req.body;
+
+    if (!ide || typeof ide !== 'string') {
+      return res.status(400).json({ error: 'IDE identifier is required' });
+    }
+
+    // Get app directory from config
+    const apps = scanAllDirectories();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    // Open in IDE
+    const result = await ideService.openInIDE(app.path, ide);
+
+    // Save preferred IDE to settings
+    settingsService.setPreferredIDE(id, ide);
+
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/preferred-ide/:id
+ * Set preferred IDE for an app
+ */
+app.put('/api/settings/preferred-ide/:id', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const { ide } = req.body;
+
+    if (ide && typeof ide === 'string' && ide.trim().length > 0) {
+      settingsService.setPreferredIDE(id, ide.trim());
+      res.json({ id, ide: ide.trim() });
+    } else {
+      // Clear preferred IDE
+      settingsService.setPreferredIDE(id, null);
+      res.json({ id, ide: null });
     }
   } catch (error) {
     res.status(500).json({ error: error.message });

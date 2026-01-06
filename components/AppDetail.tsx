@@ -20,6 +20,7 @@ import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { PerformanceCharts } from './PerformanceCharts';
 import { XTerminal } from './XTerminal';
+import { IDESelector } from './IDESelector';
 
 interface AppDetailProps {
   app: AppConfig | null;
@@ -35,6 +36,7 @@ interface AppDetailProps {
   onToggleArchive?: (id: string) => void;
   onOpenInFinder?: (id: string) => void;
   onOpenInTerminal?: (id: string) => void;
+  preferredIDE?: string | null;
 }
 
 export const AppDetail: React.FC<AppDetailProps> = ({
@@ -51,6 +53,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onToggleArchive,
   onOpenInFinder,
   onOpenInTerminal,
+  preferredIDE,
 }) => {
   const [showPortEditor, setShowPortEditor] = useState(false);
   const [portValue, setPortValue] = useState('');
@@ -342,6 +345,11 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                 <Terminal size={18} />
               </button>
             )}
+
+            <IDESelector
+              appId={app.id}
+              preferredIDE={preferredIDE}
+            />
 
             {onToggleArchive && (
               <button

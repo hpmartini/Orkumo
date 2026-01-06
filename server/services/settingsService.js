@@ -16,6 +16,7 @@ const defaultSettings = {
   archived: [],       // Array of app IDs that are archived
   customPorts: {},    // Map of appId -> port number
   customNames: {},    // Map of appId -> custom name
+  preferredIDEs: {},  // Map of appId -> preferred IDE id
   version: 1,         // Settings schema version for future migrations
 };
 
@@ -85,6 +86,7 @@ class SettingsService {
       isArchived: settings.archived.includes(appId),
       customPort: settings.customPorts[appId] || null,
       customName: settings.customNames[appId] || null,
+      preferredIDE: settings.preferredIDEs?.[appId] || null,
     };
   }
 
@@ -251,6 +253,39 @@ class SettingsService {
   }
 
   /**
+   * Set preferred IDE for an app
+   * @param {string} appId - Application ID
+   * @param {string|null} ideId - IDE identifier or null to clear
+   * @returns {string|null} The set IDE
+   */
+  setPreferredIDE(appId, ideId) {
+    const settings = readSettings();
+
+    if (!settings.preferredIDEs) {
+      settings.preferredIDEs = {};
+    }
+
+    if (ideId === null || ideId === undefined || ideId.trim() === '') {
+      delete settings.preferredIDEs[appId];
+    } else {
+      settings.preferredIDEs[appId] = ideId.trim();
+    }
+
+    writeSettings(settings);
+    return ideId;
+  }
+
+  /**
+   * Get preferred IDE for an app
+   * @param {string} appId - Application ID
+   * @returns {string|null} Preferred IDE ID or null
+   */
+  getPreferredIDE(appId) {
+    const settings = readSettings();
+    return settings.preferredIDEs?.[appId] || null;
+  }
+
+  /**
    * Remove settings for apps that no longer exist
    * @param {string[]} validAppIds - List of valid app IDs
    */
@@ -275,6 +310,15 @@ class SettingsService {
     for (const appId of Object.keys(settings.customNames)) {
       if (!validSet.has(appId)) {
         delete settings.customNames[appId];
+      }
+    }
+
+    // Clean up preferred IDEs
+    if (settings.preferredIDEs) {
+      for (const appId of Object.keys(settings.preferredIDEs)) {
+        if (!validSet.has(appId)) {
+          delete settings.preferredIDEs[appId];
+        }
       }
     }
 
