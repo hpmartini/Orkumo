@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Code, ChevronDown, Loader2 } from 'lucide-react';
+import toast from 'react-hot-toast';
 import { IDE } from '../types';
 import { fetchInstalledIDEs, openInIDE } from '../services/api';
 
@@ -20,7 +21,13 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
   const dropdownRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    fetchInstalledIDEs().then(setInstalledIDEs);
+    fetchInstalledIDEs()
+      .then(setInstalledIDEs)
+      .catch((error) => {
+        console.error('Failed to fetch installed IDEs:', error);
+        // Set empty array on error to prevent component from crashing
+        setInstalledIDEs([]);
+      });
   }, []);
 
   // Close dropdown when clicking outside
@@ -43,12 +50,14 @@ export const IDESelector: React.FC<IDESelectorProps> = ({
   const handleOpenIDE = async (ideId: string) => {
     setLoading(true);
     try {
-      await openInIDE(appId, ideId);
+      const result = await openInIDE(appId, ideId);
       setIsOpen(false);
+      toast.success(result.message || `Opened in ${result.ide}`);
       onSuccess?.();
     } catch (error) {
       console.error('Failed to open IDE:', error);
-      alert(`Failed to open IDE: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      toast.error(`Failed to open IDE: ${errorMessage}`);
     } finally {
       setLoading(false);
     }

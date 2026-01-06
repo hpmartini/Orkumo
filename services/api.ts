@@ -398,7 +398,7 @@ export async function fetchInstalledIDEs(): Promise<IDE[]> {
 /**
  * Open app in specified IDE
  */
-export async function openInIDE(appId: string, ideId: string): Promise<{ success: boolean; ide: string }> {
+export async function openInIDE(appId: string, ideId: string): Promise<{ success: boolean; ide: string; message?: string }> {
   const response = await fetch(`${API_BASE}/apps/${appId}/open-ide`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

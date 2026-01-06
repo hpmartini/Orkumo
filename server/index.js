@@ -56,6 +56,13 @@ const processLimiter = rateLimit({
   message: { error: 'Too many process operations, please slow down' },
 });
 
+// Rate limit for IDE launch operations
+const ideLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 10, // limit IDE launches to 10 per minute
+  message: { error: 'Too many IDE launch requests, please slow down' },
+});
+
 app.use(cors());
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
@@ -427,7 +434,7 @@ app.get('/api/ides/installed', async (req, res) => {
  * POST /api/apps/:id/open-ide
  * Open app directory in specified IDE
  */
-app.post('/api/apps/:id/open-ide', validateParams(idSchema), async (req, res) => {
+app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const { ide } = req.body;
@@ -441,7 +448,7 @@ app.post('/api/apps/:id/open-ide', validateParams(idSchema), async (req, res) =>
     const app = apps.find(a => a.id === id);
 
     if (!app) {
-      return res.status(404).json({ error: 'App not found' });
+      return res.status(404).json({ error: 'Application not found' });
     }
 
     // Open in IDE
@@ -452,6 +459,7 @@ app.post('/api/apps/:id/open-ide', validateParams(idSchema), async (req, res) =>
 
     res.json(result);
   } catch (error) {
+    console.error(`[IDE] Failed to open IDE for app ${id}:`, error.message);
     res.status(500).json({ error: error.message });
   }
 });

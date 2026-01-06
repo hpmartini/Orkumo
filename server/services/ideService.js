@@ -1,10 +1,7 @@
-import { exec } from 'child_process';
+import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { promisify } from 'util';
-
-const execAsync = promisify(exec);
 
 /**
  * IDE Service - Detects and launches external IDEs
@@ -17,7 +14,7 @@ class IDEService {
 
   /**
    * Get IDE paths for current platform
-   * @returns {Object} Map of IDE ID to path
+   * @returns {Object} Map of IDE ID to path or command
    */
   _getIDEPaths() {
     const paths = {
@@ -31,13 +28,13 @@ class IDEService {
         sublime: '/Applications/Sublime Text.app',
       },
       linux: {
-        vscode: '/usr/bin/code',
-        cursor: '/usr/bin/cursor',
-        webstorm: '/usr/local/bin/webstorm',
-        intellij: '/usr/local/bin/idea',
-        phpstorm: '/usr/local/bin/phpstorm',
-        pycharm: '/usr/local/bin/pycharm',
-        sublime: '/usr/bin/subl',
+        vscode: ['/usr/bin/code', '/snap/bin/code', '/var/lib/flatpak/exports/bin/com.visualstudio.code'],
+        cursor: ['/usr/bin/cursor', '/snap/bin/cursor'],
+        webstorm: ['/usr/local/bin/webstorm', '/snap/bin/webstorm'],
+        intellij: ['/usr/local/bin/idea', '/snap/bin/intellij-idea-community', '/snap/bin/intellij-idea-ultimate'],
+        phpstorm: ['/usr/local/bin/phpstorm', '/snap/bin/phpstorm'],
+        pycharm: ['/usr/local/bin/pycharm', '/snap/bin/pycharm-community', '/snap/bin/pycharm-professional'],
+        sublime: ['/usr/bin/subl', '/snap/bin/sublime-text'],
       },
       win32: {
         vscode: 'C:\\Program Files\\Microsoft VS Code\\Code.exe',
@@ -71,17 +68,22 @@ class IDEService {
   }
 
   /**
-   * Check if IDE is installed at given path
-   * @param {string} idePath - Path to IDE
-   * @returns {Promise<boolean>} Whether IDE is installed
+   * Check if IDE is installed at given path(s)
+   * @param {string|string[]} idePath - Path to IDE or array of possible paths
+   * @returns {Promise<string|null>} Path if installed, null otherwise
    */
   async _isInstalled(idePath) {
-    try {
-      await fs.promises.access(idePath, fs.constants.F_OK);
-      return true;
-    } catch {
-      return false;
+    const paths = Array.isArray(idePath) ? idePath : [idePath];
+
+    for (const p of paths) {
+      try {
+        await fs.promises.access(p, fs.constants.F_OK);
+        return p; // Return the first valid path
+      } catch {
+        continue;
+      }
     }
+    return null;
   }
 
   /**
@@ -92,11 +94,12 @@ class IDEService {
     const installed = [];
 
     for (const [ideId, idePath] of Object.entries(this.idePaths)) {
-      if (await this._isInstalled(idePath)) {
+      const installedPath = await this._isInstalled(idePath);
+      if (installedPath) {
         installed.push({
           id: ideId,
           name: this._getIDEName(ideId),
-          path: idePath,
+          path: installedPath,
         });
       }
     }
@@ -114,46 +117,64 @@ class IDEService {
     const idePath = this.idePaths[ideId];
 
     if (!idePath) {
-      throw new Error(`IDE ${ideId} is not configured for platform ${this.platform}`);
+      throw new Error(`IDE '${ideId}' is not supported on ${this.platform}`);
     }
 
-    if (!(await this._isInstalled(idePath))) {
-      throw new Error(`IDE ${ideId} is not installed at ${idePath}`);
+    const installedPath = await this._isInstalled(idePath);
+    if (!installedPath) {
+      const pathStr = Array.isArray(idePath) ? idePath.join(', ') : idePath;
+      throw new Error(`IDE '${this._getIDEName(ideId)}' is not installed. Checked: ${pathStr}`);
     }
 
     // Verify project path exists
     try {
       await fs.promises.access(projectPath, fs.constants.F_OK);
     } catch {
-      throw new Error(`Project path does not exist: ${projectPath}`);
+      throw new Error(`Project directory does not exist: ${projectPath}`);
     }
 
-    let command;
-    switch (this.platform) {
-      case 'darwin':
-        command = `open -a "${idePath}" "${projectPath}"`;
-        break;
-      case 'linux':
-        command = `"${idePath}" "${projectPath}"`;
-        break;
-      case 'win32':
-        command = `start "" "${idePath}" "${projectPath}"`;
-        break;
-      default:
-        throw new Error(`Unsupported platform: ${this.platform}`);
-    }
+    // Use spawn to avoid shell interpretation and prevent command injection
+    return new Promise((resolve, reject) => {
+      let cmd, args;
 
-    try {
-      const { stdout, stderr } = await execAsync(command);
-      return {
-        success: true,
-        ide: this._getIDEName(ideId),
-        stdout,
-        stderr,
-      };
-    } catch (error) {
-      throw new Error(`Failed to open IDE: ${error.message}`);
-    }
+      switch (this.platform) {
+        case 'darwin':
+          cmd = 'open';
+          args = ['-a', installedPath, projectPath];
+          break;
+        case 'linux':
+          cmd = installedPath;
+          args = [projectPath];
+          break;
+        case 'win32':
+          cmd = 'cmd.exe';
+          args = ['/c', 'start', '', installedPath, projectPath];
+          break;
+        default:
+          return reject(new Error(`Unsupported platform: ${this.platform}`));
+      }
+
+      const child = spawn(cmd, args, {
+        detached: true,
+        stdio: 'ignore',
+      });
+
+      child.on('error', (error) => {
+        reject(new Error(`Failed to launch IDE: ${error.message}`));
+      });
+
+      // Detach and allow the process to continue independently
+      child.unref();
+
+      // Assume success if no immediate error
+      setTimeout(() => {
+        resolve({
+          success: true,
+          ide: this._getIDEName(ideId),
+          message: `Successfully opened project in ${this._getIDEName(ideId)}`,
+        });
+      }, 100);
+    });
   }
 }
 
