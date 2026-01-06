@@ -3,6 +3,7 @@ import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
 import { BrowserPreviewPanel } from './BrowserPreviewPanel';
 import { AppConfig, AppStatus } from '../../types';
+import './CodingView.css';
 
 interface CodingViewProps {
   app: AppConfig;
@@ -10,10 +11,10 @@ interface CodingViewProps {
 
 export function CodingView({ app }: CodingViewProps) {
   return (
-    <div className="h-full w-full flex flex-col bg-gray-900">
-      <Group orientation="horizontal" className="flex-1">
+    <div className="coding-view-container">
+      <Group orientation="horizontal" className="coding-view-group">
         {/* Terminals Panel */}
-        <Panel defaultSize={25} minSize={15} maxSize={40}>
+        <Panel defaultSize="25" minSize="10" maxSize="70" className="coding-panel">
           <TerminalsPanel
             appId={app.id}
             directory={app.path}
@@ -22,17 +23,17 @@ export function CodingView({ app }: CodingViewProps) {
           />
         </Panel>
 
-        <Separator className="w-1 bg-gray-700 hover:bg-blue-500 transition-colors cursor-col-resize" />
+        <Separator className="coding-separator" />
 
         {/* Web IDE Panel */}
-        <Panel defaultSize={40} minSize={20}>
+        <Panel defaultSize="45" minSize="20" className="coding-panel">
           <WebIDEPanel appId={app.id} directory={app.path} />
         </Panel>
 
-        <Separator className="w-1 bg-gray-700 hover:bg-blue-500 transition-colors cursor-col-resize" />
+        <Separator className="coding-separator" />
 
         {/* Browser Preview Panel */}
-        <Panel defaultSize={35} minSize={20}>
+        <Panel defaultSize="30" minSize="15" className="coding-panel">
           <BrowserPreviewPanel url={app.addresses?.[0] || ''} appId={app.id} />
         </Panel>
       </Group>
