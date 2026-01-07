@@ -2,8 +2,6 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { XTerminal } from '../XTerminal';
 
 interface TerminalsPanelProps {
-  // appId will be used for panel state persistence in Phase 2
-  appId: string;
   directory: string;
   logs?: string[];
   isRunning?: boolean;
@@ -12,7 +10,6 @@ interface TerminalsPanelProps {
 }
 
 export const TerminalsPanel = ({
-  appId,
   directory,
   logs,
   isRunning,

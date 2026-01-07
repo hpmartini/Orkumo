@@ -40,7 +40,6 @@ export function CodingView({ app }: CodingViewProps) {
           onExpand={() => setIsTerminalCollapsed(false)}
         >
           <TerminalsPanel
-            appId={app.id}
             directory={app.path}
             logs={app.logs}
             isRunning={app.status === AppStatus.RUNNING}
