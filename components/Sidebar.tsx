@@ -12,6 +12,8 @@ import {
   Square,
   RefreshCw,
   Globe,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -20,6 +22,8 @@ interface SidebarProps {
   apps: AppConfig[];
   selectedAppId: string | null;
   activeTab: 'dashboard' | 'apps';
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
   onSelectDashboard: () => void;
   onSelectApp: (id: string) => void;
   onToggleFavorite?: (id: string) => void;
@@ -45,6 +49,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   apps,
   selectedAppId,
   activeTab,
+  isCollapsed,
+  onToggleCollapse,
   onSelectDashboard,
   onSelectApp,
   onToggleFavorite,
@@ -256,12 +262,81 @@ export const Sidebar: React.FC<SidebarProps> = ({
     </div>
   );
 
+  // Collapsed sidebar view
+  if (isCollapsed) {
+    return (
+      <aside className="w-full bg-gray-950 border-r border-gray-800 flex flex-col h-full items-center">
+        {/* Logo */}
+        <div className="p-3 border-b border-gray-800 w-full flex justify-center">
+          <img src="/logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
+        </div>
+
+        {/* Overview Icon */}
+        <div className="p-2 mt-2">
+          <button
+            onClick={onSelectDashboard}
+            className={`p-2 rounded-lg transition-all ${
+              activeTab === 'dashboard'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+            }`}
+            title="Overview"
+          >
+            <LayoutDashboard size={20} />
+          </button>
+        </div>
+
+        {/* Expand Button */}
+        {onToggleCollapse && (
+          <div className="p-2 mt-2">
+            <button
+              onClick={onToggleCollapse}
+              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+              title="Expand sidebar"
+            >
+              <PanelLeftOpen size={20} />
+            </button>
+          </div>
+        )}
+
+        {/* Spacer */}
+        <div className="flex-1" />
+
+        {/* Daemon State */}
+        <div className="p-3 border-t border-gray-800 w-full flex flex-col items-center gap-2">
+          <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" title="Daemon Active"></div>
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
+          )}
+        </div>
+      </aside>
+    );
+  }
+
+  // Expanded sidebar view
   return (
     <aside className="w-full bg-gray-950 border-r border-gray-800 flex flex-col h-full">
       <div className="p-6 border-b border-gray-800">
-        <div className="flex items-center gap-2">
-          <img src="/logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
-          <span className="text-blue-500 font-bold text-xl tracking-tight">DevOrbit</span>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <img src="/logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
+            <span className="text-blue-500 font-bold text-xl tracking-tight">DevOrbit</span>
+          </div>
+          {onToggleCollapse && (
+            <button
+              onClick={onToggleCollapse}
+              className="p-1.5 hover:bg-gray-800 rounded-lg transition-colors text-gray-500 hover:text-white"
+              title="Collapse sidebar"
+            >
+              <PanelLeftClose size={18} />
+            </button>
+          )}
         </div>
       </div>
 

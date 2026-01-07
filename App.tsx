@@ -55,18 +55,34 @@ function AppContent() {
   const MIN_SIDEBAR_WIDTH = 200;
   const MAX_SIDEBAR_WIDTH = 400;
   const DEFAULT_SIDEBAR_WIDTH = 256; // 16rem = 256px
+  const COLLAPSED_SIDEBAR_WIDTH = 64; // Width when collapsed
 
   const [sidebarWidth, setSidebarWidth] = useState(() => {
     const saved = localStorage.getItem('devOrbitSidebarWidth');
     return saved ? parseInt(saved, 10) : DEFAULT_SIDEBAR_WIDTH;
   });
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+    const saved = localStorage.getItem('devOrbitSidebarCollapsed');
+    return saved === 'true';
+  });
   const [isResizing, setIsResizing] = useState(false);
   const resizeRef = useRef<HTMLDivElement>(null);
 
-  // Persist sidebar width
+  // Persist sidebar width and collapsed state
   useEffect(() => {
     localStorage.setItem('devOrbitSidebarWidth', String(sidebarWidth));
   }, [sidebarWidth]);
+
+  useEffect(() => {
+    localStorage.setItem('devOrbitSidebarCollapsed', String(sidebarCollapsed));
+  }, [sidebarCollapsed]);
+
+  // Calculate actual sidebar width based on collapsed state
+  const actualSidebarWidth = sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth;
+
+  const handleToggleSidebarCollapse = useCallback(() => {
+    setSidebarCollapsed((prev) => !prev);
+  }, []);
 
   // Handle resize
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -161,7 +177,7 @@ function AppContent() {
   return (
     <div
       className="min-h-screen bg-gray-900 text-gray-100 font-sans flex overflow-hidden"
-      style={{ '--sidebar-width': `${sidebarWidth}px` } as React.CSSProperties}
+      style={{ '--sidebar-width': `${actualSidebarWidth}px` } as React.CSSProperties}
     >
       {/* Toast notifications */}
       <Toaster
@@ -194,15 +210,17 @@ function AppContent() {
       <div
         className={`
           fixed inset-y-0 left-0 z-50
-          transform transition-transform duration-300 ease-in-out
+          transform transition-all duration-300 ease-in-out
           ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
-        style={{ width: sidebarWidth }}
+        style={{ width: actualSidebarWidth }}
       >
         <Sidebar
           apps={apps}
           selectedAppId={selectedAppId}
           activeTab={activeTab}
+          isCollapsed={sidebarCollapsed}
+          onToggleCollapse={handleToggleSidebarCollapse}
           onSelectDashboard={handleSelectDashboard}
           onSelectApp={handleSelectApp}
           onToggleFavorite={handleToggleFavorite}
@@ -218,28 +236,30 @@ function AppContent() {
           onOpenSettings={() => setAdminPanelOpen(true)}
           mainDirectory="Projects"
         />
-        {/* Resize handle */}
-        <div
-          ref={resizeRef}
-          onMouseDown={handleMouseDown}
-          className={`
-            hidden md:flex absolute top-0 right-0 w-1 h-full cursor-col-resize
-            items-center justify-center group
-            hover:bg-blue-500/30 transition-colors
-            ${isResizing ? 'bg-blue-500/50' : ''}
-          `}
-        >
+        {/* Resize handle - only show when not collapsed */}
+        {!sidebarCollapsed && (
           <div
+            ref={resizeRef}
+            onMouseDown={handleMouseDown}
             className={`
-            absolute right-0 w-4 h-12 flex items-center justify-center
-            rounded-r bg-gray-800/80 border border-l-0 border-gray-700
-            opacity-0 group-hover:opacity-100 transition-opacity
-            ${isResizing ? 'opacity-100' : ''}
-          `}
+              hidden md:flex absolute top-0 right-0 w-1 h-full cursor-col-resize
+              items-center justify-center group
+              hover:bg-blue-500/30 transition-colors
+              ${isResizing ? 'bg-blue-500/50' : ''}
+            `}
           >
-            <GripVertical size={12} className="text-gray-500" />
+            <div
+              className={`
+              absolute right-0 w-4 h-12 flex items-center justify-center
+              rounded-r bg-gray-800/80 border border-l-0 border-gray-700
+              opacity-0 group-hover:opacity-100 transition-opacity
+              ${isResizing ? 'opacity-100' : ''}
+            `}
+            >
+              <GripVertical size={12} className="text-gray-500" />
+            </div>
           </div>
-        </div>
+        )}
       </div>
 
       {/* Main Content - with left margin for fixed sidebar */}
