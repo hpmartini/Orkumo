@@ -92,11 +92,16 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   const logsEndRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
   const tabsRef = useRef<TerminalTab[]>([]);
+  const activeTabIdRef = useRef<string | null>(null);
 
-  // Keep tabs ref in sync for cleanup
+  // Keep refs in sync for ResizeObserver and cleanup
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
+
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId;
+  }, [activeTabId]);
 
   // Check Claude CLI status on mount
   useEffect(() => {
@@ -184,12 +189,13 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       const tab = tabs.find((t) => t.id === tabId);
       if (!tab || tab.terminal || !terminalContainerRef.current) return;
 
-      // Create xterm instance
+      // Create xterm instance with proper configuration for reflow support
       const terminal = new XTerm({
         cursorBlink: true,
         cursorStyle: 'bar',
         fontSize: 13,
         fontFamily: 'JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
+        scrollback: 5000, // Enable scrollback buffer for reflow to work properly
         theme: {
           background: '#0a0a0f',
           foreground: '#e4e4e7',
@@ -291,6 +297,20 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         }
       });
 
+      // Handle terminal resize events - this fires when terminal dimensions actually change
+      // This is the proper way to sync PTY dimensions with xterm
+      terminal.onResize(({ cols, rows }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'resize',
+              cols,
+              rows,
+            })
+          );
+        }
+      });
+
       // Update tab with terminal instance
       setTabs((prev) =>
         prev.map((t) =>
@@ -317,37 +337,46 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     }
   }, [activeTabId, tabs, initializeTerminal]);
 
-  // Handle resize
+  // Handle resize - uses refs to always get current values in ResizeObserver callback
+  // The terminal.onResize handler (set during initialization) handles syncing with PTY
   useEffect(() => {
     if (!terminalContainerRef.current) return;
 
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
+
     resizeObserverRef.current = new ResizeObserver(() => {
-      const activeTab = tabs.find((t) => t.id === activeTabId);
-      if (activeTab?.fitAddon && activeTab?.terminal) {
-        try {
-          activeTab.fitAddon.fit();
-          // Send resize to server
-          if (activeTab.ws?.readyState === WebSocket.OPEN) {
-            activeTab.ws.send(
-              JSON.stringify({
-                type: 'resize',
-                cols: activeTab.terminal.cols,
-                rows: activeTab.terminal.rows,
-              })
-            );
-          }
-        } catch {
-          // Ignore resize errors
-        }
+      // Debounce resize events to prevent overwhelming the system
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
       }
+
+      resizeTimeout = setTimeout(() => {
+        // Use refs to get current values (avoids stale closure issues)
+        const currentActiveTabId = activeTabIdRef.current;
+        const currentTabs = tabsRef.current;
+        const activeTab = currentTabs.find((t) => t.id === currentActiveTabId);
+
+        if (activeTab?.fitAddon && activeTab?.terminal) {
+          try {
+            // Call fit() which will trigger terminal.onResize event
+            // The onResize handler will sync dimensions with PTY
+            activeTab.fitAddon.fit();
+          } catch {
+            // Ignore resize errors
+          }
+        }
+      }, 50); // 50ms debounce for smoother resizing
     });
 
     resizeObserverRef.current.observe(terminalContainerRef.current);
 
     return () => {
+      if (resizeTimeout) {
+        clearTimeout(resizeTimeout);
+      }
       resizeObserverRef.current?.disconnect();
     };
-  }, [tabs, activeTabId]);
+  }, []); // Empty deps - observer created once on mount, uses refs for current values
 
   // Cleanup on unmount only (not on every tabs change)
   useEffect(() => {
@@ -448,6 +477,19 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       tab.terminal.onData((data) => {
         if (ws.readyState === WebSocket.OPEN) {
           ws.send(JSON.stringify({ type: 'input', data }));
+        }
+      });
+
+      // Rebind resize handler
+      tab.terminal.onResize(({ cols, rows }) => {
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(
+            JSON.stringify({
+              type: 'resize',
+              cols,
+              rows,
+            })
+          );
         }
       });
     },
