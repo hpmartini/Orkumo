@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
 import http, { createServer } from 'http';
 import { WebSocketServer } from 'ws';
+import path from 'path';
 // NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
 import { getConfig, updateConfig, addDirectory, removeDirectory } from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
@@ -25,6 +26,7 @@ import {
   resizePty,
   killPtySession,
   ptyEvents,
+  detectClaudeCLI,
 } from './services/ptyService.js';
 import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
@@ -42,6 +44,12 @@ dotenv.config({ path: '.env.local' });
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
+
+// Constants
+const DEFAULT_TERMINAL_COLS = 80;
+const DEFAULT_TERMINAL_ROWS = 24;
+const ALLOWED_COMMANDS = ['claude']; // Whitelist of allowed custom commands
+const MAX_ARGS_LENGTH = 50; // Maximum number of arguments to prevent DoS
 
 // Detect if running inside Docker container
 const isRunningInDocker = (() => {
@@ -1202,6 +1210,22 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+/**
+ * GET /api/claude-cli/status
+ * Check if Claude Code CLI is installed
+ */
+app.get('/api/claude-cli/status', async (req, res) => {
+  try {
+    const cliInfo = await detectClaudeCLI();
+    res.json(cliInfo);
+  } catch (error) {
+    res.status(500).json({
+      installed: false,
+      error: error.message
+    });
+  }
+});
+
 // ============================================
 // Database Application Endpoints
 // ============================================
@@ -1688,9 +1712,9 @@ function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows) {
 /**
  * Handle PTY connection in local mode - spawn PTY directly
  */
-function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows) {
+function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) {
   try {
-    const result = createPtySession(sessionId, cwd, cols, rows);
+    const result = createPtySession(sessionId, cwd, cols, rows, options);
 
     if (!result.success) {
       console.error(`[PTY] Failed to create session ${sessionId}:`, result.error);
@@ -1707,9 +1731,10 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows) {
       sessionId,
       pid: result.pid,
       shell: result.shell,
+      sessionType: result.type,
     }));
 
-    console.log(`[PTY] Session ${sessionId} created successfully, pid=${result.pid}`);
+    console.log(`[PTY] Session ${sessionId} created successfully, pid=${result.pid}, type=${result.type}`);
   } catch (err) {
     console.error(`[PTY] Exception creating session ${sessionId}:`, err);
     ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -1772,18 +1797,108 @@ wss.on('connection', (ws, req) => {
   // Parse query params for session config
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const sessionId = url.searchParams.get('sessionId') || `pty-${Date.now()}`;
-  const cwd = url.searchParams.get('cwd') || process.env.HOME;
-  const cols = parseInt(url.searchParams.get('cols') || '80', 10);
-  const rows = parseInt(url.searchParams.get('rows') || '24', 10);
+  const cwdParam = url.searchParams.get('cwd') || process.env.HOME;
+  const cols = parseInt(url.searchParams.get('cols') || String(DEFAULT_TERMINAL_COLS), 10);
+  const rows = parseInt(url.searchParams.get('rows') || String(DEFAULT_TERMINAL_ROWS), 10);
 
-  console.log(`[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, dockerMode=${isRunningInDocker}`);
+  // Validate and sanitize cwd path to prevent directory traversal attacks
+  let cwd;
+  try {
+    // Resolve to absolute path and normalize
+    cwd = path.resolve(cwdParam);
+
+    // Check for suspicious characters that could indicate path traversal attempts
+    if (cwdParam.includes('\0') || cwdParam.includes('\n') || cwdParam.includes('\r')) {
+      throw new Error('Invalid characters in path');
+    }
+
+    // Verify the path exists and is a directory
+    if (!fs.existsSync(cwd)) {
+      console.warn(`[PTY] Path does not exist, falling back to HOME: ${cwd}`);
+      cwd = process.env.HOME;
+    } else if (!fs.statSync(cwd).isDirectory()) {
+      console.warn(`[PTY] Path is not a directory, falling back to HOME: ${cwd}`);
+      cwd = process.env.HOME;
+    }
+  } catch (error) {
+    console.error(`[PTY] Invalid cwd path: ${cwdParam}`, error.message);
+    ws.send(JSON.stringify({ type: 'error', message: 'Invalid working directory path' }));
+    ws.close();
+    return;
+  }
+
+  // Parse and validate optional custom command parameters
+  const command = url.searchParams.get('command') || null;
+
+  // Validate command against whitelist
+  if (command && !ALLOWED_COMMANDS.includes(command)) {
+    console.error(`[PTY] Rejected command not in whitelist: ${command}`);
+    ws.send(JSON.stringify({ type: 'error', message: 'Invalid command' }));
+    ws.close();
+    return;
+  }
+
+  let args = [];
+  const argsParam = url.searchParams.get('args');
+  if (argsParam) {
+    try {
+      const parsedArgs = JSON.parse(decodeURIComponent(argsParam));
+      // Validate that args is an array of strings
+      if (!Array.isArray(parsedArgs) || !parsedArgs.every(arg => typeof arg === 'string')) {
+        console.error('[PTY] Invalid args format: must be array of strings');
+        ws.send(JSON.stringify({ type: 'error', message: 'Invalid args format' }));
+        ws.close();
+        return;
+      }
+      // Validate args length to prevent DoS
+      if (parsedArgs.length > MAX_ARGS_LENGTH) {
+        console.error(`[PTY] Args length exceeds maximum: ${parsedArgs.length} > ${MAX_ARGS_LENGTH}`);
+        ws.send(JSON.stringify({ type: 'error', message: `Too many arguments (max: ${MAX_ARGS_LENGTH})` }));
+        ws.close();
+        return;
+      }
+
+      // Validate individual argument content to prevent injection attacks
+      // Check for shell metacharacters and suspicious patterns
+      const dangerousPatterns = /[;&|`$()<>\\"\n\r]/;
+      const maxArgLength = 1000; // Prevent extremely long individual arguments
+
+      for (const arg of parsedArgs) {
+        if (arg.length > maxArgLength) {
+          console.error(`[PTY] Argument exceeds maximum length: ${arg.length} > ${maxArgLength}`);
+          ws.send(JSON.stringify({ type: 'error', message: `Argument too long (max: ${maxArgLength} characters)` }));
+          ws.close();
+          return;
+        }
+
+        // For Claude CLI, we only allow specific flags, reject anything with shell metacharacters
+        if (command === 'claude' && dangerousPatterns.test(arg)) {
+          console.error(`[PTY] Argument contains dangerous characters: ${arg}`);
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid argument: contains forbidden characters' }));
+          ws.close();
+          return;
+        }
+      }
+
+      args = parsedArgs;
+    } catch (error) {
+      console.error('[PTY] Failed to parse args:', error);
+      ws.send(JSON.stringify({ type: 'error', message: 'Failed to parse args' }));
+      ws.close();
+      return;
+    }
+  }
+
+  const options = command ? { command, args } : {};
+
+  console.log(`[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`);
 
   if (isRunningInDocker) {
     // In Docker: proxy to host PTY service
     handleDockerPtyConnection(ws, sessionId, cwd, cols, rows);
   } else {
     // On host: spawn PTY directly
-    handleLocalPtyConnection(ws, sessionId, cwd, cols, rows);
+    handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options);
   }
 });
 
