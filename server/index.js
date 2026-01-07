@@ -1666,6 +1666,29 @@ wss.on('connection', (ws, req) => {
         ws.close();
         return;
       }
+
+      // Validate individual argument content to prevent injection attacks
+      // Check for shell metacharacters and suspicious patterns
+      const dangerousPatterns = /[;&|`$()<>\\"\n\r]/;
+      const maxArgLength = 1000; // Prevent extremely long individual arguments
+
+      for (const arg of parsedArgs) {
+        if (arg.length > maxArgLength) {
+          console.error(`[PTY] Argument exceeds maximum length: ${arg.length} > ${maxArgLength}`);
+          ws.send(JSON.stringify({ type: 'error', message: `Argument too long (max: ${maxArgLength} characters)` }));
+          ws.close();
+          return;
+        }
+
+        // For Claude CLI, we only allow specific flags, reject anything with shell metacharacters
+        if (command === 'claude' && dangerousPatterns.test(arg)) {
+          console.error(`[PTY] Argument contains dangerous characters: ${arg}`);
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid argument: contains forbidden characters' }));
+          ws.close();
+          return;
+        }
+      }
+
       args = parsedArgs;
     } catch (error) {
       console.error('[PTY] Failed to parse args:', error);

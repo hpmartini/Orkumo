@@ -243,6 +243,14 @@ export function detectClaudeCLI() {
       if (error) {
         isResolved = true;
         clearTimeout(timeout);
+        // Cleanup: kill the which process if it's still running
+        if (whichProcess) {
+          try {
+            whichProcess.kill('SIGTERM');
+          } catch (e) {
+            // Process may have already exited
+          }
+        }
         resolve({ installed: false });
         return;
       }
@@ -255,6 +263,21 @@ export function detectClaudeCLI() {
 
         isResolved = true;
         clearTimeout(timeout);
+        // Cleanup: kill both processes if they're still running
+        if (whichProcess) {
+          try {
+            whichProcess.kill('SIGTERM');
+          } catch (e) {
+            // Process may have already exited
+          }
+        }
+        if (versionProcess) {
+          try {
+            versionProcess.kill('SIGTERM');
+          } catch (e) {
+            // Process may have already exited
+          }
+        }
         resolve({
           installed: true,
           path,

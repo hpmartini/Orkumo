@@ -100,12 +100,24 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
   // Check Claude CLI status on mount
   useEffect(() => {
+    let mounted = true;
+
     fetch('/api/claude-cli/status')
       .then((res) => res.json())
-      .then((data) => setClaudeInfo(data))
-      .catch(() =>
-        setClaudeInfo({ installed: false, error: 'Failed to check CLI status' })
-      );
+      .then((data) => {
+        if (mounted) {
+          setClaudeInfo(data);
+        }
+      })
+      .catch(() => {
+        if (mounted) {
+          setClaudeInfo({ installed: false, error: 'Failed to check CLI status' });
+        }
+      });
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // Auto-scroll logs to bottom
