@@ -112,6 +112,25 @@ services:
       timeout: 5s
       retries: 5
 
+  # ===========================================
+  # code-server - VS Code in the browser
+  # ===========================================
+  code-server:
+    image: codercom/code-server:latest
+    container_name: devorbit-code-server
+    ports:
+      - "8443:8080"
+    volumes:
+      - ${HOME}/Projects:/home/coder/projects
+      - ${HOME}/PROJECTS:/home/coder/PROJECTS
+      - code-server-config:/home/coder/.config
+    environment:
+      - PASSWORD=${CODE_SERVER_PASSWORD:-devOrbit123}
+      - SUDO_PASSWORD=${CODE_SERVER_PASSWORD:-devOrbit123}
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+
 volumes:
   devorbit-data:
     name: devorbit-data
@@ -121,6 +140,8 @@ volumes:
     name: devorbit-postgres
   redis-data:
     name: devorbit-redis
+  code-server-config:
+    name: devorbit-code-server-config
 
 networks:
   devorbit-network:

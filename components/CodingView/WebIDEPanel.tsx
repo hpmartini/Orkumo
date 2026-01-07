@@ -9,6 +9,8 @@ import {
   RefreshCw,
   X,
   Terminal,
+  Code2,
+  Box,
 } from 'lucide-react';
 
 interface FileNode {
@@ -32,7 +34,10 @@ interface WebIDEPanelProps {
   onShowTerminal?: () => void;
 }
 
+type EditorType = 'monaco' | 'code-server';
+
 export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: WebIDEPanelProps) => {
+  const [editorType, setEditorType] = useState<EditorType>('monaco');
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([directory]));
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
@@ -215,13 +220,42 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
             </button>
           )}
         </div>
-        <button
-          onClick={fetchFileTree}
-          className="p-1 hover:bg-gray-700 rounded transition-colors"
-          title="Refresh"
-        >
-          <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
-        </button>
+        <div className="flex items-center gap-2">
+          {/* Editor Type Switcher */}
+          <div className="flex items-center gap-1 bg-gray-900 rounded p-0.5">
+            <button
+              onClick={() => setEditorType('monaco')}
+              className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                editorType === 'monaco'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              title="Monaco Editor (Lightweight)"
+            >
+              <Code2 size={12} />
+              Monaco
+            </button>
+            <button
+              onClick={() => setEditorType('code-server')}
+              className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                editorType === 'code-server'
+                  ? 'bg-blue-600 text-white'
+                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+              }`}
+              title="VS Code (Full IDE)"
+            >
+              <Box size={12} />
+              VS Code
+            </button>
+          </div>
+          <button
+            onClick={fetchFileTree}
+            className="p-1 hover:bg-gray-700 rounded transition-colors"
+            title="Refresh"
+          >
+            <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
+          </button>
+        </div>
       </div>
 
       {/* Error message */}
@@ -234,20 +268,30 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
         </div>
       )}
 
-      <div className="flex-1 flex min-h-0">
-        {/* File Explorer */}
-        <div className="w-48 border-r border-gray-700 overflow-y-auto shrink-0">
-          <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
-            Explorer
-          </div>
-          {loading && fileTree.length === 0 ? (
-            <div className="px-3 py-2 text-gray-500 text-sm">Loading...</div>
-          ) : fileTree.length === 0 ? (
-            <div className="px-3 py-2 text-gray-500 text-sm">No files found</div>
-          ) : (
-            <div className="pb-4">{fileTree.map((node) => renderTreeNode(node))}</div>
-          )}
+      {/* Render code-server or Monaco based on editor type */}
+      {editorType === 'code-server' ? (
+        <div className="flex-1 min-h-0">
+          <iframe
+            src={`http://localhost:8443/?folder=${encodeURIComponent(directory)}`}
+            className="w-full h-full border-0"
+            title="VS Code Server"
+          />
         </div>
+      ) : (
+        <div className="flex-1 flex min-h-0">
+          {/* File Explorer */}
+          <div className="w-48 border-r border-gray-700 overflow-y-auto shrink-0">
+            <div className="px-2 py-1.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Explorer
+            </div>
+            {loading && fileTree.length === 0 ? (
+              <div className="px-3 py-2 text-gray-500 text-sm">Loading...</div>
+            ) : fileTree.length === 0 ? (
+              <div className="px-3 py-2 text-gray-500 text-sm">No files found</div>
+            ) : (
+              <div className="pb-4">{fileTree.map((node) => renderTreeNode(node))}</div>
+            )}
+          </div>
 
         {/* Editor Area */}
         <div className="flex-1 flex flex-col min-w-0">
@@ -329,7 +373,8 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
             )}
           </div>
         </div>
-      </div>
+        </div>
+      )}
     </div>
   );
 };
