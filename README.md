@@ -1,96 +1,84 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# DevOrbit Dashboard
 
-# Run and deploy your AI Studio app
+**DevOrbit Dashboard** is an advanced local development environment manager that monitors, controls, and optimizes your development workflow. It integrates with Gemini AI to analyze project configurations and provide intelligent recommendations, making it easier to manage complex microservice architectures and local setups.
 
-This contains everything you need to run your app locally.
+## 🚀 Features
 
-View your app in AI Studio: https://ai.studio/apps/drive/17ngup61QHOOA9SB63VIkju3ZxNvp4KPO
+- **Project Management**: Monitor and control local applications (Start, Stop, Restart).
+- **Intelligent Analysis**: Uses Gemini AI to scan project structures and suggest run configurations.
+- **Port Management**: Automatic detection of port conflicts with resolution options (kill process or pick new port).
+- **System Monitoring**: Real-time CPU and Memory usage tracking for managed services.
+- **Integrated Terminal**: Full-featured web-based terminal emulator for interacting with your services.
+- **IDE Integration**: Seamlessly open projects in VS Code, Cursor, WebStorm, and other IDEs.
+- **Docker Support**: Manage Docker containers and compose services directly from the dashboard.
 
-## Run Locally
+## 🛠️ Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons, Recharts
+- **Backend**: Node.js, Express, WebSocket (ws), node-pty
+- **Database**: PostgreSQL (via Drizzle ORM)
+- **Caching**: Redis
+- **AI**: Google Gemini API
 
+## 📋 Prerequisites
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- **Node.js** (v18+ recommended)
+- **Docker** & Docker Compose
+- **Google Gemini API Key** (for AI features)
 
-## Features
+## 🏁 Getting Started
 
-### IDE Integration
-
-DevOrbit Dashboard supports opening projects directly in your favorite IDE from the application detail view. The feature automatically detects installed IDEs and provides a convenient button to launch them.
-
-#### Supported IDEs
-
-- **Visual Studio Code** - Cross-platform code editor
-- **Cursor** - AI-powered code editor
-- **WebStorm** - JavaScript and TypeScript IDE
-- **IntelliJ IDEA** - Java IDE
-- **PhpStorm** - PHP IDE
-- **PyCharm** - Python IDE
-- **Sublime Text** - Text editor
-
-#### Platform Support
-
-- **macOS**: Detects applications in `/Applications/`
-- **Linux**: Supports standard installations, Snap packages, and Flatpak apps
-- **Windows**: Detects IDEs in `Program Files` and user-specific directories
-
-#### Custom IDE Paths
-
-If your IDE is installed in a non-standard location, you can set custom paths using environment variables:
+### 1. Clone & Install
 
 ```bash
-# .env.local
-VSCODE_PATH=/custom/path/to/vscode
-CURSOR_PATH=/custom/path/to/cursor
-WEBSTORM_PATH=/custom/path/to/webstorm
-INTELLIJ_PATH=/custom/path/to/intellij
-PHPSTORM_PATH=/custom/path/to/phpstorm
-PYCHARM_PATH=/custom/path/to/pycharm
-SUBLIME_PATH=/custom/path/to/sublime
+git clone <repository-url>
+cd devorbit-dashboard
+npm install
 ```
 
-**Note:** After changing environment variables, you must restart the backend server for the changes to take effect.
+### 2. Environment Setup
 
-#### Preferred IDE
+Create a `.env.local` file in the root directory:
 
-The dashboard remembers your preferred IDE for each project. When you open a project in an IDE, it becomes the default for that project. You can change the preferred IDE anytime from the dropdown menu.
+```bash
+GEMINI_API_KEY=your_api_key_here
+# Optional: data persistence paths
+# SCAN_DIRECTORIES=/Users/username/projects
+```
 
-#### Troubleshooting
+### 3. Run Locally (Full Stack)
 
-**IDE not detected:**
-- Verify the IDE is installed and accessible
-- For custom installations, set the appropriate environment variable
-- On Linux, ensure the IDE is in your PATH or installed via Snap/Flatpak
+To run the entire stack including databases (Postgres, Redis) and the application:
 
-**Launch fails:**
-- Check file permissions on the project directory
-- Verify the IDE application is not corrupted
-- On macOS, ensure the IDE is in the `/Applications/` folder or set a custom path
-- On Linux, try reinstalling via your package manager
+```bash
+npm run dev:full
+```
 
-**Permission denied:**
-- Ensure you have read access to the project directory
-- On Linux/macOS, check directory permissions with `ls -la`
-- Verify the IDE executable has execute permissions
+This command starts the Docker infrastructure and the development servers for frontend and backend.
 
-**IDE opens but shows wrong directory:**
-- This may happen if the project path contains symbolic links
-- Try using the absolute path to the project
+### Alternative: Manual Start
 
-#### Technical Details
+If you already have the databases running:
 
-- IDE detection results are cached for 5 minutes to improve performance
-  - Force cache refresh by adding `?refresh=true` to the IDE detection endpoint
-  - Cache is automatically invalidated when an IDE launch fails
-- The feature uses secure process spawning to prevent command injection
-- Path validation prevents directory traversal attacks
-- Rate limiting (10 launches per minute) prevents abuse
-- Error responses include specific error codes for better debugging
-- Error messages are sanitized to prevent exposure of sensitive paths
+```bash
+npm run dev
+```
+
+## 🏗️ Architecture
+
+The project follows a monorepo-like structure with a unified backend and frontend:
+
+- **`App.tsx`**: Main frontend entry point and state management.
+- **`server/`**: Express backend handling API requests, websocket terminals, and OS interactions.
+- **`services/`**: Core logic for AI analysis, port management, and file system scanning.
+- **`docker/`**: Infrastructure configuration.
+
+## 🐳 Docker Deployment
+
+You can run the dashboard entirely within Docker:
+
+```bash
+docker compose up --build
+```
+
+Access the dashboard at `http://localhost:3000`.
