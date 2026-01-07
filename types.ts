@@ -44,3 +44,22 @@ export interface IDE {
   name: string;
   path: string;
 }
+
+export interface ConsoleLog {
+  id: string;
+  method: 'log' | 'warn' | 'error' | 'info' | 'debug';
+  args: string[];
+  timestamp: number;
+  url: string;
+  uncaught?: boolean;
+}
+
+export interface NetworkLog {
+  id: string;
+  method: string;
+  url: string;
+  status?: number;
+  error?: string;
+  duration?: number;
+  timestamp: number;
+}
