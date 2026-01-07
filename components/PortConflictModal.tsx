@@ -80,7 +80,7 @@ export const PortConflictModal: React.FC<PortConflictModalProps> = ({
                 </span>
               </div>
               {conflictingProcess.isDevOrbitApp && (
-                <p className="mt-1 text-xs text-blue-400">This is a DevHub managed app</p>
+                <p className="mt-1 text-xs text-blue-400">This is a DevOrbit managed app</p>
               )}
             </div>
           )}

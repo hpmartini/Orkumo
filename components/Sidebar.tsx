@@ -259,7 +259,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-6 border-b border-gray-800">
         <div className="flex items-center gap-2">
           <img src="/logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
-          <span className="text-blue-500 font-bold text-xl tracking-tight">DevHub</span>
+          <span className="text-blue-500 font-bold text-xl tracking-tight">DevOrbit</span>
         </div>
       </div>
 

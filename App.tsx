@@ -267,7 +267,7 @@ function AppContent() {
               {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
             </button>
             <div className="flex items-center gap-2 text-blue-500 font-bold">
-              <LayoutDashboard size={20} /> DevHub
+              <LayoutDashboard size={20} /> DevOrbit
             </div>
           </div>
 
@@ -290,7 +290,9 @@ function AppContent() {
           </div>
         </header>
 
-        <div className={`${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'mt-[6.5rem]' : 'mt-16'}`}>
+        <div
+          className={`${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'mt-[6.5rem]' : 'mt-16'}`}
+        >
           {activeTab === 'dashboard' ? (
             <div className="space-y-8 animate-in fade-in duration-500">
               <DashboardOverview
@@ -356,7 +358,7 @@ function AppContent() {
               onToggleArchive={handleToggleArchive}
               onOpenInFinder={handleOpenInFinder}
               onOpenInTerminal={handleOpenInTerminal}
-              preferredIDE={selectedApp && settings?.preferredIDEs?.[selectedApp.id] || null}
+              preferredIDE={(selectedApp && settings?.preferredIDEs?.[selectedApp.id]) || null}
             />
           )}
         </div>
