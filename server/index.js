@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
-import { createServer } from 'http';
+import http, { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 // NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
 import { getConfig, updateConfig, addDirectory, removeDirectory } from './services/configService.js';
@@ -1396,6 +1396,94 @@ app.post('/api/apps/:id/open-terminal', validateParams(idSchema), (req, res) => 
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+});
+
+// ============================================
+// Preview Proxy Endpoint (for Browser DevTools)
+// ============================================
+
+/**
+ * Proxy handler for preview requests
+ */
+function handlePreviewProxy(req, res, port, pathSuffix) {
+  const targetPath = '/' + (pathSuffix || '');
+  const queryString = req.url.includes('?') ? req.url.split('?')[1] : '';
+  const fullPath = queryString ? `${targetPath}?${queryString}` : targetPath;
+
+  if (isNaN(port) || port < 1 || port > 65535) {
+    return res.status(400).json({ error: 'Invalid port number' });
+  }
+
+  const options = {
+    hostname: 'localhost',
+    port: port,
+    path: fullPath,
+    method: 'GET',
+    headers: {
+      ...req.headers,
+      host: `localhost:${port}`,
+    },
+    timeout: 10000,
+  };
+
+  // Remove headers that could cause issues
+  delete options.headers['accept-encoding']; // We need uncompressed HTML to inject script
+
+  const proxyReq = http.request(options, (proxyRes) => {
+    const contentType = proxyRes.headers['content-type'] || '';
+    const isHtml = contentType.includes('text/html');
+
+    // Forward status and most headers
+    res.status(proxyRes.statusCode);
+    Object.entries(proxyRes.headers).forEach(([key, value]) => {
+      // Skip certain headers
+      if (!['transfer-encoding', 'content-length', 'content-encoding'].includes(key.toLowerCase())) {
+        res.setHeader(key, value);
+      }
+    });
+
+    if (isHtml) {
+      // Collect HTML to inject logger script
+      let body = '';
+      proxyRes.on('data', chunk => { body += chunk.toString(); });
+      proxyRes.on('end', () => {
+        // Inject logger script into <head>
+        const loggerScript = `<script src="/iframe-logger.js"></script>`;
+        const injectedBody = body.replace(/<head([^>]*)>/i, `<head$1>${loggerScript}`);
+        res.setHeader('content-length', Buffer.byteLength(injectedBody));
+        res.send(injectedBody);
+      });
+    } else {
+      // Pass through non-HTML content
+      proxyRes.pipe(res);
+    }
+  });
+
+  proxyReq.on('error', (err) => {
+    console.error(`[Preview Proxy] Error proxying to port ${port}:`, err.message);
+    res.status(502).json({
+      error: 'Failed to connect to preview server',
+      message: `Could not reach localhost:${port}`,
+    });
+  });
+
+  proxyReq.on('timeout', () => {
+    proxyReq.destroy();
+    res.status(504).json({ error: 'Preview server timeout' });
+  });
+
+  proxyReq.end();
+}
+
+/**
+ * GET /api/preview/:port{/*path} - Proxy requests to local dev servers
+ * Express 5 uses {*param} for wildcard/splat routes
+ */
+app.get('/api/preview/:port{/*path}', (req, res) => {
+  const port = parseInt(req.params.port, 10);
+  // path param captures everything after the port (or undefined for root)
+  const pathSuffix = req.params.path || '';
+  handlePreviewProxy(req, res, port, pathSuffix);
 });
 
 // ============================================

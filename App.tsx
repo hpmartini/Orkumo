@@ -114,6 +114,7 @@ function AppContent() {
   };
 
   const handleTabSelect = (id: string) => {
+    selectTab(id); // Update activeTabId for visual sync
     setSelectedAppId(id);
     setActiveTab('apps');
   };

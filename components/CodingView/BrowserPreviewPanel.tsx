@@ -48,6 +48,9 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
   const [searchTerm, setSearchTerm] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
+  // For console/network capture, apps need to include the logger script themselves
+  // or we can try to inject it via the proxy (limited support for Vite/HMR apps)
+
   // Sync currentUrl with url prop when it changes (e.g., app restarts on different port)
   useEffect(() => {
     setCurrentUrl(url);
@@ -59,9 +62,14 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
   // Listen for console and network messages from iframe
   useEffect(() => {
     const handler = (event: MessageEvent) => {
-      // Validate origin - only accept from localhost/127.0.0.1
+      // Validate origin - accept from:
+      // 1. Same origin (proxy serves content from our server)
+      // 2. localhost/127.0.0.1 (direct localhost access fallback)
+      const isSameOrigin = event.origin === window.location.origin;
       const allowedOrigins = ['http://localhost', 'http://127.0.0.1', 'https://localhost', 'https://127.0.0.1'];
-      if (!allowedOrigins.some(origin => event.origin.startsWith(origin))) {
+      const isAllowedOrigin = allowedOrigins.some(origin => event.origin.startsWith(origin));
+
+      if (!isSameOrigin && !isAllowedOrigin) {
         return;
       }
 
@@ -108,25 +116,11 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
     return () => window.removeEventListener('message', handler);
   }, []);
 
-  // Inject logger script when iframe loads
+  // Handle iframe load - script is injected by the proxy endpoint
   const handleIframeLoad = () => {
-    const iframe = iframeRef.current;
-    if (!iframe || !iframe.contentWindow) return;
-
-    try {
-      // Only inject if same-origin or localhost
-      const iframeUrl = new URL(currentUrl);
-      if (iframeUrl.hostname === 'localhost' || iframeUrl.hostname === '127.0.0.1') {
-        const script = iframe.contentDocument?.createElement('script');
-        if (script) {
-          script.src = '/iframe-logger.js';
-          iframe.contentDocument?.head.appendChild(script);
-        }
-      }
-    } catch (e) {
-      // Cross-origin iframe, cannot inject
-      console.warn('Cannot inject logger into cross-origin iframe');
-    }
+    // The /api/preview/:port/* proxy automatically injects iframe-logger.js
+    // into the HTML response, so no manual injection needed
+    console.log('[BrowserPreview] Iframe loaded, logger script should be active');
   };
 
   const clearLogs = () => {
@@ -265,7 +259,7 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
               // 1. This dashboard is for LOCAL DEVELOPMENT ONLY (not production)
               // 2. All previewed apps are trusted code running on localhost
               // 3. This enables essential features like HMR (Hot Module Replacement)
-              // For production deployments, consider removing allow-same-origin or using different origin
+              // The proxy endpoint (/api/preview/:port/*) injects the logger script automatically
               sandbox="allow-scripts allow-same-origin allow-forms allow-popups allow-modals"
               title="App Preview"
             />

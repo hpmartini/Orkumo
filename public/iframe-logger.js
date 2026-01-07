@@ -3,8 +3,9 @@
   if (window.__DEVORBIT_LOGGER__) return;
   window.__DEVORBIT_LOGGER__ = true;
 
-  // Target origin for postMessage security
-  const targetOrigin = window.location.origin;
+  // Target origin for postMessage - use '*' to allow cross-origin communication
+  // with DevOrbit dashboard running on a different port
+  const targetOrigin = '*';
 
   // Store original console methods
   const originalConsole = {
