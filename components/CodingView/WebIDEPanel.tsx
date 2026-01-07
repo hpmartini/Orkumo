@@ -8,6 +8,7 @@ import {
   Save,
   RefreshCw,
   X,
+  Terminal,
 } from 'lucide-react';
 
 interface FileNode {
@@ -26,11 +27,12 @@ interface OpenFile {
 }
 
 interface WebIDEPanelProps {
-  appId: string;
   directory: string;
+  showTerminalButton?: boolean;
+  onShowTerminal?: () => void;
 }
 
-export const WebIDEPanel = ({ appId, directory }: WebIDEPanelProps) => {
+export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: WebIDEPanelProps) => {
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([directory]));
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);
@@ -199,8 +201,20 @@ export const WebIDEPanel = ({ appId, directory }: WebIDEPanelProps) => {
   return (
     <div className="h-full flex flex-col bg-gray-900">
       {/* Header */}
-      <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between">
-        <span>Web IDE</span>
+      <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between shrink-0">
+        <div className="flex items-center gap-2">
+          <span>Web IDE</span>
+          {showTerminalButton && onShowTerminal && (
+            <button
+              onClick={onShowTerminal}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              title="Show Terminal"
+            >
+              <Terminal size={12} />
+              Terminal
+            </button>
+          )}
+        </div>
         <button
           onClick={fetchFileTree}
           className="p-1 hover:bg-gray-700 rounded transition-colors"

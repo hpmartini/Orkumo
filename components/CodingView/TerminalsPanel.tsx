@@ -1,50 +1,30 @@
-import { ChevronLeft, ChevronRight } from 'lucide-react';
+import { X } from 'lucide-react';
 import { XTerminal } from '../XTerminal';
 
 interface TerminalsPanelProps {
   directory: string;
   logs?: string[];
   isRunning?: boolean;
-  isCollapsed?: boolean;
-  onToggleCollapse?: () => void;
+  onHide?: () => void;
 }
 
 export const TerminalsPanel = ({
   directory,
   logs,
   isRunning,
-  isCollapsed,
-  onToggleCollapse,
+  onHide,
 }: TerminalsPanelProps) => {
-  // When collapsed, show minimal view with just expand button
-  if (isCollapsed) {
-    return (
-      <div className="h-full flex flex-col bg-gray-900 border-r border-gray-700 items-center py-2">
-        <button
-          onClick={onToggleCollapse}
-          className="p-2 hover:bg-gray-700 rounded transition-colors"
-          title="Expand terminals"
-        >
-          <ChevronRight size={16} />
-        </button>
-        <span className="text-xs text-gray-500 mt-2 writing-mode-vertical" style={{ writingMode: 'vertical-rl' }}>
-          Terminals
-        </span>
-      </div>
-    );
-  }
-
   return (
     <div className="h-full flex flex-col bg-gray-900 border-r border-gray-700">
       <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between shrink-0">
         <span>Terminals</span>
-        {onToggleCollapse && (
+        {onHide && (
           <button
-            onClick={onToggleCollapse}
+            onClick={onHide}
             className="p-1 hover:bg-gray-700 rounded transition-colors"
-            title="Collapse terminals"
+            title="Hide terminals"
           >
-            <ChevronLeft size={14} />
+            <X size={14} />
           </button>
         )}
       </div>
