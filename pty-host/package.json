@@ -1,0 +1,14 @@
+{
+  "name": "devorbit-pty-host",
+  "version": "1.0.0",
+  "description": "PTY Host Service - runs on host machine to spawn shells for DevOrbit Dashboard",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0",
+    "ws": "^8.18.0"
+  }
+}

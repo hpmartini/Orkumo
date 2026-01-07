@@ -28,6 +28,8 @@ import {
 } from './services/ptyService.js';
 import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
+import fs from 'fs';
+import WebSocket from 'ws';
 import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
 import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
@@ -39,6 +41,36 @@ dotenv.config({ path: '.env.local' });
 
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
+
+// Detect if running inside Docker container
+const isRunningInDocker = (() => {
+  // Check for /.dockerenv file (most reliable)
+  if (fs.existsSync('/.dockerenv')) {
+    return true;
+  }
+  // Check for explicit env var
+  if (process.env.RUNNING_IN_DOCKER === 'true') {
+    return true;
+  }
+  // Check cgroup (Linux containers)
+  try {
+    const cgroup = fs.readFileSync('/proc/1/cgroup', 'utf8');
+    if (cgroup.includes('docker') || cgroup.includes('kubepods')) {
+      return true;
+    }
+  } catch {
+    // Not Linux or no cgroup access
+  }
+  return false;
+})();
+
+// Host PTY service URL (for Docker mode)
+const PTY_HOST_URL = process.env.PTY_HOST_URL || 'ws://host.docker.internal:3098';
+
+console.log(`[Server] Running in Docker: ${isRunningInDocker}`);
+if (isRunningInDocker) {
+  console.log(`[Server] PTY will proxy to host service at: ${PTY_HOST_URL}`);
+}
 
 // Rate limiting - prevent DoS attacks
 const limiter = rateLimit({
@@ -1384,20 +1416,88 @@ const server = createServer(app);
 // WebSocket server for PTY communication
 const wss = new WebSocketServer({ server, path: '/api/pty' });
 
-// Store WebSocket -> sessionId mapping
+// Store WebSocket -> sessionId mapping (for local PTY mode)
 const wsSessionMap = new Map();
 
-wss.on('connection', (ws, req) => {
-  // Parse query params for session config
-  const url = new URL(req.url, `http://localhost:${PORT}`);
-  const sessionId = url.searchParams.get('sessionId') || `pty-${Date.now()}`;
-  const cwd = url.searchParams.get('cwd') || process.env.HOME;
-  const cols = parseInt(url.searchParams.get('cols') || '80', 10);
-  const rows = parseInt(url.searchParams.get('rows') || '24', 10);
+// Store WebSocket -> host PTY WebSocket mapping (for Docker proxy mode)
+const wsProxyMap = new Map();
 
-  console.log(`[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}`);
+/**
+ * Handle PTY connection in Docker mode - proxy to host PTY service
+ */
+function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows) {
+  // Build URL to host PTY service
+  const hostPtyUrl = `${PTY_HOST_URL}?sessionId=${encodeURIComponent(sessionId)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
 
-  // Create PTY session
+  console.log(`[PTY-Proxy] Connecting to host PTY service: ${hostPtyUrl}`);
+
+  const hostWs = new WebSocket(hostPtyUrl);
+
+  hostWs.on('open', () => {
+    console.log(`[PTY-Proxy] Connected to host PTY service for session ${sessionId}`);
+    wsProxyMap.set(clientWs, hostWs);
+  });
+
+  // Forward messages from host PTY to client
+  hostWs.on('message', (data) => {
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(data.toString());
+    }
+  });
+
+  // Handle host PTY connection close
+  hostWs.on('close', () => {
+    console.log(`[PTY-Proxy] Host PTY connection closed for session ${sessionId}`);
+    wsProxyMap.delete(clientWs);
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(JSON.stringify({ type: 'exit', exitCode: 0, signal: null }));
+      clientWs.close();
+    }
+  });
+
+  // Handle host PTY errors
+  hostWs.on('error', (err) => {
+    console.error(`[PTY-Proxy] Host PTY error for session ${sessionId}:`, err.message);
+    if (clientWs.readyState === WebSocket.OPEN) {
+      clientWs.send(JSON.stringify({ type: 'error', message: `Failed to connect to host PTY service: ${err.message}` }));
+      clientWs.close();
+    }
+    wsProxyMap.delete(clientWs);
+  });
+
+  // Forward messages from client to host PTY
+  clientWs.on('message', (message) => {
+    const hostWsConn = wsProxyMap.get(clientWs);
+    if (hostWsConn && hostWsConn.readyState === WebSocket.OPEN) {
+      hostWsConn.send(message.toString());
+    }
+  });
+
+  // Handle client close
+  clientWs.on('close', () => {
+    console.log(`[PTY-Proxy] Client disconnected for session ${sessionId}`);
+    const hostWsConn = wsProxyMap.get(clientWs);
+    if (hostWsConn) {
+      hostWsConn.close();
+      wsProxyMap.delete(clientWs);
+    }
+  });
+
+  // Handle client errors
+  clientWs.on('error', (err) => {
+    console.error(`[PTY-Proxy] Client WebSocket error for session ${sessionId}:`, err.message);
+    const hostWsConn = wsProxyMap.get(clientWs);
+    if (hostWsConn) {
+      hostWsConn.close();
+      wsProxyMap.delete(clientWs);
+    }
+  });
+}
+
+/**
+ * Handle PTY connection in local mode - spawn PTY directly
+ */
+function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows) {
   try {
     const result = createPtySession(sessionId, cwd, cols, rows);
 
@@ -1436,12 +1536,10 @@ wss.on('connection', (ws, req) => {
 
       switch (data.type) {
         case 'input':
-          // Write user input to PTY
           writeToPty(sid, data.data);
           break;
 
         case 'resize':
-          // Resize PTY
           if (data.cols && data.rows) {
             resizePty(sid, data.cols, data.rows);
           }
@@ -1455,7 +1553,6 @@ wss.on('connection', (ws, req) => {
           console.warn('[PTY] Unknown message type:', data.type);
       }
     } catch (err) {
-      // If not JSON, treat as raw input
       writeToPty(sid, message.toString());
     }
   });
@@ -1478,22 +1575,41 @@ wss.on('connection', (ws, req) => {
       killPtySession(sid);
     }
   });
+}
+
+wss.on('connection', (ws, req) => {
+  // Parse query params for session config
+  const url = new URL(req.url, `http://localhost:${PORT}`);
+  const sessionId = url.searchParams.get('sessionId') || `pty-${Date.now()}`;
+  const cwd = url.searchParams.get('cwd') || process.env.HOME;
+  const cols = parseInt(url.searchParams.get('cols') || '80', 10);
+  const rows = parseInt(url.searchParams.get('rows') || '24', 10);
+
+  console.log(`[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, dockerMode=${isRunningInDocker}`);
+
+  if (isRunningInDocker) {
+    // In Docker: proxy to host PTY service
+    handleDockerPtyConnection(ws, sessionId, cwd, cols, rows);
+  } else {
+    // On host: spawn PTY directly
+    handleLocalPtyConnection(ws, sessionId, cwd, cols, rows);
+  }
 });
 
-// Forward PTY data to corresponding WebSocket clients
+// Forward PTY data to corresponding WebSocket clients (local mode only)
 ptyEvents.on('data', ({ sessionId, data }) => {
   for (const [ws, wsSessionId] of wsSessionMap) {
-    if (wsSessionId === sessionId && ws.readyState === ws.OPEN) {
+    if (wsSessionId === sessionId && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'output', data }));
     }
   }
 });
 
-// Handle PTY exit events
+// Handle PTY exit events (local mode only)
 ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
   console.log(`[PTY] Session ${sessionId} exited with code=${exitCode}, signal=${signal}`);
   for (const [ws, wsSessionId] of wsSessionMap) {
-    if (wsSessionId === sessionId && ws.readyState === ws.OPEN) {
+    if (wsSessionId === sessionId && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'exit', exitCode, signal }));
     }
   }
