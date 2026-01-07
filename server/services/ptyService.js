@@ -206,20 +206,27 @@ export function hasPtySession(sessionId) {
 
 /**
  * Check if Claude Code CLI is installed
- * @returns {Promise<{installed: boolean, path?: string, version?: string}>}
+ * @returns {Promise<{installed: boolean, path?: string, version?: string, error?: string}>}
  */
 export function detectClaudeCLI() {
   return new Promise((resolve) => {
-    exec('which claude', (error, stdout, stderr) => {
+    // Set overall timeout
+    const timeout = setTimeout(() => {
+      resolve({ installed: false, error: 'Detection timeout' });
+    }, 5000);
+
+    exec('which claude', { timeout: 5000 }, (error, stdout, stderr) => {
       if (error) {
+        clearTimeout(timeout);
         resolve({ installed: false });
         return;
       }
 
       const path = stdout.trim();
 
-      // Get version
-      exec('claude --version', (vError, vStdout) => {
+      // Get version with timeout
+      exec('claude --version', { timeout: 5000 }, (vError, vStdout, vStderr) => {
+        clearTimeout(timeout);
         resolve({
           installed: true,
           path,

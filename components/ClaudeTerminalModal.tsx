@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { AlertTriangle, Terminal, X } from 'lucide-react';
 import type { ClaudeTerminalOptions, ClaudeCLIInfo } from '../types';
 
@@ -18,6 +18,20 @@ export function ClaudeTerminalModal({
   const [continueSession, setContinueSession] = useState(false);
   const [skipPermissions, setSkipPermissions] = useState(false);
   const [acknowledgedWarning, setAcknowledgedWarning] = useState(false);
+
+  // Handle ESC key to close modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleEscKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        handleClose();
+      }
+    };
+
+    document.addEventListener('keydown', handleEscKey);
+    return () => document.removeEventListener('keydown', handleEscKey);
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -41,17 +55,27 @@ export function ClaudeTerminalModal({
   };
 
   return (
-    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-      <div className="bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4">
+    <div
+      className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
+      onClick={handleClose}
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="claude-modal-title"
+    >
+      <div
+        className="bg-gray-800 rounded-lg shadow-xl max-w-md w-full mx-4"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-gray-700">
           <div className="flex items-center gap-2">
             <Terminal className="w-5 h-5 text-blue-400" />
-            <h3 className="text-lg font-semibold">Open Claude Code Terminal</h3>
+            <h3 id="claude-modal-title" className="text-lg font-semibold">Open Claude Code Terminal</h3>
           </div>
           <button
             onClick={handleClose}
             className="text-gray-400 hover:text-white transition-colors"
+            aria-label="Close modal"
           >
             <X className="w-5 h-5" />
           </button>
@@ -77,23 +101,26 @@ export function ClaudeTerminalModal({
 
               {/* Options */}
               <div className="space-y-3">
-                <label className="flex items-start gap-3 cursor-pointer">
+                <label htmlFor="continue-session" className="flex items-start gap-3 cursor-pointer">
                   <input
+                    id="continue-session"
                     type="checkbox"
                     checked={continueSession}
                     onChange={(e) => setContinueSession(e.target.checked)}
                     className="mt-1"
+                    aria-describedby="continue-session-description"
                   />
                   <div>
                     <div className="font-medium">Continue last session (-c)</div>
-                    <div className="text-sm text-gray-400">
+                    <div id="continue-session-description" className="text-sm text-gray-400">
                       Resume your previous conversation with Claude
                     </div>
                   </div>
                 </label>
 
-                <label className="flex items-start gap-3 cursor-pointer">
+                <label htmlFor="skip-permissions" className="flex items-start gap-3 cursor-pointer">
                   <input
+                    id="skip-permissions"
                     type="checkbox"
                     checked={skipPermissions}
                     onChange={(e) => {
@@ -101,12 +128,13 @@ export function ClaudeTerminalModal({
                       if (!e.target.checked) setAcknowledgedWarning(false);
                     }}
                     className="mt-1"
+                    aria-describedby="skip-permissions-description"
                   />
                   <div>
                     <div className="font-medium text-orange-400">
                       Skip permissions (--dangerously-skip-permissions)
                     </div>
-                    <div className="text-sm text-gray-400">
+                    <div id="skip-permissions-description" className="text-sm text-gray-400">
                       Allow Claude to execute commands without confirmation
                     </div>
                   </div>
@@ -124,13 +152,15 @@ export function ClaudeTerminalModal({
                       this in trusted environments where you understand the risks.
                     </div>
                   </div>
-                  <label className="flex items-center gap-2 cursor-pointer text-sm">
+                  <label htmlFor="acknowledge-warning" className="flex items-center gap-2 cursor-pointer text-sm">
                     <input
+                      id="acknowledge-warning"
                       type="checkbox"
                       checked={acknowledgedWarning}
                       onChange={(e) =>
                         setAcknowledgedWarning(e.target.checked)
                       }
+                      aria-label="Acknowledge security warning"
                     />
                     <span>I understand the security implications</span>
                   </label>

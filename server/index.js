@@ -43,6 +43,11 @@ dotenv.config({ path: '.env.local' });
 const app = express();
 const PORT = process.env.SERVER_PORT || 3001;
 
+// Constants
+const DEFAULT_TERMINAL_COLS = 80;
+const DEFAULT_TERMINAL_ROWS = 24;
+const ALLOWED_COMMANDS = ['claude']; // Whitelist of allowed custom commands
+
 // Detect if running inside Docker container
 const isRunningInDocker = (() => {
   // Check for /.dockerenv file (most reliable)
@@ -1600,13 +1605,41 @@ wss.on('connection', (ws, req) => {
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const sessionId = url.searchParams.get('sessionId') || `pty-${Date.now()}`;
   const cwd = url.searchParams.get('cwd') || process.env.HOME;
-  const cols = parseInt(url.searchParams.get('cols') || '80', 10);
-  const rows = parseInt(url.searchParams.get('rows') || '24', 10);
+  const cols = parseInt(url.searchParams.get('cols') || String(DEFAULT_TERMINAL_COLS), 10);
+  const rows = parseInt(url.searchParams.get('rows') || String(DEFAULT_TERMINAL_ROWS), 10);
 
-  // Parse optional custom command parameters
+  // Parse and validate optional custom command parameters
   const command = url.searchParams.get('command') || null;
+
+  // Validate command against whitelist
+  if (command && !ALLOWED_COMMANDS.includes(command)) {
+    console.error(`[PTY] Rejected command not in whitelist: ${command}`);
+    ws.send(JSON.stringify({ type: 'error', message: 'Invalid command' }));
+    ws.close();
+    return;
+  }
+
+  let args = [];
   const argsParam = url.searchParams.get('args');
-  const args = argsParam ? JSON.parse(decodeURIComponent(argsParam)) : [];
+  if (argsParam) {
+    try {
+      const parsedArgs = JSON.parse(decodeURIComponent(argsParam));
+      // Validate that args is an array of strings
+      if (Array.isArray(parsedArgs) && parsedArgs.every(arg => typeof arg === 'string')) {
+        args = parsedArgs;
+      } else {
+        console.error('[PTY] Invalid args format: must be array of strings');
+        ws.send(JSON.stringify({ type: 'error', message: 'Invalid args format' }));
+        ws.close();
+        return;
+      }
+    } catch (error) {
+      console.error('[PTY] Failed to parse args:', error);
+      ws.send(JSON.stringify({ type: 'error', message: 'Failed to parse args' }));
+      ws.close();
+      return;
+    }
+  }
 
   const options = command ? { command, args } : {};
 

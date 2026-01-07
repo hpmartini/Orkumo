@@ -186,7 +186,13 @@ export const XTerminal: React.FC<XTerminalProps> = ({
           args.push('--dangerously-skip-permissions');
         }
 
-        wsUrl += `&command=claude&args=${encodeURIComponent(JSON.stringify(args))}`;
+        try {
+          wsUrl += `&command=claude&args=${encodeURIComponent(JSON.stringify(args))}`;
+        } catch (error) {
+          console.error('Failed to serialize Claude options:', error);
+          terminal.write('\x1b[1;31mError: Failed to create Claude terminal session\x1b[0m\r\n');
+          return;
+        }
       }
 
       const ws = new WebSocket(wsUrl);
@@ -357,7 +363,29 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
       // Create new session
       const newSessionId = `session-${Date.now()}`;
-      const wsUrl = `${getWsUrl()}?sessionId=${newSessionId}&cwd=${encodeURIComponent(cwd)}&cols=${tab.terminal.cols}&rows=${tab.terminal.rows}`;
+      let wsUrl = `${getWsUrl()}?sessionId=${newSessionId}&cwd=${encodeURIComponent(cwd)}&cols=${tab.terminal.cols}&rows=${tab.terminal.rows}`;
+
+      // Restore Claude-specific parameters if this is a Claude terminal
+      if (tab.type === 'claude' && tab.claudeOptions) {
+        const args: string[] = [];
+
+        if (tab.claudeOptions.continueSession) {
+          args.push('-c');
+        }
+
+        if (tab.claudeOptions.skipPermissions) {
+          args.push('--dangerously-skip-permissions');
+        }
+
+        try {
+          wsUrl += `&command=claude&args=${encodeURIComponent(JSON.stringify(args))}`;
+        } catch (error) {
+          console.error('Failed to serialize Claude options on reconnect:', error);
+          tab.terminal.write('\x1b[1;31mError: Failed to reconnect Claude terminal\x1b[0m\r\n');
+          return;
+        }
+      }
+
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
