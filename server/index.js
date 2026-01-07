@@ -6,6 +6,7 @@ import { z } from 'zod';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer } from 'http';
 import { WebSocketServer } from 'ws';
+import path from 'path';
 // NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
 import { getConfig, updateConfig, addDirectory, removeDirectory } from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
@@ -1605,9 +1606,35 @@ wss.on('connection', (ws, req) => {
   // Parse query params for session config
   const url = new URL(req.url, `http://localhost:${PORT}`);
   const sessionId = url.searchParams.get('sessionId') || `pty-${Date.now()}`;
-  const cwd = url.searchParams.get('cwd') || process.env.HOME;
+  const cwdParam = url.searchParams.get('cwd') || process.env.HOME;
   const cols = parseInt(url.searchParams.get('cols') || String(DEFAULT_TERMINAL_COLS), 10);
   const rows = parseInt(url.searchParams.get('rows') || String(DEFAULT_TERMINAL_ROWS), 10);
+
+  // Validate and sanitize cwd path to prevent directory traversal attacks
+  let cwd;
+  try {
+    // Resolve to absolute path and normalize
+    cwd = path.resolve(cwdParam);
+
+    // Check for suspicious characters that could indicate path traversal attempts
+    if (cwdParam.includes('\0') || cwdParam.includes('\n') || cwdParam.includes('\r')) {
+      throw new Error('Invalid characters in path');
+    }
+
+    // Verify the path exists and is a directory
+    if (!fs.existsSync(cwd)) {
+      console.warn(`[PTY] Path does not exist, falling back to HOME: ${cwd}`);
+      cwd = process.env.HOME;
+    } else if (!fs.statSync(cwd).isDirectory()) {
+      console.warn(`[PTY] Path is not a directory, falling back to HOME: ${cwd}`);
+      cwd = process.env.HOME;
+    }
+  } catch (error) {
+    console.error(`[PTY] Invalid cwd path: ${cwdParam}`, error.message);
+    ws.send(JSON.stringify({ type: 'error', message: 'Invalid working directory path' }));
+    ws.close();
+    return;
+  }
 
   // Parse and validate optional custom command parameters
   const command = url.searchParams.get('command') || null;

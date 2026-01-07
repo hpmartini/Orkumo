@@ -34,6 +34,47 @@ const getWsUrl = () => {
   return `${protocol}//${window.location.host}/api/pty`;
 };
 
+/**
+ * Build WebSocket URL with terminal configuration parameters
+ * @param sessionId - Unique session identifier
+ * @param cwd - Working directory
+ * @param cols - Terminal columns
+ * @param rows - Terminal rows
+ * @param tab - Optional terminal tab for Claude-specific options
+ * @returns Formatted WebSocket URL with all parameters
+ */
+const buildWebSocketUrl = (
+  sessionId: string,
+  cwd: string,
+  cols: number,
+  rows: number,
+  tab?: Pick<TerminalTab, 'type' | 'claudeOptions'>
+): string => {
+  let wsUrl = `${getWsUrl()}?sessionId=${sessionId}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
+
+  // Add Claude-specific parameters if this is a Claude terminal
+  if (tab?.type === 'claude' && tab.claudeOptions) {
+    const args: string[] = [];
+
+    if (tab.claudeOptions.continueSession) {
+      args.push('-c');
+    }
+
+    if (tab.claudeOptions.skipPermissions) {
+      args.push('--dangerously-skip-permissions');
+    }
+
+    try {
+      wsUrl += `&command=claude&args=${encodeURIComponent(JSON.stringify(args))}`;
+    } catch (error) {
+      console.error('Failed to serialize Claude options:', error);
+      throw new Error('Failed to create Claude terminal session');
+    }
+  }
+
+  return wsUrl;
+};
+
 export const XTerminal: React.FC<XTerminalProps> = ({
   cwd = '~',
   logs = [],
@@ -171,28 +212,14 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       terminal.open(terminalContainerRef.current);
       fitAddon.fit();
 
-      // Build WebSocket URL based on terminal type
-      let wsUrl = `${getWsUrl()}?sessionId=${tab.sessionId}&cwd=${encodeURIComponent(cwd)}&cols=${terminal.cols}&rows=${terminal.rows}`;
-
-      // Add Claude-specific parameters
-      if (tab.type === 'claude' && tab.claudeOptions) {
-        const args: string[] = [];
-
-        if (tab.claudeOptions.continueSession) {
-          args.push('-c');
-        }
-
-        if (tab.claudeOptions.skipPermissions) {
-          args.push('--dangerously-skip-permissions');
-        }
-
-        try {
-          wsUrl += `&command=claude&args=${encodeURIComponent(JSON.stringify(args))}`;
-        } catch (error) {
-          console.error('Failed to serialize Claude options:', error);
-          terminal.write('\x1b[1;31mError: Failed to create Claude terminal session\x1b[0m\r\n');
-          return;
-        }
+      // Build WebSocket URL using helper function
+      let wsUrl: string;
+      try {
+        wsUrl = buildWebSocketUrl(tab.sessionId, cwd, terminal.cols, terminal.rows, tab);
+      } catch (error) {
+        console.error('Failed to build WebSocket URL:', error);
+        terminal.write('\x1b[1;31mError: Failed to create terminal session\x1b[0m\r\n');
+        return;
       }
 
       const ws = new WebSocket(wsUrl);
@@ -363,27 +390,15 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
       // Create new session
       const newSessionId = `session-${Date.now()}`;
-      let wsUrl = `${getWsUrl()}?sessionId=${newSessionId}&cwd=${encodeURIComponent(cwd)}&cols=${tab.terminal.cols}&rows=${tab.terminal.rows}`;
 
-      // Restore Claude-specific parameters if this is a Claude terminal
-      if (tab.type === 'claude' && tab.claudeOptions) {
-        const args: string[] = [];
-
-        if (tab.claudeOptions.continueSession) {
-          args.push('-c');
-        }
-
-        if (tab.claudeOptions.skipPermissions) {
-          args.push('--dangerously-skip-permissions');
-        }
-
-        try {
-          wsUrl += `&command=claude&args=${encodeURIComponent(JSON.stringify(args))}`;
-        } catch (error) {
-          console.error('Failed to serialize Claude options on reconnect:', error);
-          tab.terminal.write('\x1b[1;31mError: Failed to reconnect Claude terminal\x1b[0m\r\n');
-          return;
-        }
+      // Build WebSocket URL using helper function
+      let wsUrl: string;
+      try {
+        wsUrl = buildWebSocketUrl(newSessionId, cwd, tab.terminal.cols, tab.terminal.rows, tab);
+      } catch (error) {
+        console.error('Failed to build WebSocket URL on reconnect:', error);
+        tab.terminal.write('\x1b[1;31mError: Failed to reconnect terminal\x1b[0m\r\n');
+        return;
       }
 
       const ws = new WebSocket(wsUrl);

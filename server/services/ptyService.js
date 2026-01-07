@@ -211,16 +211,33 @@ export function hasPtySession(sessionId) {
 export function detectClaudeCLI() {
   return new Promise((resolve) => {
     let isResolved = false;
+    let whichProcess = null;
+    let versionProcess = null;
 
-    // Set overall timeout
+    // Set overall timeout with process cleanup
     const timeout = setTimeout(() => {
       if (!isResolved) {
         isResolved = true;
+        // Kill any running processes to prevent resource leaks
+        if (whichProcess) {
+          try {
+            whichProcess.kill('SIGTERM');
+          } catch (e) {
+            // Process may have already exited
+          }
+        }
+        if (versionProcess) {
+          try {
+            versionProcess.kill('SIGTERM');
+          } catch (e) {
+            // Process may have already exited
+          }
+        }
         resolve({ installed: false, error: 'Detection timeout' });
       }
     }, 5000);
 
-    exec('which claude', { timeout: 5000 }, (error, stdout, stderr) => {
+    whichProcess = exec('which claude', { timeout: 5000 }, (error, stdout, stderr) => {
       if (isResolved) return;
 
       if (error) {
@@ -233,7 +250,7 @@ export function detectClaudeCLI() {
       const path = stdout.trim();
 
       // Get version with timeout
-      exec('claude --version', { timeout: 5000 }, (vError, vStdout, vStderr) => {
+      versionProcess = exec('claude --version', { timeout: 5000 }, (vError, vStdout, vStderr) => {
         if (isResolved) return;
 
         isResolved = true;

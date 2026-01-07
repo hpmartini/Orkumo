@@ -102,6 +102,31 @@ describe('PTY Service - detectClaudeCLI', () => {
       });
     });
 
+    it('should kill hanging processes on timeout', async () => {
+      const killSpy = vi.fn();
+      const mockProcess = { kill: killSpy };
+
+      // Mock exec that returns a process object but never calls callback
+      vi.mocked(exec).mockImplementation(() => {
+        return mockProcess as any;
+      });
+
+      const resultPromise = detectClaudeCLI();
+
+      // Advance time by 5 seconds to trigger timeout
+      await vi.advanceTimersByTimeAsync(5000);
+
+      const result = await resultPromise;
+
+      expect(result).toEqual({
+        installed: false,
+        error: 'Detection timeout',
+      });
+
+      // Verify process was killed
+      expect(killSpy).toHaveBeenCalledWith('SIGTERM');
+    });
+
     it('should not resolve twice if timeout occurs during version check', async () => {
       const resolveSpy = vi.fn();
 

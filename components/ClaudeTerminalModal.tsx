@@ -33,24 +33,27 @@ export function ClaudeTerminalModal({
     return () => document.removeEventListener('keydown', handleEscKey);
   }, [isOpen, onClose]);
 
+  // Reset state when modal closes (controlled by parent via isOpen prop)
+  useEffect(() => {
+    if (!isOpen) {
+      setContinueSession(false);
+      setSkipPermissions(false);
+      setAcknowledgedWarning(false);
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleConfirm = () => {
     if (skipPermissions && !acknowledgedWarning) {
       return; // Force user to acknowledge warning
     }
+    // Let parent control state reset via isOpen prop
     onConfirm({ continueSession, skipPermissions });
-    // Reset state
-    setContinueSession(false);
-    setSkipPermissions(false);
-    setAcknowledgedWarning(false);
   };
 
   const handleClose = () => {
-    // Reset state when closing
-    setContinueSession(false);
-    setSkipPermissions(false);
-    setAcknowledgedWarning(false);
+    // Let parent control state reset via isOpen prop
     onClose();
   };
 
