@@ -35,6 +35,7 @@ import { applicationsRepository } from './db/repositories/applicationsRepository
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
 import { ideService } from './services/ideService.js';
+import { injectLogger, removeLogger, checkLoggerStatus } from './services/loggerInjection.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -601,6 +602,108 @@ app.put('/api/settings/preferred-ide/:id', validateParams(idSchema), (req, res) 
       res.json({ id, ide: null });
     }
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
+// DevTools Logger Injection Endpoints
+// ============================================
+
+/**
+ * GET /api/apps/:id/devtools-status
+ * Check if DevOrbit logger is injected in a project
+ */
+app.get('/api/apps/:id/devtools-status', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const apps = scanAllDirectories();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    const status = await checkLoggerStatus(app.path);
+    res.json({
+      appId: id,
+      ...status,
+    });
+  } catch (error) {
+    console.error(`[DevTools] Error checking status for app ${req.params.id}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/inject-logger
+ * Inject DevOrbit logger into a project's entry file
+ */
+app.post('/api/apps/:id/inject-logger', processLimiter, validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const apps = scanAllDirectories();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    const result = await injectLogger(app.path);
+
+    if (result.success) {
+      console.log(`[DevTools] Logger injected into ${app.name} (${result.framework})`);
+      res.json({
+        success: true,
+        message: result.message,
+        file: result.file,
+        framework: result.framework,
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.message,
+        file: result.file,
+      });
+    }
+  } catch (error) {
+    console.error(`[DevTools] Error injecting logger for app ${req.params.id}:`, error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/remove-logger
+ * Remove DevOrbit logger from a project's entry file
+ */
+app.post('/api/apps/:id/remove-logger', processLimiter, validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const apps = scanAllDirectories();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'Application not found' });
+    }
+
+    const result = await removeLogger(app.path);
+
+    if (result.success) {
+      console.log(`[DevTools] Logger removed from ${app.name}`);
+      res.json({
+        success: true,
+        message: result.message,
+        file: result.file,
+      });
+    } else {
+      res.status(400).json({
+        success: false,
+        error: result.message,
+        file: result.file,
+      });
+    }
+  } catch (error) {
+    console.error(`[DevTools] Error removing logger for app ${req.params.id}:`, error);
     res.status(500).json({ error: error.message });
   }
 });
