@@ -47,6 +47,7 @@ const PORT = process.env.SERVER_PORT || 3001;
 const DEFAULT_TERMINAL_COLS = 80;
 const DEFAULT_TERMINAL_ROWS = 24;
 const ALLOWED_COMMANDS = ['claude']; // Whitelist of allowed custom commands
+const MAX_ARGS_LENGTH = 50; // Maximum number of arguments to prevent DoS
 
 // Detect if running inside Docker container
 const isRunningInDocker = (() => {
@@ -1625,14 +1626,20 @@ wss.on('connection', (ws, req) => {
     try {
       const parsedArgs = JSON.parse(decodeURIComponent(argsParam));
       // Validate that args is an array of strings
-      if (Array.isArray(parsedArgs) && parsedArgs.every(arg => typeof arg === 'string')) {
-        args = parsedArgs;
-      } else {
+      if (!Array.isArray(parsedArgs) || !parsedArgs.every(arg => typeof arg === 'string')) {
         console.error('[PTY] Invalid args format: must be array of strings');
         ws.send(JSON.stringify({ type: 'error', message: 'Invalid args format' }));
         ws.close();
         return;
       }
+      // Validate args length to prevent DoS
+      if (parsedArgs.length > MAX_ARGS_LENGTH) {
+        console.error(`[PTY] Args length exceeds maximum: ${parsedArgs.length} > ${MAX_ARGS_LENGTH}`);
+        ws.send(JSON.stringify({ type: 'error', message: `Too many arguments (max: ${MAX_ARGS_LENGTH})` }));
+        ws.close();
+        return;
+      }
+      args = parsedArgs;
     } catch (error) {
       console.error('[PTY] Failed to parse args:', error);
       ws.send(JSON.stringify({ type: 'error', message: 'Failed to parse args' }));

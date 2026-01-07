@@ -210,13 +210,21 @@ export function hasPtySession(sessionId) {
  */
 export function detectClaudeCLI() {
   return new Promise((resolve) => {
+    let isResolved = false;
+
     // Set overall timeout
     const timeout = setTimeout(() => {
-      resolve({ installed: false, error: 'Detection timeout' });
+      if (!isResolved) {
+        isResolved = true;
+        resolve({ installed: false, error: 'Detection timeout' });
+      }
     }, 5000);
 
     exec('which claude', { timeout: 5000 }, (error, stdout, stderr) => {
+      if (isResolved) return;
+
       if (error) {
+        isResolved = true;
         clearTimeout(timeout);
         resolve({ installed: false });
         return;
@@ -226,6 +234,9 @@ export function detectClaudeCLI() {
 
       // Get version with timeout
       exec('claude --version', { timeout: 5000 }, (vError, vStdout, vStderr) => {
+        if (isResolved) return;
+
+        isResolved = true;
         clearTimeout(timeout);
         resolve({
           installed: true,
