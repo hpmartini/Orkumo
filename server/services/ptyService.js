@@ -5,6 +5,7 @@ import * as pty from 'node-pty';
 import os from 'os';
 import fs from 'fs';
 import { EventEmitter } from 'events';
+import { exec } from 'child_process';
 
 // Store active PTY sessions
 const ptySessions = new Map();
@@ -46,9 +47,13 @@ console.log(`[PTY] Service initialized with default shell: ${defaultShell}`);
  * @param {string} cwd - Working directory for the terminal
  * @param {number} cols - Terminal columns
  * @param {number} rows - Terminal rows
+ * @param {object} options - Additional options
+ * @param {string} options.command - Custom command to run (defaults to shell)
+ * @param {string[]} options.args - Command arguments
+ * @param {object} options.env - Additional environment variables
  * @returns {object} Session info
  */
-export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, rows = 24) {
+export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, rows = 24, options = {}) {
   // Kill existing session if any
   if (ptySessions.has(sessionId)) {
     killPtySession(sessionId);
@@ -61,25 +66,33 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
     workingDir = fs.existsSync('/tmp') ? '/tmp' : (process.env.HOME || '/');
   }
 
-  const shell = defaultShell;
-  console.log(`[PTY] Creating session with shell: ${shell}, cwd: ${workingDir}`);
+  // Use custom command or default shell
+  const command = options.command || defaultShell;
+  const isCustomCommand = !!options.command;
+
+  // Prepare command arguments
+  let commandArgs = options.args || [];
+  if (!isCustomCommand) {
+    // Use -l for login shell to ensure proper initialization (zsh and bash)
+    commandArgs = command.includes('zsh') || command.includes('bash') ? ['--login'] : [];
+  }
+
+  console.log(`[PTY] Creating session with command: ${command}, args: ${JSON.stringify(commandArgs)}, cwd: ${workingDir}`);
 
   try {
-    // Use -l for login shell to ensure proper initialization (zsh and bash)
-    const shellArgs = shell.includes('zsh') || shell.includes('bash') ? ['--login'] : [];
-
-    const ptyProcess = pty.spawn(shell, shellArgs, {
+    const ptyProcess = pty.spawn(command, commandArgs, {
       name: 'xterm-256color',
       cols,
       rows,
       cwd: workingDir,
       env: {
         ...process.env,
+        ...options.env,
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
         HOME: process.env.HOME || '/root',
         USER: process.env.USER || 'root',
-        SHELL: shell,
+        SHELL: defaultShell,
       },
     });
 
@@ -87,7 +100,9 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
       id: sessionId,
       pty: ptyProcess,
       cwd,
-      shell,
+      shell: command,
+      type: isCustomCommand ? 'custom' : 'shell',
+      commandInfo: isCustomCommand ? { command, args: commandArgs } : null,
       createdAt: Date.now(),
     };
 
@@ -108,7 +123,8 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
       success: true,
       sessionId,
       pid: ptyProcess.pid,
-      shell,
+      shell: command,
+      type: session.type,
     };
   } catch (error) {
     console.error(`Failed to create PTY session ${sessionId}:`, error);
@@ -186,6 +202,32 @@ export function getAllPtySessions() {
  */
 export function hasPtySession(sessionId) {
   return ptySessions.has(sessionId);
+}
+
+/**
+ * Check if Claude Code CLI is installed
+ * @returns {Promise<{installed: boolean, path?: string, version?: string}>}
+ */
+export function detectClaudeCLI() {
+  return new Promise((resolve) => {
+    exec('which claude', (error, stdout, stderr) => {
+      if (error) {
+        resolve({ installed: false });
+        return;
+      }
+
+      const path = stdout.trim();
+
+      // Get version
+      exec('claude --version', (vError, vStdout) => {
+        resolve({
+          installed: true,
+          path,
+          version: vError ? 'unknown' : vStdout.trim(),
+        });
+      });
+    });
+  });
 }
 
 // Cleanup on process exit

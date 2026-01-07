@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Terminal as TerminalIcon, Plus, X, RefreshCw } from 'lucide-react';
+import { Terminal as TerminalIcon, Plus, X, RefreshCw, Bot } from 'lucide-react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
+import { ClaudeTerminalModal } from './ClaudeTerminalModal';
+import type { ClaudeTerminalOptions, ClaudeCLIInfo, TerminalType } from '../types';
 
 interface TerminalTab {
   id: string;
@@ -13,6 +15,8 @@ interface TerminalTab {
   fitAddon: FitAddon | null;
   ws: WebSocket | null;
   connected: boolean;
+  type: TerminalType;
+  claudeOptions?: ClaudeTerminalOptions;
 }
 
 interface XTerminalProps {
@@ -38,6 +42,10 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   const [tabs, setTabs] = useState<TerminalTab[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
   const [showLogsTab, setShowLogsTab] = useState(true);
+  const [claudeModalOpen, setClaudeModalOpen] = useState(false);
+  const [claudeInfo, setClaudeInfo] = useState<ClaudeCLIInfo>({
+    installed: false,
+  });
   const terminalContainerRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -49,6 +57,16 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     tabsRef.current = tabs;
   }, [tabs]);
 
+  // Check Claude CLI status on mount
+  useEffect(() => {
+    fetch('/api/claude-cli/status')
+      .then((res) => res.json())
+      .then((data) => setClaudeInfo(data))
+      .catch(() =>
+        setClaudeInfo({ installed: false, error: 'Failed to check CLI status' })
+      );
+  }, []);
+
   // Auto-scroll logs to bottom
   useEffect(() => {
     if (showLogsTab && !activeTabId && logsEndRef.current) {
@@ -57,24 +75,55 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   }, [logs, showLogsTab, activeTabId]);
 
   // Create a new terminal tab
-  const createTab = useCallback(() => {
-    const tabId = `tab-${Date.now()}`;
-    const sessionId = `session-${Date.now()}`;
+  const createTab = useCallback(
+    (type: TerminalType = 'shell', name?: string) => {
+      const tabId = `tab-${Date.now()}`;
+      const sessionId = `session-${Date.now()}`;
 
-    const newTab: TerminalTab = {
-      id: tabId,
-      name: `Shell ${tabs.length + 1}`,
-      sessionId,
-      terminal: null,
-      fitAddon: null,
-      ws: null,
-      connected: false,
-    };
+      const newTab: TerminalTab = {
+        id: tabId,
+        name: name || `${type === 'claude' ? 'Claude' : 'Shell'} ${tabs.length + 1}`,
+        sessionId,
+        terminal: null,
+        fitAddon: null,
+        ws: null,
+        connected: false,
+        type,
+      };
 
-    setTabs((prev) => [...prev, newTab]);
-    setActiveTabId(tabId);
-    setShowLogsTab(false);
-  }, [tabs.length]);
+      setTabs((prev) => [...prev, newTab]);
+      setActiveTabId(tabId);
+      setShowLogsTab(false);
+    },
+    [tabs.length]
+  );
+
+  // Create a Claude Code terminal
+  const createClaudeTerminal = useCallback(
+    (options: ClaudeTerminalOptions) => {
+      const tabId = `tab-${Date.now()}`;
+      const sessionId = `session-${Date.now()}`;
+      const tabName = `Claude${options.continueSession ? ' (c)' : ''}`;
+
+      const newTab: TerminalTab = {
+        id: tabId,
+        name: tabName,
+        sessionId,
+        terminal: null,
+        fitAddon: null,
+        ws: null,
+        connected: false,
+        type: 'claude',
+        claudeOptions: options,
+      };
+
+      setTabs((prev) => [...prev, newTab]);
+      setActiveTabId(tabId);
+      setShowLogsTab(false);
+      setClaudeModalOpen(false);
+    },
+    [tabs.length]
+  );
 
   // Initialize terminal for a tab
   const initializeTerminal = useCallback(
@@ -122,8 +171,24 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       terminal.open(terminalContainerRef.current);
       fitAddon.fit();
 
-      // Connect WebSocket
-      const wsUrl = `${getWsUrl()}?sessionId=${tab.sessionId}&cwd=${encodeURIComponent(cwd)}&cols=${terminal.cols}&rows=${terminal.rows}`;
+      // Build WebSocket URL based on terminal type
+      let wsUrl = `${getWsUrl()}?sessionId=${tab.sessionId}&cwd=${encodeURIComponent(cwd)}&cols=${terminal.cols}&rows=${terminal.rows}`;
+
+      // Add Claude-specific parameters
+      if (tab.type === 'claude' && tab.claudeOptions) {
+        const args: string[] = [];
+
+        if (tab.claudeOptions.continueSession) {
+          args.push('-c');
+        }
+
+        if (tab.claudeOptions.skipPermissions) {
+          args.push('--dangerously-skip-permissions');
+        }
+
+        wsUrl += `&command=claude&args=${encodeURIComponent(JSON.stringify(args))}`;
+      }
+
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
@@ -378,11 +443,15 @@ export const XTerminal: React.FC<XTerminalProps> = ({
                 : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800/50'
             }`}
           >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${
-                tab.connected ? 'bg-emerald-500' : 'bg-gray-600'
-              }`}
-            />
+            {tab.type === 'claude' ? (
+              <Bot size={12} className="text-blue-400" />
+            ) : (
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  tab.connected ? 'bg-emerald-500' : 'bg-gray-600'
+                }`}
+              />
+            )}
             <span>{tab.name}</span>
             <button
               onClick={(e) => closeTab(tab.id, e)}
@@ -395,11 +464,25 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
         {/* Add tab button */}
         <button
-          onClick={createTab}
+          onClick={() => createTab()}
           className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-800/50 rounded-md transition-colors shrink-0"
           title="New terminal"
         >
           <Plus size={14} />
+        </button>
+
+        {/* Claude Code button */}
+        <button
+          onClick={() => setClaudeModalOpen(true)}
+          className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent rounded transition-colors shrink-0"
+          title={
+            claudeInfo.installed
+              ? 'Open Claude Code terminal'
+              : 'Claude CLI not installed'
+          }
+        >
+          <Bot size={12} />
+          <span>Claude</span>
         </button>
 
         {/* Spacer */}
@@ -482,6 +565,14 @@ export const XTerminal: React.FC<XTerminalProps> = ({
           style={{ backgroundColor: '#0a0a0f' }}
         />
       </div>
+
+      {/* Claude Terminal Modal */}
+      <ClaudeTerminalModal
+        isOpen={claudeModalOpen}
+        onClose={() => setClaudeModalOpen(false)}
+        onConfirm={createClaudeTerminal}
+        claudeInfo={claudeInfo}
+      />
     </div>
   );
 };

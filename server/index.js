@@ -25,6 +25,7 @@ import {
   resizePty,
   killPtySession,
   ptyEvents,
+  detectClaudeCLI,
 } from './services/ptyService.js';
 import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
@@ -1099,6 +1100,22 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+/**
+ * GET /api/claude-cli/status
+ * Check if Claude Code CLI is installed
+ */
+app.get('/api/claude-cli/status', async (req, res) => {
+  try {
+    const cliInfo = await detectClaudeCLI();
+    res.json(cliInfo);
+  } catch (error) {
+    res.status(500).json({
+      installed: false,
+      error: error.message
+    });
+  }
+});
+
 // ============================================
 // Database Application Endpoints
 // ============================================
@@ -1497,9 +1514,9 @@ function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows) {
 /**
  * Handle PTY connection in local mode - spawn PTY directly
  */
-function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows) {
+function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) {
   try {
-    const result = createPtySession(sessionId, cwd, cols, rows);
+    const result = createPtySession(sessionId, cwd, cols, rows, options);
 
     if (!result.success) {
       console.error(`[PTY] Failed to create session ${sessionId}:`, result.error);
@@ -1516,9 +1533,10 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows) {
       sessionId,
       pid: result.pid,
       shell: result.shell,
+      sessionType: result.type,
     }));
 
-    console.log(`[PTY] Session ${sessionId} created successfully, pid=${result.pid}`);
+    console.log(`[PTY] Session ${sessionId} created successfully, pid=${result.pid}, type=${result.type}`);
   } catch (err) {
     console.error(`[PTY] Exception creating session ${sessionId}:`, err);
     ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -1585,14 +1603,21 @@ wss.on('connection', (ws, req) => {
   const cols = parseInt(url.searchParams.get('cols') || '80', 10);
   const rows = parseInt(url.searchParams.get('rows') || '24', 10);
 
-  console.log(`[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, dockerMode=${isRunningInDocker}`);
+  // Parse optional custom command parameters
+  const command = url.searchParams.get('command') || null;
+  const argsParam = url.searchParams.get('args');
+  const args = argsParam ? JSON.parse(decodeURIComponent(argsParam)) : [];
+
+  const options = command ? { command, args } : {};
+
+  console.log(`[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`);
 
   if (isRunningInDocker) {
     // In Docker: proxy to host PTY service
     handleDockerPtyConnection(ws, sessionId, cwd, cols, rows);
   } else {
     // On host: spawn PTY directly
-    handleLocalPtyConnection(ws, sessionId, cwd, cols, rows);
+    handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options);
   }
 });
 

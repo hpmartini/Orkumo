@@ -1,6 +1,7 @@
 export { StatusBadge } from './StatusBadge';
 export { Terminal } from './Terminal';
 export { XTerminal } from './XTerminal';
+export { ClaudeTerminalModal } from './ClaudeTerminalModal';
 export { PerformanceCharts } from './PerformanceCharts';
 export { DashboardOverview } from './DashboardOverview';
 export { AppList } from './AppList';

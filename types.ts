@@ -63,3 +63,17 @@ export interface NetworkLog {
   duration?: number;
   timestamp: number;
 }
+
+export interface ClaudeTerminalOptions {
+  continueSession: boolean;
+  skipPermissions: boolean;
+}
+
+export interface ClaudeCLIInfo {
+  installed: boolean;
+  path?: string;
+  version?: string;
+  error?: string;
+}
+
+export type TerminalType = 'shell' | 'claude';
