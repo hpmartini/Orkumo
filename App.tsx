@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { LayoutDashboard, RefreshCw, Settings, Menu, X, GripVertical } from 'lucide-react';
+import { LayoutDashboard, RefreshCw, Menu, X, GripVertical } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import {
   Sidebar,
@@ -215,6 +215,7 @@ function AppContent() {
           onOpenInTerminal={handleOpenInTerminal}
           onRename={handleRenamePrompt}
           onRefresh={refreshApps}
+          onOpenSettings={() => setAdminPanelOpen(true)}
           mainDirectory="Projects"
         />
         {/* Resize handle */}
@@ -256,43 +257,24 @@ function AppContent() {
           </div>
         )}
 
+        {/* Mobile header - only shown on small screens */}
         <header
-          className={`fixed ${tabs.length > 0 ? 'top-10' : 'top-0'} right-0 left-0 md:left-[var(--sidebar-width)] z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 md:px-8 py-4 flex items-center justify-between`}
+          className={`fixed ${tabs.length > 0 ? 'top-10' : 'top-0'} right-0 left-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 py-3 flex items-center gap-3 md:hidden`}
         >
-          <div className="md:hidden flex items-center gap-3">
-            <button
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
-              aria-label="Toggle menu"
-            >
-              {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-            <div className="flex items-center gap-2 text-blue-500 font-bold">
-              <LayoutDashboard size={20} /> DevOrbit
-            </div>
-          </div>
-
-          <h2 className="text-xl font-semibold text-white hidden md:block">
-            {activeTab === 'dashboard' ? 'System Overview' : 'Application Details'}
-          </h2>
-
-          <div className="flex items-center gap-4">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1.5 bg-gray-800 rounded-full border border-gray-700">
-              <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
-              <span className="text-xs font-mono text-gray-400">Daemon Active</span>
-            </div>
-            <button
-              onClick={() => setAdminPanelOpen(true)}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
-              title="Settings"
-            >
-              <Settings size={20} />
-            </button>
+          <button
+            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+            aria-label="Toggle menu"
+          >
+            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+          </button>
+          <div className="flex items-center gap-2 text-blue-500 font-bold">
+            <LayoutDashboard size={20} /> DevOrbit
           </div>
         </header>
 
         <div
-          className={`${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'mt-[6.5rem]' : 'mt-16'}`}
+          className={`${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'mt-[4rem] md:mt-10' : 'mt-14 md:mt-0'}`}
         >
           {activeTab === 'dashboard' ? (
             <div className="space-y-8 animate-in fade-in duration-500">

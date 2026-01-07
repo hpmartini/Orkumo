@@ -33,6 +33,7 @@ interface SidebarProps {
   onRename?: (id: string) => void;
   onRefresh?: () => Promise<void>;
   onRefreshDirectory?: (directory: string) => Promise<void>;
+  onOpenSettings?: () => void;
   mainDirectory?: string; // The main/root project directory to highlight
 }
 
@@ -57,6 +58,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRename,
   onRefresh,
   onRefreshDirectory,
+  onOpenSettings,
   mainDirectory = 'Projects',
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
@@ -373,17 +375,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </div>
       )}
 
-      {/* User Section */}
+      {/* Status & Settings Section */}
       <div className="p-4 border-t border-gray-800">
-        <div className="bg-gray-900 rounded-lg p-3 flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center font-bold text-xs">
-            A
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-900 rounded-full border border-gray-800">
+            <div className="w-2 h-2 bg-emerald-500 rounded-full animate-pulse"></div>
+            <span className="text-xs font-mono text-gray-400">Daemon Active</span>
           </div>
-          <div className="flex-1 min-w-0">
-            <div className="text-sm font-medium truncate">Admin User</div>
-            <div className="text-xs text-gray-500">Local Environment</div>
-          </div>
-          <Settings size={16} className="text-gray-500 cursor-pointer hover:text-white shrink-0" />
+          {onOpenSettings && (
+            <button
+              onClick={onOpenSettings}
+              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+              title="Settings"
+            >
+              <Settings size={18} />
+            </button>
+          )}
         </div>
       </div>
     </aside>
