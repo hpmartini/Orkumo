@@ -457,7 +457,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   const activeTab = tabs.find((t) => t.id === activeTabId);
 
   return (
-    <div className="bg-gray-950 rounded-xl border border-gray-800 shadow-inner overflow-hidden flex flex-col min-h-[400px]">
+    <div className="bg-gray-950 rounded-xl border border-gray-800 shadow-inner overflow-hidden flex flex-col h-full">
       {/* Tab bar */}
       <div className="bg-gray-900 px-2 py-1 border-b border-gray-800 flex items-center gap-1 shrink-0 overflow-x-auto">
         {/* Logs tab */}
