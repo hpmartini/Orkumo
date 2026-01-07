@@ -211,24 +211,25 @@ export function hasPtySession(sessionId) {
 export function detectClaudeCLI() {
   return new Promise((resolve) => {
     let isResolved = false;
-    let whichProcess = null;
-    let versionProcess = null;
+    let currentProcess = null;
+
+    // Common installation locations for Claude CLI
+    const home = process.env.HOME || '/root';
+    const commonPaths = [
+      `${home}/.bun/bin/claude`,
+      `${home}/.claude/local/claude`,
+      `${home}/.local/bin/claude`,
+      '/usr/local/bin/claude',
+      '/usr/bin/claude',
+    ];
 
     // Set overall timeout with process cleanup
     const timeout = setTimeout(() => {
       if (!isResolved) {
         isResolved = true;
-        // Kill any running processes to prevent resource leaks
-        if (whichProcess) {
+        if (currentProcess) {
           try {
-            whichProcess.kill('SIGTERM');
-          } catch (e) {
-            // Process may have already exited
-          }
-        }
-        if (versionProcess) {
-          try {
-            versionProcess.kill('SIGTERM');
+            currentProcess.kill('SIGTERM');
           } catch (e) {
             // Process may have already exited
           }
@@ -237,50 +238,59 @@ export function detectClaudeCLI() {
       }
     }, 5000);
 
-    whichProcess = exec('which claude', { timeout: 5000 }, (error, stdout, stderr) => {
+    const resolveWith = (result) => {
+      if (isResolved) return;
+      isResolved = true;
+      clearTimeout(timeout);
+      if (currentProcess) {
+        try {
+          currentProcess.kill('SIGTERM');
+        } catch (e) {
+          // Process may have already exited
+        }
+      }
+      resolve(result);
+    };
+
+    // First, check common installation paths directly (faster and more reliable)
+    for (const claudePath of commonPaths) {
+      if (fs.existsSync(claudePath)) {
+        // Found it! Try to get version
+        currentProcess = exec(`"${claudePath}" --version`, { timeout: 5000 }, (vError, vStdout) => {
+          resolveWith({
+            installed: true,
+            path: claudePath,
+            version: vError ? 'unknown' : vStdout.trim(),
+          });
+        });
+        return;
+      }
+    }
+
+    // If not found in common paths, try 'which claude' with extended PATH
+    const extendedPath = [
+      `${home}/.bun/bin`,
+      `${home}/.claude/local`,
+      `${home}/.local/bin`,
+      '/usr/local/bin',
+      process.env.PATH || '',
+    ].join(':');
+
+    currentProcess = exec('which claude', { timeout: 5000, env: { ...process.env, PATH: extendedPath } }, (error, stdout) => {
       if (isResolved) return;
 
       if (error) {
-        isResolved = true;
-        clearTimeout(timeout);
-        // Cleanup: kill the which process if it's still running
-        if (whichProcess) {
-          try {
-            whichProcess.kill('SIGTERM');
-          } catch (e) {
-            // Process may have already exited
-          }
-        }
-        resolve({ installed: false });
+        resolveWith({ installed: false });
         return;
       }
 
-      const path = stdout.trim();
+      const foundPath = stdout.trim();
 
-      // Get version with timeout
-      versionProcess = exec('claude --version', { timeout: 5000 }, (vError, vStdout, vStderr) => {
-        if (isResolved) return;
-
-        isResolved = true;
-        clearTimeout(timeout);
-        // Cleanup: kill both processes if they're still running
-        if (whichProcess) {
-          try {
-            whichProcess.kill('SIGTERM');
-          } catch (e) {
-            // Process may have already exited
-          }
-        }
-        if (versionProcess) {
-          try {
-            versionProcess.kill('SIGTERM');
-          } catch (e) {
-            // Process may have already exited
-          }
-        }
-        resolve({
+      // Get version
+      currentProcess = exec(`"${foundPath}" --version`, { timeout: 5000 }, (vError, vStdout) => {
+        resolveWith({
           installed: true,
-          path,
+          path: foundPath,
           version: vError ? 'unknown' : vStdout.trim(),
         });
       });
