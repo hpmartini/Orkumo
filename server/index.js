@@ -528,6 +528,15 @@ app.post('/api/settings/configure-ports', async (req, res) => {
     const apps = scanAllDirectories();
     const appIds = apps.map(app => app.id);
 
+    // Validate that we won't exhaust the port range
+    const maxPort = 65535;
+    const estimatedMaxPort = portNum + appIds.length;
+    if (estimatedMaxPort > maxPort) {
+      return res.status(400).json({
+        error: `Port range would be exhausted: Cannot assign ${appIds.length} apps starting from port ${portNum} (would exceed port 65535)`
+      });
+    }
+
     // Configure ports for all apps with conflict detection
     const configured = await settingsService.configureAllPorts(appIds, portNum, portManager);
 
