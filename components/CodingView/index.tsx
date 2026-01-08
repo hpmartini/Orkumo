@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
+import { WebIDEErrorBoundary } from './WebIDEErrorBoundary';
 import { BrowserPreviewPanel } from './BrowserPreviewPanel';
 import { AppConfig, AppStatus } from '../../types';
 import './CodingView.css';
@@ -33,11 +34,13 @@ export function CodingView({ app }: CodingViewProps) {
 
         {/* Web IDE Panel */}
         <Panel defaultSize={isTerminalHidden ? 55 : 45} minSize={20} className="coding-panel">
-          <WebIDEPanel
-            directory={app.path}
-            showTerminalButton={isTerminalHidden}
-            onShowTerminal={() => setIsTerminalHidden(false)}
-          />
+          <WebIDEErrorBoundary>
+            <WebIDEPanel
+              directory={app.path}
+              showTerminalButton={isTerminalHidden}
+              onShowTerminal={() => setIsTerminalHidden(false)}
+            />
+          </WebIDEErrorBoundary>
         </Panel>
 
         <Separator className="coding-separator" />

@@ -57,8 +57,51 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
     return import.meta.env.VITE_CODE_SERVER_URL || 'http://localhost:8443';
   }, []);
 
+  // Get iframe load timeout from environment or use default (15 seconds)
+  const iframeTimeout = useMemo(() => {
+    const timeout = import.meta.env.VITE_CODE_SERVER_TIMEOUT;
+    return timeout ? parseInt(timeout, 10) : 15000;
+  }, []);
+
+  // Validate that a path is safe and within allowed directories
+  const validatePath = useCallback((path: string): boolean => {
+    const normalizedPath = path.replace(/\\/g, '/');
+
+    // Check for path traversal attempts
+    if (normalizedPath.includes('..')) {
+      console.error(`[WebIDEPanel] Path traversal attempt blocked: ${path}`);
+      return false;
+    }
+
+    // Ensure path starts with allowed prefixes
+    const allowedPrefixes = [
+      '/home/coder/Projects/',
+      '/home/coder/PROJECTS/',
+      '/Users/', // macOS
+      '/home/', // Linux
+      'C:/', // Windows
+    ];
+
+    const isAllowed = allowedPrefixes.some(prefix => {
+      const normalizedPrefix = prefix.replace(/\\/g, '/');
+      return normalizedPath.startsWith(normalizedPrefix);
+    });
+
+    if (!isAllowed) {
+      console.error(`[WebIDEPanel] Path not in allowed directories: ${path}`);
+      return false;
+    }
+
+    return true;
+  }, []);
+
   // Convert host path to container path for code-server (memoized)
   const getContainerPath = useCallback((hostPath: string) => {
+    // Validate path first to prevent path traversal attacks
+    if (!validatePath(hostPath)) {
+      throw new Error(`Invalid or unsafe path: ${hostPath}`);
+    }
+
     // code-server mounts volumes at /home/coder/Projects and /home/coder/PROJECTS
     // Convert host path to container path
     const normalizedPath = hostPath.replace(/\\/g, '/');
@@ -75,22 +118,28 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
       const lastIndex = normalizedPath.lastIndexOf('/Projects/');
       const relativePath = normalizedPath.substring(lastIndex + '/Projects/'.length);
       containerPath = `/home/coder/Projects/${relativePath}`;
-      console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
+      if (import.meta.env.DEV) {
+        console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
+      }
     } else if (PROJECTSMatches && PROJECTSMatches.length > 0) {
       const lastIndex = normalizedPath.lastIndexOf('/PROJECTS/');
       const relativePath = normalizedPath.substring(lastIndex + '/PROJECTS/'.length);
       containerPath = `/home/coder/PROJECTS/${relativePath}`;
-      console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
+      if (import.meta.env.DEV) {
+        console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
+      }
     }
 
     if (!containerPath) {
       // Fallback: assume it's already a container path or use as-is
-      console.warn(`[WebIDEPanel] Could not map path to container: ${hostPath}`);
+      if (import.meta.env.DEV) {
+        console.warn(`[WebIDEPanel] Could not map path to container: ${hostPath}`);
+      }
       return normalizedPath;
     }
 
     return containerPath;
-  }, []);
+  }, [validatePath]);
 
   // Memoize iframe src URL to avoid unnecessary recalculations
   const iframeSrc = useMemo(() => {
@@ -135,7 +184,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
         setCodeServerError(
           'Failed to load VS Code (timeout). Make sure code-server is running (docker compose up code-server)'
         );
-      }, 15000); // 15 second timeout
+      }, iframeTimeout);
 
       setLoadTimeout(timeout);
 
@@ -144,8 +193,13 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
         clearTimeout(timeout);
         setLoadTimeout(null);
       };
+    } else {
+      // Cleanup: When switching away from code-server, reset iframe src to free resources
+      if (iframeRef.current) {
+        iframeRef.current.src = 'about:blank';
+      }
     }
-  }, [editorType]);
+  }, [editorType, iframeTimeout]);
 
   // Fetch file tree
   const fetchFileTree = useCallback(async () => {
@@ -323,7 +377,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
         </div>
         <div className="flex items-center gap-2">
           {/* Editor Type Switcher */}
-          <div className="flex items-center gap-1 bg-gray-900 rounded p-0.5">
+          <div className="flex items-center gap-1 bg-gray-900 rounded p-0.5" role="group" aria-label="Editor type selector">
             <button
               onClick={() => setEditorType('monaco')}
               className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
@@ -332,6 +386,8 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
                   : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
               title="Monaco Editor (Lightweight)"
+              aria-label="Switch to Monaco Editor"
+              aria-pressed={editorType === 'monaco'}
             >
               <Code2 size={12} />
               Monaco
@@ -344,6 +400,8 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
                   : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
               }`}
               title="VS Code (Full IDE)"
+              aria-label="Switch to VS Code Server"
+              aria-pressed={editorType === 'code-server'}
             >
               <Box size={12} />
               VS Code
@@ -353,6 +411,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
             onClick={fetchFileTree}
             className="p-1 hover:bg-gray-700 rounded transition-colors"
             title="Refresh"
+            aria-label="Refresh file tree"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
@@ -399,6 +458,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
                     }
                   }}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm transition-colors"
+                  aria-label="Retry loading VS Code Server"
                 >
                   Retry
                 </button>
@@ -413,8 +473,12 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
             title="VS Code Server"
             onLoad={handleIframeLoad}
             onError={handleIframeError}
-            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+            // Security: Removed allow-same-origin for better isolation
+            // This prevents iframe from accessing parent origin's storage/cookies
+            // Note: code-server may need to use token-based auth instead of cookie auth
+            sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
             allow="clipboard-read; clipboard-write"
+            aria-label="VS Code web editor"
           />
         </div>
       ) : (

@@ -125,13 +125,26 @@ DevOrbit Dashboard includes an integrated web-based IDE powered by **code-server
    CODE_SERVER_PASSWORD=your_secure_password_here
    ```
 
-2. **Start code-server**
+2. **Validate Password (Recommended)**
+
+   Run the validation script to ensure your password meets security requirements:
+
+   ```bash
+   ./scripts/validate-code-server-password.sh
+   ```
+
+   This checks for:
+   - Minimum length (12+ characters)
+   - Uppercase, lowercase, numbers, special characters
+   - Common weak patterns
+
+3. **Start code-server**
 
    ```bash
    docker compose up code-server -d
    ```
 
-3. **Access from Dashboard**
+4. **Access from Dashboard**
 
    - Open DevOrbit Dashboard
    - Navigate to any project's detail view
@@ -406,5 +419,117 @@ ports:
 # .env
 VITE_CODE_SERVER_URL=http://localhost:8444
 ```
+
+### 🌐 CORS and Cross-Origin Configuration
+
+code-server runs on a **different origin** than the DevOrbit Dashboard (different ports), which can cause CORS-related issues in certain scenarios.
+
+#### Default Configuration
+
+By default, code-server loads in an iframe at `http://localhost:8443` while the dashboard runs at `http://localhost:3000`. This works because:
+
+1. **Iframe sandbox**: Restricts cross-origin access for security
+2. **CORS not required**: The iframe loads code-server directly, not via XHR/fetch
+
+#### When CORS Issues Occur
+
+You may encounter CORS errors if:
+
+1. **Different domains**: Running dashboard and code-server on different domains
+   ```
+   Dashboard: https://app.example.com
+   code-server: https://code.example.com
+   ```
+
+2. **Custom reverse proxy**: Using a reverse proxy that doesn't forward CORS headers properly
+
+3. **Browser security policies**: Some browsers enforce stricter CORS policies
+
+#### Solutions
+
+**Option 1: Same Domain with Path-based Routing (Recommended)**
+
+Configure your reverse proxy to serve both on the same domain:
+
+```nginx
+# Nginx example
+server {
+    listen 443 ssl;
+    server_name app.example.com;
+
+    # Dashboard
+    location / {
+        proxy_pass http://localhost:3000;
+    }
+
+    # code-server
+    location /code/ {
+        proxy_pass http://localhost:8443/;
+        proxy_set_header Host $host;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection upgrade;
+    }
+}
+```
+
+Then update `.env`:
+```bash
+VITE_CODE_SERVER_URL=https://app.example.com/code
+```
+
+**Option 2: Configure CORS Headers**
+
+If you must use different domains, configure code-server's reverse proxy to allow cross-origin requests:
+
+```nginx
+# Nginx example
+location / {
+    proxy_pass http://localhost:8443;
+
+    # CORS headers
+    add_header Access-Control-Allow-Origin "https://app.example.com" always;
+    add_header Access-Control-Allow-Methods "GET, POST, OPTIONS" always;
+    add_header Access-Control-Allow-Headers "Authorization, Content-Type" always;
+    add_header Access-Control-Allow-Credentials "true" always;
+}
+```
+
+**Option 3: Use localhost for Both**
+
+For local development, keep both services on localhost with different ports. This avoids CORS issues entirely:
+
+```bash
+Dashboard: http://localhost:3000
+code-server: http://localhost:8443
+```
+
+#### Debugging CORS Issues
+
+1. **Check browser console** (F12 → Console tab) for CORS errors:
+   ```
+   Access to iframe at 'http://localhost:8443' from origin 'http://localhost:3000'
+   has been blocked by CORS policy
+   ```
+
+2. **Verify iframe sandbox attribute**:
+   - The iframe should NOT have `allow-same-origin` if running on different origins
+   - Check `components/CodingView/WebIDEPanel.tsx` line 473
+
+3. **Test code-server directly**:
+   - Open `http://localhost:8443` in a separate tab
+   - If it works there but not in the iframe, it's likely a sandbox/CORS issue
+
+4. **Check reverse proxy logs**:
+   ```bash
+   # Nginx
+   sudo tail -f /var/log/nginx/error.log
+
+   # Caddy
+   caddy logs
+   ```
+
+#### Security Note
+
+Configuring CORS headers reduces security isolation. Only allow specific origins, never use `Access-Control-Allow-Origin: *` with `Access-Control-Allow-Credentials: true`.
 
 ---
