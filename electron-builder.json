@@ -1,0 +1,112 @@
+{
+  "appId": "com.devorbit.dashboard",
+  "productName": "DevOrbit Dashboard",
+  "copyright": "Copyright © 2026",
+  "directories": {
+    "output": "dist-electron",
+    "buildResources": "electron/resources"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "server/**/*",
+    "node_modules/**/*",
+    "package.json"
+  ],
+  "extraResources": [
+    {
+      "from": "server",
+      "to": "server",
+      "filter": ["**/*"]
+    }
+  ],
+  "mac": {
+    "category": "public.app-category.developer-tools",
+    "target": [
+      {
+        "target": "dmg",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "zip",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "icon": "electron/resources/icon.icns",
+    "darkModeSupport": true,
+    "hardenedRuntime": true,
+    "gatekeeperAssess": false,
+    "entitlements": "electron/entitlements.mac.plist",
+    "entitlementsInherit": "electron/entitlements.mac.plist"
+  },
+  "dmg": {
+    "contents": [
+      {
+        "x": 130,
+        "y": 220
+      },
+      {
+        "x": 410,
+        "y": 220,
+        "type": "link",
+        "path": "/Applications"
+      }
+    ],
+    "window": {
+      "width": 540,
+      "height": 380
+    }
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "electron/resources/icon.ico",
+    "publisherName": "DevOrbit"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "deleteAppDataOnUninstall": false,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true
+  },
+  "linux": {
+    "target": [
+      {
+        "target": "AppImage",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "deb",
+        "arch": ["x64", "arm64"]
+      },
+      {
+        "target": "rpm",
+        "arch": ["x64", "arm64"]
+      }
+    ],
+    "icon": "electron/resources/icon.png",
+    "category": "Development",
+    "synopsis": "Developer dashboard for managing local development applications",
+    "description": "DevOrbit Dashboard is a comprehensive developer dashboard that monitors and manages local development applications with AI-powered insights."
+  },
+  "publish": {
+    "provider": "github",
+    "owner": "hpmartini",
+    "repo": "DevHub"
+  },
+  "afterSign": "electron/notarize.js",
+  "asarUnpack": [
+    "node_modules/node-pty/**/*",
+    "node_modules/pidusage/**/*"
+  ]
+}

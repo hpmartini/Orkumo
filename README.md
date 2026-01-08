@@ -12,6 +12,29 @@
 - **IDE Integration**: Seamlessly open projects in VS Code, Cursor, WebStorm, and other IDEs.
 - **Docker Support**: Manage Docker containers and compose services directly from the dashboard.
 
+## 💻 Desktop Application
+
+DevOrbit Dashboard is now available as a **native desktop application** for Windows, macOS, and Linux!
+
+🎉 **[Download the desktop app](https://github.com/hpmartini/DevHub/releases)** or see [DESKTOP.md](DESKTOP.md) for more details.
+
+**Desktop Features:**
+- ✨ Native window management and system integration
+- 🚀 All web features with better performance
+- 🔋 Offline-capable (no internet required)
+- 🎯 Cross-platform: Windows, macOS, Linux
+
+**Quick Start (Desktop):**
+```bash
+# Development mode
+npm run electron:dev
+
+# Build for your platform
+npm run electron:build
+```
+
+For web version, continue with the setup below.
+
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons, Recharts
