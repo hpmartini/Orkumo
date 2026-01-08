@@ -423,7 +423,14 @@ export async function configureAllPorts(startPort = 3001): Promise<{ configured:
     body: JSON.stringify({ startPort }),
   });
   if (!response.ok) {
-    throw new Error('Failed to configure ports');
+    // Try to parse backend error message
+    try {
+      const errorData = await response.json();
+      throw new Error(errorData.error || 'Failed to configure ports');
+    } catch (parseError) {
+      // If JSON parsing fails, throw generic error
+      throw new Error('Failed to configure ports');
+    }
   }
   return response.json();
 }

@@ -1,5 +1,5 @@
-import React from 'react';
-import { LayoutDashboard, Activity, Cpu, Zap, Radio, Settings } from 'lucide-react';
+import React, { useState } from 'react';
+import { LayoutDashboard, Activity, Cpu, Zap, Radio, Settings, Loader2 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 
 interface DashboardOverviewProps {
@@ -19,10 +19,31 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   apps,
   onConfigurePorts,
 }) => {
+  const [isConfiguringPorts, setIsConfiguringPorts] = useState(false);
+
   // Get all ports from running apps
   const activePorts = apps
     .filter((app) => app.status === AppStatus.RUNNING && app.port)
     .map((app) => ({ name: app.name, port: app.port! }));
+
+  const handleConfigurePortsClick = async () => {
+    if (!onConfigurePorts) return;
+
+    const confirmed = window.confirm(
+      'This will reconfigure ports for all apps starting from port 3001. ' +
+      'Any existing custom port configurations will be overwritten. ' +
+      'Continue?'
+    );
+
+    if (!confirmed) return;
+
+    setIsConfiguringPorts(true);
+    try {
+      await onConfigurePorts();
+    } finally {
+      setIsConfiguringPorts(false);
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
@@ -90,12 +111,22 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
         )}
         {onConfigurePorts && (
           <button
-            onClick={onConfigurePorts}
-            className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-400 text-sm font-medium transition-colors"
+            onClick={handleConfigurePortsClick}
+            disabled={isConfiguringPorts}
+            className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             title="Configure ports for all apps starting from 3001"
           >
-            <Settings size={16} />
-            Configure Ports
+            {isConfiguringPorts ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                Configuring...
+              </>
+            ) : (
+              <>
+                <Settings size={16} />
+                Configure Ports
+              </>
+            )}
           </button>
         )}
       </div>

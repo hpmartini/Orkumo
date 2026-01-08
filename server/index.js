@@ -509,25 +509,31 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
  * POST /api/settings/configure-ports
  * Configure ports for all apps consistently, starting from a base port
  */
-app.post('/api/settings/configure-ports', (req, res) => {
+app.post('/api/settings/configure-ports', async (req, res) => {
   try {
     const { startPort = 3001 } = req.body;
 
     // Validate startPort
     const portNum = parseInt(startPort, 10);
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-      return res.status(400).json({ error: 'Invalid start port number' });
+      return res.status(400).json({ error: 'Invalid start port number (must be between 1 and 65535)' });
+    }
+
+    // Validate that port 3000 is not used (reserved for DevHub)
+    if (portNum <= 3000) {
+      return res.status(400).json({ error: 'Start port must be greater than 3000 (reserved for DevHub)' });
     }
 
     // Get all apps
     const apps = scanAllDirectories();
     const appIds = apps.map(app => app.id);
 
-    // Configure ports for all apps
-    const configured = settingsService.configureAllPorts(appIds, portNum);
+    // Configure ports for all apps with conflict detection
+    const configured = await settingsService.configureAllPorts(appIds, portNum, portManager);
 
     res.json({ configured });
   } catch (error) {
+    console.error('[Settings] Failed to configure ports:', error);
     res.status(500).json({ error: error.message });
   }
 });

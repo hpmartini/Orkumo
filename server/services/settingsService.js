@@ -390,18 +390,42 @@ class SettingsService {
    * Configure ports for all apps consistently, starting from a base port
    * @param {string[]} appIds - Array of app IDs to configure
    * @param {number} startPort - Starting port number (default: 3001)
-   * @returns {object} Map of appId -> assigned port
+   * @param {object} portManager - PortManager instance for conflict detection
+   * @returns {Promise<object>} Map of appId -> assigned port
    */
-  configureAllPorts(appIds, startPort = 3001) {
+  async configureAllPorts(appIds, startPort = 3001, portManager = null) {
     const settings = readSettings();
     const configured = {};
+    let currentPort = startPort;
+
+    // Validate that we won't exhaust port range
+    const maxPort = 65535;
+    if (startPort + appIds.length > maxPort) {
+      throw new Error(`Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort}`);
+    }
 
     // Assign sequential ports starting from startPort
-    appIds.forEach((appId, index) => {
-      const port = startPort + index;
-      settings.customPorts[appId] = port;
-      configured[appId] = port;
-    });
+    for (let i = 0; i < appIds.length; i++) {
+      const appId = appIds[i];
+
+      // Check for port conflicts if portManager is provided
+      if (portManager) {
+        let portAvailable = await portManager.isPortAvailable(currentPort);
+
+        // If port is in use, find the next available port
+        while (!portAvailable && currentPort <= maxPort) {
+          currentPort++;
+          if (currentPort > maxPort) {
+            throw new Error(`Port range exhausted after configuring ${i} apps`);
+          }
+          portAvailable = await portManager.isPortAvailable(currentPort);
+        }
+      }
+
+      settings.customPorts[appId] = currentPort;
+      configured[appId] = currentPort;
+      currentPort++;
+    }
 
     writeSettings(settings);
     return configured;

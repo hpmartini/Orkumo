@@ -625,19 +625,30 @@ export function useApps(): UseAppsReturn {
         })
       );
 
-      // Also update settings state if it exists
-      if (settings) {
-        setSettings((prev) =>
-          prev ? { ...prev, customPorts: { ...prev.customPorts, ...result.configured } } : null
-        );
-      }
+      // Update settings state - always update, even if settings haven't loaded yet
+      setSettings((prev) => {
+        // If prev is null, create a minimal settings object
+        if (!prev) {
+          return {
+            favorites: [],
+            archived: [],
+            customPorts: result.configured,
+            customNames: {},
+            favoritesSortMode: 'manual',
+            version: 1,
+          };
+        }
+        // Otherwise merge the new port configuration
+        return { ...prev, customPorts: { ...prev.customPorts, ...result.configured } };
+      });
 
       toast.success(`Configured ports for ${Object.keys(result.configured).length} apps starting from port 3001`);
     } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to configure ports';
       console.error('Failed to configure ports:', err);
-      toast.error('Failed to configure ports');
+      toast.error(errorMessage);
     }
-  }, [settings]);
+  }, []);
 
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;
