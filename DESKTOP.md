@@ -131,6 +131,28 @@ The desktop application implements several security best practices:
 - **Sandbox**: Enabled where possible (disabled only for native modules)
 - **Content Security Policy**: Prevents XSS and other web vulnerabilities
 - **Input Validation**: All user input is validated and sanitized
+- **URL Validation**: External URLs are validated to prevent opening dangerous protocols (file://, javascript:, etc.)
+
+### macOS Security Entitlements
+
+The macOS build requires specific security entitlements to support native modules used for terminal emulation and process monitoring. These entitlements weaken some of macOS's security protections but are necessary for the app to function properly:
+
+- **`com.apple.security.cs.allow-jit`**: Required by Node.js for JIT compilation
+- **`com.apple.security.cs.allow-unsigned-executable-memory`**: Required by `node-pty` for terminal emulation
+- **`com.apple.security.cs.allow-dyld-environment-variables`**: Allows dynamic library loading for native modules
+- **`com.apple.security.cs.disable-library-validation`**: Required to load native modules (node-pty, pidusage) that aren't signed by Apple
+
+**Security Trade-offs:**
+- These entitlements are required for terminal functionality and process monitoring
+- Without them, the app cannot spawn terminal sessions or monitor CPU/memory usage
+- The entitlements are standard for Electron apps that use native Node.js modules
+- The attack surface is mitigated by context isolation and input validation
+
+**Why These Are Necessary:**
+- `node-pty`: A native module that provides terminal emulation functionality by interfacing with pseudo-terminals at the OS level
+- `pidusage`: A native module that reads process information from the system for CPU and memory monitoring
+
+These are essential features of the dashboard and cannot be implemented without native modules. The entitlements file can be found at `electron/entitlements.mac.plist`.
 
 ## Troubleshooting
 

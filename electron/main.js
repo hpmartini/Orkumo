@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { fork } from 'child_process';
 import * as fs from 'fs';
+import { isValidExternalUrl, validateDialogOptions } from './validation.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,79 +16,6 @@ let isShuttingDown = false;
 const isDev = !app.isPackaged;
 const VITE_DEV_SERVER_URL = 'http://localhost:3000';
 const SERVER_PORT = 3001;
-
-/**
- * Validate URL to prevent opening dangerous protocols or local files
- * Only allows http:// and https:// URLs
- */
-function isValidExternalUrl(urlString) {
-  try {
-    const url = new URL(urlString);
-    // Only allow http and https protocols
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      return false;
-    }
-    // Reject localhost URLs unless in dev mode
-    if (!isDev && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
-      return false;
-    }
-    return true;
-  } catch (error) {
-    // Invalid URL
-    return false;
-  }
-}
-
-/**
- * Validate and sanitize dialog options
- */
-function validateDialogOptions(options, type) {
-  if (!options || typeof options !== 'object') {
-    return {};
-  }
-
-  const sanitized = {};
-
-  if (type === 'messageBox') {
-    // Validate message box options
-    if (options.message && typeof options.message === 'string') {
-      sanitized.message = options.message.slice(0, 1000); // Limit message length
-    }
-    if (options.title && typeof options.title === 'string') {
-      sanitized.title = options.title.slice(0, 200);
-    }
-    if (options.detail && typeof options.detail === 'string') {
-      sanitized.detail = options.detail.slice(0, 2000);
-    }
-    if (options.type && ['none', 'info', 'error', 'question', 'warning'].includes(options.type)) {
-      sanitized.type = options.type;
-    }
-    if (Array.isArray(options.buttons) && options.buttons.length <= 4) {
-      sanitized.buttons = options.buttons
-        .filter(b => typeof b === 'string')
-        .map(b => b.slice(0, 50))
-        .slice(0, 4);
-    }
-  } else if (type === 'openDialog') {
-    // Validate open dialog options
-    if (options.title && typeof options.title === 'string') {
-      sanitized.title = options.title.slice(0, 200);
-    }
-    if (options.defaultPath && typeof options.defaultPath === 'string') {
-      sanitized.defaultPath = options.defaultPath;
-    }
-    if (options.buttonLabel && typeof options.buttonLabel === 'string') {
-      sanitized.buttonLabel = options.buttonLabel.slice(0, 50);
-    }
-    if (Array.isArray(options.properties)) {
-      const validProps = ['openFile', 'openDirectory', 'multiSelections', 'showHiddenFiles',
-                          'createDirectory', 'promptToCreate', 'noResolveAliases', 'treatPackageAsDirectory'];
-      sanitized.properties = options.properties.filter(p => validProps.includes(p));
-    }
-  }
-
-  return sanitized;
-}
 
 /**
  * Create the main application window
@@ -125,7 +53,7 @@ function createWindow() {
 
   // Handle external links with URL validation
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (isValidExternalUrl(url)) {
+    if (isValidExternalUrl(url, isDev)) {
       shell.openExternal(url);
     } else {
       console.warn('[Electron] Blocked attempt to open invalid URL:', url);
@@ -230,8 +158,10 @@ async function isPortAvailable(port) {
 
     server.once('error', (err) => {
       if (err.code === 'EADDRINUSE') {
+        console.log(`[Electron] Port ${port} is already in use`);
         resolve(false);
       } else {
+        console.warn(`[Electron] Port check error for port ${port}:`, err.code, err.message);
         resolve(false);
       }
     });
@@ -273,85 +203,72 @@ async function waitForServerReady(maxAttempts = 30, delayMs = 200) {
  * Start the backend server
  */
 async function startBackendServer() {
-  return new Promise(async (resolve, reject) => {
-    console.log('[Electron] Starting backend server...');
+  console.log('[Electron] Starting backend server...');
 
-    // Check if port is available
-    const portAvailable = await isPortAvailable(SERVER_PORT);
-    if (!portAvailable) {
-      const error = new Error(
-        `Port ${SERVER_PORT} is already in use. Please close the application using this port and try again.\n\n` +
-        `Common solutions:\n` +
-        `- Check if another instance of DevOrbit is running\n` +
-        `- Check for other applications using port ${SERVER_PORT}\n` +
-        `- Kill the process: lsof -ti:${SERVER_PORT} | xargs kill -9 (macOS/Linux)`
-      );
-      reject(error);
-      return;
-    }
+  // Check if port is available
+  const portAvailable = await isPortAvailable(SERVER_PORT);
+  if (!portAvailable) {
+    throw new Error(
+      `Port ${SERVER_PORT} is already in use. Please close the application using this port and try again.\n\n` +
+      `Common solutions:\n` +
+      `- Check if another instance of DevOrbit is running\n` +
+      `- Check for other applications using port ${SERVER_PORT}\n` +
+      `- Kill the process: lsof -ti:${SERVER_PORT} | xargs kill -9 (macOS/Linux)`
+    );
+  }
 
-    const serverPath = isDev
-      ? path.join(__dirname, '../server/index.js')
-      : path.join(process.resourcesPath, 'server/index.js');
+  const serverPath = isDev
+    ? path.join(__dirname, '../server/index.js')
+    : path.join(process.resourcesPath, 'server/index.js');
 
-    // Check if server file exists
-    if (!fs.existsSync(serverPath)) {
-      reject(new Error(`Server file not found at: ${serverPath}`));
-      return;
-    }
+  // Check if server file exists
+  if (!fs.existsSync(serverPath)) {
+    throw new Error(`Server file not found at: ${serverPath}`);
+  }
 
-    // Set environment variables for server
-    const env = {
-      ...process.env,
-      SERVER_PORT: String(SERVER_PORT),
-      NODE_ENV: isDev ? 'development' : 'production',
-      ELECTRON_MODE: 'true',
-    };
+  // Set environment variables for server
+  const env = {
+    ...process.env,
+    SERVER_PORT: String(SERVER_PORT),
+    NODE_ENV: isDev ? 'development' : 'production',
+    ELECTRON_MODE: 'true',
+  };
 
-    // Fork the server process
-    try {
-      serverProcess = fork(serverPath, [], {
-        env,
-        stdio: 'inherit',
-        cwd: isDev ? path.join(__dirname, '..') : process.resourcesPath,
+  // Fork the server process
+  serverProcess = fork(serverPath, [], {
+    env,
+    stdio: 'inherit',
+    cwd: isDev ? path.join(__dirname, '..') : process.resourcesPath,
+  });
+
+  serverProcess.on('error', (error) => {
+    console.error('[Electron] Server process error:', error);
+    throw error;
+  });
+
+  serverProcess.on('exit', (code, signal) => {
+    console.log(`[Electron] Server process exited with code ${code}, signal ${signal}`);
+    const hadProcess = serverProcess !== null;
+    serverProcess = null;
+
+    // If server crashes after startup (code !== 0) and window exists, show error
+    if (hadProcess && code !== 0 && code !== null && mainWindow && !mainWindow.isDestroyed()) {
+      console.error(`[Electron] Server crashed with exit code ${code}`);
+      dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        title: 'Backend Server Crashed',
+        message: 'The backend server has unexpectedly crashed.',
+        detail: `Exit code: ${code}\n\n` +
+          `The application may not function correctly. Please restart the application.\n\n` +
+          `If this problem persists, check the logs for more information.`,
+        buttons: ['OK']
       });
-
-      serverProcess.on('error', (error) => {
-        console.error('[Electron] Server process error:', error);
-        reject(error);
-      });
-
-      serverProcess.on('exit', (code, signal) => {
-        console.log(`[Electron] Server process exited with code ${code}, signal ${signal}`);
-        const hadProcess = serverProcess !== null;
-        serverProcess = null;
-
-        // If server crashes after startup (code !== 0) and window exists, show error
-        if (hadProcess && code !== 0 && code !== null && mainWindow && !mainWindow.isDestroyed()) {
-          console.error(`[Electron] Server crashed with exit code ${code}`);
-          dialog.showErrorBox(
-            'Backend Server Crashed',
-            `The backend server has unexpectedly crashed with exit code ${code}.\n\n` +
-            `The application may not function correctly. Please restart the application.\n\n` +
-            `If this problem persists, check the logs for more information.`
-          );
-        }
-      });
-
-      // Wait for server to be ready by polling health endpoint
-      waitForServerReady()
-        .then(() => {
-          console.log('[Electron] Backend server started on port', SERVER_PORT);
-          resolve();
-        })
-        .catch((error) => {
-          console.error('[Electron] Server failed to start:', error);
-          reject(error);
-        });
-    } catch (error) {
-      reject(error);
     }
   });
+
+  // Wait for server to be ready by polling health endpoint
+  await waitForServerReady();
+  console.log('[Electron] Backend server started on port', SERVER_PORT);
 }
 
 /**
@@ -362,7 +279,8 @@ function stopBackendServer() {
     isShuttingDown = true;
     console.log('[Electron] Stopping backend server...');
     serverProcess.kill('SIGTERM');
-    serverProcess = null;
+    // Don't set serverProcess to null here - let the exit handler do it
+    // This prevents a race condition where the exit handler won't execute properly
   }
 }
 
@@ -376,7 +294,7 @@ function setupIpcHandlers() {
       throw new Error('Invalid URL provided');
     }
 
-    if (!isValidExternalUrl(url)) {
+    if (!isValidExternalUrl(url, isDev)) {
       console.warn('[Electron] Blocked attempt to open invalid URL:', url);
       throw new Error('URL validation failed: Only http:// and https:// URLs are allowed');
     }
@@ -443,10 +361,13 @@ app.whenReady().then(async () => {
     });
   } catch (error) {
     console.error('[Electron] Failed to start application:', error);
-    dialog.showErrorBox(
-      'Startup Error',
-      `Failed to start DevOrbit Dashboard:\n\n${error.message}`
-    );
+    await dialog.showMessageBox({
+      type: 'error',
+      title: 'Startup Error',
+      message: 'Failed to start DevOrbit Dashboard',
+      detail: error.message,
+      buttons: ['OK']
+    });
     app.quit();
   }
 });
@@ -468,10 +389,13 @@ app.on('before-quit', () => {
 // Handle crashes
 app.on('render-process-gone', (event, webContents, details) => {
   console.error('[Electron] Render process gone:', details);
-  dialog.showErrorBox(
-    'Application Crash',
-    `The application has crashed. Reason: ${details.reason}`
-  );
+  dialog.showMessageBox({
+    type: 'error',
+    title: 'Application Crash',
+    message: 'The application has crashed.',
+    detail: `Reason: ${details.reason}`,
+    buttons: ['OK']
+  });
 });
 
 // Prevent multiple instances

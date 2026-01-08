@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, app } from 'electron';
+import { contextBridge, ipcRenderer } from 'electron';
 
 /**
  * Preload script for secure IPC communication between renderer and main process
@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // Environment
   isElectron: true,
-  isDev: process.defaultApp || !app.isPackaged,
+  isDev: process.defaultApp || process.env.NODE_ENV === 'development',
 });
 
 // Log successful preload
