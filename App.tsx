@@ -19,6 +19,17 @@ import { useApps } from './hooks';
 
 type ActiveTab = 'dashboard' | 'apps';
 
+// Utility function to generate URL-safe project paths
+const generateProjectUrl = (projectName: string, projectId: string): string => {
+  // Limit URL length to 50 characters for security/practicality
+  const urlName = projectName
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .substring(0, 50)
+    .replace(/^-+|-+$/g, ''); // Remove leading/trailing dashes
+  return `/${urlName}/${projectId}`;
+};
+
 function AppContent() {
   const navigate = useNavigate();
   const params = useParams();
@@ -60,6 +71,9 @@ function AppContent() {
 
   // Sync URL params with selected app
   useEffect(() => {
+    // Wait for apps to load to avoid race condition
+    if (loading) return;
+
     if (projectId) {
       // Validate that the project exists
       const projectExists = apps.find(app => app.id === projectId);
@@ -74,7 +88,7 @@ function AppContent() {
     } else {
       setActiveTab('dashboard');
     }
-  }, [projectId, apps, setSelectedAppId, selectTab, setActiveTab, navigate]);
+  }, [projectId, apps, loading, setSelectedAppId, selectTab, setActiveTab, navigate]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
@@ -149,9 +163,7 @@ function AppContent() {
   const handleSelectApp = (id: string) => {
     const app = apps.find((a) => a.id === id);
     if (app) {
-      // Create URL-safe name from app name
-      const urlName = app.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      navigate(`/${urlName}/${id}`);
+      navigate(generateProjectUrl(app.name, id));
     }
     setMobileMenuOpen(false);
   };
@@ -160,8 +172,7 @@ function AppContent() {
     selectTab(id); // Update activeTabId for visual sync
     const app = apps.find((a) => a.id === id);
     if (app) {
-      const urlName = app.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-      navigate(`/${urlName}/${id}`);
+      navigate(generateProjectUrl(app.name, id));
     }
   };
 
@@ -173,8 +184,7 @@ function AppContent() {
       if (remainingTabs.length > 0) {
         const nextApp = apps.find((a) => a.id === remainingTabs[remainingTabs.length - 1].appId);
         if (nextApp) {
-          const urlName = nextApp.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-          navigate(`/${urlName}/${nextApp.id}`);
+          navigate(generateProjectUrl(nextApp.name, nextApp.id));
         }
       } else {
         navigate('/');
