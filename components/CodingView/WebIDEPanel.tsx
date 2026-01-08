@@ -10,6 +10,7 @@ import {
   X,
   Code2,
   Box,
+  Terminal,
 } from 'lucide-react';
 
 interface FileNode {
@@ -29,11 +30,15 @@ interface OpenFile {
 
 interface WebIDEPanelProps {
   directory: string;
+  /** Show button to restore terminal panel */
+  showTerminalButton?: boolean;
+  /** Callback to show terminal panel */
+  onShowTerminal?: () => void;
 }
 
 type EditorType = 'monaco' | 'code-server';
 
-export const WebIDEPanel = ({ directory }: WebIDEPanelProps) => {
+export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: WebIDEPanelProps) => {
   const [editorType, setEditorType] = useState<EditorType>('monaco');
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([directory]));
@@ -361,6 +366,16 @@ export const WebIDEPanel = ({ directory }: WebIDEPanelProps) => {
       <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <span>Web IDE</span>
+          {showTerminalButton && onShowTerminal && (
+            <button
+              onClick={onShowTerminal}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              title="Show Terminal"
+            >
+              <Terminal size={12} />
+              Terminal
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Editor Type Switcher */}
