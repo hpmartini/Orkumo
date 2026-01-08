@@ -170,9 +170,23 @@ DevOrbit Dashboard includes an integrated web-based IDE powered by **code-server
   - Share passwords in plaintext (Slack, email, etc.)
   - Commit `.env` files to version control
 
+#### Network Architecture
+
+DevOrbit Dashboard uses an nginx reverse proxy to route traffic to services:
+
+```
+Browser → http://localhost:3000/code-server/ → Nginx (frontend container) → code-server:8080
+```
+
+**Key Points:**
+- code-server is accessed through nginx proxy at `/code-server/` path
+- No direct port exposure to host (except for development)
+- All communication goes through the internal Docker network `devorbit-network`
+- Port 8443 on host is only for direct access (optional, for debugging)
+
 #### Network Security
 
-By default, code-server is **only accessible on localhost** (port 8443). This is secure for local development.
+By default, code-server is **only accessible through the nginx proxy** on localhost. This is secure for local development.
 
 **For Remote Access:**
 - ✅ **Use SSH tunnel** (most secure):

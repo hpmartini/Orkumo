@@ -94,8 +94,31 @@ services:
 - **Validation Script**: `scripts/validate-code-server-password.sh`
 - **Optional Sudo**: Can disable sudo access via empty `CODE_SERVER_SUDO_PASSWORD`
 
+### Network Architecture
+
+DevOrbit uses nginx as a reverse proxy to route traffic to code-server:
+
+```
+Browser Request Flow:
+1. User accesses: http://localhost:3000/code-server/
+2. Request hits nginx (frontend container)
+3. Nginx proxies to: code-server:8080 (internal Docker network)
+4. code-server responds through nginx back to browser
+```
+
+**Key Points**:
+- code-server is accessed at `/code-server/` path (not direct port access)
+- All traffic goes through nginx reverse proxy
+- Internal Docker network communication only (`devorbit-network`)
+- Port 8443 exposed to host for optional direct access (debugging)
+
+**Configuration**:
+- Frontend: `VITE_CODE_SERVER_URL=/code-server/` (relative path)
+- Nginx: `location /code-server/` proxy to `code-server:8080`
+- Docker: code-server container on internal network
+
 ### Network Security
-- **Default**: localhost-only (port 8443)
+- **Default**: localhost-only through nginx proxy
 - **HTTPS Support**: Via reverse proxy (Caddy, Nginx, Cloudflare Tunnel)
 - **Recommended Remote Access**: SSH tunnel or VPN
 

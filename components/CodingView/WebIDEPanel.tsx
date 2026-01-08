@@ -50,8 +50,9 @@ export const WebIDEPanel = ({ directory }: WebIDEPanelProps) => {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Get code-server URL from environment or use default (memoized)
+  // Default to /code-server/ (proxied through nginx in Docker)
   const codeServerUrl = useMemo(() => {
-    return import.meta.env.VITE_CODE_SERVER_URL || 'http://localhost:8443';
+    return import.meta.env.VITE_CODE_SERVER_URL || '/code-server/';
   }, []);
 
   // Get iframe load timeout from environment or use default (15 seconds)
