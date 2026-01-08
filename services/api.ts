@@ -277,12 +277,15 @@ export async function fetchAppStats(id: string): Promise<{ cpu: number; memory: 
 // Settings API - Backend persistence
 // ============================================
 
+export type FavoritesSortMode = 'manual' | 'alpha-asc' | 'alpha-desc';
+
 export interface AppSettings {
   favorites: string[];
   archived: string[];
   customPorts: Record<string, number>;
   customNames: Record<string, string>;
   preferredIDEs?: Record<string, string>;
+  favoritesSortMode: FavoritesSortMode;
   version: number;
 }
 
@@ -298,6 +301,7 @@ export async function fetchSettings(): Promise<AppSettings> {
       archived: [],
       customPorts: {},
       customNames: {},
+      favoritesSortMode: 'manual',
       version: 1,
     };
   }
@@ -330,6 +334,36 @@ export async function updateFavorite(id: string, value?: boolean): Promise<{ id:
   });
   if (!response.ok) {
     throw new Error('Failed to update favorite');
+  }
+  return response.json();
+}
+
+/**
+ * Reorder favorites array
+ */
+export async function updateFavoritesOrder(order: string[]): Promise<{ favorites: string[] }> {
+  const response = await fetch(`${API_BASE}/settings/favorites/order`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ order }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update favorites order');
+  }
+  return response.json();
+}
+
+/**
+ * Set favorites sort mode
+ */
+export async function updateFavoritesSortMode(mode: FavoritesSortMode): Promise<{ favoritesSortMode: FavoritesSortMode }> {
+  const response = await fetch(`${API_BASE}/settings/favorites/sort-mode`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ mode }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update favorites sort mode');
   }
   return response.json();
 }

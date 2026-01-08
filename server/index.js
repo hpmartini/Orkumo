@@ -395,6 +395,44 @@ app.put('/api/settings/favorite/:id', validateParams(idSchema), (req, res) => {
 });
 
 /**
+ * PUT /api/settings/favorites/order
+ * Reorder favorites array
+ */
+app.put('/api/settings/favorites/order', (req, res) => {
+  try {
+    const { order } = req.body;
+
+    if (!Array.isArray(order)) {
+      return res.status(400).json({ error: 'order must be an array' });
+    }
+
+    const newOrder = settingsService.reorderFavorites(order);
+    res.json({ favorites: newOrder });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/favorites/sort-mode
+ * Set favorites sort mode
+ */
+app.put('/api/settings/favorites/sort-mode', (req, res) => {
+  try {
+    const { mode } = req.body;
+
+    if (!mode || !['manual', 'alpha-asc', 'alpha-desc'].includes(mode)) {
+      return res.status(400).json({ error: 'Invalid sort mode. Must be one of: manual, alpha-asc, alpha-desc' });
+    }
+
+    const newMode = settingsService.setFavoritesSortMode(mode);
+    res.json({ favoritesSortMode: newMode });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * PUT /api/settings/archive/:id
  * Toggle or set archive status for an app
  */
