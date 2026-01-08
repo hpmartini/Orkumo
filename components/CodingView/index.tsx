@@ -4,13 +4,16 @@ import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
 import { BrowserPreviewPanel } from './BrowserPreviewPanel';
 import { AppConfig, AppStatus } from '../../types';
+import type { SharedTerminalState, SharedTerminalActions } from '../../hooks/useSharedTerminals';
 import './CodingView.css';
 
 interface CodingViewProps {
   app: AppConfig;
+  terminalState?: SharedTerminalState;
+  terminalActions?: SharedTerminalActions;
 }
 
-export function CodingView({ app }: CodingViewProps) {
+export function CodingView({ app, terminalState, terminalActions }: CodingViewProps) {
   const [isTerminalHidden, setIsTerminalHidden] = useState(false);
 
   return (
@@ -25,6 +28,8 @@ export function CodingView({ app }: CodingViewProps) {
                 logs={app.logs}
                 isRunning={app.status === AppStatus.RUNNING}
                 onHide={() => setIsTerminalHidden(true)}
+                sharedState={terminalState}
+                sharedActions={terminalActions}
               />
             </Panel>
             <Separator className="coding-separator" />

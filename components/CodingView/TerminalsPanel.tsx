@@ -1,11 +1,14 @@
 import { X } from 'lucide-react';
 import { XTerminal } from '../XTerminal';
+import type { SharedTerminalState, SharedTerminalActions } from '../../hooks/useSharedTerminals';
 
 interface TerminalsPanelProps {
   directory: string;
   logs?: string[];
   isRunning?: boolean;
   onHide?: () => void;
+  sharedState?: SharedTerminalState;
+  sharedActions?: SharedTerminalActions;
 }
 
 export const TerminalsPanel = ({
@@ -13,6 +16,8 @@ export const TerminalsPanel = ({
   logs,
   isRunning,
   onHide,
+  sharedState,
+  sharedActions,
 }: TerminalsPanelProps) => {
   return (
     <div className="h-full flex flex-col bg-gray-900 border-r border-gray-700">
@@ -29,7 +34,13 @@ export const TerminalsPanel = ({
         )}
       </div>
       <div className="flex-1 overflow-hidden min-h-0 h-full">
-        <XTerminal cwd={directory} logs={logs || []} isRunning={isRunning || false} />
+        <XTerminal
+          cwd={directory}
+          logs={logs || []}
+          isRunning={isRunning || false}
+          sharedState={sharedState}
+          sharedActions={sharedActions}
+        />
       </div>
     </div>
   );

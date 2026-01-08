@@ -10,6 +10,7 @@ import {
   fetchAppPackage,
   fetchAppStats,
   fetchSettings,
+  fetchLogs,
   importSettings,
   updateFavorite,
   updateFavoritesOrder,
@@ -128,6 +129,28 @@ export function useApps(): UseAppsReturn {
           : app.addresses,
       }));
       setApps(enrichedData);
+
+      // Fetch logs for running apps (to restore logs after page refresh)
+      const runningApps = enrichedData.filter(app => app.status === AppStatus.RUNNING);
+      for (const app of runningApps) {
+        try {
+          const logsData = await fetchLogs(app.id, LOG_RETENTION_COUNT);
+          if (logsData.length > 0) {
+            // Transform backend log format to frontend string format (preserving ANSI codes)
+            const formattedLogs = logsData.map(log => {
+              const time = new Date(log.timestamp).toLocaleTimeString();
+              return `[${time}] ${log.message}`;
+            });
+            setApps((currentApps) =>
+              currentApps.map((a) =>
+                a.id === app.id ? { ...a, logs: formattedLogs } : a
+              )
+            );
+          }
+        } catch {
+          // Ignore log fetch errors - app data is still valid
+        }
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to fetch apps');
       console.error('Failed to fetch apps:', err);
@@ -154,16 +177,14 @@ export function useApps(): UseAppsReturn {
           )
         );
       },
-      // On log
+      // On log - preserve ANSI codes for colored output
       ({ appId, message }) => {
         setApps((currentApps) =>
           currentApps.map((app) => {
             if (app.id !== appId) return app;
             const timestamp = new Date().toLocaleTimeString();
-            // Strip ANSI escape codes and split by newlines
-            // eslint-disable-next-line no-control-regex
-            const stripped = message.replace(/\x1b\[[0-9;]*m/g, '');
-            const lines = stripped.split(/\r?\n/).filter((line: string) => line.trim());
+            // Split by newlines but preserve ANSI codes for colored rendering
+            const lines = message.split(/\r?\n/).filter((line: string) => line.trim());
             const newLogEntries = lines.map((line: string) => `[${timestamp}] ${line}`);
             const newLogs = [...app.logs, ...newLogEntries].slice(-LOG_RETENTION_COUNT);
             return { ...app, logs: newLogs };

@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { ClaudeTerminalModal } from './ClaudeTerminalModal';
+import { parseAnsiToReact } from '../utils/ansiParser';
 import type { ClaudeTerminalOptions, ClaudeCLIInfo, TerminalType } from '../types';
 
 interface TerminalTab {
@@ -19,6 +20,9 @@ interface TerminalTab {
   claudeOptions?: ClaudeTerminalOptions;
 }
 
+// Export TerminalTab type for shared state
+export type { TerminalTab };
+
 interface XTerminalProps {
   /** Working directory for new terminals */
   cwd?: string;
@@ -26,6 +30,22 @@ interface XTerminalProps {
   logs?: string[];
   /** Whether the app is currently running */
   isRunning?: boolean;
+  /** Optional shared terminal state (for persistence across views) */
+  sharedState?: {
+    tabs: TerminalTab[];
+    activeTabId: string | null;
+    showLogsTab: boolean;
+  };
+  /** Optional shared actions (for persistence across views) */
+  sharedActions?: {
+    setTabs: React.Dispatch<React.SetStateAction<TerminalTab[]>>;
+    setActiveTabId: (id: string | null) => void;
+    setShowLogsTab: (show: boolean) => void;
+    createTab: (type?: TerminalType, name?: string) => string;
+    createClaudeTerminal: (options: ClaudeTerminalOptions) => string;
+    closeTab: (tabId: string) => void;
+    switchToLogs: () => void;
+  };
 }
 
 // WebSocket URL - use current host to leverage Vite proxy
@@ -79,15 +99,27 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   cwd = '~',
   logs = [],
   isRunning = false,
+  sharedState,
+  sharedActions,
 }) => {
-  const [tabs, setTabs] = useState<TerminalTab[]>([]);
-  const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [showLogsTab, setShowLogsTab] = useState(true);
+  // Use shared state if provided, otherwise use local state
+  const [localTabs, setLocalTabs] = useState<TerminalTab[]>([]);
+  const [localActiveTabId, setLocalActiveTabId] = useState<string | null>(null);
+  const [localShowLogsTab, setLocalShowLogsTab] = useState(true);
+
+  // Determine which state to use
+  const tabs = sharedState?.tabs ?? localTabs;
+  const activeTabId = sharedState?.activeTabId ?? localActiveTabId;
+  const showLogsTab = sharedState?.showLogsTab ?? localShowLogsTab;
+  const setTabs = sharedActions?.setTabs ?? setLocalTabs;
+  const setActiveTabId = sharedActions?.setActiveTabId ?? setLocalActiveTabId;
+  const setShowLogsTab = sharedActions?.setShowLogsTab ?? setLocalShowLogsTab;
+
   const [claudeModalOpen, setClaudeModalOpen] = useState(false);
   const [claudeInfo, setClaudeInfo] = useState<ClaudeCLIInfo>({
     installed: false,
   });
-  const terminalContainerRef = useRef<HTMLDivElement>(null);
+  const terminalAreaRef = useRef<HTMLDivElement>(null);
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -135,6 +167,12 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   // Create a new terminal tab
   const createTab = useCallback(
     (type: TerminalType = 'shell', name?: string) => {
+      // Use shared action if available
+      if (sharedActions?.createTab) {
+        sharedActions.createTab(type, name);
+        return;
+      }
+
       const tabId = `tab-${Date.now()}`;
       const sessionId = `session-${Date.now()}`;
 
@@ -153,12 +191,19 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       setActiveTabId(tabId);
       setShowLogsTab(false);
     },
-    [tabs.length]
+    [tabs.length, sharedActions, setTabs, setActiveTabId, setShowLogsTab]
   );
 
   // Create a Claude Code terminal
   const createClaudeTerminal = useCallback(
     (options: ClaudeTerminalOptions) => {
+      // Use shared action if available
+      if (sharedActions?.createClaudeTerminal) {
+        sharedActions.createClaudeTerminal(options);
+        setClaudeModalOpen(false);
+        return;
+      }
+
       const tabId = `tab-${Date.now()}`;
       const sessionId = `session-${Date.now()}`;
       const tabName = `Claude${options.continueSession ? ' (c)' : ''}`;
@@ -180,14 +225,52 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       setShowLogsTab(false);
       setClaudeModalOpen(false);
     },
-    [tabs.length]
+    [sharedActions, setTabs, setActiveTabId, setShowLogsTab]
   );
+
+  /**
+   * Check if a terminal instance is still valid and attached to DOM
+   */
+  const isTerminalValid = useCallback((terminal: XTerm | null): boolean => {
+    if (!terminal) return false;
+    try {
+      // Check if terminal's element is still in DOM
+      // A disposed terminal or one from a previous mount will fail this check
+      const element = terminal.element;
+      return element !== null && element !== undefined && document.body.contains(element);
+    } catch {
+      // If accessing element throws, terminal is not valid
+      return false;
+    }
+  }, []);
 
   // Initialize terminal for a tab
   const initializeTerminal = useCallback(
     (tabId: string) => {
       const tab = tabs.find((t) => t.id === tabId);
-      if (!tab || tab.terminal || !terminalContainerRef.current) return;
+      if (!tab) return;
+
+      // Check if terminal is valid (not just truthy - it might be a stale reference)
+      if (isTerminalValid(tab.terminal)) return;
+
+      // If tab has stale terminal reference, dispose it first
+      if (tab.terminal) {
+        try {
+          tab.terminal.dispose();
+        } catch {
+          // Ignore dispose errors on stale terminals
+        }
+        // Clear the stale reference
+        setTabs((prev) =>
+          prev.map((t) =>
+            t.id === tabId ? { ...t, terminal: null, fitAddon: null, ws: null } : t
+          )
+        );
+      }
+
+      // Find the container for this specific tab
+      const container = document.querySelector(`[data-terminal-id="${tabId}"]`) as HTMLElement;
+      if (!container) return;
 
       // Create xterm instance with proper configuration for reflow support
       const terminal = new XTerm({
@@ -226,8 +309,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       terminal.loadAddon(fitAddon);
       terminal.loadAddon(new WebLinksAddon());
 
-      // Mount terminal
-      terminal.open(terminalContainerRef.current);
+      // Mount terminal to the tab-specific container
+      terminal.open(container);
       fitAddon.fit();
 
       // Build WebSocket URL using helper function
@@ -320,27 +403,29 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         )
       );
     },
-    [tabs, cwd]
+    [tabs, cwd, isTerminalValid, setTabs]
   );
 
   // Initialize terminal when tab becomes active
   useEffect(() => {
-    if (activeTabId && terminalContainerRef.current) {
+    if (activeTabId) {
       const tab = tabs.find((t) => t.id === activeTabId);
-      if (tab && !tab.terminal) {
+      // Use isTerminalValid to check for stale terminal references from previous mounts
+      if (tab && !isTerminalValid(tab.terminal)) {
         // Use requestAnimationFrame to ensure DOM is ready after layout
+        // The container div is rendered based on tabs array, so we need to wait
         const rafId = requestAnimationFrame(() => {
           initializeTerminal(activeTabId);
         });
         return () => cancelAnimationFrame(rafId);
       }
     }
-  }, [activeTabId, tabs, initializeTerminal]);
+  }, [activeTabId, tabs, initializeTerminal, isTerminalValid]);
 
   // Handle resize - uses refs to always get current values in ResizeObserver callback
   // The terminal.onResize handler (set during initialization) handles syncing with PTY
   useEffect(() => {
-    if (!terminalContainerRef.current) return;
+    if (!terminalAreaRef.current) return;
 
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
@@ -368,7 +453,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       }, 50); // 50ms debounce for smoother resizing
     });
 
-    resizeObserverRef.current.observe(terminalContainerRef.current);
+    resizeObserverRef.current.observe(terminalAreaRef.current);
 
     return () => {
       if (resizeTimeout) {
@@ -378,25 +463,50 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     };
   }, []); // Empty deps - observer created once on mount, uses refs for current values
 
-  // Cleanup on unmount only (not on every tabs change)
+  // Cleanup on unmount - dispose terminals and clear references for reinit on next mount
   useEffect(() => {
+    // Capture setTabs for cleanup
+    const cleanupSetTabs = setTabs;
+
     return () => {
       // Use ref to get current tabs without dependency issues
-      tabsRef.current.forEach((tab) => {
+      const currentTabs = tabsRef.current;
+      currentTabs.forEach((tab) => {
         tab.ws?.close();
         tab.terminal?.dispose();
       });
+
+      // Clear terminal references in state so next mount can reinitialize
+      // This is critical for shared state - without this, the next mount sees
+      // stale terminal references and skips initialization
+      cleanupSetTabs((prev) =>
+        prev.map((tab) => ({
+          ...tab,
+          terminal: null,
+          fitAddon: null,
+          ws: null,
+          connected: false,
+        }))
+      );
     };
-  }, []); // Empty deps - only runs on unmount
+  }, [setTabs]); // Include setTabs to capture correct reference
 
   // Close a tab
   const closeTab = useCallback(
     (tabId: string, e: React.MouseEvent) => {
       e.stopPropagation();
+
+      // Clean up terminal resources
       const tab = tabs.find((t) => t.id === tabId);
       if (tab) {
         tab.ws?.close();
         tab.terminal?.dispose();
+      }
+
+      // Use shared action if available
+      if (sharedActions?.closeTab) {
+        sharedActions.closeTab(tabId);
+        return;
       }
 
       setTabs((prev) => prev.filter((t) => t.id !== tabId));
@@ -411,14 +521,18 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         }
       }
     },
-    [tabs, activeTabId]
+    [tabs, activeTabId, sharedActions, setTabs, setActiveTabId, setShowLogsTab]
   );
 
   // Switch to logs tab
   const switchToLogs = useCallback(() => {
+    if (sharedActions?.switchToLogs) {
+      sharedActions.switchToLogs();
+      return;
+    }
     setActiveTabId(null);
     setShowLogsTab(true);
-  }, []);
+  }, [sharedActions, setActiveTabId, setShowLogsTab]);
 
   // Reconnect a tab
   const reconnectTab = useCallback(
@@ -605,7 +719,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       </div>
 
       {/* Terminal content area */}
-      <div className="flex-1 relative overflow-hidden">
+      <div ref={terminalAreaRef} className="flex-1 relative overflow-hidden">
         {/* Logs view (output only) */}
         <div
           ref={logsContainerRef}
@@ -621,30 +735,29 @@ export const XTerminal: React.FC<XTerminalProps> = ({
           ) : (
             <>
               {logs.map((log, idx) => {
+                // Check for special log types (these override ANSI colors for consistency)
+                const lowerLog = log.toLowerCase();
                 const isError =
-                  log.toLowerCase().includes('[error]') ||
-                  log.toLowerCase().includes('error:') ||
-                  log.toLowerCase().includes('failed');
+                  lowerLog.includes('[error]') ||
+                  lowerLog.includes('error:') ||
+                  (lowerLog.includes('failed') && !lowerLog.includes('✗'));
                 const isWarning =
-                  log.toLowerCase().includes('[warn]') ||
-                  log.toLowerCase().includes('warning:');
-                const isSystem = log.startsWith('[SYSTEM]');
+                  lowerLog.includes('[warn]') ||
+                  lowerLog.includes('warning:');
+
+                // Base container class
+                const containerClass = isError
+                  ? 'bg-red-950/20'
+                  : isWarning
+                  ? 'bg-yellow-950/10'
+                  : '';
 
                 return (
                   <div
                     key={idx}
-                    className={`px-2 py-0.5 break-all ${
-                      isError
-                        ? 'text-red-400 bg-red-950/20'
-                        : isWarning
-                        ? 'text-yellow-400'
-                        : isSystem
-                        ? 'text-blue-400'
-                        : 'text-gray-300'
-                    }`}
+                    className={`px-2 py-0.5 break-all text-gray-300 ${containerClass}`}
                   >
-                    <span className="text-gray-600 mr-2 select-none">$</span>
-                    {log}
+                    {parseAnsiToReact(log, idx)}
                   </div>
                 );
               })}
@@ -653,14 +766,17 @@ export const XTerminal: React.FC<XTerminalProps> = ({
           )}
         </div>
 
-        {/* XTerm container */}
-        <div
-          ref={terminalContainerRef}
-          className={`absolute inset-0 p-1 ${
-            activeTabId ? 'block' : 'hidden'
-          }`}
-          style={{ backgroundColor: '#0a0a0f' }}
-        />
+        {/* XTerm containers - one per tab for isolation */}
+        {tabs.map((tab) => (
+          <div
+            key={tab.id}
+            data-terminal-id={tab.id}
+            className={`absolute inset-0 p-1 ${
+              activeTabId === tab.id ? 'block' : 'hidden'
+            }`}
+            style={{ backgroundColor: '#0a0a0f' }}
+          />
+        ))}
       </div>
 
       {/* Claude Terminal Modal */}

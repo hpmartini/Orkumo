@@ -22,6 +22,7 @@ import { PerformanceCharts } from './PerformanceCharts';
 import { XTerminal } from './XTerminal';
 import { IDESelector } from './IDESelector';
 import { CodingView } from './CodingView';
+import { useSharedTerminals } from '../hooks/useSharedTerminals';
 
 interface AppDetailProps {
   app: AppConfig | null;
@@ -63,6 +64,9 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   const [portValue, setPortValue] = useState('');
   const [showNameEditor, setShowNameEditor] = useState(false);
   const [nameValue, setNameValue] = useState('');
+
+  // Shared terminal state - persists across Details/Coding view switches
+  const [terminalState, terminalActions] = useSharedTerminals(app?.id || '');
 
   if (!app) {
     return (
@@ -429,11 +433,17 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                 logs={app.logs}
                 isRunning={app.status === AppStatus.RUNNING}
                 cwd={app.path}
+                sharedState={terminalState}
+                sharedActions={terminalActions}
               />
             </div>
           </div>
         ) : (
-          <CodingView app={app} />
+          <CodingView
+            app={app}
+            terminalState={terminalState}
+            terminalActions={terminalActions}
+          />
         )}
       </div>
     </div>
