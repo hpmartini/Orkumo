@@ -58,34 +58,37 @@ export const AppTabs: React.FC<AppTabsProps> = ({
     }
   };
 
-  // Keyboard navigation
+  // Keyboard shortcut: Cmd/Ctrl+W to close active tab
+  // Only intercept this specific shortcut to avoid interfering with other browser/system shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+Tab / Ctrl+Shift+Tab for tab switching
-      if (e.ctrlKey && e.key === 'Tab') {
-        e.preventDefault();
-        const currentIndex = tabs.findIndex((t) => t.appId === activeTabId);
-        if (currentIndex === -1) return;
+      // Cmd+W (Mac) or Ctrl+W (Windows/Linux) to close current tab
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const modifierKey = isMac ? e.metaKey : e.ctrlKey;
 
-        const nextIndex = e.shiftKey
-          ? (currentIndex - 1 + tabs.length) % tabs.length
-          : (currentIndex + 1) % tabs.length;
-
-        onSelectTab(tabs[nextIndex].appId);
-      }
-
-      // Ctrl+W to close current tab
-      if (e.ctrlKey && e.key === 'w') {
-        e.preventDefault();
-        if (activeTabId) {
+      if (modifierKey && e.key.toLowerCase() === 'w' && !e.shiftKey && !e.altKey) {
+        // Only prevent default if we have an active tab to close
+        if (activeTabId && tabs.length > 0) {
+          e.preventDefault();
+          e.stopPropagation();
           onCloseTab(activeTabId);
         }
       }
     };
 
-    document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [tabs, activeTabId, onSelectTab, onCloseTab]);
+    document.addEventListener('keydown', handleKeyDown, { capture: true });
+    return () => document.removeEventListener('keydown', handleKeyDown, { capture: true });
+  }, [tabs, activeTabId, onCloseTab]);
+
+  // Middle-click handler to close tabs
+  const handleMouseDown = (e: React.MouseEvent, appId: string) => {
+    // Middle mouse button (button 1)
+    if (e.button === 1) {
+      e.preventDefault();
+      e.stopPropagation();
+      onCloseTab(appId);
+    }
+  };
 
   // Drag and drop handlers
   const handleDragStart = (e: React.DragEvent, index: number) => {
@@ -167,6 +170,13 @@ export const AppTabs: React.FC<AppTabsProps> = ({
             onDrop={(e) => handleDrop(e, index)}
             onDragEnd={handleDragEnd}
             onClick={() => onSelectTab(tab.appId)}
+            onMouseDown={(e) => handleMouseDown(e, tab.appId)}
+            onAuxClick={(e) => {
+              // Prevent default middle-click behavior (e.g., auto-scroll)
+              if (e.button === 1) {
+                e.preventDefault();
+              }
+            }}
             className={`group relative flex items-center gap-2 px-3 h-10 min-w-[120px] max-w-[200px] cursor-pointer border-r border-gray-800 shrink-0 transition-colors ${
               activeTabId === tab.appId
                 ? 'bg-gray-800 text-white'

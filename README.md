@@ -38,7 +38,7 @@ npm install
 
 ### 2. Environment Setup
 
-Create a `.env.local` file in the root directory:
+Create an `.env.local` file in the root directory:
 
 ```bash
 GEMINI_API_KEY=your_api_key_here
