@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 import { AppStatus } from '../types';
 
-interface MenuItem {
+export interface MenuItem {
   label: string;
   icon: React.ReactNode;
   onClick: () => void;
@@ -24,11 +24,11 @@ interface MenuItem {
   hidden?: boolean;
 }
 
-interface MenuDivider {
+export interface MenuDivider {
   divider: true;
 }
 
-type MenuItemOrDivider = MenuItem | MenuDivider;
+export type MenuItemOrDivider = MenuItem | MenuDivider;
 
 interface KebabMenuProps {
   items: MenuItemOrDivider[];
