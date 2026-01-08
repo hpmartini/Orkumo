@@ -47,6 +47,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
   const [error, setError] = useState<string | null>(null);
   const [codeServerLoading, setCodeServerLoading] = useState(true);
   const [codeServerError, setCodeServerError] = useState<string | null>(null);
+  const [loadTimeout, setLoadTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Get code-server URL from environment or use default
   const getCodeServerUrl = () => {
@@ -76,23 +77,50 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
 
   // Handle iframe load
   const handleIframeLoad = () => {
+    // Clear timeout since iframe loaded successfully
+    if (loadTimeout) {
+      clearTimeout(loadTimeout);
+      setLoadTimeout(null);
+    }
     setCodeServerLoading(false);
     setCodeServerError(null);
   };
 
   // Handle iframe error
   const handleIframeError = () => {
+    // Clear timeout since we got an error
+    if (loadTimeout) {
+      clearTimeout(loadTimeout);
+      setLoadTimeout(null);
+    }
     setCodeServerLoading(false);
     setCodeServerError(
       'Failed to load VS Code. Make sure code-server is running (docker compose up code-server)'
     );
   };
 
-  // Reset code-server state when switching to it
+  // Reset code-server state when switching to it with timeout fallback
   useEffect(() => {
     if (editorType === 'code-server') {
       setCodeServerLoading(true);
       setCodeServerError(null);
+
+      // Set a timeout to detect if iframe never loads
+      // iframe onError doesn't reliably fire for content loading failures
+      const timeout = setTimeout(() => {
+        setCodeServerLoading(false);
+        setCodeServerError(
+          'Failed to load VS Code (timeout). Make sure code-server is running (docker compose up code-server)'
+        );
+      }, 15000); // 15 second timeout
+
+      setLoadTimeout(timeout);
+
+      // Clean up timeout when component unmounts or editor type changes
+      return () => {
+        clearTimeout(timeout);
+        setLoadTimeout(null);
+      };
     }
   }, [editorType]);
 
