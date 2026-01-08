@@ -164,7 +164,8 @@ export async function removeDirectory(path: string): Promise<Config> {
 export function subscribeToEvents(
   onStatusChange: (data: { appId: string; status: string }) => void,
   onLog: (data: { appId: string; type: string; message: string }) => void,
-  onConnectionChange?: (connected: boolean) => void
+  onConnectionChange?: (connected: boolean) => void,
+  onStats?: (data: { appId: string; cpu: number; memory: number }) => void
 ): () => void {
   let eventSource: EventSource | null = null;
   let reconnectAttempts = 0;
@@ -213,6 +214,17 @@ export function subscribeToEvents(
         onLog(data);
       } catch (err) {
         console.error('Failed to parse process-log event:', err);
+      }
+    });
+
+    eventSource.addEventListener('process-stats', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (onStats) {
+          onStats(data);
+        }
+      } catch (err) {
+        console.error('Failed to parse process-stats event:', err);
       }
     });
 

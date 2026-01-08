@@ -276,6 +276,27 @@ function broadcast(event, data) {
 processEvents.on('status', (data) => broadcast('process-status', data));
 processEvents.on('log', (data) => broadcast('process-log', data));
 
+// Broadcast stats for all running processes every 2 seconds
+const STATS_BROADCAST_INTERVAL = 2000;
+setInterval(async () => {
+  const allProcesses = getAllProcesses();
+
+  for (const [appId, processInfo] of Object.entries(allProcesses)) {
+    if (processInfo.status === 'RUNNING' && processInfo.pid) {
+      try {
+        const stats = await getProcessStats(processInfo.pid);
+        broadcast('process-stats', {
+          appId,
+          cpu: stats.cpu,
+          memory: stats.memory,
+        });
+      } catch (error) {
+        // Skip if stats collection fails
+      }
+    }
+  }
+}, STATS_BROADCAST_INTERVAL);
+
 // ============================================
 // Configuration Endpoints
 // ============================================
