@@ -25,9 +25,9 @@ export async function fetchApps(): Promise<AppConfig[]> {
     status: (app.status as string) as AppStatus || AppStatus.STOPPED,
     uptime: (app.uptime as number) || 0,
     logs: (app.logs as string[]) || [],
-    stats: {
-      cpu: Array(20).fill(0),
-      memory: Array(20).fill(0),
+    stats: (app.stats as { cpu: number[]; memory: number[] }) || {
+      cpu: [],
+      memory: [],
     },
   }));
 }

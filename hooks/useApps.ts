@@ -209,12 +209,20 @@ export function useApps(): UseAppsReturn {
           setApps((currentApps) =>
             currentApps.map((a) => {
               if (a.id !== app.id) return a;
+              // Keep last 20 data points for history
+              const MAX_HISTORY = 20;
+              const newCpu = a.stats.cpu.length < MAX_HISTORY
+                ? [...a.stats.cpu, stats.cpu]
+                : [...a.stats.cpu.slice(1), stats.cpu];
+              const newMemory = a.stats.memory.length < MAX_HISTORY
+                ? [...a.stats.memory, stats.memory]
+                : [...a.stats.memory.slice(1), stats.memory];
               return {
                 ...a,
                 uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
                 stats: {
-                  cpu: [...a.stats.cpu.slice(1), stats.cpu],
-                  memory: [...a.stats.memory.slice(1), stats.memory],
+                  cpu: newCpu,
+                  memory: newMemory,
                 },
               };
             })
@@ -226,12 +234,19 @@ export function useApps(): UseAppsReturn {
               if (a.id !== app.id || a.status !== AppStatus.RUNNING) return a;
               const lastCpu = a.stats.cpu[a.stats.cpu.length - 1] || 0;
               const lastMem = a.stats.memory[a.stats.memory.length - 1] || 100;
+              const MAX_HISTORY = 20;
+              const newCpu = a.stats.cpu.length < MAX_HISTORY
+                ? [...a.stats.cpu, lastCpu + (Math.random() - 0.5) * 5]
+                : [...a.stats.cpu.slice(1), lastCpu + (Math.random() - 0.5) * 5];
+              const newMemory = a.stats.memory.length < MAX_HISTORY
+                ? [...a.stats.memory, lastMem + (Math.random() - 0.5) * 10]
+                : [...a.stats.memory.slice(1), lastMem + (Math.random() - 0.5) * 10];
               return {
                 ...a,
                 uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
                 stats: {
-                  cpu: [...a.stats.cpu.slice(1), lastCpu + (Math.random() - 0.5) * 5],
-                  memory: [...a.stats.memory.slice(1), lastMem + (Math.random() - 0.5) * 10],
+                  cpu: newCpu,
+                  memory: newMemory,
                 },
               };
             })
