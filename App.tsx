@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { LayoutDashboard, RefreshCw, Menu, X, GripVertical } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import {
@@ -19,6 +20,10 @@ import { useApps } from './hooks';
 type ActiveTab = 'dashboard' | 'apps';
 
 function AppContent() {
+  const navigate = useNavigate();
+  const params = useParams();
+  const projectId = params.projectId;
+
   const {
     apps,
     loading,
@@ -52,6 +57,17 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Sync URL params with selected app
+  useEffect(() => {
+    if (projectId) {
+      setSelectedAppId(projectId);
+      selectTab(projectId);
+      setActiveTab('apps');
+    } else {
+      setActiveTab('dashboard');
+    }
+  }, [projectId, setSelectedAppId, selectTab]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
@@ -119,22 +135,27 @@ function AppContent() {
   }, [isResizing]);
 
   const handleSelectDashboard = () => {
-    setActiveTab('dashboard');
-    setSelectedAppId(null);
+    navigate('/');
     setMobileMenuOpen(false);
   };
 
   const handleSelectApp = (id: string) => {
-    setSelectedAppId(id);
-    selectTab(id); // Also open as tab
-    setActiveTab('apps');
+    const app = apps.find((a) => a.id === id);
+    if (app) {
+      // Create URL-safe name from app name
+      const urlName = app.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      navigate(`/${urlName}/${id}`);
+    }
     setMobileMenuOpen(false);
   };
 
   const handleTabSelect = (id: string) => {
     selectTab(id); // Update activeTabId for visual sync
-    setSelectedAppId(id);
-    setActiveTab('apps');
+    const app = apps.find((a) => a.id === id);
+    if (app) {
+      const urlName = app.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+      navigate(`/${urlName}/${id}`);
+    }
   };
 
   const handleTabClose = (id: string) => {
@@ -143,10 +164,13 @@ function AppContent() {
     if (selectedAppId === id) {
       const remainingTabs = tabs.filter((t) => t.appId !== id);
       if (remainingTabs.length > 0) {
-        setSelectedAppId(remainingTabs[remainingTabs.length - 1].appId);
+        const nextApp = apps.find((a) => a.id === remainingTabs[remainingTabs.length - 1].appId);
+        if (nextApp) {
+          const urlName = nextApp.name.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+          navigate(`/${urlName}/${nextApp.id}`);
+        }
       } else {
-        setSelectedAppId(null);
-        setActiveTab('dashboard');
+        navigate('/');
       }
     }
   };
@@ -383,10 +407,21 @@ function AppContent() {
   );
 }
 
+function AppRouter() {
+  return (
+    <Routes>
+      <Route path="/" element={<AppContent />} />
+      <Route path="/:projectName/:projectId" element={<AppContent />} />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppContent />
+      <BrowserRouter>
+        <AppRouter />
+      </BrowserRouter>
     </ErrorBoundary>
   );
 }

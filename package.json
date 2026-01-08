@@ -47,6 +47,7 @@
     "react-dom": "^19.2.3",
     "react-hot-toast": "^2.6.0",
     "react-resizable-panels": "^4.2.2",
+    "react-router-dom": "^7.12.0",
     "recharts": "^3.6.0",
     "ws": "^8.18.3",
     "zod": "^4.3.4"
@@ -60,6 +61,7 @@
     "@types/pg": "^8.16.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/react-router-dom": "^5.3.3",
     "@typescript-eslint/eslint-plugin": "^8.51.0",
     "@typescript-eslint/parser": "^8.51.0",
     "@vitejs/plugin-react": "^5.0.0",
