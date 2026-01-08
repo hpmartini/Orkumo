@@ -10,6 +10,7 @@ const __dirname = path.dirname(__filename);
 // Server process reference
 let serverProcess = null;
 let mainWindow = null;
+let isShuttingDown = false;
 
 const isDev = !app.isPackaged;
 const VITE_DEV_SERVER_URL = 'http://localhost:3000';
@@ -221,6 +222,30 @@ function createApplicationMenu() {
 }
 
 /**
+ * Check if a port is available
+ */
+async function isPortAvailable(port) {
+  return new Promise((resolve) => {
+    const server = require('net').createServer();
+
+    server.once('error', (err) => {
+      if (err.code === 'EADDRINUSE') {
+        resolve(false);
+      } else {
+        resolve(false);
+      }
+    });
+
+    server.once('listening', () => {
+      server.close();
+      resolve(true);
+    });
+
+    server.listen(port, '127.0.0.1');
+  });
+}
+
+/**
  * Check if the backend server is ready by polling health endpoint
  */
 async function waitForServerReady(maxAttempts = 30, delayMs = 200) {
@@ -228,7 +253,7 @@ async function waitForServerReady(maxAttempts = 30, delayMs = 200) {
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await fetch(`${serverUrl}/health`).catch(() => null);
+      const response = await fetch(`${serverUrl}/api/health`).catch(() => null);
       if (response && response.ok) {
         console.log(`[Electron] Backend server ready after ${attempt * delayMs}ms`);
         return true;
@@ -248,8 +273,22 @@ async function waitForServerReady(maxAttempts = 30, delayMs = 200) {
  * Start the backend server
  */
 async function startBackendServer() {
-  return new Promise((resolve, reject) => {
+  return new Promise(async (resolve, reject) => {
     console.log('[Electron] Starting backend server...');
+
+    // Check if port is available
+    const portAvailable = await isPortAvailable(SERVER_PORT);
+    if (!portAvailable) {
+      const error = new Error(
+        `Port ${SERVER_PORT} is already in use. Please close the application using this port and try again.\n\n` +
+        `Common solutions:\n` +
+        `- Check if another instance of DevOrbit is running\n` +
+        `- Check for other applications using port ${SERVER_PORT}\n` +
+        `- Kill the process: lsof -ti:${SERVER_PORT} | xargs kill -9 (macOS/Linux)`
+      );
+      reject(error);
+      return;
+    }
 
     const serverPath = isDev
       ? path.join(__dirname, '../server/index.js')
@@ -284,7 +323,19 @@ async function startBackendServer() {
 
       serverProcess.on('exit', (code, signal) => {
         console.log(`[Electron] Server process exited with code ${code}, signal ${signal}`);
+        const hadProcess = serverProcess !== null;
         serverProcess = null;
+
+        // If server crashes after startup (code !== 0) and window exists, show error
+        if (hadProcess && code !== 0 && code !== null && mainWindow && !mainWindow.isDestroyed()) {
+          console.error(`[Electron] Server crashed with exit code ${code}`);
+          dialog.showErrorBox(
+            'Backend Server Crashed',
+            `The backend server has unexpectedly crashed with exit code ${code}.\n\n` +
+            `The application may not function correctly. Please restart the application.\n\n` +
+            `If this problem persists, check the logs for more information.`
+          );
+        }
       });
 
       // Wait for server to be ready by polling health endpoint
@@ -307,7 +358,8 @@ async function startBackendServer() {
  * Stop the backend server
  */
 function stopBackendServer() {
-  if (serverProcess) {
+  if (serverProcess && !isShuttingDown) {
+    isShuttingDown = true;
     console.log('[Electron] Stopping backend server...');
     serverProcess.kill('SIGTERM');
     serverProcess = null;

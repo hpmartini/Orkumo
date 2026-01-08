@@ -9,8 +9,17 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
+    "!electron/**/*.md",
     "server/**/*",
     "node_modules/**/*",
+    "!node_modules/**/*.md",
+    "!node_modules/**/test/**",
+    "!node_modules/**/tests/**",
+    "!node_modules/**/*.test.js",
+    "!node_modules/**/*.spec.js",
+    "!node_modules/**/.github/**",
+    "!node_modules/**/docs/**",
+    "!node_modules/**/examples/**",
     "package.json"
   ],
   "extraResources": [
@@ -103,7 +112,9 @@
   },
   "afterSign": "electron/notarize.js",
   "asarUnpack": [
-    "node_modules/node-pty/**/*",
-    "node_modules/pidusage/**/*"
+    "node_modules/node-pty/build/**/*",
+    "node_modules/node-pty/package.json",
+    "node_modules/pidusage/lib/**/*",
+    "node_modules/pidusage/package.json"
   ]
 }
