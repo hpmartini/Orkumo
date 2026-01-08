@@ -45,6 +45,56 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [codeServerLoading, setCodeServerLoading] = useState(true);
+  const [codeServerError, setCodeServerError] = useState<string | null>(null);
+
+  // Get code-server URL from environment or use default
+  const getCodeServerUrl = () => {
+    return import.meta.env.VITE_CODE_SERVER_URL || 'http://localhost:8443';
+  };
+
+  // Convert host path to container path for code-server
+  const getContainerPath = (hostPath: string) => {
+    // code-server mounts volumes at /home/coder/Projects and /home/coder/PROJECTS
+    // Convert host path to container path
+    const normalizedPath = hostPath.replace(/\\/g, '/');
+
+    // Extract the project name from the path
+    // Assumes paths like /Users/*/Projects/myproject or /Users/*/PROJECTS/myproject
+    const projectsMatch = normalizedPath.match(/\/Projects\/(.+)$/i);
+    const PROJECTSMatch = normalizedPath.match(/\/PROJECTS\/(.+)$/i);
+
+    if (projectsMatch) {
+      return `/home/coder/Projects/${projectsMatch[1]}`;
+    } else if (PROJECTSMatch) {
+      return `/home/coder/PROJECTS/${PROJECTSMatch[1]}`;
+    }
+
+    // Fallback: assume it's already a container path or use as-is
+    return normalizedPath;
+  };
+
+  // Handle iframe load
+  const handleIframeLoad = () => {
+    setCodeServerLoading(false);
+    setCodeServerError(null);
+  };
+
+  // Handle iframe error
+  const handleIframeError = () => {
+    setCodeServerLoading(false);
+    setCodeServerError(
+      'Failed to load VS Code. Make sure code-server is running (docker compose up code-server)'
+    );
+  };
+
+  // Reset code-server state when switching to it
+  useEffect(() => {
+    if (editorType === 'code-server') {
+      setCodeServerLoading(true);
+      setCodeServerError(null);
+    }
+  }, [editorType]);
 
   // Fetch file tree
   const fetchFileTree = useCallback(async () => {
@@ -270,11 +320,42 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
 
       {/* Render code-server or Monaco based on editor type */}
       {editorType === 'code-server' ? (
-        <div className="flex-1 min-h-0">
+        <div className="flex-1 min-h-0 relative">
+          {/* Loading state */}
+          {codeServerLoading && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
+              <div className="text-center">
+                <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin text-blue-500" />
+                <div className="text-sm text-gray-400">Loading VS Code...</div>
+              </div>
+            </div>
+          )}
+
+          {/* Error state */}
+          {codeServerError && (
+            <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
+              <div className="text-center max-w-md px-4">
+                <Box className="w-12 h-12 mx-auto mb-3 text-red-500" />
+                <div className="text-sm text-red-400 mb-3">{codeServerError}</div>
+                <button
+                  onClick={() => {
+                    setCodeServerLoading(true);
+                    setCodeServerError(null);
+                  }}
+                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm transition-colors"
+                >
+                  Retry
+                </button>
+              </div>
+            </div>
+          )}
+
           <iframe
-            src={`http://localhost:8443/?folder=${encodeURIComponent(directory)}`}
+            src={`${getCodeServerUrl()}/?folder=${encodeURIComponent(getContainerPath(directory))}`}
             className="w-full h-full border-0"
             title="VS Code Server"
+            onLoad={handleIframeLoad}
+            onError={handleIframeError}
           />
         </div>
       ) : (
