@@ -39,8 +39,8 @@ services:
       # Mount Docker socket for container management (optional)
       - /var/run/docker.sock:/var/run/docker.sock
       # Mount user's home Projects directory (read-write for terminal shells)
-      - ${HOME}/Projects:/Users/example/Projects
-      - ${HOME}/PROJECTS:/Users/example/PROJECTS
+      - ${HOME}/Projects:/home/coder/Projects
+      - ${HOME}/PROJECTS:/home/coder/PROJECTS
       # Mount Applications for IDE detection (read-only)
       - /Applications:/Applications:ro
       # Persist app data
@@ -112,6 +112,43 @@ services:
       timeout: 5s
       retries: 5
 
+  # ===========================================
+  # code-server - VS Code in the browser
+  # ===========================================
+  code-server:
+    image: codercom/code-server:latest
+    container_name: devorbit-code-server
+    ports:
+      - "8443:8080"
+    volumes:
+      - ${HOME}/Projects:/home/coder/Projects
+      - ${HOME}/PROJECTS:/home/coder/PROJECTS
+      - code-server-config:/home/coder/.config
+    environment:
+      - PASSWORD=${CODE_SERVER_PASSWORD:?CODE_SERVER_PASSWORD must be set in .env file - see .env.example for details}
+      # Separate sudo password for enhanced security
+      # If CODE_SERVER_SUDO_PASSWORD is not set, sudo will be disabled (recommended)
+      - SUDO_PASSWORD=${CODE_SERVER_SUDO_PASSWORD:-}
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+    # Resource limits to prevent excessive consumption
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    # Health check to ensure code-server is running
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
 volumes:
   devorbit-data:
     name: devorbit-data
@@ -121,6 +158,8 @@ volumes:
     name: devorbit-postgres
   redis-data:
     name: devorbit-redis
+  code-server-config:
+    name: devorbit-code-server-config
 
 networks:
   devorbit-network:

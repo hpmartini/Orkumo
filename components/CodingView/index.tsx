@@ -2,6 +2,7 @@ import type { RefObject } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
+import { WebIDEErrorBoundary } from './WebIDEErrorBoundary';
 import { BrowserPreviewPanel } from './BrowserPreviewPanel';
 import { AppConfig } from '../../types';
 import './CodingView.css';
@@ -25,9 +26,11 @@ export function CodingView({ app, terminalSlotRef }: CodingViewProps) {
         </Panel>
         <Separator className="coding-separator" />
 
-        {/* Web IDE Panel */}
+        {/* Web IDE Panel with code-server support */}
         <Panel defaultSize={45} minSize={20} className="coding-panel">
-          <WebIDEPanel directory={app.path} />
+          <WebIDEErrorBoundary>
+            <WebIDEPanel directory={app.path} />
+          </WebIDEErrorBoundary>
         </Panel>
 
         <Separator className="coding-separator" />
