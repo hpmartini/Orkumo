@@ -18,6 +18,7 @@ import {
   updateArchive,
   updatePort,
   updateName,
+  configureAllPorts,
   AppSettings,
   FavoritesSortMode,
 } from '../services/api';
@@ -85,6 +86,7 @@ interface UseAppsReturn {
   handleRename: (id: string, newName: string) => Promise<void>;
   handleReorderFavorites: (newOrder: string[]) => Promise<void>;
   handleSetFavoritesSortMode: (mode: FavoritesSortMode) => Promise<void>;
+  handleConfigureAllPorts: () => Promise<void>;
   refreshApps: () => Promise<void>;
   runningCount: number;
   totalCpu: number;
@@ -603,6 +605,40 @@ export function useApps(): UseAppsReturn {
     }
   }, [settings]);
 
+  const handleConfigureAllPorts = useCallback(async () => {
+    try {
+      // Call the backend to configure all ports starting from 3001
+      const result = await configureAllPorts(3001);
+
+      // Update the UI with the new port assignments
+      setApps((currentApps) =>
+        currentApps.map((app) => {
+          const newPort = result.configured[app.id];
+          if (newPort) {
+            return {
+              ...app,
+              port: newPort,
+              addresses: [`http://localhost:${newPort}`],
+            };
+          }
+          return app;
+        })
+      );
+
+      // Also update settings state if it exists
+      if (settings) {
+        setSettings((prev) =>
+          prev ? { ...prev, customPorts: { ...prev.customPorts, ...result.configured } } : null
+        );
+      }
+
+      toast.success(`Configured ports for ${Object.keys(result.configured).length} apps starting from port 3001`);
+    } catch (err) {
+      console.error('Failed to configure ports:', err);
+      toast.error('Failed to configure ports');
+    }
+  }, [settings]);
+
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;
   const totalCpu = apps.reduce(
@@ -632,6 +668,7 @@ export function useApps(): UseAppsReturn {
     handleRename,
     handleReorderFavorites,
     handleSetFavoritesSortMode,
+    handleConfigureAllPorts,
     refreshApps,
     runningCount,
     totalCpu,

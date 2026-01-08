@@ -1,5 +1,5 @@
 import React from 'react';
-import { LayoutDashboard, Activity, Cpu, Zap, Radio } from 'lucide-react';
+import { LayoutDashboard, Activity, Cpu, Zap, Radio, Settings } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 
 interface DashboardOverviewProps {
@@ -8,6 +8,7 @@ interface DashboardOverviewProps {
   totalCpu: number;
   aiEnabled?: boolean;
   apps: AppConfig[];
+  onConfigurePorts?: () => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -16,6 +17,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   totalCpu,
   aiEnabled = true,
   apps,
+  onConfigurePorts,
 }) => {
   // Get all ports from running apps
   const activePorts = apps
@@ -85,6 +87,16 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         ) : (
           <div className="text-sm text-gray-500">No active ports</div>
+        )}
+        {onConfigurePorts && (
+          <button
+            onClick={onConfigurePorts}
+            className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-400 text-sm font-medium transition-colors"
+            title="Configure ports for all apps starting from 3001"
+          >
+            <Settings size={16} />
+            Configure Ports
+          </button>
         )}
       </div>
 

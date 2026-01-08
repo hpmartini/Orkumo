@@ -413,6 +413,21 @@ export async function updateName(id: string, name: string | null): Promise<{ id:
   return response.json();
 }
 
+/**
+ * Configure ports for all apps consistently, starting from a base port
+ */
+export async function configureAllPorts(startPort = 3001): Promise<{ configured: Record<string, number> }> {
+  const response = await fetch(`${API_BASE}/settings/configure-ports`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ startPort }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to configure ports');
+  }
+  return response.json();
+}
+
 // ============================================
 // IDE Integration API
 // ============================================

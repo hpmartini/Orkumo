@@ -505,6 +505,33 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
   }
 });
 
+/**
+ * POST /api/settings/configure-ports
+ * Configure ports for all apps consistently, starting from a base port
+ */
+app.post('/api/settings/configure-ports', (req, res) => {
+  try {
+    const { startPort = 3001 } = req.body;
+
+    // Validate startPort
+    const portNum = parseInt(startPort, 10);
+    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+      return res.status(400).json({ error: 'Invalid start port number' });
+    }
+
+    // Get all apps
+    const apps = scanAllDirectories();
+    const appIds = apps.map(app => app.id);
+
+    // Configure ports for all apps
+    const configured = settingsService.configureAllPorts(appIds, portNum);
+
+    res.json({ configured });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ============================================
 // IDE Integration Endpoints
 // ============================================

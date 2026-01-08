@@ -385,6 +385,27 @@ class SettingsService {
     writeSettings(settings);
     return settings;
   }
+
+  /**
+   * Configure ports for all apps consistently, starting from a base port
+   * @param {string[]} appIds - Array of app IDs to configure
+   * @param {number} startPort - Starting port number (default: 3001)
+   * @returns {object} Map of appId -> assigned port
+   */
+  configureAllPorts(appIds, startPort = 3001) {
+    const settings = readSettings();
+    const configured = {};
+
+    // Assign sequential ports starting from startPort
+    appIds.forEach((appId, index) => {
+      const port = startPort + index;
+      settings.customPorts[appId] = port;
+      configured[appId] = port;
+    });
+
+    writeSettings(settings);
+    return configured;
+  }
 }
 
 // Export singleton instance
