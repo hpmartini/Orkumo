@@ -28,7 +28,7 @@ export const TerminalsPanel = ({
           </button>
         )}
       </div>
-      <div className="flex-1 overflow-hidden min-h-0">
+      <div className="flex-1 overflow-hidden min-h-0 h-full">
         <XTerminal cwd={directory} logs={logs || []} isRunning={isRunning || false} />
       </div>
     </div>

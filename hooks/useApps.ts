@@ -12,10 +12,13 @@ import {
   fetchSettings,
   importSettings,
   updateFavorite,
+  updateFavoritesOrder,
+  updateFavoritesSortMode,
   updateArchive,
   updatePort,
   updateName,
   AppSettings,
+  FavoritesSortMode,
 } from '../services/api';
 
 // Constants
@@ -79,6 +82,8 @@ interface UseAppsReturn {
   handleInstallDeps: (id: string) => Promise<void>;
   handleSetPort: (id: string, port: number) => Promise<void>;
   handleRename: (id: string, newName: string) => Promise<void>;
+  handleReorderFavorites: (newOrder: string[]) => Promise<void>;
+  handleSetFavoritesSortMode: (mode: FavoritesSortMode) => Promise<void>;
   refreshApps: () => Promise<void>;
   runningCount: number;
   totalCpu: number;
@@ -541,6 +546,42 @@ export function useApps(): UseAppsReturn {
       });
   }, [apps]);
 
+  const handleReorderFavorites = useCallback(async (newOrder: string[]) => {
+    // Store old order for rollback
+    const oldOrder = settings?.favorites || [];
+
+    // Optimistically update settings
+    setSettings((prev) => prev ? { ...prev, favorites: newOrder } : null);
+
+    // Persist to backend
+    try {
+      await updateFavoritesOrder(newOrder);
+    } catch (err) {
+      console.error('Failed to reorder favorites:', err);
+      // Revert on failure
+      setSettings((prev) => prev ? { ...prev, favorites: oldOrder } : null);
+      toast.error('Failed to reorder favorites');
+    }
+  }, [settings]);
+
+  const handleSetFavoritesSortMode = useCallback(async (mode: FavoritesSortMode) => {
+    // Store old mode for rollback
+    const oldMode = settings?.favoritesSortMode || 'manual';
+
+    // Optimistically update settings
+    setSettings((prev) => prev ? { ...prev, favoritesSortMode: mode } : null);
+
+    // Persist to backend
+    try {
+      await updateFavoritesSortMode(mode);
+    } catch (err) {
+      console.error('Failed to update sort mode:', err);
+      // Revert on failure
+      setSettings((prev) => prev ? { ...prev, favoritesSortMode: oldMode } : null);
+      toast.error('Failed to update sort mode');
+    }
+  }, [settings]);
+
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;
   const totalCpu = apps.reduce(
@@ -568,6 +609,8 @@ export function useApps(): UseAppsReturn {
     handleInstallDeps,
     handleSetPort,
     handleRename,
+    handleReorderFavorites,
+    handleSetFavoritesSortMode,
     refreshApps,
     runningCount,
     totalCpu,

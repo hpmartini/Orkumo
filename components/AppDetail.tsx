@@ -149,7 +149,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             id="details-panel"
             role="tabpanel"
             aria-labelledby="details-tab"
-            className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 p-6"
+            className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 p-6 max-w-7xl mx-auto"
           >
             {/* Header */}
             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
@@ -424,11 +424,13 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             />
 
             {/* XTerminal with tabs */}
-            <XTerminal
-              logs={app.logs}
-              isRunning={app.status === AppStatus.RUNNING}
-              cwd={app.path}
-            />
+            <div className="h-[400px]">
+              <XTerminal
+                logs={app.logs}
+                isRunning={app.status === AppStatus.RUNNING}
+                cwd={app.path}
+              />
+            </div>
           </div>
         ) : (
           <CodingView app={app} />

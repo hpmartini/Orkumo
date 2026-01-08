@@ -39,6 +39,8 @@ function AppContent() {
     handleInstallDeps,
     handleSetPort,
     handleRename,
+    handleReorderFavorites,
+    handleSetFavoritesSortMode,
     refreshApps,
     runningCount,
     totalCpu,
@@ -313,6 +315,8 @@ function AppContent() {
                   <FavoritesList
                     apps={apps}
                     selectedAppId={selectedAppId}
+                    favoritesOrder={settings?.favorites || []}
+                    favoritesSortMode={settings?.favoritesSortMode || 'manual'}
                     onSelectApp={handleSelectApp}
                     onStart={handleStartApp}
                     onStop={handleStopApp}
@@ -320,6 +324,8 @@ function AppContent() {
                     onOpenInBrowser={handleOpenInBrowser}
                     onToggleFavorite={handleToggleFavorite}
                     onToggleArchive={handleToggleArchive}
+                    onReorderFavorites={handleReorderFavorites}
+                    onSetSortMode={handleSetFavoritesSortMode}
                   />
                   {/* All Applications */}
                   <AppList

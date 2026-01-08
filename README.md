@@ -1,344 +1,84 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# DevOrbit Dashboard
 
-# Run and deploy your AI Studio app
+**DevOrbit Dashboard** is an advanced local development environment manager that monitors, controls, and optimizes your development workflow. It integrates with Gemini AI to analyze project configurations and provide intelligent recommendations, making it easier to manage complex microservice architectures and local setups.
 
-This contains everything you need to run your app locally.
+## 🚀 Features
 
-View your app in AI Studio: https://ai.studio/apps/drive/17ngup61QHOOA9SB63VIkju3ZxNvp4KPO
+- **Project Management**: Monitor and control local applications (Start, Stop, Restart).
+- **Intelligent Analysis**: Uses Gemini AI to scan project structures and suggest run configurations.
+- **Port Management**: Automatic detection of port conflicts with resolution options (kill process or pick new port).
+- **System Monitoring**: Real-time CPU and Memory usage tracking for managed services.
+- **Integrated Terminal**: Full-featured web-based terminal emulator for interacting with your services.
+- **IDE Integration**: Seamlessly open projects in VS Code, Cursor, WebStorm, and other IDEs.
+- **Docker Support**: Manage Docker containers and compose services directly from the dashboard.
 
-## Run Locally
+## 🛠️ Tech Stack
 
-**Prerequisites:**  Node.js
+- **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons, Recharts
+- **Backend**: Node.js, Express, WebSocket (ws), node-pty
+- **Database**: PostgreSQL (via Drizzle ORM)
+- **Caching**: Redis
+- **AI**: Google Gemini API
 
+## 📋 Prerequisites
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- **Node.js** (v18+ recommended)
+- **Docker** & Docker Compose
+- **Google Gemini API Key** (for AI features)
 
-## Features
+## 🏁 Getting Started
 
-### Web IDE Integration (Monaco Editor + code-server)
-
-DevOrbit Dashboard includes two integrated code editors accessible directly from project detail views:
-
-#### 1. Monaco Editor (Lightweight, Built-in)
-- Fast, embedded code editor (same engine as VS Code)
-- File tree browser with syntax highlighting
-- Multiple file tabs with save functionality
-- No additional setup required
-- Ideal for quick edits and code review
-
-#### 2. code-server (Full VS Code Experience)
-- Complete VS Code running in your browser
-- Full extension marketplace support
-- Integrated terminal, debugger, and git
-- All VS Code features available
-- Requires Docker setup (see below)
-
-You can switch between editors using the toggle in the Web IDE panel.
-
----
-
-### Setting Up code-server (VS Code in Browser)
-
-#### Quick Start
-
-1. **Create your `.env` file** (if you haven't already):
-   ```bash
-   cp .env.example .env
-   ```
-
-2. **Set a secure password** in `.env`:
-   ```bash
-   # Generate a strong password (example using openssl)
-   openssl rand -base64 24
-
-   # Add to .env file:
-   CODE_SERVER_PASSWORD=your_generated_password_here
-   ```
-
-3. **Start code-server**:
-   ```bash
-   docker compose up code-server -d
-   ```
-
-4. **Access code-server**:
-   - Open any project in DevOrbit Dashboard
-   - Go to the "Coding View" tab
-   - Click "VS Code" in the Web IDE panel
-   - Enter your password when prompted
-
-#### 🔒 Security Best Practices
-
-**CRITICAL: Password Security**
-
-The `CODE_SERVER_PASSWORD` protects access to your entire codebase. Anyone with this password can:
-- Read and modify all your project files
-- Execute arbitrary commands with sudo privileges
-- Access environment variables and secrets
-- Install software and VS Code extensions
-
-**Strong Password Requirements:**
-- ✅ Minimum 12 characters
-- ✅ Mix of uppercase, lowercase, numbers, and special characters
-- ✅ Unique (never reuse from other services)
-- ✅ Generated using a password manager or tool
-- ✅ Never committed to version control
-
-**Example of generating a secure password:**
-```bash
-# Using openssl
-openssl rand -base64 24
-
-# Using pwgen (if installed)
-pwgen -s 20 1
-
-# Using macOS/Linux
-LC_ALL=C tr -dc 'A-Za-z0-9!@#$%^&*' < /dev/urandom | head -c 20
-```
-
-**Network Security:**
-- By default, code-server runs on `localhost:8443` (not accessible from network)
-- **NEVER** expose port 8443 directly to the internet
-- For remote access, use one of these secure methods:
-  - SSH tunnel (recommended for personal use)
-  - VPN (recommended for team access)
-  - Reverse proxy with HTTPS (see HTTPS Setup below)
-
-**Docker Security:**
-- code-server runs with sudo privileges inside the container
-- Project directories are mounted with read/write access
-- Review mounted volumes in `docker-compose.yml` before running
-- Consider using read-only mounts for sensitive directories
-
-**Access Control:**
-- Only share the password with trusted team members
-- Use different passwords for different environments (dev/staging/prod)
-- Rotate passwords periodically (every 90 days recommended)
-- Revoke access by changing the password and restarting the container
-
----
-
-### HTTPS Setup for code-server
-
-For production or remote access, you should run code-server behind a reverse proxy with SSL/TLS.
-
-#### Option 1: Caddy (Recommended - Automatic HTTPS)
-
-1. **Install Caddy**: https://caddyserver.com/docs/install
-
-2. **Create a Caddyfile**:
-   ```caddy
-   code.yourdomain.com {
-       reverse_proxy localhost:8443
-   }
-   ```
-
-3. **Run Caddy**:
-   ```bash
-   caddy run --config Caddyfile
-   ```
-
-Caddy automatically obtains and renews SSL certificates from Let's Encrypt.
-
-#### Option 2: Nginx with Let's Encrypt
-
-1. **Install Nginx and Certbot**:
-   ```bash
-   # Ubuntu/Debian
-   sudo apt install nginx certbot python3-certbot-nginx
-
-   # macOS
-   brew install nginx certbot
-   ```
-
-2. **Create Nginx configuration** (`/etc/nginx/sites-available/code-server`):
-   ```nginx
-   server {
-       listen 80;
-       server_name code.yourdomain.com;
-
-       location / {
-           proxy_pass http://localhost:8443;
-           proxy_set_header Host $host;
-           proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection upgrade;
-           proxy_set_header Accept-Encoding gzip;
-       }
-   }
-   ```
-
-3. **Enable site and get SSL certificate**:
-   ```bash
-   sudo ln -s /etc/nginx/sites-available/code-server /etc/nginx/sites-enabled/
-   sudo certbot --nginx -d code.yourdomain.com
-   sudo systemctl reload nginx
-   ```
-
-4. **Update your `.env` file**:
-   ```bash
-   VITE_CODE_SERVER_URL=https://code.yourdomain.com
-   ```
-
-#### Option 3: SSH Tunnel (For Personal Remote Access)
-
-Most secure option for accessing code-server remotely without exposing it to the internet:
+### 1. Clone & Install
 
 ```bash
-# From your remote machine
-ssh -L 8443:localhost:8443 user@your-devhub-server
-
-# Now access http://localhost:8443 on your remote machine
+git clone <repository-url>
+cd devorbit-dashboard
+npm install
 ```
 
-#### Option 4: Cloudflare Tunnel (Zero Trust Access)
+### 2. Environment Setup
 
-1. **Install cloudflared**: https://developers.cloudflare.com/cloudflare-one/connections/connect-apps/install-and-setup/
-
-2. **Create a tunnel**:
-   ```bash
-   cloudflared tunnel create devorbit-code
-   cloudflared tunnel route dns devorbit-code code.yourdomain.com
-   ```
-
-3. **Configure the tunnel** (`~/.cloudflared/config.yml`):
-   ```yaml
-   tunnel: <tunnel-id>
-   credentials-file: /path/to/credentials.json
-
-   ingress:
-     - hostname: code.yourdomain.com
-       service: http://localhost:8443
-     - service: http_status:404
-   ```
-
-4. **Run the tunnel**:
-   ```bash
-   cloudflared tunnel run devorbit-code
-   ```
-
----
-
-### Troubleshooting code-server
-
-**code-server won't start:**
-```bash
-# Check if CODE_SERVER_PASSWORD is set
-docker compose config | grep CODE_SERVER_PASSWORD
-
-# View logs
-docker compose logs code-server
-
-# Restart the container
-docker compose restart code-server
-```
-
-**"Failed to load VS Code (timeout)" error:**
-- Check if code-server container is running: `docker compose ps`
-- Verify the container is healthy: `docker compose logs code-server`
-- Ensure port 8443 is not blocked by firewall
-- Try accessing directly: http://localhost:8443
-
-**Password not accepted:**
-- Verify the password in your `.env` file (no quotes needed)
-- Restart code-server: `docker compose restart code-server`
-- Check for special characters that might need escaping
-
-**Files not showing in code-server:**
-- Verify volume mounts in `docker-compose.yml`
-- Check that project paths match the mounted volumes
-- Restart code-server after changing volume configuration
-
-**Permission denied errors:**
-- Ensure your user has read/write access to project directories
-- Check Docker volume permissions
-- On Linux, verify your user is in the `docker` group
-
-**Port 8443 already in use:**
-- Check what's using the port: `lsof -i :8443` (macOS/Linux)
-- Change the port in `docker-compose.yml`:
-  ```yaml
-  ports:
-    - "9443:8080"  # Changed from 8443
-  ```
-- Update `VITE_CODE_SERVER_URL` in `.env` to match
-
----
-
-### IDE Integration
-
-DevOrbit Dashboard supports opening projects directly in your favorite IDE from the application detail view. The feature automatically detects installed IDEs and provides a convenient button to launch them.
-
-#### Supported IDEs
-
-- **Visual Studio Code** - Cross-platform code editor
-- **Cursor** - AI-powered code editor
-- **WebStorm** - JavaScript and TypeScript IDE
-- **IntelliJ IDEA** - Java IDE
-- **PhpStorm** - PHP IDE
-- **PyCharm** - Python IDE
-- **Sublime Text** - Text editor
-
-#### Platform Support
-
-- **macOS**: Detects applications in `/Applications/`
-- **Linux**: Supports standard installations, Snap packages, and Flatpak apps
-- **Windows**: Detects IDEs in `Program Files` and user-specific directories
-
-#### Custom IDE Paths
-
-If your IDE is installed in a non-standard location, you can set custom paths using environment variables:
+Create an `.env.local` file in the root directory:
 
 ```bash
-# .env.local
-VSCODE_PATH=/custom/path/to/vscode
-CURSOR_PATH=/custom/path/to/cursor
-WEBSTORM_PATH=/custom/path/to/webstorm
-INTELLIJ_PATH=/custom/path/to/intellij
-PHPSTORM_PATH=/custom/path/to/phpstorm
-PYCHARM_PATH=/custom/path/to/pycharm
-SUBLIME_PATH=/custom/path/to/sublime
+GEMINI_API_KEY=your_api_key_here
+# Optional: data persistence paths
+# SCAN_DIRECTORIES=/Users/username/projects
 ```
 
-**Note:** After changing environment variables, you must restart the backend server for the changes to take effect.
+### 3. Run Locally (Full Stack)
 
-#### Preferred IDE
+To run the entire stack including databases (Postgres, Redis) and the application:
 
-The dashboard remembers your preferred IDE for each project. When you open a project in an IDE, it becomes the default for that project. You can change the preferred IDE anytime from the dropdown menu.
+```bash
+npm run dev:full
+```
 
-#### Troubleshooting
+This command starts the Docker infrastructure and the development servers for frontend and backend.
 
-**IDE not detected:**
-- Verify the IDE is installed and accessible
-- For custom installations, set the appropriate environment variable
-- On Linux, ensure the IDE is in your PATH or installed via Snap/Flatpak
+### Alternative: Manual Start
 
-**Launch fails:**
-- Check file permissions on the project directory
-- Verify the IDE application is not corrupted
-- On macOS, ensure the IDE is in the `/Applications/` folder or set a custom path
-- On Linux, try reinstalling via your package manager
+If you already have the databases running:
 
-**Permission denied:**
-- Ensure you have read access to the project directory
-- On Linux/macOS, check directory permissions with `ls -la`
-- Verify the IDE executable has execute permissions
+```bash
+npm run dev
+```
 
-**IDE opens but shows wrong directory:**
-- This may happen if the project path contains symbolic links
-- Try using the absolute path to the project
+## 🏗️ Architecture
 
-#### Technical Details
+The project follows a monorepo-like structure with a unified backend and frontend:
 
-- IDE detection results are cached for 5 minutes to improve performance
-  - Force cache refresh by adding `?refresh=true` to the IDE detection endpoint
-  - Cache is automatically invalidated when an IDE launch fails
-- The feature uses secure process spawning to prevent command injection
-- Path validation prevents directory traversal attacks
-- Rate limiting (10 launches per minute) prevents abuse
-- Error responses include specific error codes for better debugging
-- Error messages are sanitized to prevent exposure of sensitive paths
+- **`App.tsx`**: Main frontend entry point and state management.
+- **`server/`**: Express backend handling API requests, websocket terminals, and OS interactions.
+- **`services/`**: Core logic for AI analysis, port management, and file system scanning.
+- **`docker/`**: Infrastructure configuration.
+
+## 🐳 Docker Deployment
+
+You can run the dashboard entirely within Docker:
+
+```bash
+docker compose up --build
+```
+
+Access the dashboard at `http://localhost:3000`.

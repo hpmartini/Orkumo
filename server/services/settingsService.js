@@ -12,11 +12,12 @@ const SETTINGS_FILE = path.join(__dirname, '..', '..', 'data', 'settings.json');
  * Default settings structure
  */
 const defaultSettings = {
-  favorites: [],      // Array of app IDs that are favorited
+  favorites: [],      // Array of app IDs that are favorited (order matters for manual sort)
   archived: [],       // Array of app IDs that are archived
   customPorts: {},    // Map of appId -> port number
   customNames: {},    // Map of appId -> custom name
   preferredIDEs: {},  // Map of appId -> preferred IDE id
+  favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
   version: 1,         // Settings schema version for future migrations
 };
 
@@ -46,6 +47,11 @@ function readSettings() {
     // Migrate: Ensure preferredIDEs exists (added in v1.1)
     if (!loadedSettings.preferredIDEs) {
       loadedSettings.preferredIDEs = {};
+    }
+
+    // Migrate: Ensure favoritesSortMode exists (added in v1.2)
+    if (!loadedSettings.favoritesSortMode) {
+      loadedSettings.favoritesSortMode = 'manual';
     }
 
     return { ...defaultSettings, ...loadedSettings };
@@ -290,6 +296,53 @@ class SettingsService {
   getPreferredIDE(appId) {
     const settings = readSettings();
     return settings.preferredIDEs?.[appId] || null;
+  }
+
+  /**
+   * Set favorites sort mode
+   * @param {'manual' | 'alpha-asc' | 'alpha-desc'} mode - Sort mode
+   * @returns {string} The set mode
+   */
+  setFavoritesSortMode(mode) {
+    const validModes = ['manual', 'alpha-asc', 'alpha-desc'];
+    if (!validModes.includes(mode)) {
+      throw new Error(`Invalid sort mode: ${mode}`);
+    }
+
+    const settings = readSettings();
+    settings.favoritesSortMode = mode;
+    writeSettings(settings);
+    return mode;
+  }
+
+  /**
+   * Get favorites sort mode
+   * @returns {string} Current sort mode
+   */
+  getFavoritesSortMode() {
+    const settings = readSettings();
+    return settings.favoritesSortMode || 'manual';
+  }
+
+  /**
+   * Reorder favorites array
+   * @param {string[]} newOrder - New order of favorite app IDs
+   * @returns {string[]} The new favorites array
+   */
+  reorderFavorites(newOrder) {
+    const settings = readSettings();
+
+    // Validate that all IDs in newOrder are currently favorites
+    const currentFavorites = new Set(settings.favorites);
+    const isValid = newOrder.every(id => currentFavorites.has(id));
+
+    if (!isValid || newOrder.length !== settings.favorites.length) {
+      throw new Error('Invalid favorites order: IDs must match current favorites');
+    }
+
+    settings.favorites = newOrder;
+    writeSettings(settings);
+    return newOrder;
   }
 
   /**
