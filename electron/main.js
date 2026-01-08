@@ -16,6 +16,79 @@ const VITE_DEV_SERVER_URL = 'http://localhost:3000';
 const SERVER_PORT = 3001;
 
 /**
+ * Validate URL to prevent opening dangerous protocols or local files
+ * Only allows http:// and https:// URLs
+ */
+function isValidExternalUrl(urlString) {
+  try {
+    const url = new URL(urlString);
+    // Only allow http and https protocols
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      return false;
+    }
+    // Reject localhost URLs unless in dev mode
+    if (!isDev && (url.hostname === 'localhost' || url.hostname === '127.0.0.1')) {
+      return false;
+    }
+    return true;
+  } catch (error) {
+    // Invalid URL
+    return false;
+  }
+}
+
+/**
+ * Validate and sanitize dialog options
+ */
+function validateDialogOptions(options, type) {
+  if (!options || typeof options !== 'object') {
+    return {};
+  }
+
+  const sanitized = {};
+
+  if (type === 'messageBox') {
+    // Validate message box options
+    if (options.message && typeof options.message === 'string') {
+      sanitized.message = options.message.slice(0, 1000); // Limit message length
+    }
+    if (options.title && typeof options.title === 'string') {
+      sanitized.title = options.title.slice(0, 200);
+    }
+    if (options.detail && typeof options.detail === 'string') {
+      sanitized.detail = options.detail.slice(0, 2000);
+    }
+    if (options.type && ['none', 'info', 'error', 'question', 'warning'].includes(options.type)) {
+      sanitized.type = options.type;
+    }
+    if (Array.isArray(options.buttons) && options.buttons.length <= 4) {
+      sanitized.buttons = options.buttons
+        .filter(b => typeof b === 'string')
+        .map(b => b.slice(0, 50))
+        .slice(0, 4);
+    }
+  } else if (type === 'openDialog') {
+    // Validate open dialog options
+    if (options.title && typeof options.title === 'string') {
+      sanitized.title = options.title.slice(0, 200);
+    }
+    if (options.defaultPath && typeof options.defaultPath === 'string') {
+      sanitized.defaultPath = options.defaultPath;
+    }
+    if (options.buttonLabel && typeof options.buttonLabel === 'string') {
+      sanitized.buttonLabel = options.buttonLabel.slice(0, 50);
+    }
+    if (Array.isArray(options.properties)) {
+      const validProps = ['openFile', 'openDirectory', 'multiSelections', 'showHiddenFiles',
+                          'createDirectory', 'promptToCreate', 'noResolveAliases', 'treatPackageAsDirectory'];
+      sanitized.properties = options.properties.filter(p => validProps.includes(p));
+    }
+  }
+
+  return sanitized;
+}
+
+/**
  * Create the main application window
  */
 function createWindow() {
@@ -49,9 +122,13 @@ function createWindow() {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'));
   }
 
-  // Handle external links
+  // Handle external links with URL validation
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url);
+    if (isValidExternalUrl(url)) {
+      shell.openExternal(url);
+    } else {
+      console.warn('[Electron] Blocked attempt to open invalid URL:', url);
+    }
     return { action: 'deny' };
   });
 
@@ -144,6 +221,30 @@ function createApplicationMenu() {
 }
 
 /**
+ * Check if the backend server is ready by polling health endpoint
+ */
+async function waitForServerReady(maxAttempts = 30, delayMs = 200) {
+  const serverUrl = `http://localhost:${SERVER_PORT}`;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      const response = await fetch(`${serverUrl}/health`).catch(() => null);
+      if (response && response.ok) {
+        console.log(`[Electron] Backend server ready after ${attempt * delayMs}ms`);
+        return true;
+      }
+    } catch (error) {
+      // Server not ready yet, continue polling
+    }
+
+    // Wait before next attempt
+    await new Promise(resolve => setTimeout(resolve, delayMs));
+  }
+
+  throw new Error(`Server failed to become ready after ${maxAttempts * delayMs}ms`);
+}
+
+/**
  * Start the backend server
  */
 async function startBackendServer() {
@@ -186,11 +287,16 @@ async function startBackendServer() {
         serverProcess = null;
       });
 
-      // Wait a bit for server to start
-      setTimeout(() => {
-        console.log('[Electron] Backend server started on port', SERVER_PORT);
-        resolve();
-      }, 2000);
+      // Wait for server to be ready by polling health endpoint
+      waitForServerReady()
+        .then(() => {
+          console.log('[Electron] Backend server started on port', SERVER_PORT);
+          resolve();
+        })
+        .catch((error) => {
+          console.error('[Electron] Server failed to start:', error);
+          reject(error);
+        });
     } catch (error) {
       reject(error);
     }
@@ -212,21 +318,37 @@ function stopBackendServer() {
  * IPC Handlers
  */
 function setupIpcHandlers() {
-  // Handle opening external links
+  // Handle opening external links with URL validation
   ipcMain.handle('open-external', async (event, url) => {
-    await shell.openExternal(url);
-    return { success: true };
+    if (!url || typeof url !== 'string') {
+      throw new Error('Invalid URL provided');
+    }
+
+    if (!isValidExternalUrl(url)) {
+      console.warn('[Electron] Blocked attempt to open invalid URL:', url);
+      throw new Error('URL validation failed: Only http:// and https:// URLs are allowed');
+    }
+
+    try {
+      await shell.openExternal(url);
+      return { success: true };
+    } catch (error) {
+      console.error('[Electron] Failed to open external URL:', error);
+      throw error;
+    }
   });
 
-  // Handle showing native dialogs
+  // Handle showing native dialogs with input validation
   ipcMain.handle('show-message-box', async (event, options) => {
-    const result = await dialog.showMessageBox(mainWindow, options);
+    const sanitizedOptions = validateDialogOptions(options, 'messageBox');
+    const result = await dialog.showMessageBox(mainWindow, sanitizedOptions);
     return result;
   });
 
-  // Handle opening directory picker
+  // Handle opening directory picker with input validation
   ipcMain.handle('show-open-dialog', async (event, options) => {
-    const result = await dialog.showOpenDialog(mainWindow, options);
+    const sanitizedOptions = validateDialogOptions(options, 'openDialog');
+    const result = await dialog.showOpenDialog(mainWindow, sanitizedOptions);
     return result;
   });
 
