@@ -61,13 +61,20 @@ function AppContent() {
   // Sync URL params with selected app
   useEffect(() => {
     if (projectId) {
-      setSelectedAppId(projectId);
-      selectTab(projectId);
-      setActiveTab('apps');
+      // Validate that the project exists
+      const projectExists = apps.find(app => app.id === projectId);
+      if (projectExists) {
+        setSelectedAppId(projectId);
+        selectTab(projectId);
+        setActiveTab('apps');
+      } else {
+        // Invalid/stale project ID - redirect to dashboard
+        navigate('/', { replace: true });
+      }
     } else {
       setActiveTab('dashboard');
     }
-  }, [projectId, setSelectedAppId, selectTab]);
+  }, [projectId, apps, setSelectedAppId, selectTab, setActiveTab, navigate]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
