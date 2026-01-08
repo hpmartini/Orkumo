@@ -196,40 +196,282 @@ docker compose up code-server -d
 ## Troubleshooting
 
 ### code-server Won't Start
+
 **Error**: `CODE_SERVER_PASSWORD must be set`
 
 **Fix**: Set password in `.env` file
 
-### Timeout Errors
-**Symptoms**: "Failed to load VS Code (timeout)"
+**How to check**:
+```bash
+# Verify code-server container status
+docker compose ps code-server
+
+# Check container logs for startup errors
+docker compose logs code-server
+```
+
+### Connection Refused / Timeout Errors
+
+**Symptoms**: "Failed to load VS Code (timeout)" or "connection refused"
 
 **Fixes**:
-1. Verify container is running: `docker compose ps code-server`
-2. Check logs: `docker compose logs -f code-server`
-3. Increase timeout: `VITE_CODE_SERVER_TIMEOUT=30000`
-4. Check firewall settings
+
+1. **Verify container is running**:
+   ```bash
+   docker compose ps code-server
+   # Should show "running" status
+   ```
+
+2. **Check container logs**:
+   ```bash
+   docker compose logs -f code-server
+   # Look for startup errors or crashes
+   ```
+
+3. **Verify nginx proxy is working**:
+   ```bash
+   # Test nginx proxy (from host machine)
+   curl -I http://localhost:3000/code-server/
+   # Should return 200 OK or redirect to login
+   ```
+
+4. **Check if code-server is accessible directly** (debugging only):
+   ```bash
+   # Should work on host machine
+   curl -I http://localhost:8443/
+   ```
+
+5. **Increase timeout** if container is slow to start:
+   ```bash
+   # In .env file
+   VITE_CODE_SERVER_TIMEOUT=30000
+   ```
+
+6. **Check firewall settings** (if using direct port access):
+   ```bash
+   # macOS
+   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --listapps
+
+   # Linux
+   sudo ufw status
+   ```
+
+7. **Restart services**:
+   ```bash
+   docker compose restart frontend code-server
+   ```
 
 ### Wrong Files Visible
-**Symptoms**: Can't see project files
 
-**Fix**: Check path mapping in browser console (F12):
+**Symptoms**: Can't see project files or wrong directory opens
+
+**Fix**: Check path mapping in browser console (F12 → Console):
 ```
 [WebIDEPanel] Mapped path: /Users/you/Projects/myapp -> /home/coder/Projects/myapp
 ```
 
-If incorrect, update volume mounts in `docker-compose.yml`
+If path doesn't match expected:
+
+1. **Verify volume mounts** in `docker-compose.yml`:
+   ```yaml
+   volumes:
+     - ${HOME}/Projects:/home/coder/Projects
+     - ${HOME}/PROJECTS:/home/coder/PROJECTS
+   ```
+
+2. **Check your project path**:
+   ```bash
+   # Your project should be in one of these directories
+   ls ~/Projects
+   ls ~/PROJECTS
+   ```
+
+3. **Restart code-server after changing mounts**:
+   ```bash
+   docker compose down code-server
+   docker compose up -d code-server
+   ```
 
 ### Permission Errors
-**Symptoms**: "Permission denied" when editing
 
-**Fix**: Ensure correct permissions:
-```bash
-chmod -R u+rw ~/Projects
-```
+**Symptoms**: "Permission denied" when editing files
+
+**Fixes**:
+
+1. **Ensure host directories have correct permissions**:
+   ```bash
+   chmod -R u+rw ~/Projects
+   ```
+
+2. **Check file ownership**:
+   ```bash
+   ls -la ~/Projects/your-project
+   # Files should be owned by your user
+   ```
+
+3. **Fix ownership if needed**:
+   ```bash
+   sudo chown -R $USER:$USER ~/Projects
+   ```
+
+### Authentication Not Working
+
+**Symptoms**: code-server keeps asking for password or won't accept password
+
+**Fixes**:
+
+1. **Verify password is set correctly**:
+   ```bash
+   # Check .env file has CODE_SERVER_PASSWORD set
+   grep CODE_SERVER_PASSWORD .env
+   ```
+
+2. **Check for special characters** that might need escaping:
+   ```bash
+   # Avoid characters like $, `, ", ', \ in passwords
+   # Or ensure they're properly escaped
+   ```
+
+3. **Clear browser cookies**:
+   - Open DevTools (F12)
+   - Application tab → Cookies → Clear cookies for localhost
+   - Refresh page
+
+4. **Restart code-server**:
+   ```bash
+   docker compose restart code-server
+   ```
+
+### WebSocket Connection Failures
+
+**Symptoms**: Terminal not working in VS Code, or "WebSocket connection failed" errors
+
+**Fixes**:
+
+1. **Verify nginx WebSocket proxy is configured** (should be in `docker/nginx.conf`):
+   ```nginx
+   proxy_set_header Upgrade $http_upgrade;
+   proxy_set_header Connection $connection_upgrade;
+   ```
+
+2. **Check browser console** (F12) for WebSocket errors
+
+3. **Verify code-server healthcheck passes**:
+   ```bash
+   docker compose ps code-server
+   # Health status should be "healthy"
+   ```
+
+4. **Test WebSocket upgrade manually**:
+   ```bash
+   curl -i -N -H "Connection: Upgrade" -H "Upgrade: websocket" \
+     http://localhost:3000/code-server/
+   ```
+
+### High Resource Usage
+
+**Symptoms**: code-server using excessive CPU or memory
+
+**Fixes**:
+
+1. **Check current resource usage**:
+   ```bash
+   docker stats devorbit-code-server
+   ```
+
+2. **Adjust resource limits** in `docker-compose.yml`:
+   ```yaml
+   deploy:
+     resources:
+       limits:
+         cpus: '1.0'      # Reduce from 2.0
+         memory: 1G       # Reduce from 2G
+   ```
+
+3. **Close unused VS Code tabs/windows**
+
+4. **Disable resource-heavy extensions**
+
+5. **Restart code-server**:
+   ```bash
+   docker compose restart code-server
+   ```
+
+### Port Already in Use
+
+**Error**: `Bind for 127.0.0.1:8443 failed: port is already allocated`
+
+**Fixes**:
+
+1. **Find what's using the port**:
+   ```bash
+   # macOS/Linux
+   lsof -i :8443
+
+   # Or use netstat
+   netstat -an | grep 8443
+   ```
+
+2. **Change the port** in `docker-compose.yml`:
+   ```yaml
+   ports:
+     - "127.0.0.1:8444:8080"  # Changed from 8443
+   ```
+
+3. **Update environment variable** (if using direct access):
+   ```bash
+   # .env file
+   VITE_CODE_SERVER_URL=http://localhost:8444
+   ```
+
+4. **Restart services**:
+   ```bash
+   docker compose down
+   docker compose up -d
+   ```
+
+### Extensions Won't Install
+
+**Symptoms**: Can't install VS Code extensions from marketplace
+
+**Fixes**:
+
+1. **Check internet connectivity** from container:
+   ```bash
+   docker exec devorbit-code-server curl -I https://marketplace.visualstudio.com
+   ```
+
+2. **Verify extension marketplace URL** is accessible
+
+3. **Try manual installation**:
+   - Download `.vsix` file from marketplace
+   - In VS Code: Extensions → "..." menu → "Install from VSIX"
+
+4. **Check container logs** for errors:
+   ```bash
+   docker compose logs -f code-server | grep -i extension
+   ```
 
 ## Advanced Configuration
 
 ### HTTPS Setup (Production)
+
+> **⚠️ IMPORTANT:** When deploying with HTTPS, ensure your reverse proxy properly handles WebSocket upgrades. code-server requires WebSocket support for terminal functionality, file watching, and real-time features.
+
+**Why HTTPS is Important:**
+- Passwords and code transmitted in plaintext over HTTP
+- Cookies marked as `Secure` won't work over HTTP
+- Modern browsers restrict features on non-HTTPS sites
+- Required for remote access from any location
+
+**Key Considerations:**
+1. **WebSocket Protocol Change**: When using HTTPS, WebSocket connections use `wss://` instead of `ws://`
+2. **Nginx Proxy Requirements**:
+   - Must forward `Upgrade` and `Connection` headers
+   - Must use `proxy_http_version 1.1` (WebSocket requires HTTP/1.1)
+   - Buffering must be disabled for real-time communication
+3. **Certificate Validation**: Ensure SSL certificates are valid (self-signed certs may cause WebSocket failures)
+4. **Timeout Settings**: WebSocket connections are long-lived - set appropriate timeouts (24+ hours)
 
 #### Option 1: Caddy (Recommended)
 ```bash
@@ -244,14 +486,40 @@ VITE_CODE_SERVER_URL=https://code.yourdomain.com
 
 #### Option 2: Nginx + Certbot
 ```nginx
+# WebSocket upgrade mapping (add at top of nginx.conf, outside server block)
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    '' close;
+}
+
 server {
-    listen 443 ssl;
+    listen 443 ssl http2;
     server_name code.yourdomain.com;
+
+    # SSL certificates (managed by Certbot)
+    ssl_certificate /etc/letsencrypt/live/code.yourdomain.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/code.yourdomain.com/privkey.pem;
 
     location / {
         proxy_pass http://localhost:8443;
+        proxy_http_version 1.1;
+
+        # WebSocket support (REQUIRED for code-server)
         proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection upgrade;
+        proxy_set_header Connection $connection_upgrade;
+
+        # Standard headers
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # WebSocket timeouts (24 hours)
+        proxy_read_timeout 86400s;
+        proxy_send_timeout 86400s;
+
+        # Disable buffering for real-time updates
+        proxy_buffering off;
     }
 }
 ```

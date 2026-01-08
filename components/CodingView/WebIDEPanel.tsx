@@ -461,10 +461,10 @@ export const WebIDEPanel = ({ directory }: WebIDEPanelProps) => {
             title="VS Code Server"
             onLoad={handleIframeLoad}
             onError={handleIframeError}
-            // Security: Removed allow-same-origin for better isolation
-            // This prevents iframe from accessing parent origin's storage/cookies
-            // Note: code-server may need to use token-based auth instead of cookie auth
-            sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+            // Security: allow-same-origin is required for code-server authentication
+            // code-server uses cookies for session management which requires same-origin access
+            // This is safe because code-server is served through our nginx proxy on the same origin
+            sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals allow-same-origin"
             allow="clipboard-read; clipboard-write"
             aria-label="VS Code web editor"
           />
