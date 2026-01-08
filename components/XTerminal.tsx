@@ -463,11 +463,9 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     };
   }, []); // Empty deps - observer created once on mount, uses refs for current values
 
-  // Cleanup on unmount - dispose terminals and clear references for reinit on next mount
+  // Cleanup on unmount - dispose terminals when component is truly unmounted
+  // (e.g., when switching to a different app, not when switching views)
   useEffect(() => {
-    // Capture setTabs for cleanup
-    const cleanupSetTabs = setTabs;
-
     return () => {
       // Use ref to get current tabs without dependency issues
       const currentTabs = tabsRef.current;
@@ -475,21 +473,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         tab.ws?.close();
         tab.terminal?.dispose();
       });
-
-      // Clear terminal references in state so next mount can reinitialize
-      // This is critical for shared state - without this, the next mount sees
-      // stale terminal references and skips initialization
-      cleanupSetTabs((prev) =>
-        prev.map((tab) => ({
-          ...tab,
-          terminal: null,
-          fitAddon: null,
-          ws: null,
-          connected: false,
-        }))
-      );
     };
-  }, [setTabs]); // Include setTabs to capture correct reference
+  }, []); // Empty deps - only runs on actual unmount
 
   // Close a tab
   const closeTab = useCallback(

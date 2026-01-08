@@ -1,48 +1,33 @@
-import { useState } from 'react';
+import type { RefObject } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
 import { BrowserPreviewPanel } from './BrowserPreviewPanel';
-import { AppConfig, AppStatus } from '../../types';
-import type { SharedTerminalState, SharedTerminalActions } from '../../hooks/useSharedTerminals';
+import { AppConfig } from '../../types';
 import './CodingView.css';
 
 interface CodingViewProps {
   app: AppConfig;
-  terminalState?: SharedTerminalState;
-  terminalActions?: SharedTerminalActions;
+  /** Ref for the terminal slot - the terminal wrapper will be moved here */
+  terminalSlotRef: RefObject<HTMLDivElement | null>;
 }
 
-export function CodingView({ app, terminalState, terminalActions }: CodingViewProps) {
-  const [isTerminalHidden, setIsTerminalHidden] = useState(false);
-
+export function CodingView({ app, terminalSlotRef }: CodingViewProps) {
   return (
     <div className="coding-view-container">
       <Group orientation="horizontal" className="coding-view-group">
-        {/* Terminals Panel - Hidden when isTerminalHidden is true */}
-        {!isTerminalHidden && (
-          <>
-            <Panel defaultSize={25} minSize={15} className="coding-panel">
-              <TerminalsPanel
-                directory={app.path}
-                logs={app.logs}
-                isRunning={app.status === AppStatus.RUNNING}
-                onHide={() => setIsTerminalHidden(true)}
-                sharedState={terminalState}
-                sharedActions={terminalActions}
-              />
-            </Panel>
-            <Separator className="coding-separator" />
-          </>
-        )}
+        {/* Terminals Panel - Always visible to preserve terminal session */}
+        <Panel defaultSize={25} minSize={15} className="coding-panel">
+          <TerminalsPanel>
+            {/* Terminal slot - the terminal wrapper will be moved here from AppDetail */}
+            <div ref={terminalSlotRef} className="h-full" />
+          </TerminalsPanel>
+        </Panel>
+        <Separator className="coding-separator" />
 
         {/* Web IDE Panel */}
-        <Panel defaultSize={isTerminalHidden ? 55 : 45} minSize={20} className="coding-panel">
-          <WebIDEPanel
-            directory={app.path}
-            showTerminalButton={isTerminalHidden}
-            onShowTerminal={() => setIsTerminalHidden(false)}
-          />
+        <Panel defaultSize={45} minSize={20} className="coding-panel">
+          <WebIDEPanel directory={app.path} />
         </Panel>
 
         <Separator className="coding-separator" />

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Play,
   Square,
@@ -22,7 +22,6 @@ import { PerformanceCharts } from './PerformanceCharts';
 import { XTerminal } from './XTerminal';
 import { IDESelector } from './IDESelector';
 import { CodingView } from './CodingView';
-import { useSharedTerminals } from '../hooks/useSharedTerminals';
 
 interface AppDetailProps {
   app: AppConfig | null;
@@ -65,8 +64,28 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   const [showNameEditor, setShowNameEditor] = useState(false);
   const [nameValue, setNameValue] = useState('');
 
-  // Shared terminal state - persists across Details/Coding view switches
-  const [terminalState, terminalActions] = useSharedTerminals(app?.id || '');
+  // Ref for the single terminal container that holds the XTerminal
+  // This container is positioned absolutely and moved between views using CSS
+  const terminalWrapperRef = useRef<HTMLDivElement>(null);
+
+  // Refs for position targets in Details and Coding views
+  const detailsTerminalSlotRef = useRef<HTMLDivElement>(null);
+  const codingTerminalSlotRef = useRef<HTMLDivElement>(null);
+
+  // Position the terminal wrapper based on active view
+  useEffect(() => {
+    const wrapper = terminalWrapperRef.current;
+    if (!wrapper) return;
+
+    const targetSlot = activeView === 'details'
+      ? detailsTerminalSlotRef.current
+      : codingTerminalSlotRef.current;
+
+    if (targetSlot) {
+      // Move the wrapper element into the target slot
+      targetSlot.appendChild(wrapper);
+    }
+  }, [activeView]);
 
   if (!app) {
     return (
@@ -146,15 +165,17 @@ export const AppDetail: React.FC<AppDetailProps> = ({
         </button>
       </div>
 
-      {/* View Content */}
-      <div className="flex-1 overflow-hidden">
-        {activeView === 'details' ? (
-          <div
-            id="details-panel"
-            role="tabpanel"
-            aria-labelledby="details-tab"
-            className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 p-6 max-w-7xl mx-auto"
-          >
+      {/* View Content - Both views are always mounted, visibility controlled by CSS */}
+      <div className="flex-1 overflow-hidden relative">
+        {/* Details View */}
+        <div
+          id="details-panel"
+          role="tabpanel"
+          aria-labelledby="details-tab"
+          className={`space-y-6 p-6 max-w-7xl mx-auto h-full overflow-auto ${
+            activeView === 'details' ? 'block' : 'hidden'
+          }`}
+        >
             {/* Header */}
             <div className="bg-gray-800 p-6 rounded-xl border border-gray-700">
               <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -427,24 +448,31 @@ export const AppDetail: React.FC<AppDetailProps> = ({
               memoryHistory={app.stats.memory}
             />
 
-            {/* XTerminal with tabs */}
-            <div className="h-[400px]">
-              <XTerminal
-                logs={app.logs}
-                isRunning={app.status === AppStatus.RUNNING}
-                cwd={app.path}
-                sharedState={terminalState}
-                sharedActions={terminalActions}
-              />
-            </div>
+            {/* Terminal slot for Details view - the terminal wrapper will be moved here */}
+            <div ref={detailsTerminalSlotRef} className="h-[400px]" />
           </div>
-        ) : (
+
+        {/* Coding View - Always mounted, hidden when not active */}
+        <div
+          id="coding-panel"
+          role="tabpanel"
+          aria-labelledby="coding-tab"
+          className={`absolute inset-0 ${activeView === 'coding' ? 'block' : 'hidden'}`}
+        >
           <CodingView
             app={app}
-            terminalState={terminalState}
-            terminalActions={terminalActions}
+            terminalSlotRef={codingTerminalSlotRef}
           />
-        )}
+        </div>
+
+        {/* Single XTerminal instance wrapper - moves between view slots via DOM manipulation */}
+        <div ref={terminalWrapperRef} className="h-full">
+          <XTerminal
+            logs={app.logs}
+            isRunning={app.status === AppStatus.RUNNING}
+            cwd={app.path}
+          />
+        </div>
       </div>
     </div>
   );
