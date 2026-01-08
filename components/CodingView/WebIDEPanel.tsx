@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import {
   Folder,
@@ -49,31 +49,54 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
   const [codeServerError, setCodeServerError] = useState<string | null>(null);
   const [loadTimeout, setLoadTimeout] = useState<NodeJS.Timeout | null>(null);
 
-  // Get code-server URL from environment or use default
-  const getCodeServerUrl = () => {
-    return import.meta.env.VITE_CODE_SERVER_URL || 'http://localhost:8443';
-  };
+  // Ref for iframe to enable manual reload
+  const iframeRef = useRef<HTMLIFrameElement>(null);
 
-  // Convert host path to container path for code-server
-  const getContainerPath = (hostPath: string) => {
+  // Get code-server URL from environment or use default (memoized)
+  const codeServerUrl = useMemo(() => {
+    return import.meta.env.VITE_CODE_SERVER_URL || 'http://localhost:8443';
+  }, []);
+
+  // Convert host path to container path for code-server (memoized)
+  const getContainerPath = useCallback((hostPath: string) => {
     // code-server mounts volumes at /home/coder/Projects and /home/coder/PROJECTS
     // Convert host path to container path
     const normalizedPath = hostPath.replace(/\\/g, '/');
 
-    // Extract the project name from the path
-    // Assumes paths like /Users/*/Projects/myproject or /Users/*/PROJECTS/myproject
-    const projectsMatch = normalizedPath.match(/\/Projects\/(.+)$/i);
-    const PROJECTSMatch = normalizedPath.match(/\/PROJECTS\/(.+)$/i);
+    // Extract the project name from the path - match LAST occurrence to handle nested Projects folders
+    // Use separate patterns for case-sensitive matching
+    const projectsMatches = normalizedPath.match(/\/Projects\//g);
+    const PROJECTSMatches = normalizedPath.match(/\/PROJECTS\//g);
 
-    if (projectsMatch) {
-      return `/home/coder/Projects/${projectsMatch[1]}`;
-    } else if (PROJECTSMatch) {
-      return `/home/coder/PROJECTS/${PROJECTSMatch[1]}`;
+    // Determine which pattern to use and find last occurrence
+    let containerPath: string | null = null;
+
+    if (projectsMatches && projectsMatches.length > 0) {
+      const lastIndex = normalizedPath.lastIndexOf('/Projects/');
+      const relativePath = normalizedPath.substring(lastIndex + '/Projects/'.length);
+      containerPath = `/home/coder/Projects/${relativePath}`;
+      console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
+    } else if (PROJECTSMatches && PROJECTSMatches.length > 0) {
+      const lastIndex = normalizedPath.lastIndexOf('/PROJECTS/');
+      const relativePath = normalizedPath.substring(lastIndex + '/PROJECTS/'.length);
+      containerPath = `/home/coder/PROJECTS/${relativePath}`;
+      console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
     }
 
-    // Fallback: assume it's already a container path or use as-is
-    return normalizedPath;
-  };
+    if (!containerPath) {
+      // Fallback: assume it's already a container path or use as-is
+      console.warn(`[WebIDEPanel] Could not map path to container: ${hostPath}`);
+      return normalizedPath;
+    }
+
+    return containerPath;
+  }, []);
+
+  // Memoize iframe src URL to avoid unnecessary recalculations
+  const iframeSrc = useMemo(() => {
+    const containerPath = getContainerPath(directory);
+    return `${codeServerUrl}/?folder=${encodeURIComponent(containerPath)}`;
+  }, [codeServerUrl, directory, getContainerPath]);
 
   // Handle iframe load
   const handleIframeLoad = () => {
@@ -367,8 +390,13 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
                 <div className="text-sm text-red-400 mb-3">{codeServerError}</div>
                 <button
                   onClick={() => {
+                    // Reset state
                     setCodeServerLoading(true);
                     setCodeServerError(null);
+                    // Force iframe reload by changing src
+                    if (iframeRef.current) {
+                      iframeRef.current.src = iframeSrc;
+                    }
                   }}
                   className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm transition-colors"
                 >
@@ -379,11 +407,14 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
           )}
 
           <iframe
-            src={`${getCodeServerUrl()}/?folder=${encodeURIComponent(getContainerPath(directory))}`}
+            ref={iframeRef}
+            src={iframeSrc}
             className="w-full h-full border-0"
             title="VS Code Server"
             onLoad={handleIframeLoad}
             onError={handleIframeError}
+            sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+            allow="clipboard-read; clipboard-write"
           />
         </div>
       ) : (

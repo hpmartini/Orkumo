@@ -126,10 +126,28 @@ services:
       - code-server-config:/home/coder/.config
     environment:
       - PASSWORD=${CODE_SERVER_PASSWORD:?CODE_SERVER_PASSWORD must be set in .env file - see .env.example for details}
-      - SUDO_PASSWORD=${CODE_SERVER_PASSWORD:?CODE_SERVER_PASSWORD must be set in .env file}
+      # Separate sudo password for enhanced security
+      # If CODE_SERVER_SUDO_PASSWORD is not set, sudo will be disabled (recommended)
+      - SUDO_PASSWORD=${CODE_SERVER_SUDO_PASSWORD:-}
     networks:
       - devorbit-network
     restart: unless-stopped
+    # Resource limits to prevent excessive consumption
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    # Health check to ensure code-server is running
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
 
 volumes:
   devorbit-data:
