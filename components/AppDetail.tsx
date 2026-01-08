@@ -424,11 +424,13 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             />
 
             {/* XTerminal with tabs */}
-            <XTerminal
-              logs={app.logs}
-              isRunning={app.status === AppStatus.RUNNING}
-              cwd={app.path}
-            />
+            <div className="h-[400px]">
+              <XTerminal
+                logs={app.logs}
+                isRunning={app.status === AppStatus.RUNNING}
+                cwd={app.path}
+              />
+            </div>
           </div>
         ) : (
           <CodingView app={app} />
