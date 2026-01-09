@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Play,
   Square,
@@ -17,6 +17,8 @@ import {
   Terminal,
   Code,
   MoreHorizontal,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
@@ -40,9 +42,14 @@ interface AppDetailProps {
   onOpenInFinder?: (id: string) => void;
   onOpenInTerminal?: (id: string) => void;
   preferredIDE?: string | null;
+  // View tab bar control
+  isViewTabBarHidden?: boolean;
+  onToggleViewTabBar?: () => void;
+  activeView?: ViewMode;
+  onViewChange?: (view: ViewMode) => void;
 }
 
-type ViewMode = 'details' | 'coding';
+export type ViewMode = 'details' | 'coding';
 
 export const AppDetail: React.FC<AppDetailProps> = ({
   app,
@@ -59,8 +66,21 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onOpenInFinder,
   onOpenInTerminal,
   preferredIDE,
+  isViewTabBarHidden = false,
+  onToggleViewTabBar,
+  activeView: controlledActiveView,
+  onViewChange,
 }) => {
-  const [activeView, setActiveView] = useState<ViewMode>('details');
+  // Use controlled or uncontrolled view mode
+  const [internalActiveView, setInternalActiveView] = useState<ViewMode>('details');
+  const activeView = controlledActiveView ?? internalActiveView;
+  const setActiveView = useCallback((view: ViewMode) => {
+    if (onViewChange) {
+      onViewChange(view);
+    } else {
+      setInternalActiveView(view);
+    }
+  }, [onViewChange]);
   const [showPortEditor, setShowPortEditor] = useState(false);
   const [portValue, setPortValue] = useState('');
   const [showNameEditor, setShowNameEditor] = useState(false);
@@ -138,34 +158,47 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   return (
     <div className="flex flex-col h-full">
       {/* View Switcher Tabs */}
-      <div className="flex border-b border-gray-700 bg-gray-850" role="tablist" aria-label="Application view switcher">
-        <button
-          onClick={() => setActiveView('details')}
-          role="tab"
-          aria-selected={activeView === 'details'}
-          aria-controls="details-panel"
-          className={`px-4 py-2 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset ${
-            activeView === 'details'
-              ? 'text-blue-400 border-b-2 border-blue-400'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          Details
-        </button>
-        <button
-          onClick={() => setActiveView('coding')}
-          role="tab"
-          aria-selected={activeView === 'coding'}
-          aria-controls="coding-panel"
-          className={`px-4 py-2 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset ${
-            activeView === 'coding'
-              ? 'text-blue-400 border-b-2 border-blue-400'
-              : 'text-gray-400 hover:text-white'
-          }`}
-        >
-          Coding
-        </button>
-      </div>
+      {!isViewTabBarHidden && (
+        <div className="flex items-center justify-center border-b border-gray-700 bg-gray-850 relative" role="tablist" aria-label="Application view switcher">
+          <div className="flex">
+            <button
+              onClick={() => setActiveView('details')}
+              role="tab"
+              aria-selected={activeView === 'details'}
+              aria-controls="details-panel"
+              className={`px-6 py-2.5 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset ${
+                activeView === 'details'
+                  ? 'text-blue-400 border-b-2 border-blue-400'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Details
+            </button>
+            <button
+              onClick={() => setActiveView('coding')}
+              role="tab"
+              aria-selected={activeView === 'coding'}
+              aria-controls="coding-panel"
+              className={`px-6 py-2.5 font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-inset ${
+                activeView === 'coding'
+                  ? 'text-blue-400 border-b-2 border-blue-400'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+            >
+              Coding
+            </button>
+          </div>
+          {onToggleViewTabBar && (
+            <button
+              onClick={onToggleViewTabBar}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-500 hover:text-white hover:bg-gray-700 rounded transition-colors"
+              title="Hide tab bar (press C to toggle views)"
+            >
+              <ChevronUp size={16} />
+            </button>
+          )}
+        </div>
+      )}
 
       {/* View Content - Both views are always mounted, visibility controlled by CSS */}
       <div className="flex-1 overflow-hidden relative">

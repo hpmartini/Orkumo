@@ -14,6 +14,9 @@ import {
   Globe,
   PanelLeftClose,
   PanelLeftOpen,
+  Info,
+  Code,
+  ChevronUp,
 } from 'lucide-react';
 import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -43,6 +46,11 @@ interface SidebarProps {
   onOpenSettings?: () => void;
   mainDirectory?: string; // The main/root project directory to highlight
   keyboardShortcuts?: KeyboardShortcuts | null;
+  // Details/Coding view switcher (when tab bar is hidden)
+  showViewSwitcher?: boolean;
+  detailsViewMode?: 'details' | 'coding';
+  onViewModeChange?: (mode: 'details' | 'coding') => void;
+  onShowViewTabBar?: () => void;
 }
 
 interface GroupedApps {
@@ -71,6 +79,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onOpenSettings,
   mainDirectory = 'Projects',
   keyboardShortcuts,
+  showViewSwitcher,
+  detailsViewMode,
+  onViewModeChange,
+  onShowViewTabBar,
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive] = useState(false);
@@ -340,6 +352,55 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </button>
         </div>
 
+        {/* View Switcher (when tab bar is hidden) */}
+        {showViewSwitcher && activeTab === 'apps' && (
+          <div className="p-2 mt-2 border-t border-gray-800 pt-4">
+            <div className="flex flex-col items-center gap-1">
+              <ShortcutTooltip
+                label="Details view"
+                shortcut={getShortcutString(keyboardShortcuts, 'toggleDetailsCoding')}
+                position="right"
+              >
+                <button
+                  onClick={() => onViewModeChange?.('details')}
+                  className={`p-2 rounded-lg transition-all ${
+                    detailsViewMode === 'details'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                  }`}
+                >
+                  <Info size={18} />
+                </button>
+              </ShortcutTooltip>
+              <ShortcutTooltip
+                label="Coding view"
+                shortcut={getShortcutString(keyboardShortcuts, 'toggleDetailsCoding')}
+                position="right"
+              >
+                <button
+                  onClick={() => onViewModeChange?.('coding')}
+                  className={`p-2 rounded-lg transition-all ${
+                    detailsViewMode === 'coding'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                  }`}
+                >
+                  <Code size={18} />
+                </button>
+              </ShortcutTooltip>
+              {onShowViewTabBar && (
+                <button
+                  onClick={onShowViewTabBar}
+                  className="p-1.5 mt-1 rounded text-gray-500 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+                  title="Show tab bar"
+                >
+                  <ChevronUp size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Expand Button */}
         {onToggleCollapse && (
           <div className="p-2 mt-2">
@@ -540,6 +601,48 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {showArchive && (
             <div className="px-4 pb-3 space-y-1">{archived.map((app) => renderAppItem(app))}</div>
           )}
+        </div>
+      )}
+
+      {/* View Switcher (when tab bar is hidden) - Expanded view */}
+      {showViewSwitcher && activeTab === 'apps' && (
+        <div className="px-4 py-3 border-t border-gray-800">
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">View</span>
+            <div className="flex-1 flex items-center gap-1 bg-gray-900 rounded-lg p-1">
+              <button
+                onClick={() => onViewModeChange?.('details')}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm transition-all ${
+                  detailsViewMode === 'details'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                }`}
+              >
+                <Info size={14} />
+                <span>Details</span>
+              </button>
+              <button
+                onClick={() => onViewModeChange?.('coding')}
+                className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm transition-all ${
+                  detailsViewMode === 'coding'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                }`}
+              >
+                <Code size={14} />
+                <span>Coding</span>
+              </button>
+            </div>
+            {onShowViewTabBar && (
+              <button
+                onClick={onShowViewTabBar}
+                className="p-1.5 rounded text-gray-500 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+                title="Show tab bar"
+              >
+                <ChevronUp size={14} />
+              </button>
+            )}
+          </div>
         </div>
       )}
 

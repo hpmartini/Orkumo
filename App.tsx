@@ -61,6 +61,26 @@ function AppContent() {
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Details/Coding view state
+  const [detailsViewMode, setDetailsViewMode] = useState<'details' | 'coding'>('details');
+  const [isViewTabBarHidden, setIsViewTabBarHidden] = useState(() => {
+    const saved = localStorage.getItem('devOrbitViewTabBarHidden');
+    return saved === 'true';
+  });
+
+  // Persist view tab bar hidden state
+  useEffect(() => {
+    localStorage.setItem('devOrbitViewTabBarHidden', String(isViewTabBarHidden));
+  }, [isViewTabBarHidden]);
+
+  const handleToggleViewTabBar = useCallback(() => {
+    setIsViewTabBarHidden(prev => !prev);
+  }, []);
+
+  const handleToggleDetailsView = useCallback(() => {
+    setDetailsViewMode(prev => prev === 'details' ? 'coding' : 'details');
+  }, []);
+
   // Use refs to avoid re-running the effect when callbacks change
   const selectTabRef = useRef(selectTab);
   const setSelectedAppIdRef = useRef(setSelectedAppId);
@@ -220,6 +240,7 @@ function AppContent() {
     { id: 'toggleSidebar' as keyof KeyboardShortcuts, handler: handleToggleSidebarCollapse },
     { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
     { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
+    { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
     { id: 'goToTab1' as keyof KeyboardShortcuts, handler: () => tabs[0] && handleTabSelect(tabs[0].appId) },
     { id: 'goToTab2' as keyof KeyboardShortcuts, handler: () => tabs[1] && handleTabSelect(tabs[1].appId) },
     { id: 'goToTab3' as keyof KeyboardShortcuts, handler: () => tabs[2] && handleTabSelect(tabs[2].appId) },
@@ -229,7 +250,7 @@ function AppContent() {
     { id: 'goToTab7' as keyof KeyboardShortcuts, handler: () => tabs[6] && handleTabSelect(tabs[6].appId) },
     { id: 'goToTab8' as keyof KeyboardShortcuts, handler: () => tabs[7] && handleTabSelect(tabs[7].appId) },
     { id: 'goToTab9' as keyof KeyboardShortcuts, handler: () => tabs[8] && handleTabSelect(tabs[8].appId) },
-  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect]);
+  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect, handleToggleDetailsView]);
 
   useKeyboardShortcuts({
     shortcuts: settings?.keyboardShortcuts,
@@ -310,6 +331,10 @@ function AppContent() {
           onOpenSettings={() => setAdminPanelOpen(true)}
           mainDirectory="Projects"
           keyboardShortcuts={settings?.keyboardShortcuts}
+          showViewSwitcher={isViewTabBarHidden}
+          detailsViewMode={detailsViewMode}
+          onViewModeChange={setDetailsViewMode}
+          onShowViewTabBar={handleToggleViewTabBar}
         />
         {/* Resize handle - only show when not collapsed */}
         {!sidebarCollapsed && (
@@ -441,6 +466,10 @@ function AppContent() {
               onOpenInFinder={handleOpenInFinder}
               onOpenInTerminal={handleOpenInTerminal}
               preferredIDE={(selectedApp && settings?.preferredIDEs?.[selectedApp.id]) || null}
+              isViewTabBarHidden={isViewTabBarHidden}
+              onToggleViewTabBar={handleToggleViewTabBar}
+              activeView={detailsViewMode}
+              onViewChange={setDetailsViewMode}
             />
           )}
         </div>
