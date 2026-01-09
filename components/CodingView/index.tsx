@@ -1,5 +1,4 @@
-import type { RefObject } from 'react';
-import { Group, Panel, Separator } from 'react-resizable-panels';
+import { useState, type RefObject } from 'react';
 import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
 import { WebIDEErrorBoundary } from './WebIDEErrorBoundary';
@@ -14,32 +13,58 @@ interface CodingViewProps {
 }
 
 export function CodingView({ app, terminalSlotRef }: CodingViewProps) {
+  const [isTerminalHidden, setIsTerminalHidden] = useState(false);
+
+  const handleHideTerminal = () => {
+    setIsTerminalHidden(true);
+  };
+
+  const handleShowTerminal = () => {
+    setIsTerminalHidden(false);
+  };
+
   return (
     <div className="coding-view-container">
-      <Group orientation="horizontal" className="coding-view-group">
-        {/* Terminals Panel - Always visible to preserve terminal session */}
-        <Panel defaultSize={25} minSize={15} className="coding-panel">
-          <TerminalsPanel>
-            {/* Terminal slot - the terminal wrapper will be moved here from AppDetail */}
+      {/* Custom flex layout for hide/show terminal functionality */}
+      <div className="coding-view-flex">
+        {/* Terminals Panel - Always mounted, positioned offscreen when hidden */}
+        <div
+          className="coding-panel-terminals"
+          style={isTerminalHidden ? {
+            position: 'absolute',
+            left: '-9999px',
+            width: '400px',
+            height: '300px',
+          } : {
+            flex: '0 0 25%',
+          }}
+        >
+          <TerminalsPanel onHide={handleHideTerminal}>
             <div ref={terminalSlotRef} className="h-full" />
           </TerminalsPanel>
-        </Panel>
-        <Separator className="coding-separator" />
+        </div>
 
-        {/* Web IDE Panel with code-server support */}
-        <Panel defaultSize={45} minSize={20} className="coding-panel">
+        {/* Resizable separator - only shown when terminal is visible */}
+        {!isTerminalHidden && <div className="coding-separator-static" />}
+
+        {/* Web IDE Panel */}
+        <div className="coding-panel-webide" style={{ flex: isTerminalHidden ? '1 1 60%' : '1 1 45%' }}>
           <WebIDEErrorBoundary>
-            <WebIDEPanel directory={app.path} />
+            <WebIDEPanel
+              directory={app.path}
+              showTerminalButton={isTerminalHidden}
+              onShowTerminal={handleShowTerminal}
+            />
           </WebIDEErrorBoundary>
-        </Panel>
+        </div>
 
-        <Separator className="coding-separator" />
+        <div className="coding-separator-static" />
 
         {/* Browser Preview Panel */}
-        <Panel defaultSize={30} minSize={15} className="coding-panel">
+        <div className="coding-panel-browser" style={{ flex: isTerminalHidden ? '1 1 40%' : '1 1 30%' }}>
           <BrowserPreviewPanel url={app.addresses?.[0] || ''} appId={app.id} />
-        </Panel>
-      </Group>
+        </div>
+      </div>
     </div>
   );
 }

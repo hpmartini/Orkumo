@@ -15,6 +15,8 @@ import {
   Star,
   Archive,
   Terminal,
+  Code,
+  MoreHorizontal,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
@@ -326,8 +328,9 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                   </div>
                 </div>
 
-                {/* Action Buttons */}
-                <div className="flex gap-2 flex-wrap">
+                {/* Action Buttons - Option 1: Primary + Overflow Menu */}
+                <div className="flex gap-2 flex-wrap items-start">
+                  {/* Primary Actions */}
                   {canStop ? (
                     <button
                       onClick={() => onStop(app.id)}
@@ -367,7 +370,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                       title="Install dependencies (npm install)"
                     >
                       <Package size={18} />
-                      <span className="hidden lg:inline">Install</span>
+                      <span className="hidden sm:inline">Install</span>
                     </button>
                   )}
 
@@ -382,7 +385,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                     ) : (
                       <Zap size={18} />
                     )}
-                    <span className="hidden lg:inline">AI Config</span>
+                    <span className="hidden sm:inline">AI Config</span>
                   </button>
 
                   <button
@@ -394,42 +397,17 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                     <Globe size={18} />
                   </button>
 
-                  {onOpenInFinder && (
-                    <button
-                      onClick={() => onOpenInFinder(app.id)}
-                      className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all"
-                      title="Open in Finder"
-                    >
-                      <FolderOpen size={18} />
-                    </button>
-                  )}
-
-                  {onOpenInTerminal && (
-                    <button
-                      onClick={() => onOpenInTerminal(app.id)}
-                      className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all"
-                      title="Open in Terminal"
-                    >
-                      <Terminal size={18} />
-                    </button>
-                  )}
-
-                  <IDESelector
-                    appId={app.id}
-                    preferredIDE={preferredIDE}
-                  />
-
-                  {onToggleArchive && (
-                    <button
-                      onClick={() => onToggleArchive(app.id)}
-                      className={`flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all ${
-                        app.isArchived ? 'text-orange-400' : ''
-                      }`}
-                      title={app.isArchived ? 'Unarchive' : 'Archive'}
-                    >
-                      <Archive size={18} />
-                    </button>
-                  )}
+                  {/* More Menu - Secondary Actions in overflow */}
+                  <div className="flex items-center">
+                    <MoreActionsMenu
+                      appId={app.id}
+                      preferredIDE={preferredIDE}
+                      isArchived={app.isArchived}
+                      onOpenInFinder={onOpenInFinder}
+                      onOpenInTerminal={onOpenInTerminal}
+                      onToggleArchive={onToggleArchive}
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -474,6 +452,128 @@ export const AppDetail: React.FC<AppDetailProps> = ({
           />
         </div>
       </div>
+    </div>
+  );
+};
+
+// More Actions Menu Component for overflow actions
+interface MoreActionsMenuProps {
+  appId: string;
+  preferredIDE?: string | null;
+  isArchived?: boolean;
+  onOpenInFinder?: (id: string) => void;
+  onOpenInTerminal?: (id: string) => void;
+  onToggleArchive?: (id: string) => void;
+}
+
+const MoreActionsMenu: React.FC<MoreActionsMenuProps> = ({
+  appId,
+  preferredIDE,
+  isArchived,
+  onOpenInFinder,
+  onOpenInTerminal,
+  onToggleArchive,
+}) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const [showIDESelector, setShowIDESelector] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  // Close menu when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+        setShowIDESelector(false);
+      }
+    };
+
+    if (isOpen) {
+      document.addEventListener('mousedown', handleClickOutside);
+    }
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [isOpen]);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setIsOpen(!isOpen)}
+        className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all"
+        title="More actions"
+      >
+        <MoreHorizontal size={18} />
+      </button>
+
+      {isOpen && (
+        <div className="absolute right-0 mt-1 min-w-[200px] bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-50 py-1">
+          {onOpenInFinder && (
+            <button
+              onClick={() => {
+                onOpenInFinder(appId);
+                setIsOpen(false);
+              }}
+              className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+            >
+              <FolderOpen size={16} />
+              Open in Finder
+            </button>
+          )}
+
+          {onOpenInTerminal && (
+            <button
+              onClick={() => {
+                onOpenInTerminal(appId);
+                setIsOpen(false);
+              }}
+              className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+            >
+              <Terminal size={16} />
+              Open in Terminal
+            </button>
+          )}
+
+          <button
+            onClick={() => {
+              setShowIDESelector(!showIDESelector);
+            }}
+            className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+          >
+            <Code size={16} />
+            Open in IDE
+          </button>
+
+          {showIDESelector && (
+            <div className="px-2 py-2 border-t border-gray-700">
+              <IDESelector
+                appId={appId}
+                preferredIDE={preferredIDE}
+                onSuccess={() => {
+                  setIsOpen(false);
+                  setShowIDESelector(false);
+                }}
+              />
+            </div>
+          )}
+
+          {onToggleArchive && (
+            <>
+              <div className="my-1 border-t border-gray-700" />
+              <button
+                onClick={() => {
+                  onToggleArchive(appId);
+                  setIsOpen(false);
+                }}
+                className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+              >
+                <Archive size={16} />
+                {isArchived ? 'Unarchive' : 'Archive'}
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </div>
   );
 };
