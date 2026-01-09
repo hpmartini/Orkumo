@@ -3,7 +3,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { fork } from 'child_process';
 import * as fs from 'fs';
-import { isValidExternalUrl, validateDialogOptions } from './validation.ts';
+import { isValidExternalUrl, validateDialogOptions } from './validation.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -298,6 +298,15 @@ function stopBackendServer() {
     isShuttingDown = true;
     console.log('[Electron] Stopping backend server...');
     serverProcess.kill('SIGTERM');
+
+    // Set a timeout to forcefully kill the process if it doesn't exit within 5 seconds
+    setTimeout(() => {
+      if (serverProcess && serverProcess.exitCode === null) {
+        console.warn('[Electron] Server did not exit gracefully, sending SIGKILL...');
+        serverProcess.kill('SIGKILL');
+      }
+    }, 5000);
+
     // Don't set serverProcess to null here - let the exit handler do it
     // This prevents a race condition where the exit handler won't execute properly
   }
@@ -408,13 +417,15 @@ app.on('before-quit', () => {
 // Handle crashes
 app.on('render-process-gone', (event, webContents, details) => {
   console.error('[Electron] Render process gone:', details);
-  dialog.showMessageBox({
-    type: 'error',
-    title: 'Application Crash',
-    message: 'The application has crashed.',
-    detail: `Reason: ${details.reason}`,
-    buttons: ['OK']
-  });
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    dialog.showMessageBox(mainWindow, {
+      type: 'error',
+      title: 'Application Crash',
+      message: 'The application has crashed.',
+      detail: `Reason: ${details.reason}`,
+      buttons: ['OK']
+    });
+  }
 });
 
 // Prevent multiple instances

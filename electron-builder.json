@@ -112,9 +112,9 @@
   },
   "afterSign": "electron/notarize.js",
   "asarUnpack": [
-    "node_modules/node-pty/build/**/*",
+    "node_modules/node-pty/build/Release/*.node",
     "node_modules/node-pty/package.json",
-    "node_modules/pidusage/lib/**/*",
+    "node_modules/pidusage/lib/**/*.js",
     "node_modules/pidusage/package.json"
   ]
 }
