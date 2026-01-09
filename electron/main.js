@@ -155,20 +155,38 @@ function createApplicationMenu() {
 async function isPortAvailable(port) {
   return new Promise((resolve) => {
     const server = require('net').createServer();
+    let resolved = false;
+
+    // Set a timeout to prevent hanging indefinitely
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        console.warn(`[Electron] Port check timeout for port ${port}`);
+        server.close();
+        resolve(false);
+      }
+    }, 5000);
 
     server.once('error', (err) => {
-      if (err.code === 'EADDRINUSE') {
-        console.log(`[Electron] Port ${port} is already in use`);
-        resolve(false);
-      } else {
-        console.warn(`[Electron] Port check error for port ${port}:`, err.code, err.message);
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        if (err.code === 'EADDRINUSE') {
+          console.log(`[Electron] Port ${port} is already in use`);
+        } else {
+          console.warn(`[Electron] Port check error for port ${port}:`, err.code, err.message);
+        }
         resolve(false);
       }
     });
 
     server.once('listening', () => {
-      server.close();
-      resolve(true);
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        server.close();
+        resolve(true);
+      }
     });
 
     server.listen(port, '127.0.0.1');
@@ -252,7 +270,8 @@ async function startBackendServer() {
     serverProcess = null;
 
     // If server crashes after startup (code !== 0) and window exists, show error
-    if (hadProcess && code !== 0 && code !== null && mainWindow && !mainWindow.isDestroyed()) {
+    // Don't show error if we're in the process of shutting down
+    if (hadProcess && code !== 0 && code !== null && !isShuttingDown && mainWindow && !mainWindow.isDestroyed()) {
       console.error(`[Electron] Server crashed with exit code ${code}`);
       dialog.showMessageBox(mainWindow, {
         type: 'error',
