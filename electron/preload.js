@@ -19,6 +19,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showMessageBox: (options) => ipcRenderer.invoke('show-message-box', options),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
 
+  // Auto-updates
+  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
+  installUpdate: () => ipcRenderer.invoke('install-update'),
+  onDownloadProgress: (callback) => {
+    ipcRenderer.on('download-progress', (event, progress) => callback(progress));
+  },
+
   // Environment
   isElectron: true,
   isDev: process.defaultApp || process.env.NODE_ENV === 'development',

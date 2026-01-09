@@ -8,6 +8,19 @@ export interface PlatformInfo {
   version: string;
 }
 
+export interface UpdateCheckResult {
+  updateAvailable: boolean;
+  version?: string;
+  message?: string;
+}
+
+export interface DownloadProgress {
+  bytesPerSecond: number;
+  percent: number;
+  transferred: number;
+  total: number;
+}
+
 export interface ElectronAPI {
   // Platform information
   getPlatform: () => Promise<PlatformInfo>;
@@ -19,6 +32,11 @@ export interface ElectronAPI {
   // Native dialogs
   showMessageBox: (options: Electron.MessageBoxOptions) => Promise<Electron.MessageBoxReturnValue>;
   showOpenDialog: (options: Electron.OpenDialogOptions) => Promise<Electron.OpenDialogReturnValue>;
+
+  // Auto-updates
+  checkForUpdates: () => Promise<UpdateCheckResult>;
+  installUpdate: () => Promise<void>;
+  onDownloadProgress: (callback: (progress: DownloadProgress) => void) => void;
 
   // Environment
   isElectron: boolean;

@@ -100,6 +100,29 @@ When running in development mode (`npm run electron:dev`):
 - DevTools are automatically opened
 - Backend server runs with live reloading
 - Logs are printed to the terminal
+- Auto-update is disabled
+
+### Auto-Updates
+
+The desktop application includes automatic update functionality:
+
+**How it works:**
+- The app checks for updates 5 seconds after startup
+- Updates are checked against GitHub Releases
+- You'll be notified when a new version is available
+- You can choose to download the update or postpone it
+- Updates download in the background
+- After download, you can install immediately or wait until next restart
+- Updates are installed automatically when you quit the app (if downloaded)
+
+**Manual Update Check:**
+You can manually check for updates through the application menu or by calling:
+```javascript
+window.electronAPI?.checkForUpdates()
+```
+
+**Development Mode:**
+Auto-update is disabled when running in development mode (`npm run electron:dev`).
 
 ## Architecture
 

@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { fork } from 'child_process';
 import * as fs from 'fs';
+import { autoUpdater } from 'electron-updater';
 import { isValidExternalUrl, validateDialogOptions } from './validation.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -344,16 +345,34 @@ function setupIpcHandlers() {
 
   // Handle showing native dialogs with input validation
   ipcMain.handle('show-message-box', async (event, options) => {
-    const sanitizedOptions = validateDialogOptions(options, 'messageBox');
-    const result = await dialog.showMessageBox(mainWindow, sanitizedOptions);
-    return result;
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      throw new Error('Main window not available');
+    }
+
+    try {
+      const sanitizedOptions = validateDialogOptions(options, 'messageBox');
+      const result = await dialog.showMessageBox(mainWindow, sanitizedOptions);
+      return result;
+    } catch (error) {
+      console.error('[Electron] Dialog error:', error);
+      throw error;
+    }
   });
 
   // Handle opening directory picker with input validation
   ipcMain.handle('show-open-dialog', async (event, options) => {
-    const sanitizedOptions = validateDialogOptions(options, 'openDialog');
-    const result = await dialog.showOpenDialog(mainWindow, sanitizedOptions);
-    return result;
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      throw new Error('Main window not available');
+    }
+
+    try {
+      const sanitizedOptions = validateDialogOptions(options, 'openDialog');
+      const result = await dialog.showOpenDialog(mainWindow, sanitizedOptions);
+      return result;
+    } catch (error) {
+      console.error('[Electron] Dialog error:', error);
+      throw error;
+    }
   });
 
   // Get app version
@@ -369,6 +388,130 @@ function setupIpcHandlers() {
       version: process.version,
     };
   });
+
+  // Check for updates manually
+  ipcMain.handle('check-for-updates', async () => {
+    if (isDev) {
+      return { updateAvailable: false, message: 'Update checking is disabled in development mode' };
+    }
+
+    try {
+      const result = await autoUpdater.checkForUpdates();
+      return {
+        updateAvailable: result && result.updateInfo,
+        version: result?.updateInfo?.version
+      };
+    } catch (error) {
+      console.error('[Electron] Update check failed:', error);
+      throw error;
+    }
+  });
+
+  // Install update and restart
+  ipcMain.handle('install-update', () => {
+    if (isDev) {
+      throw new Error('Update installation is disabled in development mode');
+    }
+    autoUpdater.quitAndInstall(false, true);
+  });
+}
+
+/**
+ * Setup auto-updater
+ */
+function setupAutoUpdater() {
+  // Don't check for updates in development
+  if (isDev) {
+    console.log('[Electron] Auto-update disabled in development mode');
+    return;
+  }
+
+  // Configure auto-updater
+  autoUpdater.autoDownload = false; // Don't download automatically, ask user first
+  autoUpdater.autoInstallOnAppQuit = true;
+
+  // Update available
+  autoUpdater.on('update-available', (info) => {
+    console.log('[Electron] Update available:', info.version);
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update Available',
+        message: `A new version (${info.version}) is available!`,
+        detail: 'Would you like to download it now? The update will be installed when you restart the application.',
+        buttons: ['Download', 'Later'],
+        defaultId: 0,
+        cancelId: 1
+      }).then((result) => {
+        if (result.response === 0) {
+          // User clicked "Download"
+          autoUpdater.downloadUpdate();
+        }
+      });
+    }
+  });
+
+  // Update not available
+  autoUpdater.on('update-not-available', (info) => {
+    console.log('[Electron] No update available:', info.version);
+  });
+
+  // Update download progress
+  autoUpdater.on('download-progress', (progressObj) => {
+    const logMessage = `Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`;
+    console.log('[Electron]', logMessage);
+
+    // Send progress to renderer if needed
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('download-progress', progressObj);
+    }
+  });
+
+  // Update downloaded
+  autoUpdater.on('update-downloaded', (info) => {
+    console.log('[Electron] Update downloaded:', info.version);
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'info',
+        title: 'Update Ready',
+        message: 'Update downloaded successfully!',
+        detail: 'The update will be installed when you restart the application. Would you like to restart now?',
+        buttons: ['Restart Now', 'Later'],
+        defaultId: 0,
+        cancelId: 1
+      }).then((result) => {
+        if (result.response === 0) {
+          // User clicked "Restart Now"
+          autoUpdater.quitAndInstall(false, true);
+        }
+      });
+    }
+  });
+
+  // Update error
+  autoUpdater.on('error', (error) => {
+    console.error('[Electron] Update error:', error);
+
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      dialog.showMessageBox(mainWindow, {
+        type: 'error',
+        title: 'Update Error',
+        message: 'Failed to check for updates',
+        detail: error.message,
+        buttons: ['OK']
+      });
+    }
+  });
+
+  // Check for updates on startup (after a delay to let the app settle)
+  setTimeout(() => {
+    console.log('[Electron] Checking for updates...');
+    autoUpdater.checkForUpdates().catch((error) => {
+      console.error('[Electron] Failed to check for updates:', error);
+    });
+  }, 5000); // Check 5 seconds after app starts
 }
 
 /**
@@ -386,6 +529,9 @@ app.whenReady().then(async () => {
 
     // Create main window
     createWindow();
+
+    // Setup auto-updater (after window is created)
+    setupAutoUpdater();
 
     // On macOS, recreate window when dock icon is clicked
     app.on('activate', () => {
