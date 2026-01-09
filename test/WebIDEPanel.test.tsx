@@ -28,7 +28,7 @@ describe('WebIDEPanel', () => {
 
   describe('Editor Type Switcher', () => {
     it('should render Monaco and VS Code buttons', async () => {
-      render(<WebIDEPanel directory="/home/home/coder/Projects/test-project" />);
+      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
       expect(await screen.findByText('Monaco')).toBeInTheDocument();
       expect(screen.getByText('VS Code')).toBeInTheDocument();
