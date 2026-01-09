@@ -276,6 +276,10 @@ function broadcast(event, data) {
 processEvents.on('status', (data) => broadcast('process-status', data));
 processEvents.on('log', (data) => broadcast('process-log', data));
 
+// Broadcast stats for all running processes every 2 seconds
+const STATS_BROADCAST_INTERVAL = 2000;
+let statsInterval = null;
+
 // ============================================
 // Configuration Endpoints
 // ============================================
@@ -1978,6 +1982,33 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
   }
 });
 
+// Graceful shutdown handler
+function setupGracefulShutdown() {
+  const shutdown = (signal) => {
+    console.log(`\n[Server] Received ${signal}, shutting down gracefully...`);
+
+    // Clear stats interval safely
+    if (statsInterval) {
+      clearInterval(statsInterval);
+    }
+
+    // Close server
+    server.close(() => {
+      console.log('[Server] HTTP server closed');
+      process.exit(0);
+    });
+
+    // Force close after 10 seconds
+    setTimeout(() => {
+      console.error('[Server] Forced shutdown after timeout');
+      process.exit(1);
+    }, 10000);
+  };
+
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
+}
+
 // Initialize database before starting server
 async function startServer() {
   // Try to connect to database (non-blocking)
@@ -1997,6 +2028,36 @@ async function startServer() {
     console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
     console.log(`   - GET  /api/events          - SSE for real-time updates`);
     console.log(`   - WS   /api/pty             - WebSocket for terminal`);
+
+    // Start stats broadcasting after server is listening
+    statsInterval = setInterval(async () => {
+      const allProcesses = getAllProcesses();
+      const runningProcesses = Object.entries(allProcesses).filter(
+        ([_, info]) => info.status === 'RUNNING' && info.pid
+      );
+
+      // Skip iteration if no processes are running
+      if (runningProcesses.length === 0) return;
+
+      for (const [appId, processInfo] of runningProcesses) {
+        try {
+          const stats = await getProcessStats(processInfo.pid);
+          // Include actual uptime from server
+          const uptime = processInfo.startTime ? Math.floor((Date.now() - processInfo.startTime) / 1000) : 0;
+          broadcast('process-stats', {
+            appId,
+            cpu: stats.cpu,
+            memory: stats.memory,
+            uptime,
+          });
+        } catch (error) {
+          console.warn(`[Stats] Failed to collect stats for ${appId}:`, error.message);
+        }
+      }
+    }, STATS_BROADCAST_INTERVAL);
+
+    // Set up graceful shutdown
+    setupGracefulShutdown();
   });
 }
 
