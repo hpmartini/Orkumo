@@ -48,6 +48,7 @@
     "react-hot-toast": "^2.6.0",
     "react-resizable-panels": "^4.2.2",
     "recharts": "^3.6.0",
+    "uuid": "^13.0.0",
     "ws": "^8.18.3",
     "zod": "^4.3.4"
   },
@@ -60,6 +61,7 @@
     "@types/pg": "^8.16.0",
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
+    "@types/uuid": "^10.0.0",
     "@typescript-eslint/eslint-plugin": "^8.51.0",
     "@typescript-eslint/parser": "^8.51.0",
     "@vitejs/plugin-react": "^5.0.0",

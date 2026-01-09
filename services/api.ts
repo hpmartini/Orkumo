@@ -422,8 +422,8 @@ export async function configureAllPorts(
   startPort = 3001,
   onProgress?: (current: number, total: number, percentage: number) => void
 ): Promise<{ configured: Record<string, number> }> {
-  // Generate a session ID for progress tracking
-  const sessionId = onProgress ? `port-config-${Date.now()}-${Math.random().toString(36).slice(2, 11)}` : undefined;
+  // Generate a secure session ID using crypto API
+  const sessionId = onProgress ? crypto.randomUUID() : undefined;
 
   // Connect to SSE endpoint for progress updates if onProgress is provided
   let eventSource: EventSource | null = null;
@@ -431,6 +431,12 @@ export async function configureAllPorts(
     // Wait for SSE connection to be established before making POST request
     await new Promise<void>((resolve, reject) => {
       eventSource = new EventSource(`${API_BASE}/settings/configure-ports/progress/${sessionId}`);
+
+      // Check if already connected immediately (readyState check to avoid race condition)
+      if (eventSource.readyState === EventSource.OPEN) {
+        resolve();
+        return;
+      }
 
       eventSource.onmessage = (event) => {
         try {

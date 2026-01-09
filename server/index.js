@@ -104,6 +104,13 @@ const ideLimiter = rateLimit({
   message: { error: 'Too many IDE launch requests, please slow down' },
 });
 
+// Rate limit for port configuration operations
+const portConfigLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5, // limit port configuration to 5 per minute
+  message: { error: 'Too many port configuration requests, please slow down' },
+});
+
 app.use(cors());
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
@@ -508,6 +515,25 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
 // Track active SSE connections for port configuration progress
 const portConfigProgressClients = new Map();
 const SSE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout
+const SSE_CLEANUP_INTERVAL_MS = 60 * 1000; // Check for stale connections every minute
+
+// Periodic cleanup of stale SSE connections
+setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, client] of portConfigProgressClients) {
+    // Check if connection timestamp is older than timeout
+    if (client.timestamp && now - client.timestamp > SSE_TIMEOUT_MS) {
+      console.warn(`[SSE] Cleaning up stale connection for session ${sessionId}`);
+      try {
+        client.res.end();
+      } catch {
+        // Already closed
+      }
+      clearTimeout(client.timeoutId);
+      portConfigProgressClients.delete(sessionId);
+    }
+  }
+}, SSE_CLEANUP_INTERVAL_MS);
 
 /**
  * GET /api/settings/configure-ports/progress/:sessionId
@@ -520,7 +546,7 @@ app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
   res.setHeader('X-Accel-Buffering', 'no'); // For nginx proxies
 
   // Set timeout for automatic cleanup of stale connections
@@ -534,8 +560,8 @@ app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
     }
   }, SSE_TIMEOUT_MS);
 
-  // Store the response object and timeout ID for this session
-  portConfigProgressClients.set(sessionId, { res, timeoutId });
+  // Store the response object, timeout ID, and timestamp for this session
+  portConfigProgressClients.set(sessionId, { res, timeoutId, timestamp: Date.now() });
 
   // Send initial connection message
   res.write('data: {"type":"connected"}\n\n');
@@ -554,7 +580,7 @@ app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
  * POST /api/settings/configure-ports
  * Configure ports for all apps consistently, starting from a base port
  */
-app.post('/api/settings/configure-ports', async (req, res) => {
+app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) => {
   try {
     const { startPort = 3001, sessionId } = req.body;
 
@@ -583,14 +609,14 @@ app.post('/api/settings/configure-ports', async (req, res) => {
     }
 
     // Progress callback to send SSE updates
-    const onProgress = sessionId ? (current, total) => {
+    const onProgress = sessionId ? (current, total, percentage) => {
       const client = portConfigProgressClients.get(sessionId);
       if (client && client.res) {
         const progress = {
           type: 'progress',
           current,
           total,
-          percentage: Math.round((current / total) * 100)
+          percentage: percentage || Math.round((current / total) * 100)
         };
         client.res.write(`data: ${JSON.stringify(progress)}\n\n`);
       }

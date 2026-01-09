@@ -472,7 +472,8 @@ class SettingsService {
 
       // Report progress if callback is provided
       if (onProgress) {
-        onProgress(i + 1, appIds.length);
+        const percentage = Math.round(((i + 1) / appIds.length) * 100);
+        onProgress(i + 1, appIds.length, percentage);
       }
     }
 
