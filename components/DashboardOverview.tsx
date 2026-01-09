@@ -22,6 +22,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [isConfiguringPorts, setIsConfiguringPorts] = useState(false);
   const [configProgress, setConfigProgress] = useState<{ current: number; total: number; percentage: number } | null>(null);
 
+
   // Get all ports from running apps
   const activePorts = apps
     .filter((app) => app.status === AppStatus.RUNNING && app.port)
@@ -49,6 +50,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
       setConfigProgress(null);
     }
   };
+
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
