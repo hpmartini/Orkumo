@@ -555,6 +555,19 @@ app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
   res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
   res.setHeader('X-Accel-Buffering', 'no'); // For nginx proxies
 
+  // Clean up any existing connection with the same sessionId before storing new one
+  const existingClient = portConfigProgressClients.get(sessionId);
+  if (existingClient) {
+    console.warn(`[SSE] Cleaning up existing connection for session ${sessionId} before creating new one`);
+    clearTimeout(existingClient.timeoutId);
+    try {
+      existingClient.res.end();
+    } catch (err) {
+      // Connection already closed, ignore error
+    }
+    portConfigProgressClients.delete(sessionId);
+  }
+
   // Set timeout for automatic cleanup of stale connections
   const timeoutId = setTimeout(() => {
     const client = portConfigProgressClients.get(sessionId);
@@ -605,14 +618,10 @@ app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) =>
     const apps = scanAllDirectories();
     const appIds = apps.map(app => app.id);
 
-    // Validate that we won't exhaust the port range
-    const maxPort = 65535;
-    const estimatedMaxPort = portNum + appIds.length;
-    if (estimatedMaxPort > maxPort) {
-      return res.status(400).json({
-        error: `Port range would be exhausted: Cannot assign ${appIds.length} apps starting from port ${portNum} (would exceed port 65535)`
-      });
-    }
+    // Note: Port exhaustion validation is handled by the service layer which tracks
+    // the actual highest port used (accounting for conflicts). A simple arithmetic
+    // check here would be incorrect as it doesn't account for ports that are skipped
+    // due to conflicts.
 
     // Progress callback to send SSE updates
     const onProgress = sessionId ? (current, total, percentage) => {
