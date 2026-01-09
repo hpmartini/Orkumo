@@ -329,12 +329,12 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                 </div>
 
                 {/* Action Buttons - Option 1: Primary + Overflow Menu */}
-                <div className="flex gap-2 flex-wrap items-start">
+                <div className="flex gap-2 flex-wrap items-center">
                   {/* Primary Actions */}
                   {canStop ? (
                     <button
                       onClick={() => onStop(app.id)}
-                      className="flex items-center gap-2 px-4 py-2 bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 rounded-lg transition-all"
+                      className="flex items-center justify-center gap-2 px-4 h-10 bg-red-500/10 text-red-400 hover:bg-red-500/20 border border-red-500/30 rounded-lg transition-all"
                     >
                       <Square size={18} fill="currentColor" /> Stop
                     </button>
@@ -342,7 +342,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                     <button
                       onClick={() => onStart(app.id)}
                       disabled={!canStart || isLoading}
-                      className="flex items-center gap-2 px-4 py-2 bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center justify-center gap-2 px-4 h-10 bg-emerald-500 text-white hover:bg-emerald-600 shadow-lg shadow-emerald-500/20 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {isLoading ? (
                         <RefreshCw className="animate-spin" size={18} />
@@ -356,7 +356,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                   <button
                     onClick={() => onRestart(app.id)}
                     disabled={app.status !== AppStatus.RUNNING}
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="flex items-center justify-center gap-2 px-3 h-10 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                     title="Restart application"
                   >
                     <RefreshCw size={18} />
@@ -366,7 +366,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                     <button
                       onClick={() => onInstallDeps(app.id)}
                       disabled={!canInstall}
-                      className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="flex items-center justify-center gap-2 px-3 h-10 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                       title="Install dependencies (npm install)"
                     >
                       <Package size={18} />
@@ -377,7 +377,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                   <button
                     onClick={() => onAnalyze(app.id)}
                     disabled={!canAnalyze}
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50"
+                    className="flex items-center justify-center gap-2 px-3 h-10 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50"
                     title="Use AI to detect config"
                   >
                     {app.status === AppStatus.ANALYZING ? (
@@ -391,7 +391,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                   <button
                     onClick={() => onOpenInBrowser(app.id)}
                     disabled={app.status !== AppStatus.RUNNING}
-                    className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50"
+                    className="flex items-center justify-center gap-2 px-3 h-10 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all disabled:opacity-50"
                     title="Open in browser"
                   >
                     <Globe size={18} />
@@ -500,7 +500,7 @@ const MoreActionsMenu: React.FC<MoreActionsMenuProps> = ({
     <div className="relative" ref={menuRef}>
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all"
+        className="flex items-center justify-center gap-2 px-3 h-10 bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600 rounded-lg transition-all"
         title="More actions"
       >
         <MoreHorizontal size={18} />
