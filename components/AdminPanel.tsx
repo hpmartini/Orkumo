@@ -1,6 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Settings, FolderPlus, Trash2, RefreshCw, X, Save, Code, Plus } from 'lucide-react';
-import { fetchConfig, addDirectory, removeDirectory, updateConfig, Config, fetchInstalledIDEs, fetchCustomIDEs, addCustomIDE, removeCustomIDE, IDE } from '../services/api';
+import { Settings, FolderPlus, Trash2, RefreshCw, X, Save, Code, Plus, Keyboard } from 'lucide-react';
+import { fetchConfig, addDirectory, removeDirectory, updateConfig, Config, fetchInstalledIDEs, fetchCustomIDEs, addCustomIDE, removeCustomIDE, IDE, fetchSettings, updateKeyboardShortcuts } from '../services/api';
+import { KeyboardShortcuts, KeyboardShortcut, DEFAULT_KEYBOARD_SHORTCUTS } from '../types';
+import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -22,12 +24,86 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [newIDE, setNewIDE] = useState({ id: '', name: '', path: '' });
   const [ideLoading, setIdeLoading] = useState(false);
 
+  // Keyboard shortcuts state
+  const [shortcuts, setShortcuts] = useState<KeyboardShortcuts>(DEFAULT_KEYBOARD_SHORTCUTS);
+  const [shortcutsLoading, setShortcutsLoading] = useState(false);
+  const [editingShortcut, setEditingShortcut] = useState<keyof KeyboardShortcuts | null>(null);
+  const [shortcutsDirty, setShortcutsDirty] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       loadConfig();
       loadIDEs();
+      loadShortcuts();
     }
   }, [isOpen]);
+
+  const loadShortcuts = async () => {
+    setShortcutsLoading(true);
+    try {
+      const settings = await fetchSettings();
+      if (settings.keyboardShortcuts) {
+        setShortcuts(settings.keyboardShortcuts);
+      }
+      setShortcutsDirty(false);
+    } catch (err) {
+      console.error('Failed to load keyboard shortcuts:', err);
+    } finally {
+      setShortcutsLoading(false);
+    }
+  };
+
+  const handleSaveShortcuts = async () => {
+    setShortcutsLoading(true);
+    setError(null);
+    try {
+      await updateKeyboardShortcuts(shortcuts);
+      setShortcutsDirty(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save keyboard shortcuts');
+    } finally {
+      setShortcutsLoading(false);
+    }
+  };
+
+  const handleResetShortcuts = () => {
+    setShortcuts(DEFAULT_KEYBOARD_SHORTCUTS);
+    setShortcutsDirty(true);
+  };
+
+  const handleShortcutKeyDown = (e: React.KeyboardEvent, shortcutId: keyof KeyboardShortcuts) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    // Ignore modifier-only key presses
+    if (['Control', 'Alt', 'Shift', 'Meta'].includes(e.key)) {
+      return;
+    }
+
+    const newShortcut: KeyboardShortcut = {
+      key: e.key.length === 1 ? e.key.toLowerCase() : e.key,
+      modifiers: {
+        ctrl: e.ctrlKey,
+        alt: e.altKey,
+        shift: e.shiftKey,
+        meta: e.metaKey,
+      },
+      description: shortcuts[shortcutId].description,
+    };
+
+    // Remove empty modifiers
+    if (!newShortcut.modifiers?.ctrl && !newShortcut.modifiers?.alt &&
+        !newShortcut.modifiers?.shift && !newShortcut.modifiers?.meta) {
+      delete newShortcut.modifiers;
+    }
+
+    setShortcuts(prev => ({
+      ...prev,
+      [shortcutId]: newShortcut,
+    }));
+    setShortcutsDirty(true);
+    setEditingShortcut(null);
+  };
 
   const loadIDEs = async () => {
     setIdeLoading(true);
@@ -408,6 +484,81 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Keyboard Shortcuts Section */}
+          <div className="pt-4 border-t border-gray-700">
+            <div className="flex items-center justify-between mb-4">
+              <div className="flex items-center gap-2">
+                <Keyboard className="text-purple-400" size={18} />
+                <label className="text-sm font-medium text-gray-300">
+                  Keyboard Shortcuts
+                </label>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleResetShortcuts}
+                  className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                >
+                  Reset to Defaults
+                </button>
+                {shortcutsDirty && (
+                  <button
+                    onClick={handleSaveShortcuts}
+                    disabled={shortcutsLoading}
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded transition-colors disabled:opacity-50"
+                  >
+                    <Save size={12} />
+                    Save
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {shortcutsLoading && !shortcuts ? (
+              <div className="flex items-center gap-2 py-4">
+                <RefreshCw className="animate-spin text-blue-500" size={14} />
+                <span className="text-sm text-gray-400">Loading shortcuts...</span>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {(Object.keys(shortcuts) as (keyof KeyboardShortcuts)[]).map((shortcutId) => {
+                  const shortcut = shortcuts[shortcutId];
+                  const isEditing = editingShortcut === shortcutId;
+
+                  return (
+                    <div
+                      key={shortcutId}
+                      className="flex items-center justify-between p-2 bg-gray-900 rounded border border-gray-700"
+                    >
+                      <span className="text-sm text-gray-300">{shortcut.description}</span>
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          autoFocus
+                          readOnly
+                          placeholder="Press keys..."
+                          onKeyDown={(e) => handleShortcutKeyDown(e, shortcutId)}
+                          onBlur={() => setEditingShortcut(null)}
+                          className="w-32 px-2 py-1 text-xs bg-blue-900/50 border border-blue-500 rounded text-white text-center focus:outline-none"
+                        />
+                      ) : (
+                        <button
+                          onClick={() => setEditingShortcut(shortcutId)}
+                          className="px-3 py-1 text-xs font-mono bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-600 transition-colors min-w-[80px]"
+                        >
+                          {formatShortcut(shortcut)}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            <p className="text-xs text-gray-500 mt-3">
+              Click a shortcut to edit it, then press your desired key combination.
+            </p>
           </div>
         </div>
 

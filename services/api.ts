@@ -277,6 +277,8 @@ export async function fetchAppStats(id: string): Promise<{ cpu: number; memory: 
 // Settings API - Backend persistence
 // ============================================
 
+import { KeyboardShortcuts, DEFAULT_KEYBOARD_SHORTCUTS } from '../types';
+
 export type FavoritesSortMode = 'manual' | 'alpha-asc' | 'alpha-desc';
 
 export interface AppSettings {
@@ -286,6 +288,7 @@ export interface AppSettings {
   customNames: Record<string, string>;
   preferredIDEs?: Record<string, string>;
   favoritesSortMode: FavoritesSortMode;
+  keyboardShortcuts?: KeyboardShortcuts;
   version: number;
 }
 
@@ -302,10 +305,16 @@ export async function fetchSettings(): Promise<AppSettings> {
       customPorts: {},
       customNames: {},
       favoritesSortMode: 'manual',
+      keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS,
       version: 1,
     };
   }
-  return response.json();
+  const settings = await response.json();
+  // Ensure keyboard shortcuts have defaults
+  if (!settings.keyboardShortcuts) {
+    settings.keyboardShortcuts = DEFAULT_KEYBOARD_SHORTCUTS;
+  }
+  return settings;
 }
 
 /**
@@ -409,6 +418,21 @@ export async function updateName(id: string, name: string | null): Promise<{ id:
   });
   if (!response.ok) {
     throw new Error('Failed to update name');
+  }
+  return response.json();
+}
+
+/**
+ * Update keyboard shortcuts
+ */
+export async function updateKeyboardShortcuts(shortcuts: KeyboardShortcuts): Promise<{ keyboardShortcuts: KeyboardShortcuts }> {
+  const response = await fetch(`${API_BASE}/settings/keyboard-shortcuts`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shortcuts }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update keyboard shortcuts');
   }
   return response.json();
 }

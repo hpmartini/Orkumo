@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useRef } from 'react';
 import {
   LayoutDashboard,
   Settings,
@@ -15,8 +15,11 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
 } from 'lucide-react';
-import { AppConfig, AppStatus } from '../types';
+import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
+import { FavoritesPopup, ProjectsPopup } from './SidebarPopup';
+import { ShortcutTooltip } from './Tooltip';
+import { getShortcutString } from '../hooks/useKeyboardShortcuts';
 
 interface SidebarProps {
   apps: AppConfig[];
@@ -39,6 +42,7 @@ interface SidebarProps {
   onRefreshDirectory?: (directory: string) => Promise<void>;
   onOpenSettings?: () => void;
   mainDirectory?: string; // The main/root project directory to highlight
+  keyboardShortcuts?: KeyboardShortcuts | null;
 }
 
 interface GroupedApps {
@@ -66,11 +70,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onRefreshDirectory,
   onOpenSettings,
   mainDirectory = 'Projects',
+  keyboardShortcuts,
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshingDir, setRefreshingDir] = useState<string | null>(null);
+  const [showFavoritesPopup, setShowFavoritesPopup] = useState(false);
+  const [showProjectsPopup, setShowProjectsPopup] = useState(false);
+  const favoritesButtonRef = useRef<HTMLButtonElement>(null);
+  const projectsButtonRef = useRef<HTMLButtonElement>(null);
 
   const handleRefreshAll = async () => {
     if (!onRefresh || isRefreshing) return;
@@ -273,29 +282,79 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Overview Icon */}
         <div className="p-2 mt-2">
-          <button
-            onClick={onSelectDashboard}
-            className={`p-2 rounded-lg transition-all ${
-              activeTab === 'dashboard'
-                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
-                : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
-            }`}
-            title="Overview"
+          <ShortcutTooltip
+            label="Overview"
+            shortcut={getShortcutString(keyboardShortcuts, 'goToDashboard')}
+            position="right"
           >
-            <LayoutDashboard size={20} />
+            <button
+              onClick={onSelectDashboard}
+              className={`p-2 rounded-lg transition-all ${
+                activeTab === 'dashboard'
+                  ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                  : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+              }`}
+            >
+              <LayoutDashboard size={20} />
+            </button>
+          </ShortcutTooltip>
+        </div>
+
+        {/* Favorites Button */}
+        {favorites.length > 0 && (
+          <div className="p-2">
+            <button
+              ref={favoritesButtonRef}
+              onClick={() => {
+                setShowFavoritesPopup(!showFavoritesPopup);
+                setShowProjectsPopup(false);
+              }}
+              className={`p-2 rounded-lg transition-all ${
+                showFavoritesPopup
+                  ? 'bg-yellow-600/20 text-yellow-500'
+                  : 'text-gray-400 hover:bg-gray-900 hover:text-yellow-500'
+              }`}
+              title="Favorites"
+            >
+              <Star size={20} />
+            </button>
+          </div>
+        )}
+
+        {/* Projects Button */}
+        <div className="p-2">
+          <button
+            ref={projectsButtonRef}
+            onClick={() => {
+              setShowProjectsPopup(!showProjectsPopup);
+              setShowFavoritesPopup(false);
+            }}
+            className={`p-2 rounded-lg transition-all ${
+              showProjectsPopup
+                ? 'bg-blue-600/20 text-blue-400'
+                : 'text-gray-400 hover:bg-gray-900 hover:text-blue-400'
+            }`}
+            title="Projects"
+          >
+            <Folder size={20} />
           </button>
         </div>
 
         {/* Expand Button */}
         {onToggleCollapse && (
           <div className="p-2 mt-2">
-            <button
-              onClick={onToggleCollapse}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
-              title="Expand sidebar"
+            <ShortcutTooltip
+              label="Expand sidebar"
+              shortcut={getShortcutString(keyboardShortcuts, 'toggleSidebar')}
+              position="right"
             >
-              <PanelLeftOpen size={20} />
-            </button>
+              <button
+                onClick={onToggleCollapse}
+                className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+              >
+                <PanelLeftOpen size={20} />
+              </button>
+            </ShortcutTooltip>
           </div>
         )}
 
@@ -306,15 +365,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="p-3 border-t border-gray-800 w-full flex flex-col items-center gap-2">
           <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" title="Daemon Active"></div>
           {onOpenSettings && (
-            <button
-              onClick={onOpenSettings}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
-              title="Settings"
+            <ShortcutTooltip
+              label="Settings"
+              shortcut={getShortcutString(keyboardShortcuts, 'openSettings')}
+              position="right"
             >
-              <Settings size={18} />
-            </button>
+              <button
+                onClick={onOpenSettings}
+                className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+              >
+                <Settings size={18} />
+              </button>
+            </ShortcutTooltip>
           )}
         </div>
+
+        {/* Popups */}
+        <FavoritesPopup
+          isOpen={showFavoritesPopup}
+          onClose={() => setShowFavoritesPopup(false)}
+          triggerRef={favoritesButtonRef}
+          favorites={favorites}
+          selectedAppId={selectedAppId}
+          onSelectApp={onSelectApp}
+          onStart={onStart}
+          onStop={onStop}
+          onOpenInBrowser={onOpenInBrowser}
+        />
+        <ProjectsPopup
+          isOpen={showProjectsPopup}
+          onClose={() => setShowProjectsPopup(false)}
+          triggerRef={projectsButtonRef}
+          apps={apps}
+          selectedAppId={selectedAppId}
+          onSelectApp={onSelectApp}
+          onStart={onStart}
+          onStop={onStop}
+          onOpenInBrowser={onOpenInBrowser}
+        />
       </aside>
     );
   }
@@ -329,13 +417,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-blue-500 font-bold text-xl tracking-tight">DevOrbit</span>
           </div>
           {onToggleCollapse && (
-            <button
-              onClick={onToggleCollapse}
-              className="p-1.5 hover:bg-gray-800 rounded-lg transition-colors text-gray-500 hover:text-white"
-              title="Collapse sidebar"
+            <ShortcutTooltip
+              label="Collapse sidebar"
+              shortcut={getShortcutString(keyboardShortcuts, 'toggleSidebar')}
+              position="bottom"
             >
-              <PanelLeftClose size={18} />
-            </button>
+              <button
+                onClick={onToggleCollapse}
+                className="p-1.5 hover:bg-gray-800 rounded-lg transition-colors text-gray-500 hover:text-white"
+              >
+                <PanelLeftClose size={18} />
+              </button>
+            </ShortcutTooltip>
           )}
         </div>
       </div>
@@ -458,13 +551,18 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <span className="text-xs font-mono text-gray-400">Daemon Active</span>
           </div>
           {onOpenSettings && (
-            <button
-              onClick={onOpenSettings}
-              className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
-              title="Settings"
+            <ShortcutTooltip
+              label="Settings"
+              shortcut={getShortcutString(keyboardShortcuts, 'openSettings')}
+              position="top"
             >
-              <Settings size={18} />
-            </button>
+              <button
+                onClick={onOpenSettings}
+                className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
+              >
+                <Settings size={18} />
+              </button>
+            </ShortcutTooltip>
           )}
         </div>
       </div>

@@ -433,6 +433,25 @@ app.put('/api/settings/favorites/sort-mode', (req, res) => {
 });
 
 /**
+ * PUT /api/settings/keyboard-shortcuts
+ * Set keyboard shortcuts configuration
+ */
+app.put('/api/settings/keyboard-shortcuts', (req, res) => {
+  try {
+    const { shortcuts } = req.body;
+
+    if (!shortcuts || typeof shortcuts !== 'object') {
+      return res.status(400).json({ error: 'Invalid shortcuts configuration' });
+    }
+
+    const savedShortcuts = settingsService.setKeyboardShortcuts(shortcuts);
+    res.json({ keyboardShortcuts: savedShortcuts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * PUT /api/settings/archive/:id
  * Toggle or set archive status for an app
  */

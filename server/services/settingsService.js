@@ -18,6 +18,7 @@ const defaultSettings = {
   customNames: {},    // Map of appId -> custom name
   preferredIDEs: {},  // Map of appId -> preferred IDE id
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
+  keyboardShortcuts: null, // Keyboard shortcuts config (null = use defaults from frontend)
   version: 1,         // Settings schema version for future migrations
 };
 
@@ -322,6 +323,27 @@ class SettingsService {
   getFavoritesSortMode() {
     const settings = readSettings();
     return settings.favoritesSortMode || 'manual';
+  }
+
+  /**
+   * Set keyboard shortcuts
+   * @param {object} shortcuts - Keyboard shortcuts configuration
+   * @returns {object} The set shortcuts
+   */
+  setKeyboardShortcuts(shortcuts) {
+    const settings = readSettings();
+    settings.keyboardShortcuts = shortcuts;
+    writeSettings(settings);
+    return shortcuts;
+  }
+
+  /**
+   * Get keyboard shortcuts
+   * @returns {object|null} Keyboard shortcuts or null for defaults
+   */
+  getKeyboardShortcuts() {
+    const settings = readSettings();
+    return settings.keyboardShortcuts || null;
   }
 
   /**

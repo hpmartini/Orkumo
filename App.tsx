@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { BrowserRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { LayoutDashboard, RefreshCw, Menu, X, GripVertical } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
@@ -16,7 +16,9 @@ import {
   useAppTabs,
 } from './components';
 import { useApps } from './hooks';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { generateProjectUrl } from './utils/routing';
+import { KeyboardShortcuts } from './types';
 
 type ActiveTab = 'dashboard' | 'apps';
 
@@ -213,6 +215,28 @@ function AppContent() {
     [apps, handleRename]
   );
 
+  // Keyboard shortcuts
+  const keyboardShortcutActions = useMemo(() => [
+    { id: 'toggleSidebar' as keyof KeyboardShortcuts, handler: handleToggleSidebarCollapse },
+    { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
+    { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
+    { id: 'goToTab1' as keyof KeyboardShortcuts, handler: () => tabs[0] && handleTabSelect(tabs[0].appId) },
+    { id: 'goToTab2' as keyof KeyboardShortcuts, handler: () => tabs[1] && handleTabSelect(tabs[1].appId) },
+    { id: 'goToTab3' as keyof KeyboardShortcuts, handler: () => tabs[2] && handleTabSelect(tabs[2].appId) },
+    { id: 'goToTab4' as keyof KeyboardShortcuts, handler: () => tabs[3] && handleTabSelect(tabs[3].appId) },
+    { id: 'goToTab5' as keyof KeyboardShortcuts, handler: () => tabs[4] && handleTabSelect(tabs[4].appId) },
+    { id: 'goToTab6' as keyof KeyboardShortcuts, handler: () => tabs[5] && handleTabSelect(tabs[5].appId) },
+    { id: 'goToTab7' as keyof KeyboardShortcuts, handler: () => tabs[6] && handleTabSelect(tabs[6].appId) },
+    { id: 'goToTab8' as keyof KeyboardShortcuts, handler: () => tabs[7] && handleTabSelect(tabs[7].appId) },
+    { id: 'goToTab9' as keyof KeyboardShortcuts, handler: () => tabs[8] && handleTabSelect(tabs[8].appId) },
+  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect]);
+
+  useKeyboardShortcuts({
+    shortcuts: settings?.keyboardShortcuts,
+    actions: keyboardShortcutActions,
+    enabled: !adminPanelOpen, // Disable when admin panel is open
+  });
+
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
@@ -285,6 +309,7 @@ function AppContent() {
           onRefresh={refreshApps}
           onOpenSettings={() => setAdminPanelOpen(true)}
           mainDirectory="Projects"
+          keyboardShortcuts={settings?.keyboardShortcuts}
         />
         {/* Resize handle - only show when not collapsed */}
         {!sidebarCollapsed && (

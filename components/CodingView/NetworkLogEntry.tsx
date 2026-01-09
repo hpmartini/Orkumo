@@ -1,4 +1,4 @@
-import { Globe, AlertCircle, CheckCircle, Clock } from 'lucide-react';
+import { Globe, AlertCircle, Clock } from 'lucide-react';
 import type { NetworkLog } from '../../types';
 
 interface NetworkLogEntryProps {
