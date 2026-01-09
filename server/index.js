@@ -507,6 +507,7 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
 
 // Track active SSE connections for port configuration progress
 const portConfigProgressClients = new Map();
+const SSE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout
 
 /**
  * GET /api/settings/configure-ports/progress/:sessionId
@@ -519,16 +520,33 @@ app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('X-Accel-Buffering', 'no'); // For nginx proxies
 
-  // Store the response object for this session
-  portConfigProgressClients.set(sessionId, res);
+  // Set timeout for automatic cleanup of stale connections
+  const timeoutId = setTimeout(() => {
+    const client = portConfigProgressClients.get(sessionId);
+    if (client && client.res === res) {
+      console.warn(`[SSE] Timeout for session ${sessionId}, cleaning up`);
+      res.write('data: {"type":"timeout","message":"Connection timeout"}\n\n');
+      res.end();
+      portConfigProgressClients.delete(sessionId);
+    }
+  }, SSE_TIMEOUT_MS);
+
+  // Store the response object and timeout ID for this session
+  portConfigProgressClients.set(sessionId, { res, timeoutId });
 
   // Send initial connection message
   res.write('data: {"type":"connected"}\n\n');
 
   // Clean up on close
   req.on('close', () => {
-    portConfigProgressClients.delete(sessionId);
+    const client = portConfigProgressClients.get(sessionId);
+    if (client) {
+      clearTimeout(client.timeoutId);
+      portConfigProgressClients.delete(sessionId);
+    }
   });
 });
 
@@ -566,15 +584,15 @@ app.post('/api/settings/configure-ports', async (req, res) => {
 
     // Progress callback to send SSE updates
     const onProgress = sessionId ? (current, total) => {
-      const sseClient = portConfigProgressClients.get(sessionId);
-      if (sseClient) {
+      const client = portConfigProgressClients.get(sessionId);
+      if (client && client.res) {
         const progress = {
           type: 'progress',
           current,
           total,
           percentage: Math.round((current / total) * 100)
         };
-        sseClient.write(`data: ${JSON.stringify(progress)}\n\n`);
+        client.res.write(`data: ${JSON.stringify(progress)}\n\n`);
       }
     } : null;
 
@@ -583,10 +601,11 @@ app.post('/api/settings/configure-ports', async (req, res) => {
 
     // Send completion message via SSE if session exists
     if (sessionId) {
-      const sseClient = portConfigProgressClients.get(sessionId);
-      if (sseClient) {
-        sseClient.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
-        sseClient.end();
+      const client = portConfigProgressClients.get(sessionId);
+      if (client) {
+        clearTimeout(client.timeoutId);
+        client.res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+        client.res.end();
         portConfigProgressClients.delete(sessionId);
       }
     }
@@ -598,10 +617,11 @@ app.post('/api/settings/configure-ports', async (req, res) => {
     // Send error via SSE if session exists
     const { sessionId } = req.body;
     if (sessionId) {
-      const sseClient = portConfigProgressClients.get(sessionId);
-      if (sseClient) {
-        sseClient.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
-        sseClient.end();
+      const client = portConfigProgressClients.get(sessionId);
+      if (client) {
+        clearTimeout(client.timeoutId);
+        client.res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+        client.res.end();
         portConfigProgressClients.delete(sessionId);
       }
     }

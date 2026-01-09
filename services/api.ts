@@ -423,27 +423,37 @@ export async function configureAllPorts(
   onProgress?: (current: number, total: number, percentage: number) => void
 ): Promise<{ configured: Record<string, number> }> {
   // Generate a session ID for progress tracking
-  const sessionId = onProgress ? `port-config-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` : undefined;
+  const sessionId = onProgress ? `port-config-${Date.now()}-${Math.random().toString(36).slice(2, 11)}` : undefined;
 
   // Connect to SSE endpoint for progress updates if onProgress is provided
   let eventSource: EventSource | null = null;
   if (sessionId && onProgress) {
-    eventSource = new EventSource(`${API_BASE}/settings/configure-ports/progress/${sessionId}`);
+    // Wait for SSE connection to be established before making POST request
+    await new Promise<void>((resolve, reject) => {
+      eventSource = new EventSource(`${API_BASE}/settings/configure-ports/progress/${sessionId}`);
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.type === 'progress') {
-          onProgress(data.current, data.total, data.percentage);
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'connected') {
+            // Connection established, proceed with POST request
+            resolve();
+          } else if (data.type === 'progress') {
+            onProgress(data.current, data.total, data.percentage);
+          }
+        } catch (err) {
+          console.error('Failed to parse SSE progress data:', err);
         }
-      } catch (err) {
-        console.error('Failed to parse SSE progress data:', err);
-      }
-    };
+      };
 
-    eventSource.onerror = () => {
-      eventSource?.close();
-    };
+      eventSource.onerror = (err) => {
+        eventSource?.close();
+        reject(new Error('Failed to establish SSE connection'));
+      };
+
+      // Timeout if connection takes too long
+      setTimeout(() => reject(new Error('SSE connection timeout')), 5000);
+    });
   }
 
   try {
@@ -454,17 +464,15 @@ export async function configureAllPorts(
     });
 
     if (!response.ok) {
-      // Try to parse backend error message
+      // Try to parse backend error message, fallback to response text
+      let errorMessage = 'Failed to configure ports';
       try {
         const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to configure ports');
-      } catch (parseError) {
-        // If JSON parsing fails, preserve the original error context
-        if (parseError instanceof Error && parseError.message && !parseError.message.includes('Failed to configure ports')) {
-          throw new Error(`Failed to configure ports: ${parseError.message}`);
-        }
-        throw new Error('Failed to configure ports');
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // JSON parsing failed, use default message
       }
+      throw new Error(errorMessage);
     }
 
     return await response.json();

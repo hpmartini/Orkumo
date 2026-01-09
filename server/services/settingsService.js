@@ -408,9 +408,11 @@ class SettingsService {
 
     // If portManager is provided, check ports in parallel for better performance
     let unavailablePorts = new Set();
+    let preCheckedMaxPort = startPort;
     if (portManager) {
       // Batch check ports in parallel (check up to 50 ports ahead)
       const portsToCheck = Math.min(appIds.length + 50, maxPort - startPort + 1);
+      preCheckedMaxPort = startPort + portsToCheck - 1;
       const portCheckPromises = [];
 
       for (let i = 0; i < portsToCheck; i++) {
@@ -443,7 +445,7 @@ class SettingsService {
       }
 
       // If we've exhausted our pre-checked range, check new ports
-      if (portManager && assignedPort > startPort + unavailablePorts.size + appIds.length) {
+      if (portManager && assignedPort > preCheckedMaxPort) {
         let portAvailable = await portManager.isPortAvailable(assignedPort);
         while (!portAvailable && assignedPort <= maxPort) {
           assignedPort++;
