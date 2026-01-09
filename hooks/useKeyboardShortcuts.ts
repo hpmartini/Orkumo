@@ -86,9 +86,11 @@ export function useKeyboardShortcuts({
   actions,
   enabled = true,
 }: UseKeyboardShortcutsOptions): void {
-  // Merge with defaults
+  // Merge stored shortcuts with defaults (stored shortcuts override defaults, but new defaults are added)
   const effectiveShortcuts = useMemo(() => {
-    return shortcuts || DEFAULT_KEYBOARD_SHORTCUTS;
+    if (!shortcuts) return DEFAULT_KEYBOARD_SHORTCUTS;
+    // Merge: defaults first, then override with stored shortcuts
+    return { ...DEFAULT_KEYBOARD_SHORTCUTS, ...shortcuts };
   }, [shortcuts]);
 
   const handleKeyDown = useCallback(
@@ -134,7 +136,10 @@ export function getShortcutString(
   shortcuts: KeyboardShortcuts | null | undefined,
   actionId: keyof KeyboardShortcuts
 ): string {
-  const effectiveShortcuts = shortcuts || DEFAULT_KEYBOARD_SHORTCUTS;
+  // Merge with defaults to ensure new shortcuts are always available
+  const effectiveShortcuts = shortcuts
+    ? { ...DEFAULT_KEYBOARD_SHORTCUTS, ...shortcuts }
+    : DEFAULT_KEYBOARD_SHORTCUTS;
   const shortcut = effectiveShortcuts[actionId];
   return shortcut ? formatShortcut(shortcut) : '';
 }

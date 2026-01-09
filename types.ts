@@ -93,8 +93,11 @@ export interface KeyboardShortcut {
 export interface KeyboardShortcuts {
   toggleSidebar: KeyboardShortcut;
   goToDashboard: KeyboardShortcut;
+  goToDashboardAlt: KeyboardShortcut;
   openSettings: KeyboardShortcut;
   toggleDetailsCoding: KeyboardShortcut;
+  openFavorites: KeyboardShortcut;
+  openProjects: KeyboardShortcut;
   goToTab1: KeyboardShortcut;
   goToTab2: KeyboardShortcut;
   goToTab3: KeyboardShortcut;
@@ -109,8 +112,11 @@ export interface KeyboardShortcuts {
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   toggleSidebar: { key: 'b', description: 'Toggle sidebar' },
   goToDashboard: { key: 'h', description: 'Go to dashboard' },
+  goToDashboardAlt: { key: 'd', description: 'Go to dashboard' },
   openSettings: { key: 's', description: 'Open settings' },
   toggleDetailsCoding: { key: 'c', description: 'Toggle Details/Coding view' },
+  openFavorites: { key: 'f', description: 'Open favorites' },
+  openProjects: { key: 'p', description: 'Open projects' },
   goToTab1: { key: '1', modifiers: { meta: true }, description: 'Go to tab 1' },
   goToTab2: { key: '2', modifiers: { meta: true }, description: 'Go to tab 2' },
   goToTab3: { key: '3', modifiers: { meta: true }, description: 'Go to tab 3' },

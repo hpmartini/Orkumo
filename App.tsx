@@ -68,6 +68,10 @@ function AppContent() {
     return saved === 'true';
   });
 
+  // Sidebar popup state (for keyboard shortcuts)
+  const [showFavoritesPopup, setShowFavoritesPopup] = useState(false);
+  const [showProjectsPopup, setShowProjectsPopup] = useState(false);
+
   // Persist view tab bar hidden state
   useEffect(() => {
     localStorage.setItem('devOrbitViewTabBarHidden', String(isViewTabBarHidden));
@@ -79,6 +83,16 @@ function AppContent() {
 
   const handleToggleDetailsView = useCallback(() => {
     setDetailsViewMode(prev => prev === 'details' ? 'coding' : 'details');
+  }, []);
+
+  const handleToggleFavoritesPopup = useCallback(() => {
+    setShowFavoritesPopup(prev => !prev);
+    setShowProjectsPopup(false);
+  }, []);
+
+  const handleToggleProjectsPopup = useCallback(() => {
+    setShowProjectsPopup(prev => !prev);
+    setShowFavoritesPopup(false);
   }, []);
 
   // Use refs to avoid re-running the effect when callbacks change
@@ -239,8 +253,11 @@ function AppContent() {
   const keyboardShortcutActions = useMemo(() => [
     { id: 'toggleSidebar' as keyof KeyboardShortcuts, handler: handleToggleSidebarCollapse },
     { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
+    { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: () => navigate('/') },
     { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
     { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
+    { id: 'openFavorites' as keyof KeyboardShortcuts, handler: handleToggleFavoritesPopup },
+    { id: 'openProjects' as keyof KeyboardShortcuts, handler: handleToggleProjectsPopup },
     { id: 'goToTab1' as keyof KeyboardShortcuts, handler: () => tabs[0] && handleTabSelect(tabs[0].appId) },
     { id: 'goToTab2' as keyof KeyboardShortcuts, handler: () => tabs[1] && handleTabSelect(tabs[1].appId) },
     { id: 'goToTab3' as keyof KeyboardShortcuts, handler: () => tabs[2] && handleTabSelect(tabs[2].appId) },
@@ -250,7 +267,7 @@ function AppContent() {
     { id: 'goToTab7' as keyof KeyboardShortcuts, handler: () => tabs[6] && handleTabSelect(tabs[6].appId) },
     { id: 'goToTab8' as keyof KeyboardShortcuts, handler: () => tabs[7] && handleTabSelect(tabs[7].appId) },
     { id: 'goToTab9' as keyof KeyboardShortcuts, handler: () => tabs[8] && handleTabSelect(tabs[8].appId) },
-  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect, handleToggleDetailsView]);
+  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect, handleToggleDetailsView, handleToggleFavoritesPopup, handleToggleProjectsPopup]);
 
   useKeyboardShortcuts({
     shortcuts: settings?.keyboardShortcuts,
@@ -335,6 +352,10 @@ function AppContent() {
           detailsViewMode={detailsViewMode}
           onViewModeChange={setDetailsViewMode}
           onShowViewTabBar={handleToggleViewTabBar}
+          showFavoritesPopupExternal={showFavoritesPopup}
+          showProjectsPopupExternal={showProjectsPopup}
+          onFavoritesPopupChange={setShowFavoritesPopup}
+          onProjectsPopupChange={setShowProjectsPopup}
         />
         {/* Resize handle - only show when not collapsed */}
         {!sidebarCollapsed && (

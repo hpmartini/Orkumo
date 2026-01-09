@@ -1,4 +1,4 @@
-import React, { useMemo, useState, useRef } from 'react';
+import React, { useMemo, useState, useRef, useEffect, useCallback } from 'react';
 import {
   LayoutDashboard,
   Settings,
@@ -51,6 +51,11 @@ interface SidebarProps {
   detailsViewMode?: 'details' | 'coding';
   onViewModeChange?: (mode: 'details' | 'coding') => void;
   onShowViewTabBar?: () => void;
+  // External popup control (for keyboard shortcuts)
+  showFavoritesPopupExternal?: boolean;
+  showProjectsPopupExternal?: boolean;
+  onFavoritesPopupChange?: (open: boolean) => void;
+  onProjectsPopupChange?: (open: boolean) => void;
 }
 
 interface GroupedApps {
@@ -83,15 +88,46 @@ export const Sidebar: React.FC<SidebarProps> = ({
   detailsViewMode,
   onViewModeChange,
   onShowViewTabBar,
+  showFavoritesPopupExternal,
+  showProjectsPopupExternal,
+  onFavoritesPopupChange,
+  onProjectsPopupChange,
 }) => {
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [showArchive, setShowArchive] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [refreshingDir, setRefreshingDir] = useState<string | null>(null);
-  const [showFavoritesPopup, setShowFavoritesPopup] = useState(false);
-  const [showProjectsPopup, setShowProjectsPopup] = useState(false);
+  const [showFavoritesPopupInternal, setShowFavoritesPopupInternal] = useState(false);
+  const [showProjectsPopupInternal, setShowProjectsPopupInternal] = useState(false);
   const favoritesButtonRef = useRef<HTMLButtonElement>(null);
   const projectsButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Sync internal popup state with external props
+  const showFavoritesPopup = showFavoritesPopupExternal ?? showFavoritesPopupInternal;
+  const showProjectsPopup = showProjectsPopupExternal ?? showProjectsPopupInternal;
+
+  const setShowFavoritesPopup = useCallback((open: boolean) => {
+    setShowFavoritesPopupInternal(open);
+    onFavoritesPopupChange?.(open);
+  }, [onFavoritesPopupChange]);
+
+  const setShowProjectsPopup = useCallback((open: boolean) => {
+    setShowProjectsPopupInternal(open);
+    onProjectsPopupChange?.(open);
+  }, [onProjectsPopupChange]);
+
+  // Sync external state changes to internal state
+  useEffect(() => {
+    if (showFavoritesPopupExternal !== undefined) {
+      setShowFavoritesPopupInternal(showFavoritesPopupExternal);
+    }
+  }, [showFavoritesPopupExternal]);
+
+  useEffect(() => {
+    if (showProjectsPopupExternal !== undefined) {
+      setShowProjectsPopupInternal(showProjectsPopupExternal);
+    }
+  }, [showProjectsPopupExternal]);
 
   const handleRefreshAll = async () => {
     if (!onRefresh || isRefreshing) return;
