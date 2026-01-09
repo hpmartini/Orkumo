@@ -23,7 +23,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
   installUpdate: () => ipcRenderer.invoke('install-update'),
   onDownloadProgress: (callback) => {
-    ipcRenderer.on('download-progress', (event, progress) => callback(progress));
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = (event, progress) => callback(progress);
+    ipcRenderer.on('download-progress', handler);
+    // Return cleanup function to remove the listener
+    return () => ipcRenderer.removeListener('download-progress', handler);
   },
 
   // Environment

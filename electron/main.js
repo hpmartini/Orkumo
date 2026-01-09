@@ -15,8 +15,8 @@ let mainWindow = null;
 let isShuttingDown = false;
 
 const isDev = !app.isPackaged;
-const VITE_DEV_SERVER_URL = 'http://localhost:3000';
-const SERVER_PORT = 3001;
+const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3000';
+const SERVER_PORT = parseInt(process.env.SERVER_PORT || '3001', 10);
 
 /**
  * Create the main application window
@@ -267,12 +267,10 @@ async function startBackendServer() {
 
   serverProcess.on('exit', (code, signal) => {
     console.log(`[Electron] Server process exited with code ${code}, signal ${signal}`);
-    const hadProcess = serverProcess !== null;
-    serverProcess = null;
 
     // If server crashes after startup (code !== 0) and window exists, show error
     // Don't show error if we're in the process of shutting down
-    if (hadProcess && code !== 0 && code !== null && !isShuttingDown && mainWindow && !mainWindow.isDestroyed()) {
+    if (code !== 0 && code !== null && !isShuttingDown && mainWindow && !mainWindow.isDestroyed()) {
       console.error(`[Electron] Server crashed with exit code ${code}`);
       dialog.showMessageBox(mainWindow, {
         type: 'error',
@@ -295,28 +293,29 @@ async function startBackendServer() {
  * Stop the backend server
  */
 function stopBackendServer() {
-  if (serverProcess && !isShuttingDown) {
-    isShuttingDown = true;
-    console.log('[Electron] Stopping backend server...');
-
-    // Capture the process reference before timeout to avoid race conditions
-    const processToKill = serverProcess;
-    processToKill.kill('SIGTERM');
-
-    // Set a timeout to forcefully kill the process if it doesn't exit within 5 seconds
-    const killTimer = setTimeout(() => {
-      if (processToKill && processToKill.exitCode === null) {
-        console.warn('[Electron] Server did not exit gracefully, sending SIGKILL...');
-        processToKill.kill('SIGKILL');
-      }
-    }, 5000);
-
-    // Clear timeout if process exits before 5 seconds to prevent unnecessary SIGKILL
-    processToKill.once('exit', () => clearTimeout(killTimer));
-
-    // Don't set serverProcess to null here - let the exit handler do it
-    // This prevents a race condition where the exit handler won't execute properly
+  if (!serverProcess || isShuttingDown) {
+    return; // Early return if already shutting down or no process
   }
+
+  isShuttingDown = true;
+  console.log('[Electron] Stopping backend server...');
+
+  // Capture the process reference and clear it immediately to prevent multiple calls
+  const processToKill = serverProcess;
+  serverProcess = null;
+
+  processToKill.kill('SIGTERM');
+
+  // Set a timeout to forcefully kill the process if it doesn't exit within 5 seconds
+  const killTimer = setTimeout(() => {
+    if (processToKill && processToKill.exitCode === null) {
+      console.warn('[Electron] Server did not exit gracefully, sending SIGKILL...');
+      processToKill.kill('SIGKILL');
+    }
+  }, 5000);
+
+  // Clear timeout if process exits before 5 seconds to prevent unnecessary SIGKILL
+  processToKill.once('exit', () => clearTimeout(killTimer));
 }
 
 /**
@@ -326,12 +325,12 @@ function setupIpcHandlers() {
   // Handle opening external links with URL validation
   ipcMain.handle('open-external', async (event, url) => {
     if (!url || typeof url !== 'string') {
-      throw new Error('Invalid URL provided');
+      return { success: false, error: 'Invalid URL provided' };
     }
 
     if (!isValidExternalUrl(url, isDev)) {
       console.warn('[Electron] Blocked attempt to open invalid URL:', url);
-      throw new Error('URL validation failed: Only http:// and https:// URLs are allowed');
+      return { success: false, error: 'URL validation failed: Only http:// and https:// URLs are allowed' };
     }
 
     try {
@@ -339,39 +338,39 @@ function setupIpcHandlers() {
       return { success: true };
     } catch (error) {
       console.error('[Electron] Failed to open external URL:', error);
-      throw error;
+      return { success: false, error: error.message };
     }
   });
 
   // Handle showing native dialogs with input validation
   ipcMain.handle('show-message-box', async (event, options) => {
     if (!mainWindow || mainWindow.isDestroyed()) {
-      throw new Error('Main window not available');
+      return { success: false, error: 'Main window not available' };
     }
 
     try {
       const sanitizedOptions = validateDialogOptions(options, 'messageBox');
       const result = await dialog.showMessageBox(mainWindow, sanitizedOptions);
-      return result;
+      return { success: true, ...result };
     } catch (error) {
       console.error('[Electron] Dialog error:', error);
-      throw error;
+      return { success: false, error: error.message };
     }
   });
 
   // Handle opening directory picker with input validation
   ipcMain.handle('show-open-dialog', async (event, options) => {
     if (!mainWindow || mainWindow.isDestroyed()) {
-      throw new Error('Main window not available');
+      return { success: false, error: 'Main window not available' };
     }
 
     try {
       const sanitizedOptions = validateDialogOptions(options, 'openDialog');
       const result = await dialog.showOpenDialog(mainWindow, sanitizedOptions);
-      return result;
+      return { success: true, ...result };
     } catch (error) {
       console.error('[Electron] Dialog error:', error);
-      throw error;
+      return { success: false, error: error.message };
     }
   });
 
@@ -392,27 +391,34 @@ function setupIpcHandlers() {
   // Check for updates manually
   ipcMain.handle('check-for-updates', async () => {
     if (isDev) {
-      return { updateAvailable: false, message: 'Update checking is disabled in development mode' };
+      return { success: true, updateAvailable: false, message: 'Update checking is disabled in development mode' };
     }
 
     try {
       const result = await autoUpdater.checkForUpdates();
       return {
+        success: true,
         updateAvailable: result && result.updateInfo,
         version: result?.updateInfo?.version
       };
     } catch (error) {
       console.error('[Electron] Update check failed:', error);
-      throw error;
+      return { success: false, error: error.message };
     }
   });
 
   // Install update and restart
   ipcMain.handle('install-update', () => {
     if (isDev) {
-      throw new Error('Update installation is disabled in development mode');
+      return { success: false, error: 'Update installation is disabled in development mode' };
     }
-    autoUpdater.quitAndInstall(false, true);
+    try {
+      autoUpdater.quitAndInstall(false, true);
+      return { success: true };
+    } catch (error) {
+      console.error('[Electron] Update installation failed:', error);
+      return { success: false, error: error.message };
+    }
   });
 }
 
@@ -541,14 +547,15 @@ app.whenReady().then(async () => {
     });
   } catch (error) {
     console.error('[Electron] Failed to start application:', error);
-    await dialog.showMessageBox({
+    dialog.showMessageBox({
       type: 'error',
       title: 'Startup Error',
       message: 'Failed to start DevOrbit Dashboard',
       detail: error.message,
       buttons: ['OK']
-    });
-    app.quit();
+    })
+      .catch(err => console.error('[Electron] Failed to show error dialog:', err))
+      .finally(() => app.quit());
   }
 });
 
