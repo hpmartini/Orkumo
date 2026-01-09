@@ -55,9 +55,10 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Get code-server URL from environment or use default (memoized)
-  // Default to /code-server/ (proxied through nginx in Docker)
+  // Default to http://127.0.0.1:8080 for local development
+  // Use /code-server/ when running through Docker nginx proxy
   const codeServerUrl = useMemo(() => {
-    return import.meta.env.VITE_CODE_SERVER_URL || '/code-server/';
+    return import.meta.env.VITE_CODE_SERVER_URL || 'http://127.0.0.1:8080';
   }, []);
 
   // Get iframe load timeout from environment or use default (15 seconds)
@@ -121,23 +122,34 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
     return true;
   }, []);
 
-  // Convert host path to container path for code-server (memoized)
+  // Get the path for code-server
+  // When running locally (not in Docker), use the path as-is
+  // When running in Docker, convert host path to container path
   const getContainerPath = useCallback((hostPath: string) => {
     // Validate path first to prevent path traversal attacks
     if (!validatePath(hostPath)) {
       throw new Error(`Invalid or unsafe path: ${hostPath}`);
     }
 
-    // code-server mounts volumes at /home/coder/Projects and /home/coder/PROJECTS
-    // Convert host path to container path
     const normalizedPath = hostPath.replace(/\\/g, '/');
 
-    // Extract the project name from the path - match LAST occurrence to handle nested Projects folders
-    // Use separate patterns for case-sensitive matching
+    // Check if we're using local code-server (not Docker)
+    // If URL is localhost/127.0.0.1, use the path directly
+    const isLocalCodeServer = codeServerUrl.includes('127.0.0.1') || codeServerUrl.includes('localhost');
+
+    if (isLocalCodeServer) {
+      // Local code-server can access host paths directly
+      if (import.meta.env.DEV) {
+        console.log(`[WebIDEPanel] Using local path: ${normalizedPath}`);
+      }
+      return normalizedPath;
+    }
+
+    // Docker: code-server mounts volumes at /home/coder/Projects and /home/coder/PROJECTS
+    // Convert host path to container path
     const projectsMatches = normalizedPath.match(/\/Projects\//g);
     const PROJECTSMatches = normalizedPath.match(/\/PROJECTS\//g);
 
-    // Determine which pattern to use and find last occurrence
     let containerPath: string | null = null;
 
     if (projectsMatches && projectsMatches.length > 0) {
@@ -157,7 +169,6 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
     }
 
     if (!containerPath) {
-      // Fallback: assume it's already a container path or use as-is
       if (import.meta.env.DEV) {
         console.warn(`[WebIDEPanel] Could not map path to container: ${hostPath}`);
       }
@@ -165,7 +176,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
     }
 
     return containerPath;
-  }, [validatePath]);
+  }, [validatePath, codeServerUrl]);
 
   // Memoize iframe src URL to avoid unnecessary recalculations
   const iframeSrc = useMemo(() => {
@@ -203,14 +214,15 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
       setCodeServerLoading(true);
       setCodeServerError(null);
 
-      // Set a timeout to detect if iframe never loads
+      // Set a shorter timeout (5 seconds) to detect if iframe never loads
       // iframe onError doesn't reliably fire for content loading failures
+      const actualTimeout = Math.min(iframeTimeout, 5000);
       const timeout = setTimeout(() => {
         setCodeServerLoading(false);
         setCodeServerError(
-          'Failed to load VS Code (timeout). Make sure code-server is running (docker compose up code-server)'
+          'VS Code Server is not available. To use VS Code:\n\n1. Run: docker compose up code-server\n2. Or use the Monaco editor instead'
         );
-      }, iframeTimeout);
+      }, actualTimeout);
 
       setLoadTimeout(timeout);
 
@@ -471,23 +483,32 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
           {codeServerError && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
               <div className="text-center max-w-md px-4">
-                <Box className="w-12 h-12 mx-auto mb-3 text-red-500" />
-                <div className="text-sm text-red-400 mb-3">{codeServerError}</div>
-                <button
-                  onClick={() => {
-                    // Reset state
-                    setCodeServerLoading(true);
-                    setCodeServerError(null);
-                    // Force iframe reload by changing src
-                    if (iframeRef.current) {
-                      iframeRef.current.src = iframeSrc;
-                    }
-                  }}
-                  className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm transition-colors"
-                  aria-label="Retry loading VS Code Server"
-                >
-                  Retry
-                </button>
+                <Box className="w-12 h-12 mx-auto mb-3 text-gray-500" />
+                <div className="text-base font-medium text-gray-300 mb-2">VS Code Server Unavailable</div>
+                <div className="text-sm text-gray-400 mb-4 whitespace-pre-line">{codeServerError}</div>
+                <div className="flex gap-2 justify-center">
+                  <button
+                    onClick={() => setEditorType('monaco')}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded text-sm transition-colors"
+                  >
+                    Use Monaco Editor
+                  </button>
+                  <button
+                    onClick={() => {
+                      // Reset state
+                      setCodeServerLoading(true);
+                      setCodeServerError(null);
+                      // Force iframe reload by changing src
+                      if (iframeRef.current) {
+                        iframeRef.current.src = iframeSrc;
+                      }
+                    }}
+                    className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors"
+                    aria-label="Retry loading VS Code Server"
+                  >
+                    Retry
+                  </button>
+                </div>
               </div>
             </div>
           )}
