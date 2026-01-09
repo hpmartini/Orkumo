@@ -164,7 +164,8 @@ export async function removeDirectory(path: string): Promise<Config> {
 export function subscribeToEvents(
   onStatusChange: (data: { appId: string; status: string }) => void,
   onLog: (data: { appId: string; type: string; message: string }) => void,
-  onConnectionChange?: (connected: boolean) => void
+  onConnectionChange?: (connected: boolean) => void,
+  onStats?: (data: { appId: string; cpu: number; memory: number; uptime?: number }) => void
 ): () => void {
   let eventSource: EventSource | null = null;
   let reconnectAttempts = 0;
@@ -216,6 +217,17 @@ export function subscribeToEvents(
       }
     });
 
+    eventSource.addEventListener('process-stats', (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (onStats) {
+          onStats(data);
+        }
+      } catch (err) {
+        console.error('Failed to parse process-stats event:', err);
+      }
+    });
+
     eventSource.onerror = () => {
       onConnectionChange?.(false);
       eventSource?.close();
@@ -258,17 +270,6 @@ export async function fetchAppPackage(id: string): Promise<{ fileName: string; c
   const response = await fetch(`${API_BASE}/apps/${id}/package`);
   if (!response.ok) {
     throw new Error('Failed to fetch package.json');
-  }
-  return response.json();
-}
-
-/**
- * Fetch real CPU/memory stats for an app
- */
-export async function fetchAppStats(id: string): Promise<{ cpu: number; memory: number }> {
-  const response = await fetch(`${API_BASE}/apps/${id}/stats`);
-  if (!response.ok) {
-    return { cpu: 0, memory: 0 };
   }
   return response.json();
 }

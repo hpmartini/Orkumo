@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import toast from 'react-hot-toast';
 import { AppConfig, AppStatus } from '../types';
 import {
@@ -8,7 +8,6 @@ import {
   restartApp,
   subscribeToEvents,
   fetchAppPackage,
-  fetchAppStats,
   fetchSettings,
   fetchLogs,
   importSettings,
@@ -23,7 +22,6 @@ import {
 } from '../services/api';
 
 // Constants
-const STATS_UPDATE_INTERVAL_MS = 2000;
 const LOG_RETENTION_COUNT = 100;
 const LOCALSTORAGE_MIGRATED_KEY = 'devOrbitMigratedToBackend';
 
@@ -96,7 +94,6 @@ export function useApps(): UseAppsReturn {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Fetch apps from backend
   const refreshApps = useCallback(async () => {
@@ -190,6 +187,24 @@ export function useApps(): UseAppsReturn {
             return { ...app, logs: newLogs };
           })
         );
+      },
+      // On connection change (optional)
+      undefined,
+      // On stats - update CPU, memory, and uptime from server
+      ({ appId, cpu, memory, uptime }) => {
+        setApps((currentApps) =>
+          currentApps.map((app) => {
+            if (app.id !== appId) return app;
+            return {
+              ...app,
+              uptime: uptime ?? app.uptime, // Use server-provided uptime
+              stats: {
+                cpu: [...app.stats.cpu.slice(1), cpu],
+                memory: [...app.stats.memory.slice(1), memory],
+              },
+            };
+          })
+        );
       }
     );
 
@@ -198,52 +213,6 @@ export function useApps(): UseAppsReturn {
     };
   }, []);
 
-  // Fetch real stats for running apps
-  useEffect(() => {
-    statsIntervalRef.current = setInterval(async () => {
-      const runningApps = apps.filter(app => app.status === AppStatus.RUNNING);
-
-      for (const app of runningApps) {
-        try {
-          const stats = await fetchAppStats(app.id);
-          setApps((currentApps) =>
-            currentApps.map((a) => {
-              if (a.id !== app.id) return a;
-              return {
-                ...a,
-                uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
-                stats: {
-                  cpu: [...a.stats.cpu.slice(1), stats.cpu],
-                  memory: [...a.stats.memory.slice(1), stats.memory],
-                },
-              };
-            })
-          );
-        } catch {
-          // Fall back to simulated stats if real stats fail
-          setApps((currentApps) =>
-            currentApps.map((a) => {
-              if (a.id !== app.id || a.status !== AppStatus.RUNNING) return a;
-              const lastCpu = a.stats.cpu[a.stats.cpu.length - 1] || 0;
-              const lastMem = a.stats.memory[a.stats.memory.length - 1] || 100;
-              return {
-                ...a,
-                uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
-                stats: {
-                  cpu: [...a.stats.cpu.slice(1), lastCpu + (Math.random() - 0.5) * 5],
-                  memory: [...a.stats.memory.slice(1), lastMem + (Math.random() - 0.5) * 10],
-                },
-              };
-            })
-          );
-        }
-      }
-    }, STATS_UPDATE_INTERVAL_MS);
-
-    return () => {
-      if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
-    };
-  }, [apps]);
 
   const handleStartApp = useCallback(async (id: string) => {
     const app = apps.find((a) => a.id === id);
