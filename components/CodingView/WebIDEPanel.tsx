@@ -55,8 +55,9 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   // Get code-server URL from environment or use default (memoized)
+  // Default to /code-server/ (proxied through nginx in Docker)
   const codeServerUrl = useMemo(() => {
-    return import.meta.env.VITE_CODE_SERVER_URL || 'http://localhost:8443';
+    return import.meta.env.VITE_CODE_SERVER_URL || '/code-server/';
   }, []);
 
   // Get iframe load timeout from environment or use default (15 seconds)
@@ -75,13 +76,36 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
       return false;
     }
 
+    // Deny access to sensitive directories (security-critical)
+    // These patterns protect SSH keys, cloud credentials, and other secrets
+    const deniedPatterns = [
+      '/.ssh/',
+      '/.aws/',
+      '/.config/gcloud/',
+      '/.kube/',
+      '/.docker/',
+      '/.gnupg/',
+      '/.password-store/',
+      '/credentials',
+      '/secrets',
+      '/.npmrc',
+      '/.pypirc',
+      '/.gitconfig',
+    ];
+
+    const isDenied = deniedPatterns.some(pattern => normalizedPath.includes(pattern));
+    if (isDenied) {
+      console.error(`[WebIDEPanel] Access to sensitive directory blocked: ${path}`);
+      return false;
+    }
+
     // Ensure path starts with allowed prefixes
+    // Restricted to specific project directories to prevent access to system files
     const allowedPrefixes = [
       '/home/coder/Projects/',
       '/home/coder/PROJECTS/',
-      '/Users/', // macOS
-      '/home/', // Linux
-      'C:/', // Windows
+      '/Users/', // macOS - consider tightening to specific user directories in production
+      'C:/Users/', // Windows user directories
     ];
 
     const isAllowed = allowedPrefixes.some(prefix => {
@@ -475,10 +499,10 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
             title="VS Code Server"
             onLoad={handleIframeLoad}
             onError={handleIframeError}
-            // Security: Removed allow-same-origin for better isolation
-            // This prevents iframe from accessing parent origin's storage/cookies
-            // Note: code-server may need to use token-based auth instead of cookie auth
-            sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"
+            // Security: allow-same-origin is required for code-server authentication
+            // code-server uses cookies for session management which requires same-origin access
+            // This is safe because code-server is served through our nginx proxy on the same origin
+            sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals allow-same-origin"
             allow="clipboard-read; clipboard-write"
             aria-label="VS Code web editor"
           />
