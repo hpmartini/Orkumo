@@ -76,20 +76,20 @@ describe('Routing - URL Generation', () => {
     });
 
     it('should handle names that are only special characters', () => {
-      expect(generateProjectUrl('!!!', '123')).toBe('//123');
-      expect(generateProjectUrl('@@@', '456')).toBe('//456');
+      expect(generateProjectUrl('!!!', '123')).toBe('/project/123');
+      expect(generateProjectUrl('@@@', '456')).toBe('/project/456');
     });
   });
 
   describe('Edge cases', () => {
     it('should handle empty project names', () => {
       const url = generateProjectUrl('', 'test-id');
-      expect(url).toContain('/test-id');
+      expect(url).toBe('/project/test-id');
     });
 
     it('should handle names with only spaces', () => {
       const url = generateProjectUrl('   ', 'test-id');
-      expect(url).toContain('/test-id');
+      expect(url).toBe('/project/test-id');
     });
 
     it('should handle names with multiple consecutive special characters', () => {

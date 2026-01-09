@@ -12,5 +12,9 @@ export const generateProjectUrl = (projectName: string, projectId: string): stri
     .replace(/[^a-z0-9]+/g, '-')
     .substring(0, 50)
     .replace(/^-+|-+$/g, ''); // Remove leading/trailing dashes
-  return `/${urlName}/${projectId}`;
+
+  // Fallback to 'project' if urlName is empty (e.g., project names with only special chars)
+  const finalUrlName = urlName || 'project';
+
+  return `/${finalUrlName}/${projectId}`;
 };

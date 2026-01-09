@@ -179,10 +179,15 @@ function AppContent() {
   };
 
   const handleTabClose = (id: string) => {
+    // Calculate remaining tabs BEFORE calling closeTab to avoid race condition
+    // (tabs state won't update until after this function completes)
+    const remainingTabs = tabs.filter((t) => t.appId !== id);
+
+    // Close the tab
     closeTab(id);
+
     // If closing the active tab, switch to dashboard or another tab
     if (selectedAppId === id) {
-      const remainingTabs = tabs.filter((t) => t.appId !== id);
       if (remainingTabs.length > 0) {
         const nextApp = apps.find((a) => a.id === remainingTabs[remainingTabs.length - 1].appId);
         if (nextApp) {
