@@ -391,9 +391,10 @@ class SettingsService {
    * @param {string[]} appIds - Array of app IDs to configure
    * @param {number} startPort - Starting port number (default: 3001)
    * @param {object} portManager - PortManager instance for conflict detection
+   * @param {function} onProgress - Optional progress callback (currentIndex, total)
    * @returns {Promise<object>} Map of appId -> assigned port
    */
-  async configureAllPorts(appIds, startPort = 3001, portManager = null) {
+  async configureAllPorts(appIds, startPort = 3001, portManager = null, onProgress = null) {
     const settings = readSettings();
     const configured = {};
     let currentPort = startPort;
@@ -405,36 +406,72 @@ class SettingsService {
       throw new Error(`Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort}`);
     }
 
+    // If portManager is provided, check ports in parallel for better performance
+    let unavailablePorts = new Set();
+    if (portManager) {
+      // Batch check ports in parallel (check up to 50 ports ahead)
+      const portsToCheck = Math.min(appIds.length + 50, maxPort - startPort + 1);
+      const portCheckPromises = [];
+
+      for (let i = 0; i < portsToCheck; i++) {
+        const portToCheck = startPort + i;
+        portCheckPromises.push(
+          portManager.isPortAvailable(portToCheck).then(available => ({
+            port: portToCheck,
+            available
+          }))
+        );
+      }
+
+      // Wait for all checks to complete
+      const results = await Promise.all(portCheckPromises);
+      unavailablePorts = new Set(
+        results.filter(r => !r.available).map(r => r.port)
+      );
+    }
+
     // Assign sequential ports starting from startPort
     for (let i = 0; i < appIds.length; i++) {
       const appId = appIds[i];
 
-      // Check for port conflicts if portManager is provided
-      if (portManager) {
-        let portAvailable = await portManager.isPortAvailable(currentPort);
+      // Find the next available port
+      let assignedPort = currentPort;
 
-        // If port is in use, find the next available port
-        while (!portAvailable && currentPort <= maxPort) {
-          currentPort++;
-          highestPort = Math.max(highestPort, currentPort);
-          if (currentPort > maxPort) {
+      // Skip unavailable ports
+      while (unavailablePorts.has(assignedPort) && assignedPort <= maxPort) {
+        assignedPort++;
+      }
+
+      // If we've exhausted our pre-checked range, check new ports
+      if (portManager && assignedPort > startPort + unavailablePorts.size + appIds.length) {
+        let portAvailable = await portManager.isPortAvailable(assignedPort);
+        while (!portAvailable && assignedPort <= maxPort) {
+          assignedPort++;
+          if (assignedPort > maxPort) {
             throw new Error(`Port range exhausted after configuring ${i} apps`);
           }
-          portAvailable = await portManager.isPortAvailable(currentPort);
+          portAvailable = await portManager.isPortAvailable(assignedPort);
         }
       }
 
       // Track the highest port used
-      highestPort = Math.max(highestPort, currentPort);
+      highestPort = Math.max(highestPort, assignedPort);
 
       // Validate we haven't exceeded the max port
       if (highestPort > maxPort) {
         throw new Error(`Port range exhausted after configuring ${i} apps`);
       }
 
-      settings.customPorts[appId] = currentPort;
-      configured[appId] = currentPort;
-      currentPort++;
+      settings.customPorts[appId] = assignedPort;
+      configured[appId] = assignedPort;
+
+      // Set currentPort to the next port after the assigned port to ensure sequential allocation
+      currentPort = assignedPort + 1;
+
+      // Report progress if callback is provided
+      if (onProgress) {
+        onProgress(i + 1, appIds.length);
+      }
     }
 
     writeSettings(settings);

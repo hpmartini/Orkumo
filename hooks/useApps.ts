@@ -605,7 +605,15 @@ export function useApps(): UseAppsReturn {
     }
   }, [settings]);
 
-  const handleConfigureAllPorts = useCallback(async () => {
+  const handleConfigureAllPorts = useCallback(async (
+    onProgress?: (current: number, total: number, percentage: number) => void
+  ) => {
+    // Check if settings have loaded
+    if (!settings) {
+      toast.error('Settings are still loading. Please try again in a moment.');
+      return;
+    }
+
     // Check if there are any apps to configure
     if (apps.length === 0) {
       toast.error('No apps to configure. Please add some projects first.');
@@ -613,8 +621,8 @@ export function useApps(): UseAppsReturn {
     }
 
     try {
-      // Call the backend to configure all ports starting from 3001
-      const result = await configureAllPorts(3001);
+      // Call the backend to configure all ports starting from 3001 with progress tracking
+      const result = await configureAllPorts(3001, onProgress);
 
       // Check if any apps were actually configured
       const configuredCount = Object.keys(result.configured).length;
@@ -661,7 +669,7 @@ export function useApps(): UseAppsReturn {
       console.error('Failed to configure ports:', err);
       toast.error(errorMessage);
     }
-  }, [apps]);
+  }, [apps, settings]);
 
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;

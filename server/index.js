@@ -505,13 +505,40 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
   }
 });
 
+// Track active SSE connections for port configuration progress
+const portConfigProgressClients = new Map();
+
+/**
+ * GET /api/settings/configure-ports/progress/:sessionId
+ * Server-Sent Events endpoint for port configuration progress
+ */
+app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
+  const { sessionId } = req.params;
+
+  // Set headers for SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+
+  // Store the response object for this session
+  portConfigProgressClients.set(sessionId, res);
+
+  // Send initial connection message
+  res.write('data: {"type":"connected"}\n\n');
+
+  // Clean up on close
+  req.on('close', () => {
+    portConfigProgressClients.delete(sessionId);
+  });
+});
+
 /**
  * POST /api/settings/configure-ports
  * Configure ports for all apps consistently, starting from a base port
  */
 app.post('/api/settings/configure-ports', async (req, res) => {
   try {
-    const { startPort = 3001 } = req.body;
+    const { startPort = 3001, sessionId } = req.body;
 
     // Validate startPort
     const portNum = parseInt(startPort, 10);
@@ -537,12 +564,48 @@ app.post('/api/settings/configure-ports', async (req, res) => {
       });
     }
 
-    // Configure ports for all apps with conflict detection
-    const configured = await settingsService.configureAllPorts(appIds, portNum, portManager);
+    // Progress callback to send SSE updates
+    const onProgress = sessionId ? (current, total) => {
+      const sseClient = portConfigProgressClients.get(sessionId);
+      if (sseClient) {
+        const progress = {
+          type: 'progress',
+          current,
+          total,
+          percentage: Math.round((current / total) * 100)
+        };
+        sseClient.write(`data: ${JSON.stringify(progress)}\n\n`);
+      }
+    } : null;
+
+    // Configure ports for all apps with conflict detection and progress tracking
+    const configured = await settingsService.configureAllPorts(appIds, portNum, portManager, onProgress);
+
+    // Send completion message via SSE if session exists
+    if (sessionId) {
+      const sseClient = portConfigProgressClients.get(sessionId);
+      if (sseClient) {
+        sseClient.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+        sseClient.end();
+        portConfigProgressClients.delete(sessionId);
+      }
+    }
 
     res.json({ configured });
   } catch (error) {
     console.error('[Settings] Failed to configure ports:', error);
+
+    // Send error via SSE if session exists
+    const { sessionId } = req.body;
+    if (sessionId) {
+      const sseClient = portConfigProgressClients.get(sessionId);
+      if (sseClient) {
+        sseClient.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+        sseClient.end();
+        portConfigProgressClients.delete(sessionId);
+      }
+    }
+
     res.status(500).json({ error: error.message });
   }
 });

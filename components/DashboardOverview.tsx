@@ -8,7 +8,7 @@ interface DashboardOverviewProps {
   totalCpu: number;
   aiEnabled?: boolean;
   apps: AppConfig[];
-  onConfigurePorts?: () => void;
+  onConfigurePorts?: (onProgress?: (current: number, total: number, percentage: number) => void) => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -20,6 +20,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   onConfigurePorts,
 }) => {
   const [isConfiguringPorts, setIsConfiguringPorts] = useState(false);
+  const [configProgress, setConfigProgress] = useState<{ current: number; total: number; percentage: number } | null>(null);
 
   // Get all ports from running apps
   const activePorts = apps
@@ -38,10 +39,14 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     if (!confirmed) return;
 
     setIsConfiguringPorts(true);
+    setConfigProgress(null);
     try {
-      await onConfigurePorts();
+      await onConfigurePorts((current, total, percentage) => {
+        setConfigProgress({ current, total, percentage });
+      });
     } finally {
       setIsConfiguringPorts(false);
+      setConfigProgress(null);
     }
   };
 
@@ -119,7 +124,11 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
             {isConfiguringPorts ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                Configuring...
+                {configProgress ? (
+                  <span>Configuring... {configProgress.percentage}% ({configProgress.current}/{configProgress.total})</span>
+                ) : (
+                  <span>Configuring...</span>
+                )}
               </>
             ) : (
               <>

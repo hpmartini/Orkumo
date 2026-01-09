@@ -415,27 +415,65 @@ export async function updateName(id: string, name: string | null): Promise<{ id:
 
 /**
  * Configure ports for all apps consistently, starting from a base port
+ * @param startPort - Starting port number
+ * @param onProgress - Optional progress callback (current, total, percentage)
  */
-export async function configureAllPorts(startPort = 3001): Promise<{ configured: Record<string, number> }> {
-  const response = await fetch(`${API_BASE}/settings/configure-ports`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ startPort }),
-  });
-  if (!response.ok) {
-    // Try to parse backend error message
-    try {
-      const errorData = await response.json();
-      throw new Error(errorData.error || 'Failed to configure ports');
-    } catch (parseError) {
-      // If JSON parsing fails, preserve the original error context
-      if (parseError instanceof Error && parseError.message && !parseError.message.includes('Failed to configure ports')) {
-        throw new Error(`Failed to configure ports: ${parseError.message}`);
+export async function configureAllPorts(
+  startPort = 3001,
+  onProgress?: (current: number, total: number, percentage: number) => void
+): Promise<{ configured: Record<string, number> }> {
+  // Generate a session ID for progress tracking
+  const sessionId = onProgress ? `port-config-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` : undefined;
+
+  // Connect to SSE endpoint for progress updates if onProgress is provided
+  let eventSource: EventSource | null = null;
+  if (sessionId && onProgress) {
+    eventSource = new EventSource(`${API_BASE}/settings/configure-ports/progress/${sessionId}`);
+
+    eventSource.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.type === 'progress') {
+          onProgress(data.current, data.total, data.percentage);
+        }
+      } catch (err) {
+        console.error('Failed to parse SSE progress data:', err);
       }
-      throw new Error('Failed to configure ports');
+    };
+
+    eventSource.onerror = () => {
+      eventSource?.close();
+    };
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/settings/configure-ports`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startPort, sessionId }),
+    });
+
+    if (!response.ok) {
+      // Try to parse backend error message
+      try {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to configure ports');
+      } catch (parseError) {
+        // If JSON parsing fails, preserve the original error context
+        if (parseError instanceof Error && parseError.message && !parseError.message.includes('Failed to configure ports')) {
+          throw new Error(`Failed to configure ports: ${parseError.message}`);
+        }
+        throw new Error('Failed to configure ports');
+      }
+    }
+
+    return await response.json();
+  } finally {
+    // Clean up SSE connection
+    if (eventSource) {
+      eventSource.close();
     }
   }
-  return response.json();
 }
 
 // ============================================
