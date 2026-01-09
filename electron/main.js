@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import path from 'path';
 import { fork } from 'child_process';
 import * as fs from 'fs';
+import { createServer } from 'net';
 import { autoUpdater } from 'electron-updater';
 import { isValidExternalUrl, validateDialogOptions } from './validation.js';
 
@@ -155,7 +156,7 @@ function createApplicationMenu() {
  */
 async function isPortAvailable(port) {
   return new Promise((resolve) => {
-    const server = require('net').createServer();
+    const server = createServer();
     let resolved = false;
 
     // Set a timeout to prevent hanging indefinitely
