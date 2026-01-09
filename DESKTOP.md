@@ -154,6 +154,39 @@ The macOS build requires specific security entitlements to support native module
 
 These are essential features of the dashboard and cannot be implemented without native modules. The entitlements file can be found at `electron/entitlements.mac.plist`.
 
+**Mitigation Strategies:**
+
+Despite the required entitlements, the application implements multiple layers of security:
+
+1. **Context Isolation**: The renderer process is fully isolated from Node.js APIs, preventing malicious scripts from accessing system resources
+2. **Preload Script Validation**: Only whitelisted APIs are exposed via `contextBridge`, with comprehensive input validation on all IPC handlers
+3. **URL Validation**: External URLs are validated to block dangerous protocols (`file://`, `javascript:`, `data:`) - see `electron/validation.js`
+4. **Input Sanitization**: All dialog inputs are sanitized with length limits and type validation to prevent injection attacks
+5. **Single Instance Lock**: Only one instance of the app can run, preventing multiple simultaneous attack vectors
+6. **No Remote Code Execution**: The app does not load remote content or execute dynamically downloaded code
+7. **Process Isolation**: The backend server runs as a separate forked process, limiting the impact of potential server vulnerabilities
+
+**User Security Best Practices:**
+
+To minimize security risks when using the desktop application:
+
+- **Download from trusted sources**: Only download the app from the official GitHub releases or verified distribution channels
+- **Verify checksums**: Check the SHA256 checksums of downloaded binaries against the official release notes
+- **Keep updated**: Install updates promptly to receive security patches
+- **Review permissions**: The app requests minimal system permissions - be cautious if it ever requests additional permissions
+- **Monitor network activity**: The app only makes network requests to configured project servers and (optionally) the Gemini API
+- **Audit projects**: Only run projects from trusted sources, as the app will execute their code with your user privileges
+
+**For Developers:**
+
+If you're building from source or auditing the code:
+
+- Review `electron/main.js` for IPC handler security
+- Examine `electron/validation.js` for input validation logic
+- Check `electron/preload.js` for exposed API surface
+- Inspect `electron/entitlements.mac.plist` for macOS permissions
+- Run the test suite: `npm test` (includes 28 security validation tests)
+
 ## Troubleshooting
 
 ### macOS Issues

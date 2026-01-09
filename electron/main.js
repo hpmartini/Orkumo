@@ -297,15 +297,21 @@ function stopBackendServer() {
   if (serverProcess && !isShuttingDown) {
     isShuttingDown = true;
     console.log('[Electron] Stopping backend server...');
-    serverProcess.kill('SIGTERM');
+
+    // Capture the process reference before timeout to avoid race conditions
+    const processToKill = serverProcess;
+    processToKill.kill('SIGTERM');
 
     // Set a timeout to forcefully kill the process if it doesn't exit within 5 seconds
-    setTimeout(() => {
-      if (serverProcess && serverProcess.exitCode === null) {
+    const killTimer = setTimeout(() => {
+      if (processToKill && processToKill.exitCode === null) {
         console.warn('[Electron] Server did not exit gracefully, sending SIGKILL...');
-        serverProcess.kill('SIGKILL');
+        processToKill.kill('SIGKILL');
       }
     }, 5000);
+
+    // Clear timeout if process exits before 5 seconds to prevent unnecessary SIGKILL
+    processToKill.once('exit', () => clearTimeout(killTimer));
 
     // Don't set serverProcess to null here - let the exit handler do it
     // This prevents a race condition where the exit handler won't execute properly
