@@ -397,6 +397,7 @@ class SettingsService {
     const settings = readSettings();
     const configured = {};
     let currentPort = startPort;
+    let highestPort = startPort;
 
     // Validate that we won't exhaust port range
     const maxPort = 65535;
@@ -415,11 +416,20 @@ class SettingsService {
         // If port is in use, find the next available port
         while (!portAvailable && currentPort <= maxPort) {
           currentPort++;
+          highestPort = Math.max(highestPort, currentPort);
           if (currentPort > maxPort) {
             throw new Error(`Port range exhausted after configuring ${i} apps`);
           }
           portAvailable = await portManager.isPortAvailable(currentPort);
         }
+      }
+
+      // Track the highest port used
+      highestPort = Math.max(highestPort, currentPort);
+
+      // Validate we haven't exceeded the max port
+      if (highestPort > maxPort) {
+        throw new Error(`Port range exhausted after configuring ${i} apps`);
       }
 
       settings.customPorts[appId] = currentPort;
