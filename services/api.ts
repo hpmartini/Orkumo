@@ -274,17 +274,6 @@ export async function fetchAppPackage(id: string): Promise<{ fileName: string; c
   return response.json();
 }
 
-/**
- * Fetch real CPU/memory stats for an app
- */
-export async function fetchAppStats(id: string): Promise<{ cpu: number; memory: number }> {
-  const response = await fetch(`${API_BASE}/apps/${id}/stats`);
-  if (!response.ok) {
-    return { cpu: 0, memory: 0 };
-  }
-  return response.json();
-}
-
 // ============================================
 // Settings API - Backend persistence
 // ============================================

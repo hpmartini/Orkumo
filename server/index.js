@@ -278,31 +278,7 @@ processEvents.on('log', (data) => broadcast('process-log', data));
 
 // Broadcast stats for all running processes every 2 seconds
 const STATS_BROADCAST_INTERVAL = 2000;
-const statsInterval = setInterval(async () => {
-  const allProcesses = getAllProcesses();
-  const runningProcesses = Object.entries(allProcesses).filter(
-    ([_, info]) => info.status === 'RUNNING' && info.pid
-  );
-
-  // Skip iteration if no processes are running
-  if (runningProcesses.length === 0) return;
-
-  for (const [appId, processInfo] of runningProcesses) {
-    try {
-      const stats = await getProcessStats(processInfo.pid);
-      // Include actual uptime from server
-      const uptime = processInfo.startTime ? Math.floor((Date.now() - processInfo.startTime) / 1000) : 0;
-      broadcast('process-stats', {
-        appId,
-        cpu: stats.cpu,
-        memory: stats.memory,
-        uptime,
-      });
-    } catch (error) {
-      console.warn(`[Stats] Failed to collect stats for ${appId}:`, error.message);
-    }
-  }
-}, STATS_BROADCAST_INTERVAL);
+let statsInterval = null;
 
 // ============================================
 // Configuration Endpoints
@@ -1992,8 +1968,10 @@ function setupGracefulShutdown() {
   const shutdown = (signal) => {
     console.log(`\n[Server] Received ${signal}, shutting down gracefully...`);
 
-    // Clear stats interval
-    clearInterval(statsInterval);
+    // Clear stats interval safely
+    if (statsInterval) {
+      clearInterval(statsInterval);
+    }
 
     // Close server
     server.close(() => {
@@ -2031,6 +2009,33 @@ async function startServer() {
     console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
     console.log(`   - GET  /api/events          - SSE for real-time updates`);
     console.log(`   - WS   /api/pty             - WebSocket for terminal`);
+
+    // Start stats broadcasting after server is listening
+    statsInterval = setInterval(async () => {
+      const allProcesses = getAllProcesses();
+      const runningProcesses = Object.entries(allProcesses).filter(
+        ([_, info]) => info.status === 'RUNNING' && info.pid
+      );
+
+      // Skip iteration if no processes are running
+      if (runningProcesses.length === 0) return;
+
+      for (const [appId, processInfo] of runningProcesses) {
+        try {
+          const stats = await getProcessStats(processInfo.pid);
+          // Include actual uptime from server
+          const uptime = processInfo.startTime ? Math.floor((Date.now() - processInfo.startTime) / 1000) : 0;
+          broadcast('process-stats', {
+            appId,
+            cpu: stats.cpu,
+            memory: stats.memory,
+            uptime,
+          });
+        } catch (error) {
+          console.warn(`[Stats] Failed to collect stats for ${appId}:`, error.message);
+        }
+      }
+    }, STATS_BROADCAST_INTERVAL);
 
     // Set up graceful shutdown
     setupGracefulShutdown();
