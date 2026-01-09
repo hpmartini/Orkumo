@@ -77,3 +77,45 @@ export interface ClaudeCLIInfo {
 }
 
 export type TerminalType = 'shell' | 'claude';
+
+// Keyboard shortcuts configuration
+export interface KeyboardShortcut {
+  key: string;          // The key to press (e.g., 'b', 'h', '1')
+  modifiers?: {         // Optional modifier keys
+    ctrl?: boolean;
+    meta?: boolean;     // Cmd on Mac
+    alt?: boolean;
+    shift?: boolean;
+  };
+  description: string;  // Human-readable description
+}
+
+export interface KeyboardShortcuts {
+  toggleSidebar: KeyboardShortcut;
+  goToDashboard: KeyboardShortcut;
+  openSettings: KeyboardShortcut;
+  goToTab1: KeyboardShortcut;
+  goToTab2: KeyboardShortcut;
+  goToTab3: KeyboardShortcut;
+  goToTab4: KeyboardShortcut;
+  goToTab5: KeyboardShortcut;
+  goToTab6: KeyboardShortcut;
+  goToTab7: KeyboardShortcut;
+  goToTab8: KeyboardShortcut;
+  goToTab9: KeyboardShortcut;
+}
+
+export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
+  toggleSidebar: { key: 'b', description: 'Toggle sidebar' },
+  goToDashboard: { key: 'h', description: 'Go to dashboard' },
+  openSettings: { key: 's', description: 'Open settings' },
+  goToTab1: { key: '1', modifiers: { meta: true }, description: 'Go to tab 1' },
+  goToTab2: { key: '2', modifiers: { meta: true }, description: 'Go to tab 2' },
+  goToTab3: { key: '3', modifiers: { meta: true }, description: 'Go to tab 3' },
+  goToTab4: { key: '4', modifiers: { meta: true }, description: 'Go to tab 4' },
+  goToTab5: { key: '5', modifiers: { meta: true }, description: 'Go to tab 5' },
+  goToTab6: { key: '6', modifiers: { meta: true }, description: 'Go to tab 6' },
+  goToTab7: { key: '7', modifiers: { meta: true }, description: 'Go to tab 7' },
+  goToTab8: { key: '8', modifiers: { meta: true }, description: 'Go to tab 8' },
+  goToTab9: { key: '9', modifiers: { meta: true }, description: 'Go to tab 9' },
+};

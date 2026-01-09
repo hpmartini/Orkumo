@@ -1,4 +1,4 @@
-import { AppConfig, AppStatus } from '../types';
+import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 
 const API_BASE = '/api';
 
@@ -510,6 +510,21 @@ export async function configureAllPorts(
       eventSource.close();
     }
   }
+}
+
+/**
+ * Update keyboard shortcuts configuration
+ */
+export async function updateKeyboardShortcuts(shortcuts: KeyboardShortcuts): Promise<{ keyboardShortcuts: KeyboardShortcuts }> {
+  const response = await fetch(`${API_BASE}/settings/keyboard-shortcuts`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ shortcuts }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update keyboard shortcuts');
+  }
+  return response.json();
 }
 
 // ============================================

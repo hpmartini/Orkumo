@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { X, Plus, ChevronLeft, ChevronRight } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 
@@ -308,37 +308,48 @@ export const useAppTabs = (apps: AppConfig[]) => {
       port: app.port,
     }));
 
-  const openTab = (appId: string) => {
-    if (!openTabIds.includes(appId)) {
-      setOpenTabIds((prev) => [...prev, appId]);
-    }
+  const openTab = useCallback((appId: string) => {
+    setOpenTabIds((prev) => {
+      if (!prev.includes(appId)) {
+        return [...prev, appId];
+      }
+      return prev;
+    });
     setActiveTabId(appId);
-  };
+  }, []);
 
-  const closeTab = (appId: string) => {
-    setOpenTabIds((prev) => prev.filter((id) => id !== appId));
-    if (activeTabId === appId) {
-      const remaining = openTabIds.filter((id) => id !== appId);
-      setActiveTabId(remaining.length > 0 ? remaining[remaining.length - 1] : null);
-    }
-  };
+  const closeTab = useCallback((appId: string) => {
+    setOpenTabIds((prev) => {
+      const newIds = prev.filter((id) => id !== appId);
+      // If closing the active tab, update activeTabId
+      setActiveTabId((prevActiveId) => {
+        if (prevActiveId === appId) {
+          return newIds.length > 0 ? newIds[newIds.length - 1] : null;
+        }
+        return prevActiveId;
+      });
+      return newIds;
+    });
+  }, []);
 
-  const reorderTabs = (fromIndex: number, toIndex: number) => {
+  const reorderTabs = useCallback((fromIndex: number, toIndex: number) => {
     setOpenTabIds((prev) => {
       const newOrder = [...prev];
       const [moved] = newOrder.splice(fromIndex, 1);
       newOrder.splice(toIndex, 0, moved);
       return newOrder;
     });
-  };
+  }, []);
 
-  const selectTab = (appId: string) => {
-    if (!openTabIds.includes(appId)) {
-      openTab(appId);
-    } else {
-      setActiveTabId(appId);
-    }
-  };
+  const selectTab = useCallback((appId: string) => {
+    setOpenTabIds((prev) => {
+      if (!prev.includes(appId)) {
+        return [...prev, appId];
+      }
+      return prev;
+    });
+    setActiveTabId(appId);
+  }, []);
 
   return {
     tabs,

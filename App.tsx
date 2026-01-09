@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { LayoutDashboard, RefreshCw, Menu, X, GripVertical } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import {
@@ -15,10 +16,17 @@ import {
   useAppTabs,
 } from './components';
 import { useApps } from './hooks';
+import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { generateProjectUrl } from './utils/routing';
+import { KeyboardShortcuts } from './types';
 
 type ActiveTab = 'dashboard' | 'apps';
 
 function AppContent() {
+  const navigate = useNavigate();
+  const params = useParams();
+  const projectId = params.projectId;
+
   const {
     apps,
     loading,
@@ -41,7 +49,6 @@ function AppContent() {
     handleRename,
     handleReorderFavorites,
     handleSetFavoritesSortMode,
-    handleConfigureAllPorts,
     refreshApps,
     runningCount,
     totalCpu,
@@ -53,6 +60,39 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Use refs to avoid re-running the effect when callbacks change
+  const selectTabRef = useRef(selectTab);
+  const setSelectedAppIdRef = useRef(setSelectedAppId);
+  const navigateRef = useRef(navigate);
+
+  // Keep refs up to date
+  useEffect(() => {
+    selectTabRef.current = selectTab;
+    setSelectedAppIdRef.current = setSelectedAppId;
+    navigateRef.current = navigate;
+  }, [selectTab, setSelectedAppId, navigate]);
+
+  // Sync URL params with selected app
+  useEffect(() => {
+    // Wait for apps to load to avoid race condition
+    if (loading) return;
+
+    if (projectId) {
+      // Validate that the project exists
+      const projectExists = apps.find(app => app.id === projectId);
+      if (projectExists) {
+        setSelectedAppIdRef.current(projectId);
+        selectTabRef.current(projectId);
+        setActiveTab('apps');
+      } else {
+        // Invalid/stale project ID - redirect to dashboard
+        navigateRef.current('/', { replace: true });
+      }
+    } else {
+      setActiveTab('dashboard');
+    }
+  }, [projectId, apps, loading]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
@@ -120,34 +160,43 @@ function AppContent() {
   }, [isResizing]);
 
   const handleSelectDashboard = () => {
-    setActiveTab('dashboard');
-    setSelectedAppId(null);
+    navigate('/');
     setMobileMenuOpen(false);
   };
 
   const handleSelectApp = (id: string) => {
-    setSelectedAppId(id);
-    selectTab(id); // Also open as tab
-    setActiveTab('apps');
+    const app = apps.find((a) => a.id === id);
+    if (app) {
+      navigate(generateProjectUrl(app.name, id));
+    }
     setMobileMenuOpen(false);
   };
 
   const handleTabSelect = (id: string) => {
     selectTab(id); // Update activeTabId for visual sync
-    setSelectedAppId(id);
-    setActiveTab('apps');
+    const app = apps.find((a) => a.id === id);
+    if (app) {
+      navigate(generateProjectUrl(app.name, id));
+    }
   };
 
   const handleTabClose = (id: string) => {
+    // Calculate remaining tabs BEFORE calling closeTab to avoid race condition
+    // (tabs state won't update until after this function completes)
+    const remainingTabs = tabs.filter((t) => t.appId !== id);
+
+    // Close the tab
     closeTab(id);
+
     // If closing the active tab, switch to dashboard or another tab
     if (selectedAppId === id) {
-      const remainingTabs = tabs.filter((t) => t.appId !== id);
       if (remainingTabs.length > 0) {
-        setSelectedAppId(remainingTabs[remainingTabs.length - 1].appId);
+        const nextApp = apps.find((a) => a.id === remainingTabs[remainingTabs.length - 1].appId);
+        if (nextApp) {
+          navigate(generateProjectUrl(nextApp.name, nextApp.id));
+        }
       } else {
-        setSelectedAppId(null);
-        setActiveTab('dashboard');
+        navigate('/');
       }
     }
   };
@@ -165,6 +214,28 @@ function AppContent() {
     },
     [apps, handleRename]
   );
+
+  // Keyboard shortcuts
+  const keyboardShortcutActions = useMemo(() => [
+    { id: 'toggleSidebar' as keyof KeyboardShortcuts, handler: handleToggleSidebarCollapse },
+    { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
+    { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
+    { id: 'goToTab1' as keyof KeyboardShortcuts, handler: () => tabs[0] && handleTabSelect(tabs[0].appId) },
+    { id: 'goToTab2' as keyof KeyboardShortcuts, handler: () => tabs[1] && handleTabSelect(tabs[1].appId) },
+    { id: 'goToTab3' as keyof KeyboardShortcuts, handler: () => tabs[2] && handleTabSelect(tabs[2].appId) },
+    { id: 'goToTab4' as keyof KeyboardShortcuts, handler: () => tabs[3] && handleTabSelect(tabs[3].appId) },
+    { id: 'goToTab5' as keyof KeyboardShortcuts, handler: () => tabs[4] && handleTabSelect(tabs[4].appId) },
+    { id: 'goToTab6' as keyof KeyboardShortcuts, handler: () => tabs[5] && handleTabSelect(tabs[5].appId) },
+    { id: 'goToTab7' as keyof KeyboardShortcuts, handler: () => tabs[6] && handleTabSelect(tabs[6].appId) },
+    { id: 'goToTab8' as keyof KeyboardShortcuts, handler: () => tabs[7] && handleTabSelect(tabs[7].appId) },
+    { id: 'goToTab9' as keyof KeyboardShortcuts, handler: () => tabs[8] && handleTabSelect(tabs[8].appId) },
+  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect]);
+
+  useKeyboardShortcuts({
+    shortcuts: settings?.keyboardShortcuts,
+    actions: keyboardShortcutActions,
+    enabled: !adminPanelOpen, // Disable when admin panel is open
+  });
 
   if (loading) {
     return (
@@ -238,6 +309,7 @@ function AppContent() {
           onRefresh={refreshApps}
           onOpenSettings={() => setAdminPanelOpen(true)}
           mainDirectory="Projects"
+          keyboardShortcuts={settings?.keyboardShortcuts}
         />
         {/* Resize handle - only show when not collapsed */}
         {!sidebarCollapsed && (
@@ -306,7 +378,6 @@ function AppContent() {
                 runningCount={runningCount}
                 totalCpu={totalCpu}
                 apps={apps}
-                onConfigurePorts={handleConfigureAllPorts}
               />
               <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div className="lg:col-span-2 space-y-6">
@@ -385,10 +456,21 @@ function AppContent() {
   );
 }
 
+function AppRouter() {
+  return (
+    <Routes>
+      <Route path="/" element={<AppContent />} />
+      <Route path="/:projectName/:projectId" element={<AppContent />} />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppContent />
+      <BrowserRouter>
+        <AppRouter />
+      </BrowserRouter>
     </ErrorBoundary>
   );
 }

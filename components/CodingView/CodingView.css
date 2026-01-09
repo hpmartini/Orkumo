@@ -84,3 +84,53 @@
 [data-separator][data-state="dragging"] {
   background-color: #2563eb !important;
 }
+
+/* Custom flex layout for hide/show terminal functionality */
+.coding-view-flex {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  width: 100%;
+  overflow: hidden;
+}
+
+.coding-panel-terminals {
+  flex: 0 0 25%;
+  min-width: 200px;
+  max-width: 50%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.coding-panel-webide {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 200px;
+}
+
+.coding-panel-browser {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 200px;
+}
+
+.coding-separator-static {
+  flex: 0 0 6px;
+  background-color: #1f2937;
+  position: relative;
+}
+
+.coding-separator-static::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 30px;
+  background-color: #4b5563;
+  border-radius: 1px;
+}

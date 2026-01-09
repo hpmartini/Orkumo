@@ -119,7 +119,7 @@ services:
     image: codercom/code-server:latest
     container_name: devorbit-code-server
     ports:
-      - "8443:8080"
+      - "127.0.0.1:8443:8080"
     volumes:
       - ${HOME}/Projects:/home/coder/Projects
       - ${HOME}/PROJECTS:/home/coder/PROJECTS

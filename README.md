@@ -170,9 +170,23 @@ DevOrbit Dashboard includes an integrated web-based IDE powered by **code-server
   - Share passwords in plaintext (Slack, email, etc.)
   - Commit `.env` files to version control
 
+#### Network Architecture
+
+DevOrbit Dashboard uses an nginx reverse proxy to route traffic to services:
+
+```
+Browser → http://localhost:3000/code-server/ → Nginx (frontend container) → code-server:8080
+```
+
+**Key Points:**
+- code-server is accessed through nginx proxy at `/code-server/` path
+- Port 8443 is bound to `127.0.0.1` (localhost only) for security
+- All communication goes through the internal Docker network `devorbit-network`
+- Port 8443 on localhost is for optional direct access (debugging only)
+
 #### Network Security
 
-By default, code-server is **only accessible on localhost** (port 8443). This is secure for local development.
+By default, code-server is **only accessible through the nginx proxy** on localhost. This is secure for local development.
 
 **For Remote Access:**
 - ✅ **Use SSH tunnel** (most secure):
@@ -203,6 +217,16 @@ CODE_SERVER_SUDO_PASSWORD=
 ### 🔐 HTTPS Setup (Production)
 
 Running code-server over HTTP means passwords and code are transmitted in plaintext. For production or remote access, use HTTPS.
+
+> **⚠️ IMPORTANT:** When deploying with HTTPS, your reverse proxy MUST properly handle WebSocket upgrades. code-server requires WebSocket support for terminal functionality, file watching, and real-time features. Failure to configure WebSocket support will result in broken terminal and file synchronization.
+
+**Key Requirements for HTTPS Deployment:**
+1. **WebSocket Protocol**: Use `wss://` (WebSocket Secure) instead of `ws://`
+2. **Valid SSL Certificates**: Self-signed certificates may cause WebSocket connection failures
+3. **Proper Proxy Headers**: Must forward `Upgrade` and `Connection` headers
+4. **HTTP/1.1 Required**: WebSocket requires HTTP/1.1 (not HTTP/2 for WebSocket connections)
+5. **Long Timeouts**: WebSocket connections are persistent (24+ hours recommended)
+6. **No Buffering**: Disable proxy buffering for real-time communication
 
 #### Option 1: Caddy (Recommended - Automatic HTTPS)
 
@@ -243,16 +267,36 @@ Running code-server over HTTP means passwords and code are transmitted in plaint
 
 2. **Create Nginx config** (`/etc/nginx/sites-available/code-server`):
    ```nginx
+   # WebSocket upgrade mapping (add at top of nginx.conf, outside server block)
+   map $http_upgrade $connection_upgrade {
+       default upgrade;
+       '' close;
+   }
+
    server {
        listen 80;
        server_name code.yourdomain.com;
 
        location / {
            proxy_pass http://localhost:8443;
-           proxy_set_header Host $host;
+           proxy_http_version 1.1;
+
+           # WebSocket support (REQUIRED)
            proxy_set_header Upgrade $http_upgrade;
-           proxy_set_header Connection upgrade;
-           proxy_set_header Accept-Encoding gzip;
+           proxy_set_header Connection $connection_upgrade;
+
+           # Standard headers
+           proxy_set_header Host $host;
+           proxy_set_header X-Real-IP $remote_addr;
+           proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+           proxy_set_header X-Forwarded-Proto $scheme;
+
+           # WebSocket timeouts
+           proxy_read_timeout 86400s;
+           proxy_send_timeout 86400s;
+
+           # Disable buffering
+           proxy_buffering off;
        }
    }
    ```
