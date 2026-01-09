@@ -1,6 +1,7 @@
-import React from 'react';
-import { LayoutDashboard, Activity, Cpu, Zap, Radio } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { LayoutDashboard, Activity, Cpu, Zap, Radio, Settings, Loader2 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
+import { DEFAULT_APP_START_PORT } from '../constants';
 
 interface DashboardOverviewProps {
   totalApps: number;
@@ -8,6 +9,7 @@ interface DashboardOverviewProps {
   totalCpu: number;
   aiEnabled?: boolean;
   apps: AppConfig[];
+  onConfigurePorts?: (onProgress?: (current: number, total: number, percentage: number) => void) => void;
 }
 
 export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
@@ -16,11 +18,39 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   totalCpu,
   aiEnabled = true,
   apps,
+  onConfigurePorts,
 }) => {
+  const [isConfiguringPorts, setIsConfiguringPorts] = useState(false);
+  const [configProgress, setConfigProgress] = useState<{ current: number; total: number; percentage: number } | null>(null);
+
   // Get all ports from running apps
   const activePorts = apps
     .filter((app) => app.status === AppStatus.RUNNING && app.port)
     .map((app) => ({ name: app.name, port: app.port! }));
+
+  const handleConfigurePortsClick = async () => {
+    if (!onConfigurePorts) return;
+
+    const confirmed = window.confirm(
+      `This will reconfigure ports for all apps starting from port ${DEFAULT_APP_START_PORT}. ` +
+      'Any existing custom port configurations will be overwritten. ' +
+      'Continue?'
+    );
+
+    if (!confirmed) return;
+
+    setIsConfiguringPorts(true);
+    setConfigProgress(null);
+    try {
+      await onConfigurePorts((current, total, percentage) => {
+        setConfigProgress({ current, total, percentage });
+      });
+    } finally {
+      setIsConfiguringPorts(false);
+      setConfigProgress(null);
+    }
+  };
+
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-6 mb-8">
@@ -85,6 +115,30 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
           </div>
         ) : (
           <div className="text-sm text-gray-500">No active ports</div>
+        )}
+        {onConfigurePorts && (
+          <button
+            onClick={handleConfigurePortsClick}
+            disabled={isConfiguringPorts}
+            className="mt-4 w-full flex items-center justify-center gap-2 px-3 py-2 bg-cyan-500/10 hover:bg-cyan-500/20 border border-cyan-500/30 rounded-lg text-cyan-400 text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            title="Configure ports for all apps starting from 3001"
+          >
+            {isConfiguringPorts ? (
+              <>
+                <Loader2 size={16} className="animate-spin" />
+                {configProgress ? (
+                  <span>Configuring... {configProgress.percentage}% ({configProgress.current}/{configProgress.total})</span>
+                ) : (
+                  <span>Configuring...</span>
+                )}
+              </>
+            ) : (
+              <>
+                <Settings size={16} />
+                Configure Ports
+              </>
+            )}
+          </button>
         )}
       </div>
 

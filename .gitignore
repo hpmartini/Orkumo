@@ -15,11 +15,6 @@ dist-ssr
 # User data (persisted settings)
 data/
 
-# Electron build output
-dist-electron/
-out/
-
-
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

@@ -12,30 +12,6 @@
 - **IDE Integration**: Seamlessly open projects in VS Code, Cursor, WebStorm, and other IDEs.
 - **Docker Support**: Manage Docker containers and compose services directly from the dashboard.
 
-## 💻 Desktop Application
-
-DevOrbit Dashboard is now available as a **native desktop application** for Windows, macOS, and Linux!
-
-🎉 **[Download the desktop app](https://github.com/hpmartini/DevHub/releases)** or see [DESKTOP.md](DESKTOP.md) for more details.
-
-**Desktop Features:**
-- ✨ Native window management and system integration
-- 🚀 All web features with better performance
-- 🔋 Offline-capable (no internet required)
-- 🎯 Cross-platform: Windows, macOS, Linux
-
-**Quick Start (Desktop):**
-```bash
-# Development mode
-npm run electron:dev
-
-# Build for your platform
-npm run electron:build
-```
-
-For web version, continue with the setup below.
-
-
 ## 🛠️ Tech Stack
 
 - **Frontend**: React 19, Vite, Tailwind CSS, Lucide Icons, Recharts
@@ -196,13 +172,6 @@ DevOrbit Dashboard includes an integrated web-based IDE powered by **code-server
 
 #### Network Architecture
 
-DevOrbit Dashboard supports two deployment modes:
-
-**Desktop App Mode:**
-- code-server is accessible directly at `http://localhost:8443`
-- No nginx proxy required
-
-**Docker/Web Mode:**
 DevOrbit Dashboard uses an nginx reverse proxy to route traffic to services:
 
 ```
@@ -217,7 +186,7 @@ Browser → http://localhost:3000/code-server/ → Nginx (frontend container) �
 
 #### Network Security
 
-By default, code-server is **only accessible on localhost**. This is secure for local development.
+By default, code-server is **only accessible through the nginx proxy** on localhost. This is secure for local development.
 
 **For Remote Access:**
 - ✅ **Use SSH tunnel** (most secure):
@@ -258,7 +227,6 @@ Running code-server over HTTP means passwords and code are transmitted in plaint
 4. **HTTP/1.1 Required**: WebSocket requires HTTP/1.1 (not HTTP/2 for WebSocket connections)
 5. **Long Timeouts**: WebSocket connections are persistent (24+ hours recommended)
 6. **No Buffering**: Disable proxy buffering for real-time communication
-
 
 #### Option 1: Caddy (Recommended - Automatic HTTPS)
 

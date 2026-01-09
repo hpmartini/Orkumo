@@ -1,6 +1,24 @@
-import { AppConfig, AppStatus } from '../types';
+import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
+import { DEFAULT_APP_START_PORT } from '../constants';
 
 const API_BASE = '/api';
+
+// Track active SSE connections for cleanup
+const activeSSEConnections = new Set<EventSource>();
+
+// Clean up SSE connections when page is unloaded
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    activeSSEConnections.forEach((eventSource) => {
+      try {
+        eventSource.close();
+      } catch (err) {
+        // Connection already closed, ignore
+      }
+    });
+    activeSSEConnections.clear();
+  });
+}
 
 /**
  * Fetch all discovered apps from configured directories
@@ -164,8 +182,7 @@ export async function removeDirectory(path: string): Promise<Config> {
 export function subscribeToEvents(
   onStatusChange: (data: { appId: string; status: string }) => void,
   onLog: (data: { appId: string; type: string; message: string }) => void,
-  onConnectionChange?: (connected: boolean) => void,
-  onStats?: (data: { appId: string; cpu: number; memory: number; uptime?: number }) => void
+  onConnectionChange?: (connected: boolean) => void
 ): () => void {
   let eventSource: EventSource | null = null;
   let reconnectAttempts = 0;
@@ -217,17 +234,6 @@ export function subscribeToEvents(
       }
     });
 
-    eventSource.addEventListener('process-stats', (event) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (onStats) {
-          onStats(data);
-        }
-      } catch (err) {
-        console.error('Failed to parse process-stats event:', err);
-      }
-    });
-
     eventSource.onerror = () => {
       onConnectionChange?.(false);
       eventSource?.close();
@@ -274,11 +280,20 @@ export async function fetchAppPackage(id: string): Promise<{ fileName: string; c
   return response.json();
 }
 
+/**
+ * Fetch real CPU/memory stats for an app
+ */
+export async function fetchAppStats(id: string): Promise<{ cpu: number; memory: number }> {
+  const response = await fetch(`${API_BASE}/apps/${id}/stats`);
+  if (!response.ok) {
+    return { cpu: 0, memory: 0 };
+  }
+  return response.json();
+}
+
 // ============================================
 // Settings API - Backend persistence
 // ============================================
-
-import { KeyboardShortcuts, DEFAULT_KEYBOARD_SHORTCUTS } from '../types';
 
 export type FavoritesSortMode = 'manual' | 'alpha-asc' | 'alpha-desc';
 
@@ -289,7 +304,6 @@ export interface AppSettings {
   customNames: Record<string, string>;
   preferredIDEs?: Record<string, string>;
   favoritesSortMode: FavoritesSortMode;
-  keyboardShortcuts?: KeyboardShortcuts;
   version: number;
 }
 
@@ -306,16 +320,10 @@ export async function fetchSettings(): Promise<AppSettings> {
       customPorts: {},
       customNames: {},
       favoritesSortMode: 'manual',
-      keyboardShortcuts: DEFAULT_KEYBOARD_SHORTCUTS,
       version: 1,
     };
   }
-  const settings = await response.json();
-  // Ensure keyboard shortcuts have defaults
-  if (!settings.keyboardShortcuts) {
-    settings.keyboardShortcuts = DEFAULT_KEYBOARD_SHORTCUTS;
-  }
-  return settings;
+  return response.json();
 }
 
 /**
@@ -424,7 +432,110 @@ export async function updateName(id: string, name: string | null): Promise<{ id:
 }
 
 /**
- * Update keyboard shortcuts
+ * Configure ports for all apps consistently, starting from a base port
+ * @param startPort - Starting port number
+ * @param onProgress - Optional progress callback (current, total, percentage)
+ */
+export async function configureAllPorts(
+  startPort = DEFAULT_APP_START_PORT,
+  onProgress?: (current: number, total: number, percentage: number) => void
+): Promise<{ configured: Record<string, number> }> {
+  // Generate a secure session ID using crypto API
+  const sessionId = onProgress ? crypto.randomUUID() : undefined;
+
+  // Connect to SSE endpoint for progress updates if onProgress is provided
+  let eventSource: EventSource | null = null;
+  if (sessionId && onProgress) {
+    // Wait for SSE connection to be established before making POST request
+    await new Promise<void>((resolve, reject) => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+      let isResolved = false;
+
+      eventSource = new EventSource(`${API_BASE}/settings/configure-ports/progress/${sessionId}`);
+
+      // Track connection for cleanup on page unload
+      activeSSEConnections.add(eventSource);
+
+      const resolveOnce = () => {
+        if (!isResolved) {
+          isResolved = true;
+          if (timeoutId) clearTimeout(timeoutId);
+          resolve();
+        }
+      };
+
+      // Set onmessage handler BEFORE checking readyState to avoid race condition
+      eventSource.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === 'connected') {
+            // Connection established, proceed with POST request
+            resolveOnce();
+          } else if (data.type === 'progress') {
+            onProgress(data.current, data.total, data.percentage);
+          }
+        } catch (err) {
+          console.error('Failed to parse SSE progress data:', err);
+        }
+      };
+
+      eventSource.onerror = (err) => {
+        if (timeoutId) clearTimeout(timeoutId);
+        eventSource?.close();
+        reject(new Error('Failed to establish SSE connection'));
+      };
+
+      // Set onopen handler as an additional safety measure
+      eventSource.onopen = () => {
+        // If we're already open, resolve immediately
+        // This handles the case where 'connected' message might be delayed
+        resolveOnce();
+      };
+
+      // Check if already connected after setting up handler
+      if (eventSource.readyState === EventSource.OPEN) {
+        resolveOnce();
+        return;
+      }
+
+      // Timeout if connection takes too long
+      timeoutId = setTimeout(() => {
+        reject(new Error('SSE connection timeout'));
+      }, 5000);
+    });
+  }
+
+  try {
+    const response = await fetch(`${API_BASE}/settings/configure-ports`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ startPort, sessionId }),
+    });
+
+    if (!response.ok) {
+      // Try to parse backend error message, fallback to response text
+      let errorMessage = 'Failed to configure ports';
+      try {
+        const errorData = await response.json();
+        errorMessage = errorData.error || errorMessage;
+      } catch {
+        // JSON parsing failed, use default message
+      }
+      throw new Error(errorMessage);
+    }
+
+    return await response.json();
+  } finally {
+    // Clean up SSE connection
+    if (eventSource) {
+      eventSource.close();
+      activeSSEConnections.delete(eventSource);
+    }
+  }
+}
+
+/**
+ * Update keyboard shortcuts configuration
  */
 export async function updateKeyboardShortcuts(shortcuts: KeyboardShortcuts): Promise<{ keyboardShortcuts: KeyboardShortcuts }> {
   const response = await fetch(`${API_BASE}/settings/keyboard-shortcuts`, {

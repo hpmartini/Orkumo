@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { AppConfig, AppStatus } from '../types';
 import {
@@ -8,6 +8,7 @@ import {
   restartApp,
   subscribeToEvents,
   fetchAppPackage,
+  fetchAppStats,
   fetchSettings,
   fetchLogs,
   importSettings,
@@ -17,11 +18,14 @@ import {
   updateArchive,
   updatePort,
   updateName,
+  configureAllPorts,
   AppSettings,
   FavoritesSortMode,
 } from '../services/api';
+import { DEFAULT_APP_START_PORT } from '../constants';
 
 // Constants
+const STATS_UPDATE_INTERVAL_MS = 2000;
 const LOG_RETENTION_COUNT = 100;
 const LOCALSTORAGE_MIGRATED_KEY = 'devOrbitMigratedToBackend';
 
@@ -83,6 +87,7 @@ interface UseAppsReturn {
   handleRename: (id: string, newName: string) => Promise<void>;
   handleReorderFavorites: (newOrder: string[]) => Promise<void>;
   handleSetFavoritesSortMode: (mode: FavoritesSortMode) => Promise<void>;
+  handleConfigureAllPorts: () => Promise<void>;
   refreshApps: () => Promise<void>;
   runningCount: number;
   totalCpu: number;
@@ -94,6 +99,7 @@ export function useApps(): UseAppsReturn {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Fetch apps from backend
   const refreshApps = useCallback(async () => {
@@ -187,24 +193,6 @@ export function useApps(): UseAppsReturn {
             return { ...app, logs: newLogs };
           })
         );
-      },
-      // On connection change (optional)
-      undefined,
-      // On stats - update CPU, memory, and uptime from server
-      ({ appId, cpu, memory, uptime }) => {
-        setApps((currentApps) =>
-          currentApps.map((app) => {
-            if (app.id !== appId) return app;
-            return {
-              ...app,
-              uptime: uptime ?? app.uptime, // Use server-provided uptime
-              stats: {
-                cpu: [...app.stats.cpu.slice(1), cpu],
-                memory: [...app.stats.memory.slice(1), memory],
-              },
-            };
-          })
-        );
       }
     );
 
@@ -213,6 +201,52 @@ export function useApps(): UseAppsReturn {
     };
   }, []);
 
+  // Fetch real stats for running apps
+  useEffect(() => {
+    statsIntervalRef.current = setInterval(async () => {
+      const runningApps = apps.filter(app => app.status === AppStatus.RUNNING);
+
+      for (const app of runningApps) {
+        try {
+          const stats = await fetchAppStats(app.id);
+          setApps((currentApps) =>
+            currentApps.map((a) => {
+              if (a.id !== app.id) return a;
+              return {
+                ...a,
+                uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
+                stats: {
+                  cpu: [...a.stats.cpu.slice(1), stats.cpu],
+                  memory: [...a.stats.memory.slice(1), stats.memory],
+                },
+              };
+            })
+          );
+        } catch {
+          // Fall back to simulated stats if real stats fail
+          setApps((currentApps) =>
+            currentApps.map((a) => {
+              if (a.id !== app.id || a.status !== AppStatus.RUNNING) return a;
+              const lastCpu = a.stats.cpu[a.stats.cpu.length - 1] || 0;
+              const lastMem = a.stats.memory[a.stats.memory.length - 1] || 100;
+              return {
+                ...a,
+                uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
+                stats: {
+                  cpu: [...a.stats.cpu.slice(1), lastCpu + (Math.random() - 0.5) * 5],
+                  memory: [...a.stats.memory.slice(1), lastMem + (Math.random() - 0.5) * 10],
+                },
+              };
+            })
+          );
+        }
+      }
+    }, STATS_UPDATE_INTERVAL_MS);
+
+    return () => {
+      if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
+    };
+  }, [apps]);
 
   const handleStartApp = useCallback(async (id: string) => {
     const app = apps.find((a) => a.id === id);
@@ -572,6 +606,67 @@ export function useApps(): UseAppsReturn {
     }
   }, [settings]);
 
+  const handleConfigureAllPorts = useCallback(async (
+    onProgress?: (current: number, total: number, percentage: number) => void
+  ) => {
+    // Check if there are any apps to configure
+    if (apps.length === 0) {
+      toast.error('No apps to configure. Please add some projects first.');
+      return;
+    }
+
+    try {
+      // Call the backend to configure all ports starting from DEFAULT_APP_START_PORT with progress tracking
+      const result = await configureAllPorts(DEFAULT_APP_START_PORT, onProgress);
+
+      // Check if any apps were actually configured
+      const configuredCount = Object.keys(result.configured).length;
+      if (configuredCount === 0) {
+        toast.info('No apps were configured. All apps may already have assigned ports.');
+        return;
+      }
+
+      // Update the UI with the new port assignments
+      setApps((currentApps) =>
+        currentApps.map((app) => {
+          const newPort = result.configured[app.id];
+          if (newPort) {
+            return {
+              ...app,
+              port: newPort,
+              addresses: [`http://localhost:${newPort}`],
+            };
+          }
+          return app;
+        })
+      );
+
+      // Update settings state - always update, even if settings haven't loaded yet
+      setSettings((prev) => {
+        // If prev is null, create a minimal settings object
+        // This should only happen during initial load, settings will be refreshed on next fetch
+        if (!prev) {
+          return {
+            favorites: [],
+            archived: [],
+            customPorts: result.configured,
+            customNames: {},
+            favoritesSortMode: 'manual',
+            version: 1,
+          };
+        }
+        // Otherwise merge the new port configuration
+        return { ...prev, customPorts: { ...prev.customPorts, ...result.configured } };
+      });
+
+      toast.success(`Configured ports for ${configuredCount} apps starting from port ${DEFAULT_APP_START_PORT}`);
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to configure ports';
+      console.error('Failed to configure ports:', err);
+      toast.error(errorMessage);
+    }
+  }, [apps]);
+
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;
   const totalCpu = apps.reduce(
@@ -601,6 +696,7 @@ export function useApps(): UseAppsReturn {
     handleRename,
     handleReorderFavorites,
     handleSetFavoritesSortMode,
+    handleConfigureAllPorts,
     refreshApps,
     runningCount,
     totalCpu,

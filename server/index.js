@@ -104,6 +104,13 @@ const ideLimiter = rateLimit({
   message: { error: 'Too many IDE launch requests, please slow down' },
 });
 
+// Rate limit for port configuration operations
+const portConfigLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 5, // limit port configuration to 5 per minute
+  message: { error: 'Too many port configuration requests, please slow down' },
+});
+
 app.use(cors());
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
@@ -276,10 +283,6 @@ function broadcast(event, data) {
 processEvents.on('status', (data) => broadcast('process-status', data));
 processEvents.on('log', (data) => broadcast('process-log', data));
 
-// Broadcast stats for all running processes every 2 seconds
-const STATS_BROADCAST_INTERVAL = 2000;
-let statsInterval = null;
-
 // ============================================
 // Configuration Endpoints
 // ============================================
@@ -437,25 +440,6 @@ app.put('/api/settings/favorites/sort-mode', (req, res) => {
 });
 
 /**
- * PUT /api/settings/keyboard-shortcuts
- * Set keyboard shortcuts configuration
- */
-app.put('/api/settings/keyboard-shortcuts', (req, res) => {
-  try {
-    const { shortcuts } = req.body;
-
-    if (!shortcuts || typeof shortcuts !== 'object') {
-      return res.status(400).json({ error: 'Invalid shortcuts configuration' });
-    }
-
-    const savedShortcuts = settingsService.setKeyboardShortcuts(shortcuts);
-    res.json({ keyboardShortcuts: savedShortcuts });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
  * PUT /api/settings/archive/:id
  * Toggle or set archive status for an app
  */
@@ -524,6 +508,171 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
       res.json({ id, name: null });
     }
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Track active SSE connections for port configuration progress
+const portConfigProgressClients = new Map();
+const SSE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout
+const SSE_CLEANUP_INTERVAL_MS = 60 * 1000; // Check for stale connections every minute
+
+// Periodic cleanup of stale SSE connections
+const sseCleanupInterval = setInterval(() => {
+  const now = Date.now();
+  for (const [sessionId, client] of portConfigProgressClients) {
+    // Check if connection timestamp is older than timeout
+    if (client.timestamp && now - client.timestamp > SSE_TIMEOUT_MS) {
+      console.warn(`[SSE] Cleaning up stale connection for session ${sessionId}`);
+      try {
+        client.res.end();
+      } catch {
+        // Already closed
+      }
+      clearTimeout(client.timeoutId);
+      portConfigProgressClients.delete(sessionId);
+    }
+  }
+}, SSE_CLEANUP_INTERVAL_MS);
+
+/**
+ * GET /api/settings/configure-ports/progress/:sessionId
+ * Server-Sent Events endpoint for port configuration progress
+ */
+app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
+  const { sessionId } = req.params;
+
+  // Validate sessionId format (UUID v4)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(sessionId)) {
+    return res.status(400).json({ error: 'Invalid session ID format' });
+  }
+
+  // Set headers for SSE
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+  res.setHeader('X-Accel-Buffering', 'no'); // For nginx proxies
+
+  // Clean up any existing connection with the same sessionId before storing new one
+  const existingClient = portConfigProgressClients.get(sessionId);
+  if (existingClient) {
+    console.warn(`[SSE] Cleaning up existing connection for session ${sessionId} before creating new one`);
+    clearTimeout(existingClient.timeoutId);
+    try {
+      existingClient.res.end();
+    } catch (err) {
+      // Connection already closed, ignore error
+    }
+    portConfigProgressClients.delete(sessionId);
+  }
+
+  // Set timeout for automatic cleanup of stale connections
+  const timeoutId = setTimeout(() => {
+    const client = portConfigProgressClients.get(sessionId);
+    if (client && client.res === res) {
+      console.warn(`[SSE] Timeout for session ${sessionId}, cleaning up`);
+      res.write('data: {"type":"timeout","message":"Connection timeout"}\n\n');
+      res.end();
+      portConfigProgressClients.delete(sessionId);
+    }
+  }, SSE_TIMEOUT_MS);
+
+  // Store the response object, timeout ID, and timestamp for this session
+  portConfigProgressClients.set(sessionId, { res, timeoutId, timestamp: Date.now() });
+
+  // Send initial connection message
+  res.write('data: {"type":"connected"}\n\n');
+
+  // Clean up on close
+  req.on('close', () => {
+    const client = portConfigProgressClients.get(sessionId);
+    if (client) {
+      clearTimeout(client.timeoutId);
+      portConfigProgressClients.delete(sessionId);
+    }
+  });
+});
+
+/**
+ * POST /api/settings/configure-ports
+ * Configure ports for all apps consistently, starting from a base port
+ */
+app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) => {
+  try {
+    const { startPort = 3001, sessionId } = req.body;
+
+    // Validate startPort
+    const portNum = parseInt(startPort, 10);
+    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+      return res.status(400).json({ error: 'Invalid start port number (must be between 1 and 65535)' });
+    }
+
+    // DoS Protection: Restrict to unprivileged ports (>= 1024) to prevent port exhaustion attacks
+    // Privileged ports (1-1023) require root access and could cause system issues
+    if (portNum < 1024) {
+      return res.status(400).json({ error: 'Start port must be >= 1024 (unprivileged ports only)' });
+    }
+
+    // Validate that port 3000 is not used (reserved for DevHub)
+    if (portNum <= 3000) {
+      return res.status(400).json({ error: 'Start port must be greater than 3000 (reserved for DevHub)' });
+    }
+
+    // Get all apps
+    const apps = scanAllDirectories();
+    const appIds = apps.map(app => app.id);
+
+    // Note: Port exhaustion validation is handled by the service layer which tracks
+    // the actual highest port used (accounting for conflicts). A simple arithmetic
+    // check here would be incorrect as it doesn't account for ports that are skipped
+    // due to conflicts.
+
+    // Progress callback to send SSE updates
+    const onProgress = sessionId ? (current, total, percentage) => {
+      const client = portConfigProgressClients.get(sessionId);
+      if (client && client.res) {
+        const progress = {
+          type: 'progress',
+          current,
+          total,
+          percentage: percentage || Math.round((current / total) * 100)
+        };
+        client.res.write(`data: ${JSON.stringify(progress)}\n\n`);
+      }
+    } : null;
+
+    // Configure ports for all apps with conflict detection and progress tracking
+    const configured = await settingsService.configureAllPorts(appIds, portNum, portManager, onProgress);
+
+    // Send completion message via SSE if session exists
+    if (sessionId) {
+      const client = portConfigProgressClients.get(sessionId);
+      if (client) {
+        clearTimeout(client.timeoutId);
+        client.res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
+        client.res.end();
+        portConfigProgressClients.delete(sessionId);
+      }
+    }
+
+    res.json({ configured });
+  } catch (error) {
+    console.error('[Settings] Failed to configure ports:', error);
+
+    // Send error via SSE if session exists
+    const { sessionId } = req.body;
+    if (sessionId) {
+      const client = portConfigProgressClients.get(sessionId);
+      if (client) {
+        clearTimeout(client.timeoutId);
+        client.res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
+        client.res.end();
+        portConfigProgressClients.delete(sessionId);
+      }
+    }
+
     res.status(500).json({ error: error.message });
   }
 });
@@ -1982,33 +2131,6 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
   }
 });
 
-// Graceful shutdown handler
-function setupGracefulShutdown() {
-  const shutdown = (signal) => {
-    console.log(`\n[Server] Received ${signal}, shutting down gracefully...`);
-
-    // Clear stats interval safely
-    if (statsInterval) {
-      clearInterval(statsInterval);
-    }
-
-    // Close server
-    server.close(() => {
-      console.log('[Server] HTTP server closed');
-      process.exit(0);
-    });
-
-    // Force close after 10 seconds
-    setTimeout(() => {
-      console.error('[Server] Forced shutdown after timeout');
-      process.exit(1);
-    }, 10000);
-  };
-
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
-  process.on('SIGINT', () => shutdown('SIGINT'));
-}
-
 // Initialize database before starting server
 async function startServer() {
   // Try to connect to database (non-blocking)
@@ -2028,37 +2150,55 @@ async function startServer() {
     console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
     console.log(`   - GET  /api/events          - SSE for real-time updates`);
     console.log(`   - WS   /api/pty             - WebSocket for terminal`);
-
-    // Start stats broadcasting after server is listening
-    statsInterval = setInterval(async () => {
-      const allProcesses = getAllProcesses();
-      const runningProcesses = Object.entries(allProcesses).filter(
-        ([_, info]) => info.status === 'RUNNING' && info.pid
-      );
-
-      // Skip iteration if no processes are running
-      if (runningProcesses.length === 0) return;
-
-      for (const [appId, processInfo] of runningProcesses) {
-        try {
-          const stats = await getProcessStats(processInfo.pid);
-          // Include actual uptime from server
-          const uptime = processInfo.startTime ? Math.floor((Date.now() - processInfo.startTime) / 1000) : 0;
-          broadcast('process-stats', {
-            appId,
-            cpu: stats.cpu,
-            memory: stats.memory,
-            uptime,
-          });
-        } catch (error) {
-          console.warn(`[Stats] Failed to collect stats for ${appId}:`, error.message);
-        }
-      }
-    }, STATS_BROADCAST_INTERVAL);
-
-    // Set up graceful shutdown
-    setupGracefulShutdown();
   });
 }
+
+// Cleanup function for graceful shutdown
+function cleanup() {
+  console.log('\n[Server] Shutting down gracefully...');
+
+  // Clear the SSE cleanup interval
+  clearInterval(sseCleanupInterval);
+
+  // Close all SSE connections
+  for (const [sessionId, client] of portConfigProgressClients) {
+    console.log(`[SSE] Closing connection for session ${sessionId}`);
+    clearTimeout(client.timeoutId);
+    try {
+      client.res.write('data: {"type":"shutdown","message":"Server shutting down"}\n\n');
+      client.res.end();
+    } catch {
+      // Connection already closed
+    }
+  }
+  portConfigProgressClients.clear();
+
+  // Close the HTTP server
+  server.close(() => {
+    console.log('[Server] HTTP server closed');
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds if server doesn't close
+  setTimeout(() => {
+    console.error('[Server] Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+// Handle process termination signals
+process.on('SIGTERM', cleanup);
+process.on('SIGINT', cleanup);
+
+// Handle uncaught exceptions and rejections
+process.on('uncaughtException', (error) => {
+  console.error('[Server] Uncaught exception:', error);
+  cleanup();
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Server] Unhandled rejection at:', promise, 'reason:', reason);
+  // Don't call cleanup here - this might be non-fatal
+});
 
 startServer().catch(console.error);

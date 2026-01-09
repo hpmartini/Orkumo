@@ -18,7 +18,6 @@ const defaultSettings = {
   customNames: {},    // Map of appId -> custom name
   preferredIDEs: {},  // Map of appId -> preferred IDE id
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
-  keyboardShortcuts: null, // Keyboard shortcuts config (null = use defaults from frontend)
   version: 1,         // Settings schema version for future migrations
 };
 
@@ -326,27 +325,6 @@ class SettingsService {
   }
 
   /**
-   * Set keyboard shortcuts
-   * @param {object} shortcuts - Keyboard shortcuts configuration
-   * @returns {object} The set shortcuts
-   */
-  setKeyboardShortcuts(shortcuts) {
-    const settings = readSettings();
-    settings.keyboardShortcuts = shortcuts;
-    writeSettings(settings);
-    return shortcuts;
-  }
-
-  /**
-   * Get keyboard shortcuts
-   * @returns {object|null} Keyboard shortcuts or null for defaults
-   */
-  getKeyboardShortcuts() {
-    const settings = readSettings();
-    return settings.keyboardShortcuts || null;
-  }
-
-  /**
    * Reorder favorites array
    * @param {string[]} newOrder - New order of favorite app IDs
    * @returns {string[]} The new favorites array
@@ -406,6 +384,103 @@ class SettingsService {
 
     writeSettings(settings);
     return settings;
+  }
+
+  /**
+   * Configure ports for all apps consistently, starting from a base port
+   * @param {string[]} appIds - Array of app IDs to configure
+   * @param {number} startPort - Starting port number (default: 3001)
+   * @param {object} portManager - PortManager instance for conflict detection
+   * @param {function} onProgress - Optional progress callback (currentIndex, total)
+   * @returns {Promise<object>} Map of appId -> assigned port
+   */
+  async configureAllPorts(appIds, startPort = 3001, portManager = null, onProgress = null) {
+    const settings = readSettings();
+    const configured = {};
+    let currentPort = startPort;
+    let highestPort = startPort;
+
+    // Validate that we won't exhaust port range
+    // Use a conservative estimate: assume 20% of ports might be unavailable due to conflicts
+    const maxPort = 65535;
+    const estimatedPortsNeeded = Math.ceil(appIds.length * 1.2);
+    if (startPort + estimatedPortsNeeded > maxPort) {
+      throw new Error(`Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort} (estimated ${estimatedPortsNeeded} ports needed including conflicts)`);
+    }
+
+    // If portManager is provided, check ports in parallel for better performance
+    let unavailablePorts = new Set();
+    let preCheckedMaxPort = startPort;
+    if (portManager) {
+      // Batch check ports in parallel (check up to 50 ports ahead)
+      const portsToCheck = Math.min(appIds.length + 50, maxPort - startPort + 1);
+      preCheckedMaxPort = startPort + portsToCheck - 1;
+      const portCheckPromises = [];
+
+      for (let i = 0; i < portsToCheck; i++) {
+        const portToCheck = startPort + i;
+        portCheckPromises.push(
+          portManager.isPortAvailable(portToCheck).then(available => ({
+            port: portToCheck,
+            available
+          }))
+        );
+      }
+
+      // Wait for all checks to complete
+      const results = await Promise.all(portCheckPromises);
+      unavailablePorts = new Set(
+        results.filter(r => !r.available).map(r => r.port)
+      );
+    }
+
+    // Assign sequential ports starting from startPort
+    for (let i = 0; i < appIds.length; i++) {
+      const appId = appIds[i];
+
+      // Find the next available port
+      let assignedPort = currentPort;
+
+      // Skip unavailable ports
+      while (unavailablePorts.has(assignedPort) && assignedPort <= maxPort) {
+        assignedPort++;
+      }
+
+      // If we've exhausted our pre-checked range, check new ports
+      if (portManager && assignedPort > preCheckedMaxPort) {
+        let portAvailable = await portManager.isPortAvailable(assignedPort);
+        while (!portAvailable && assignedPort <= maxPort) {
+          assignedPort++;
+          if (assignedPort > maxPort) {
+            throw new Error(`Port range exhausted after configuring ${i} apps`);
+          }
+          portAvailable = await portManager.isPortAvailable(assignedPort);
+        }
+      }
+
+      // Track the highest port used
+      highestPort = Math.max(highestPort, assignedPort);
+
+      // Validate we haven't exceeded the max port
+      if (highestPort > maxPort) {
+        throw new Error(`Port range exhausted after configuring ${i} apps`);
+      }
+
+      settings.customPorts[appId] = assignedPort;
+      configured[appId] = assignedPort;
+
+      // Set currentPort to the next port after the assigned port to ensure sequential allocation
+      currentPort = assignedPort + 1;
+
+      // Report progress if callback is provided
+      if (onProgress) {
+        const percentage = Math.round(((i + 1) / appIds.length) * 100);
+        onProgress(i + 1, appIds.length, percentage);
+      }
+    }
+
+    writeSettings(settings);
+    return configured;
   }
 }
 
