@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { BrowserRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { LayoutDashboard, RefreshCw, Menu, X, GripVertical } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import {
@@ -15,10 +16,15 @@ import {
   useAppTabs,
 } from './components';
 import { useApps } from './hooks';
+import { generateProjectUrl } from './utils/routing';
 
 type ActiveTab = 'dashboard' | 'apps';
 
 function AppContent() {
+  const navigate = useNavigate();
+  const params = useParams();
+  const projectId = params.projectId;
+
   const {
     apps,
     loading,
@@ -52,6 +58,39 @@ function AppContent() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+
+  // Use refs to avoid re-running the effect when callbacks change
+  const selectTabRef = useRef(selectTab);
+  const setSelectedAppIdRef = useRef(setSelectedAppId);
+  const navigateRef = useRef(navigate);
+
+  // Keep refs up to date
+  useEffect(() => {
+    selectTabRef.current = selectTab;
+    setSelectedAppIdRef.current = setSelectedAppId;
+    navigateRef.current = navigate;
+  }, [selectTab, setSelectedAppId, navigate]);
+
+  // Sync URL params with selected app
+  useEffect(() => {
+    // Wait for apps to load to avoid race condition
+    if (loading) return;
+
+    if (projectId) {
+      // Validate that the project exists
+      const projectExists = apps.find(app => app.id === projectId);
+      if (projectExists) {
+        setSelectedAppIdRef.current(projectId);
+        selectTabRef.current(projectId);
+        setActiveTab('apps');
+      } else {
+        // Invalid/stale project ID - redirect to dashboard
+        navigateRef.current('/', { replace: true });
+      }
+    } else {
+      setActiveTab('dashboard');
+    }
+  }, [projectId, apps, loading]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
@@ -119,34 +158,43 @@ function AppContent() {
   }, [isResizing]);
 
   const handleSelectDashboard = () => {
-    setActiveTab('dashboard');
-    setSelectedAppId(null);
+    navigate('/');
     setMobileMenuOpen(false);
   };
 
   const handleSelectApp = (id: string) => {
-    setSelectedAppId(id);
-    selectTab(id); // Also open as tab
-    setActiveTab('apps');
+    const app = apps.find((a) => a.id === id);
+    if (app) {
+      navigate(generateProjectUrl(app.name, id));
+    }
     setMobileMenuOpen(false);
   };
 
   const handleTabSelect = (id: string) => {
     selectTab(id); // Update activeTabId for visual sync
-    setSelectedAppId(id);
-    setActiveTab('apps');
+    const app = apps.find((a) => a.id === id);
+    if (app) {
+      navigate(generateProjectUrl(app.name, id));
+    }
   };
 
   const handleTabClose = (id: string) => {
+    // Calculate remaining tabs BEFORE calling closeTab to avoid race condition
+    // (tabs state won't update until after this function completes)
+    const remainingTabs = tabs.filter((t) => t.appId !== id);
+
+    // Close the tab
     closeTab(id);
+
     // If closing the active tab, switch to dashboard or another tab
     if (selectedAppId === id) {
-      const remainingTabs = tabs.filter((t) => t.appId !== id);
       if (remainingTabs.length > 0) {
-        setSelectedAppId(remainingTabs[remainingTabs.length - 1].appId);
+        const nextApp = apps.find((a) => a.id === remainingTabs[remainingTabs.length - 1].appId);
+        if (nextApp) {
+          navigate(generateProjectUrl(nextApp.name, nextApp.id));
+        }
       } else {
-        setSelectedAppId(null);
-        setActiveTab('dashboard');
+        navigate('/');
       }
     }
   };
@@ -383,10 +431,21 @@ function AppContent() {
   );
 }
 
+function AppRouter() {
+  return (
+    <Routes>
+      <Route path="/" element={<AppContent />} />
+      <Route path="/:projectName/:projectId" element={<AppContent />} />
+    </Routes>
+  );
+}
+
 export default function App() {
   return (
     <ErrorBoundary>
-      <AppContent />
+      <BrowserRouter>
+        <AppRouter />
+      </BrowserRouter>
     </ErrorBoundary>
   );
 }
