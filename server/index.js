@@ -609,6 +609,12 @@ app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) =>
       return res.status(400).json({ error: 'Invalid start port number (must be between 1 and 65535)' });
     }
 
+    // DoS Protection: Restrict to unprivileged ports (>= 1024) to prevent port exhaustion attacks
+    // Privileged ports (1-1023) require root access and could cause system issues
+    if (portNum < 1024) {
+      return res.status(400).json({ error: 'Start port must be >= 1024 (unprivileged ports only)' });
+    }
+
     // Validate that port 3000 is not used (reserved for DevHub)
     if (portNum <= 3000) {
       return res.status(400).json({ error: 'Start port must be greater than 3000 (reserved for DevHub)' });

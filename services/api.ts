@@ -1,6 +1,24 @@
 import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
+import { DEFAULT_APP_START_PORT } from '../constants';
 
 const API_BASE = '/api';
+
+// Track active SSE connections for cleanup
+const activeSSEConnections = new Set<EventSource>();
+
+// Clean up SSE connections when page is unloaded
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    activeSSEConnections.forEach((eventSource) => {
+      try {
+        eventSource.close();
+      } catch (err) {
+        // Connection already closed, ignore
+      }
+    });
+    activeSSEConnections.clear();
+  });
+}
 
 /**
  * Fetch all discovered apps from configured directories
@@ -419,7 +437,7 @@ export async function updateName(id: string, name: string | null): Promise<{ id:
  * @param onProgress - Optional progress callback (current, total, percentage)
  */
 export async function configureAllPorts(
-  startPort = 3001,
+  startPort = DEFAULT_APP_START_PORT,
   onProgress?: (current: number, total: number, percentage: number) => void
 ): Promise<{ configured: Record<string, number> }> {
   // Generate a secure session ID using crypto API
@@ -434,6 +452,9 @@ export async function configureAllPorts(
       let isResolved = false;
 
       eventSource = new EventSource(`${API_BASE}/settings/configure-ports/progress/${sessionId}`);
+
+      // Track connection for cleanup on page unload
+      activeSSEConnections.add(eventSource);
 
       const resolveOnce = () => {
         if (!isResolved) {
@@ -508,6 +529,7 @@ export async function configureAllPorts(
     // Clean up SSE connection
     if (eventSource) {
       eventSource.close();
+      activeSSEConnections.delete(eventSource);
     }
   }
 }

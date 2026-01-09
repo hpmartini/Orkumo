@@ -22,6 +22,7 @@ import {
   AppSettings,
   FavoritesSortMode,
 } from '../services/api';
+import { DEFAULT_APP_START_PORT } from '../constants';
 
 // Constants
 const STATS_UPDATE_INTERVAL_MS = 2000;
@@ -608,12 +609,6 @@ export function useApps(): UseAppsReturn {
   const handleConfigureAllPorts = useCallback(async (
     onProgress?: (current: number, total: number, percentage: number) => void
   ) => {
-    // Check if settings have loaded
-    if (!settings) {
-      toast.error('Settings are still loading. Please try again in a moment.');
-      return;
-    }
-
     // Check if there are any apps to configure
     if (apps.length === 0) {
       toast.error('No apps to configure. Please add some projects first.');
@@ -621,8 +616,8 @@ export function useApps(): UseAppsReturn {
     }
 
     try {
-      // Call the backend to configure all ports starting from 3001 with progress tracking
-      const result = await configureAllPorts(3001, onProgress);
+      // Call the backend to configure all ports starting from DEFAULT_APP_START_PORT with progress tracking
+      const result = await configureAllPorts(DEFAULT_APP_START_PORT, onProgress);
 
       // Check if any apps were actually configured
       const configuredCount = Object.keys(result.configured).length;
@@ -649,6 +644,7 @@ export function useApps(): UseAppsReturn {
       // Update settings state - always update, even if settings haven't loaded yet
       setSettings((prev) => {
         // If prev is null, create a minimal settings object
+        // This should only happen during initial load, settings will be refreshed on next fetch
         if (!prev) {
           return {
             favorites: [],
@@ -663,13 +659,13 @@ export function useApps(): UseAppsReturn {
         return { ...prev, customPorts: { ...prev.customPorts, ...result.configured } };
       });
 
-      toast.success(`Configured ports for ${configuredCount} apps starting from port 3001`);
+      toast.success(`Configured ports for ${configuredCount} apps starting from port ${DEFAULT_APP_START_PORT}`);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to configure ports';
       console.error('Failed to configure ports:', err);
       toast.error(errorMessage);
     }
-  }, [apps, settings]);
+  }, [apps]);
 
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;

@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { LayoutDashboard, Activity, Cpu, Zap, Radio, Settings, Loader2 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
+import { DEFAULT_APP_START_PORT } from '../constants';
 
 interface DashboardOverviewProps {
   totalApps: number;
@@ -22,7 +23,6 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
   const [isConfiguringPorts, setIsConfiguringPorts] = useState(false);
   const [configProgress, setConfigProgress] = useState<{ current: number; total: number; percentage: number } | null>(null);
 
-
   // Get all ports from running apps
   const activePorts = apps
     .filter((app) => app.status === AppStatus.RUNNING && app.port)
@@ -32,7 +32,7 @@ export const DashboardOverview: React.FC<DashboardOverviewProps> = ({
     if (!onConfigurePorts) return;
 
     const confirmed = window.confirm(
-      'This will reconfigure ports for all apps starting from port 3001. ' +
+      `This will reconfigure ports for all apps starting from port ${DEFAULT_APP_START_PORT}. ` +
       'Any existing custom port configurations will be overwritten. ' +
       'Continue?'
     );
