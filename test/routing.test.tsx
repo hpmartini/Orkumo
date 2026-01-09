@@ -1,15 +1,7 @@
 import { describe, it, expect } from 'vitest';
+import { generateProjectUrl } from '../utils/routing';
 
 describe('Routing - URL Generation', () => {
-  // Test the URL generation logic that's used in App.tsx
-  const generateProjectUrl = (projectName: string, projectId: string): string => {
-    const urlName = projectName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .substring(0, 50)
-      .replace(/^-+|-+$/g, '');
-    return `/${urlName}/${projectId}`;
-  };
 
   describe('URL-safe conversion', () => {
     it('should convert project names to URL-safe format', () => {

@@ -16,19 +16,9 @@ import {
   useAppTabs,
 } from './components';
 import { useApps } from './hooks';
+import { generateProjectUrl } from './utils/routing';
 
 type ActiveTab = 'dashboard' | 'apps';
-
-// Utility function to generate URL-safe project paths
-const generateProjectUrl = (projectName: string, projectId: string): string => {
-  // Limit URL length to 50 characters for security/practicality
-  const urlName = projectName
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .substring(0, 50)
-    .replace(/^-+|-+$/g, ''); // Remove leading/trailing dashes
-  return `/${urlName}/${projectId}`;
-};
 
 function AppContent() {
   const navigate = useNavigate();
@@ -69,6 +59,18 @@ function AppContent() {
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // Use refs to avoid re-running the effect when callbacks change
+  const selectTabRef = useRef(selectTab);
+  const setSelectedAppIdRef = useRef(setSelectedAppId);
+  const navigateRef = useRef(navigate);
+
+  // Keep refs up to date
+  useEffect(() => {
+    selectTabRef.current = selectTab;
+    setSelectedAppIdRef.current = setSelectedAppId;
+    navigateRef.current = navigate;
+  }, [selectTab, setSelectedAppId, navigate]);
+
   // Sync URL params with selected app
   useEffect(() => {
     // Wait for apps to load to avoid race condition
@@ -78,17 +80,17 @@ function AppContent() {
       // Validate that the project exists
       const projectExists = apps.find(app => app.id === projectId);
       if (projectExists) {
-        setSelectedAppId(projectId);
-        selectTab(projectId);
+        setSelectedAppIdRef.current(projectId);
+        selectTabRef.current(projectId);
         setActiveTab('apps');
       } else {
         // Invalid/stale project ID - redirect to dashboard
-        navigate('/', { replace: true });
+        navigateRef.current('/', { replace: true });
       }
     } else {
       setActiveTab('dashboard');
     }
-  }, [projectId, apps, loading, setSelectedAppId, selectTab, setActiveTab, navigate]);
+  }, [projectId, apps, loading]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
