@@ -22,7 +22,6 @@ import {
 } from '../services/api';
 
 // Constants
-const STATS_UPDATE_INTERVAL_MS = 2000; // Used for uptime calculation
 const LOG_RETENTION_COUNT = 100;
 const LOCALSTORAGE_MIGRATED_KEY = 'devOrbitMigratedToBackend';
 
@@ -191,14 +190,14 @@ export function useApps(): UseAppsReturn {
       },
       // On connection change (optional)
       undefined,
-      // On stats - update CPU and memory in real-time
-      ({ appId, cpu, memory }) => {
+      // On stats - update CPU, memory, and uptime from server
+      ({ appId, cpu, memory, uptime }) => {
         setApps((currentApps) =>
           currentApps.map((app) => {
             if (app.id !== appId) return app;
             return {
               ...app,
-              uptime: app.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
+              uptime: uptime ?? app.uptime, // Use server-provided uptime
               stats: {
                 cpu: [...app.stats.cpu.slice(1), cpu],
                 memory: [...app.stats.memory.slice(1), memory],
