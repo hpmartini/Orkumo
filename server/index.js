@@ -542,11 +542,17 @@ setInterval(() => {
 app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
   const { sessionId } = req.params;
 
+  // Validate sessionId format (UUID v4)
+  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+  if (!uuidRegex.test(sessionId)) {
+    return res.status(400).json({ error: 'Invalid session ID format' });
+  }
+
   // Set headers for SSE
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+  res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
   res.setHeader('X-Accel-Buffering', 'no'); // For nginx proxies
 
   // Set timeout for automatic cleanup of stale connections

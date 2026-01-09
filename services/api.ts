@@ -430,19 +430,17 @@ export async function configureAllPorts(
   if (sessionId && onProgress) {
     // Wait for SSE connection to be established before making POST request
     await new Promise<void>((resolve, reject) => {
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
       eventSource = new EventSource(`${API_BASE}/settings/configure-ports/progress/${sessionId}`);
 
-      // Check if already connected immediately (readyState check to avoid race condition)
-      if (eventSource.readyState === EventSource.OPEN) {
-        resolve();
-        return;
-      }
-
+      // Set onmessage handler BEFORE checking readyState to avoid race condition
       eventSource.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
           if (data.type === 'connected') {
             // Connection established, proceed with POST request
+            if (timeoutId) clearTimeout(timeoutId);
             resolve();
           } else if (data.type === 'progress') {
             onProgress(data.current, data.total, data.percentage);
@@ -453,12 +451,21 @@ export async function configureAllPorts(
       };
 
       eventSource.onerror = (err) => {
+        if (timeoutId) clearTimeout(timeoutId);
         eventSource?.close();
         reject(new Error('Failed to establish SSE connection'));
       };
 
+      // Check if already connected after setting up handler
+      if (eventSource.readyState === EventSource.OPEN) {
+        resolve();
+        return;
+      }
+
       // Timeout if connection takes too long
-      setTimeout(() => reject(new Error('SSE connection timeout')), 5000);
+      timeoutId = setTimeout(() => {
+        reject(new Error('SSE connection timeout'));
+      }, 5000);
     });
   }
 
