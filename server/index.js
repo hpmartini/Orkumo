@@ -518,7 +518,7 @@ const SSE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout
 const SSE_CLEANUP_INTERVAL_MS = 60 * 1000; // Check for stale connections every minute
 
 // Periodic cleanup of stale SSE connections
-setInterval(() => {
+const sseCleanupInterval = setInterval(() => {
   const now = Date.now();
   for (const [sessionId, client] of portConfigProgressClients) {
     // Check if connection timestamp is older than timeout
@@ -2146,5 +2146,53 @@ async function startServer() {
     console.log(`   - WS   /api/pty             - WebSocket for terminal`);
   });
 }
+
+// Cleanup function for graceful shutdown
+function cleanup() {
+  console.log('\n[Server] Shutting down gracefully...');
+
+  // Clear the SSE cleanup interval
+  clearInterval(sseCleanupInterval);
+
+  // Close all SSE connections
+  for (const [sessionId, client] of portConfigProgressClients) {
+    console.log(`[SSE] Closing connection for session ${sessionId}`);
+    clearTimeout(client.timeoutId);
+    try {
+      client.res.write('data: {"type":"shutdown","message":"Server shutting down"}\n\n');
+      client.res.end();
+    } catch {
+      // Connection already closed
+    }
+  }
+  portConfigProgressClients.clear();
+
+  // Close the HTTP server
+  server.close(() => {
+    console.log('[Server] HTTP server closed');
+    process.exit(0);
+  });
+
+  // Force exit after 10 seconds if server doesn't close
+  setTimeout(() => {
+    console.error('[Server] Forced shutdown after timeout');
+    process.exit(1);
+  }, 10000);
+}
+
+// Handle process termination signals
+process.on('SIGTERM', cleanup);
+process.on('SIGINT', cleanup);
+
+// Handle uncaught exceptions and rejections
+process.on('uncaughtException', (error) => {
+  console.error('[Server] Uncaught exception:', error);
+  cleanup();
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Server] Unhandled rejection at:', promise, 'reason:', reason);
+  // Don't call cleanup here - this might be non-fatal
+});
 
 startServer().catch(console.error);

@@ -401,9 +401,11 @@ class SettingsService {
     let highestPort = startPort;
 
     // Validate that we won't exhaust port range
+    // Use a conservative estimate: assume 20% of ports might be unavailable due to conflicts
     const maxPort = 65535;
-    if (startPort + appIds.length > maxPort) {
-      throw new Error(`Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort}`);
+    const estimatedPortsNeeded = Math.ceil(appIds.length * 1.2);
+    if (startPort + estimatedPortsNeeded > maxPort) {
+      throw new Error(`Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort} (estimated ${estimatedPortsNeeded} ports needed including conflicts)`);
     }
 
     // If portManager is provided, check ports in parallel for better performance

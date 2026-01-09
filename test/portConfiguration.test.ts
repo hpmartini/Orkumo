@@ -17,124 +17,78 @@ class MockPortManager {
   }
 }
 
-// Mock settings service functions
-const mockSettings = { customPorts: {}, favorites: [], archived: [], customNames: {}, favoritesSortMode: 'manual' as const, version: 1 };
-const readSettings = vi.fn(() => mockSettings);
-const writeSettings = vi.fn((settings) => {
-  Object.assign(mockSettings, settings);
-});
-
-// Create a simple version of configureAllPorts for testing
-async function configureAllPorts(
-  appIds: string[],
-  startPort = 3001,
-  portManager: MockPortManager | null = null,
-  onProgress: ((current: number, total: number) => void) | null = null
-) {
-  const settings = readSettings();
-  const configured: Record<string, number> = {};
-  let currentPort = startPort;
-  let highestPort = startPort;
-
-  const maxPort = 65535;
-  if (startPort + appIds.length > maxPort) {
-    throw new Error(`Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort}`);
+// Mock fs module for testing
+vi.mock('fs', () => ({
+  default: {
+    existsSync: vi.fn(() => true),
+    mkdirSync: vi.fn(),
+    readFileSync: vi.fn(() => JSON.stringify({
+      customPorts: {},
+      favorites: [],
+      archived: [],
+      customNames: {},
+      favoritesSortMode: 'manual',
+      version: 1
+    })),
+    writeFileSync: vi.fn()
   }
+}));
 
-  // If portManager is provided, check ports in parallel for better performance
-  let unavailablePorts = new Set<number>();
-  if (portManager) {
-    const portsToCheck = Math.min(appIds.length + 50, maxPort - startPort + 1);
-    const portCheckPromises = [];
+// Import the actual service after mocking fs
+// Use dynamic import to ensure mock is set up first
+let settingsService: any;
+let fs: any;
 
-    for (let i = 0; i < portsToCheck; i++) {
-      const portToCheck = startPort + i;
-      portCheckPromises.push(
-        portManager.isPortAvailable(portToCheck).then(available => ({
-          port: portToCheck,
-          available
-        }))
-      );
-    }
-
-    const results = await Promise.all(portCheckPromises);
-    unavailablePorts = new Set(
-      results.filter(r => !r.available).map(r => r.port)
-    );
-  }
-
-  for (let i = 0; i < appIds.length; i++) {
-    const appId = appIds[i];
-    let assignedPort = currentPort;
-
-    // Skip unavailable ports
-    while (unavailablePorts.has(assignedPort) && assignedPort <= maxPort) {
-      assignedPort++;
-    }
-
-    // If we've exhausted our pre-checked range, check new ports
-    if (portManager && assignedPort > startPort + unavailablePorts.size + appIds.length) {
-      let portAvailable = await portManager.isPortAvailable(assignedPort);
-      while (!portAvailable && assignedPort <= maxPort) {
-        assignedPort++;
-        if (assignedPort > maxPort) {
-          throw new Error(`Port range exhausted after configuring ${i} apps`);
-        }
-        portAvailable = await portManager.isPortAvailable(assignedPort);
-      }
-    }
-
-    highestPort = Math.max(highestPort, assignedPort);
-
-    if (highestPort > maxPort) {
-      throw new Error(`Port range exhausted after configuring ${i} apps`);
-    }
-
-    settings.customPorts[appId] = assignedPort;
-    configured[appId] = assignedPort;
-    currentPort = assignedPort + 1;
-
-    if (onProgress) {
-      onProgress(i + 1, appIds.length);
-    }
-  }
-
-  writeSettings(settings);
-  return configured;
+async function setupMocks() {
+  fs = (await import('fs')).default;
+  const SettingsServiceModule = await import('../server/services/settingsService.js');
+  settingsService = SettingsServiceModule.settingsService;
 }
 
 describe('Port Configuration', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
-    mockSettings.customPorts = {};
+    // Reset mock to return clean settings
+    fs.readFileSync.mockReturnValue(JSON.stringify({
+      customPorts: {},
+      favorites: [],
+      archived: [],
+      customNames: {},
+      favoritesSortMode: 'manual',
+      version: 1
+    }));
+    // Setup mocks if not already done
+    if (!settingsService) {
+      await setupMocks();
+    }
   });
 
   describe('configureAllPorts', () => {
     it('should assign sequential ports starting from startPort', async () => {
       const appIds = ['app1', 'app2', 'app3'];
-      const result = await configureAllPorts(appIds, 3001);
+      const result = await settingsService.configureAllPorts(appIds, 3001);
 
       expect(result).toEqual({
         app1: 3001,
         app2: 3002,
         app3: 3003,
       });
-      expect(writeSettings).toHaveBeenCalledWith(
-        expect.objectContaining({
-          customPorts: {
-            app1: 3001,
-            app2: 3002,
-            app3: 3003,
-          },
-        })
-      );
+      expect(fs.writeFileSync).toHaveBeenCalled();
+      // Verify the settings were written correctly
+      const writeCall = fs.writeFileSync.mock.calls[fs.writeFileSync.mock.calls.length - 1];
+      const writtenData = JSON.parse(writeCall[1]);
+      expect(writtenData.customPorts).toEqual({
+        app1: 3001,
+        app2: 3002,
+        app3: 3003,
+      });
     });
 
     it('should skip unavailable ports when portManager is provided', async () => {
       const appIds = ['app1', 'app2', 'app3'];
       const portManager = new MockPortManager([3002]); // Port 3002 is unavailable
 
-      const result = await configureAllPorts(appIds, 3001, portManager);
+      const result = await settingsService.configureAllPorts(appIds, 3001, portManager);
 
       expect(result).toEqual({
         app1: 3001,
@@ -147,7 +101,7 @@ describe('Port Configuration', () => {
       const appIds = ['app1', 'app2', 'app3', 'app4'];
       const portManager = new MockPortManager([3002, 3003]); // Ports 3002 and 3003 unavailable
 
-      const result = await configureAllPorts(appIds, 3001, portManager);
+      const result = await settingsService.configureAllPorts(appIds, 3001, portManager);
 
       expect(result).toEqual({
         app1: 3001,
@@ -161,36 +115,37 @@ describe('Port Configuration', () => {
       const appIds = ['app1', 'app2', 'app3'];
       const onProgress = vi.fn();
 
-      await configureAllPorts(appIds, 3001, null, onProgress);
+      await settingsService.configureAllPorts(appIds, 3001, null, onProgress);
 
       expect(onProgress).toHaveBeenCalledTimes(3);
-      expect(onProgress).toHaveBeenNthCalledWith(1, 1, 3);
-      expect(onProgress).toHaveBeenNthCalledWith(2, 2, 3);
-      expect(onProgress).toHaveBeenNthCalledWith(3, 3, 3);
+      // Note: The actual service passes 3 parameters (current, total, percentage)
+      expect(onProgress).toHaveBeenNthCalledWith(1, 1, 3, 33);
+      expect(onProgress).toHaveBeenNthCalledWith(2, 2, 3, 67);
+      expect(onProgress).toHaveBeenNthCalledWith(3, 3, 3, 100);
     });
 
     it('should throw error when port range is exhausted', async () => {
       const appIds = ['app1', 'app2'];
       const startPort = 65535;
 
-      await expect(configureAllPorts(appIds, startPort)).rejects.toThrow(
+      await expect(settingsService.configureAllPorts(appIds, startPort)).rejects.toThrow(
         'Port range exhausted: Cannot assign 2 apps starting from 65535'
       );
     });
 
     it('should handle empty app list', async () => {
       const appIds: string[] = [];
-      const result = await configureAllPorts(appIds, 3001);
+      const result = await settingsService.configureAllPorts(appIds, 3001);
 
       expect(result).toEqual({});
-      expect(writeSettings).toHaveBeenCalled();
+      expect(fs.writeFileSync).toHaveBeenCalled();
     });
 
     it('should ensure no gaps in port allocation', async () => {
       const appIds = ['app1', 'app2', 'app3', 'app4', 'app5'];
       const portManager = new MockPortManager([3002, 3004]); // Gaps at 3002 and 3004
 
-      const result = await configureAllPorts(appIds, 3001, portManager);
+      const result = await settingsService.configureAllPorts(appIds, 3001, portManager);
 
       // Verify sequential allocation without gaps
       const ports = Object.values(result);
@@ -213,7 +168,7 @@ describe('Port Configuration', () => {
       const portManager = new MockPortManager([3010, 3020, 3030]);
 
       const startTime = Date.now();
-      await configureAllPorts(appIds, 3001, portManager);
+      await settingsService.configureAllPorts(appIds, 3001, portManager);
       const duration = Date.now() - startTime;
 
       // Parallel checking should be faster than sequential
@@ -228,7 +183,7 @@ describe('Port Configuration', () => {
         Array.from({ length: 100 }, (_, i) => 65500 + i) // Block ports 65500-65599
       );
 
-      await expect(configureAllPorts(appIds, 65534, portManager)).rejects.toThrow(
+      await expect(settingsService.configureAllPorts(appIds, 65534, portManager)).rejects.toThrow(
         /Port range exhausted/
       );
     });
