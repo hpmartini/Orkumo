@@ -71,13 +71,36 @@ export const WebIDEPanel = ({ directory }: WebIDEPanelProps) => {
       return false;
     }
 
+    // Deny access to sensitive directories (security-critical)
+    // These patterns protect SSH keys, cloud credentials, and other secrets
+    const deniedPatterns = [
+      '/.ssh/',
+      '/.aws/',
+      '/.config/gcloud/',
+      '/.kube/',
+      '/.docker/',
+      '/.gnupg/',
+      '/.password-store/',
+      '/credentials',
+      '/secrets',
+      '/.npmrc',
+      '/.pypirc',
+      '/.gitconfig',
+    ];
+
+    const isDenied = deniedPatterns.some(pattern => normalizedPath.includes(pattern));
+    if (isDenied) {
+      console.error(`[WebIDEPanel] Access to sensitive directory blocked: ${path}`);
+      return false;
+    }
+
     // Ensure path starts with allowed prefixes
+    // Restricted to specific project directories to prevent access to system files
     const allowedPrefixes = [
       '/home/coder/Projects/',
       '/home/coder/PROJECTS/',
-      '/Users/', // macOS
-      '/home/', // Linux
-      'C:/', // Windows
+      '/Users/', // macOS - consider tightening to specific user directories in production
+      'C:/Users/', // Windows user directories
     ];
 
     const isAllowed = allowedPrefixes.some(prefix => {

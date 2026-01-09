@@ -123,10 +123,60 @@ Browser Request Flow:
 - **Recommended Remote Access**: SSH tunnel or VPN
 
 ### Frontend Security
-- **Iframe Sandboxing**: `sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals"`
-- **Path Validation**: Prevents directory traversal attacks
-- **Allowed Prefixes**: Only permits access to configured directories
-- **CORS Protection**: Isolated iframe origin
+
+#### Iframe Sandboxing
+```tsx
+sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals allow-same-origin"
+```
+
+**Security Considerations**:
+- `allow-same-origin` is **required** for code-server authentication (cookie-based sessions)
+- **Risk**: If code-server has an XSS vulnerability, the iframe can access parent window context
+- **Mitigation**:
+  - Content Security Policy headers on nginx (`frame-ancestors 'self'`)
+  - X-Frame-Options header to prevent external embedding
+  - Regular updates to code-server to patch security issues
+  - Network isolation (internal Docker network only)
+
+#### Path Validation
+Multi-layered protection against unauthorized file access:
+
+**1. Path Traversal Prevention**
+- Blocks any path containing `..` sequences
+- Prevents attacks like `/home/coder/../../etc/passwd`
+
+**2. Deny List for Sensitive Directories**
+Explicitly blocks access to security-critical locations:
+- `/.ssh/` - SSH private keys
+- `/.aws/`, `/.config/gcloud/`, `/.kube/` - Cloud credentials
+- `/.docker/`, `/.gnupg/` - Container and encryption secrets
+- `/.npmrc`, `/.pypirc/` - Package manager tokens
+- `/.gitconfig` - Git credentials
+- `/credentials`, `/secrets` - Generic secrets directories
+
+**3. Allow List for Project Directories**
+Only permits access to explicitly approved locations:
+- `/home/coder/Projects/` - Primary project directory
+- `/home/coder/PROJECTS/` - Alternative project directory
+- `/Users/` - macOS user directories (consider tightening in production)
+- `C:/Users/` - Windows user directories
+
+**Why This Matters**:
+Without the deny list, an attacker could potentially:
+1. Access `/home/runner/.ssh/id_rsa` → Steal SSH keys
+2. Read `/home/coder/.aws/credentials` → Compromise cloud infrastructure
+3. Modify `/home/coder/.bashrc` → Establish persistence
+4. Exfiltrate sensitive environment files
+
+#### Content Security Policy Headers
+nginx adds defense-in-depth security headers:
+```nginx
+Content-Security-Policy: frame-ancestors 'self'
+X-Frame-Options: SAMEORIGIN
+X-Content-Type-Options: nosniff
+```
+
+**Important**: These headers do NOT eliminate iframe risks but provide additional protection layers.
 
 ### Backend Security
 - **Rate Limiting**: 100 requests/min general, 20/min process ops
