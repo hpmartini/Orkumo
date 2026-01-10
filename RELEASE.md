@@ -13,30 +13,39 @@ DevOrbit Dashboard provides two distribution methods:
 
 ### Installing the Release Workflow
 
-The automated release workflow is provided in `release-workflow.yml` at the repository root. **It must be manually moved to `.github/workflows/` to become active.**
+The release workflow file is provided as `release-workflow.yml` at the repository root. **It must be manually moved to `.github/workflows/` to activate automated releases.**
 
 **Why manual installation is required:**
-GitHub's security model prevents automated tools (like GitHub Apps and bots) from creating or modifying workflow files without explicit `workflows` permission. This prevents malicious code from being injected into CI/CD pipelines.
 
-**Installation steps:**
+GitHub's security model prevents automated tools (including GitHub Apps and bots) from creating or modifying workflow files without explicit `workflows` permission. This security measure prevents malicious actors from injecting code into CI/CD pipelines. Even when this PR is merged, the workflow file will remain at the repository root and requires manual activation.
 
+**Installation options:**
+
+**Option 1: Quick installation script**
 ```bash
-# Move the workflow file to the correct location
+# Run the installation script
+chmod +x install-release-workflow.sh
+./install-release-workflow.sh
+```
+
+**Option 2: Manual installation**
+```bash
+# Move the workflow file to activate it
 mv release-workflow.yml .github/workflows/release.yml
 
 # Commit and push
 git add .github/workflows/release.yml
-git commit -m "chore: enable release automation workflow"
+git commit -m "chore: activate release automation workflow"
 git push
 ```
 
-Once installed, the workflow will run automatically when you push version tags.
+Once installed, the workflow runs automatically on version tags.
 
 ## Creating a Release
 
 ### Automated Release (Recommended)
 
-Once the workflow is installed, releases are automatically built when you create a Git tag:
+After installing the workflow, releases are automatically built when you create a Git tag:
 
 ```bash
 # Create a new version tag

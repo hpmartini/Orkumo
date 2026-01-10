@@ -1,0 +1,166 @@
+services:
+  # ===========================================
+  # Frontend - Nginx serving static React app
+  # ===========================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "${DEVORBIT_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+    healthcheck:
+      # Check both nginx and API connectivity
+      test: ["CMD-SHELL", "wget --no-verbose --tries=1 --spider http://localhost/health && wget --no-verbose --tries=1 -O /dev/null http://localhost/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+
+  # ===========================================
+  # API Backend - Express API only (no static files)
+  # ===========================================
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    # API is NOT exposed to host - only accessible via Nginx proxy
+    expose:
+      - "3099"
+    # Allow container to connect to host.docker.internal for PTY service
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # PRODUCTION: Docker socket mount removed for security
+      # Mount user's home Projects directory (read-write for terminal shells)
+      - ${HOME}/Projects:/home/coder/Projects
+      - ${HOME}/PROJECTS:/home/coder/PROJECTS
+      # Mount Applications for IDE detection (read-only)
+      - /Applications:/Applications:ro
+      # Persist app data
+      - devorbit-data:/app/data
+      # Persist terminal sessions
+      - devorbit-sessions:/app/sessions
+    environment:
+      - NODE_ENV=production
+      - SERVER_PORT=3099
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      # Override platform for IDE detection (container is linux, but host is darwin)
+      - HOST_PLATFORM=darwin
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/devorbit
+      - REDIS_URL=redis://redis:6379
+      - SCAN_DIRECTORIES=/projects
+      # Docker detection and PTY host service URL
+      - RUNNING_IN_DOCKER=true
+      - PTY_HOST_URL=ws://host.docker.internal:3098
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_started
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3099/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # ===========================================
+  # PostgreSQL Database
+  # ===========================================
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      - POSTGRES_DB=devorbit
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d devorbit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # Redis for session storage and caching
+  # ===========================================
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ===========================================
+  # code-server - VS Code in the browser
+  # ===========================================
+  code-server:
+    image: codercom/code-server:latest
+    container_name: devorbit-code-server
+    ports:
+      - "127.0.0.1:8443:8080"
+    volumes:
+      - ${HOME}/Projects:/home/coder/Projects
+      - ${HOME}/PROJECTS:/home/coder/PROJECTS
+      - code-server-config:/home/coder/.config
+    environment:
+      - PASSWORD=${CODE_SERVER_PASSWORD:?CODE_SERVER_PASSWORD must be set in .env file - see .env.example for details}
+      # Separate sudo password for enhanced security
+      # If CODE_SERVER_SUDO_PASSWORD is not set, sudo will be disabled (recommended)
+      - SUDO_PASSWORD=${CODE_SERVER_SUDO_PASSWORD:-}
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+    # Resource limits to prevent excessive consumption
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    # Health check to ensure code-server is running
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  devorbit-data:
+    name: devorbit-data
+  devorbit-sessions:
+    name: devorbit-sessions
+  postgres-data:
+    name: devorbit-postgres
+  redis-data:
+    name: devorbit-redis
+  code-server-config:
+    name: devorbit-code-server-config
+
+networks:
+  devorbit-network:
+    name: devorbit-network
+    driver: bridge

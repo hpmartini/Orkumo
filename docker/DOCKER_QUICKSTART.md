@@ -258,7 +258,22 @@ If you have existing PostgreSQL or Redis instances:
 
 ## Production Deployment
 
-For production deployments:
+For production deployments, use the production-specific compose file:
+
+```bash
+# Download the production compose file (without Docker socket mount)
+curl -O https://raw.githubusercontent.com/hpmartini/DevHub/main/docker-compose.production.yml
+
+# Start with production configuration
+docker compose -f docker-compose.production.yml up -d
+```
+
+**Production compose file differences:**
+- ✅ Docker socket mount removed for enhanced security
+- ✅ All other functionality preserved
+- ✅ Same environment variables and configuration
+
+**Additional production recommendations:**
 
 1. Use strong passwords in `.env`
 2. Enable HTTPS (use a reverse proxy like Nginx or Traefik)
@@ -267,7 +282,7 @@ For production deployments:
 5. Monitor resource usage
 6. Use specific version tags instead of `latest`
 
-Example production `docker-compose.yml` additions:
+Example production logging configuration:
 
 ```yaml
 services:
@@ -301,7 +316,13 @@ The default `docker-compose.yml` mounts the Docker socket (`/var/run/docker.sock
 - Effectively grants root access to the host machine
 
 **Recommendations:**
-1. **Production environments**: Remove the Docker socket mount unless Docker management features are explicitly required:
+1. **Production environments**: Use the production compose file which has the Docker socket mount removed:
+   ```bash
+   # Use the production compose file (no Docker socket mount)
+   docker compose -f docker-compose.production.yml up -d
+   ```
+
+   Alternatively, if using the standard compose file, comment out the socket mount:
    ```yaml
    # Comment out or remove this line in docker-compose.yml
    # - /var/run/docker.sock:/var/run/docker.sock
