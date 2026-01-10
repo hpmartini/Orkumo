@@ -23,7 +23,7 @@ import { KeyboardShortcuts } from './types';
 
 type ActiveTab = 'dashboard' | 'apps';
 
-function AppContent() {
+export function AppContent() {
   const navigate = useNavigate();
   const params = useParams();
   const projectId = params.projectId;
