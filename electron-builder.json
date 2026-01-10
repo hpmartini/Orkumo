@@ -75,8 +75,7 @@
         "target": "portable",
         "arch": ["x64"]
       }
-    ],
-    "publisherName": "DevOrbit"
+    ]
   },
   "nsis": {
     "oneClick": false,
