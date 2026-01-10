@@ -21,4 +21,12 @@ export default defineConfig({
       '@': path.resolve(__dirname, '.'),
     },
   },
+  build: {
+    rollupOptions: {
+      input: {
+        landing: path.resolve(__dirname, 'landing.html'),
+        dashboard: path.resolve(__dirname, 'dashboard.html'),
+      },
+    },
+  },
 });
