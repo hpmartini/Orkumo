@@ -1,7 +1,9 @@
 import { motion } from 'framer-motion';
 import { Rocket, Github, Twitter, Linkedin } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export function Footer() {
+  const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
 
   return (
@@ -79,7 +81,8 @@ export function Footer() {
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className="group relative w-full"
-              onClick={() => window.location.href = '/dashboard'}
+              onClick={() => navigate('/dashboard')}
+              aria-label="Navigate to dashboard"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-electric-blue to-cyber-purple rounded-lg blur-md opacity-75 group-hover:opacity-100 transition-opacity" />
               <div className="relative px-6 py-3 bg-gradient-to-r from-electric-blue to-cyber-purple rounded-lg font-body font-bold text-white text-center">
@@ -101,9 +104,9 @@ export function Footer() {
           {/* Social Links */}
           <div className="flex items-center gap-4">
             {[
-              { icon: <Github className="w-5 h-5" />, href: '#' },
-              { icon: <Twitter className="w-5 h-5" />, href: '#' },
-              { icon: <Linkedin className="w-5 h-5" />, href: '#' },
+              { icon: <Github className="w-5 h-5" />, href: '#', label: 'GitHub' },
+              { icon: <Twitter className="w-5 h-5" />, href: '#', label: 'Twitter' },
+              { icon: <Linkedin className="w-5 h-5" />, href: '#', label: 'LinkedIn' },
             ].map((social, idx) => (
               <motion.a
                 key={idx}
@@ -111,6 +114,7 @@ export function Footer() {
                 whileHover={{ scale: 1.1, y: -2 }}
                 whileTap={{ scale: 0.9 }}
                 className="p-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:text-electric-blue hover:border-electric-blue/50 transition-colors"
+                aria-label={`Visit our ${social.label} page`}
               >
                 {social.icon}
               </motion.a>

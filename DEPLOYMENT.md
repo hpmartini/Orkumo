@@ -152,6 +152,106 @@ NODE_ENV=production
 PORT=3099
 ```
 
+## Security Configuration
+
+### Content Security Policy (CSP)
+
+Both the landing page and dashboard require specific CSP headers to function properly, especially for WebGL and inline styles.
+
+#### Landing Page CSP Headers
+
+The landing page uses WebGL shaders (Three.js) and requires the following CSP configuration:
+
+```
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self' 'unsafe-eval';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  img-src 'self' data: https:;
+  connect-src 'self';
+  worker-src 'self' blob:;
+```
+
+**Why these directives are needed:**
+- `'unsafe-eval'` in `script-src`: Required by Three.js for shader compilation
+- `'unsafe-inline'` in `style-src`: Required by Framer Motion for animation styles
+- `blob:` in `worker-src`: Three.js may use Web Workers for performance
+
+#### Dashboard CSP Headers
+
+The dashboard requires WebSocket support and additional permissions:
+
+```
+Content-Security-Policy:
+  default-src 'self';
+  script-src 'self' 'unsafe-eval';
+  style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
+  font-src 'self' https://fonts.gstatic.com;
+  img-src 'self' data: https:;
+  connect-src 'self' ws: wss:;
+  worker-src 'self' blob:;
+```
+
+**Additional requirements:**
+- `ws:` and `wss:` in `connect-src`: Required for WebSocket connections to backend
+- `'unsafe-eval'`: Required for terminal emulator and dynamic code execution features
+
+#### Nginx Configuration Example
+
+```nginx
+server {
+  server_name landing.devorbit.com;
+
+  location / {
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:;" always;
+
+    # Other headers
+    add_header X-Frame-Options "SAMEORIGIN" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
+  }
+}
+```
+
+#### Vercel/Netlify Configuration
+
+**vercel.json:**
+```json
+{
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "Content-Security-Policy",
+          "value": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:"
+        }
+      ]
+    }
+  ]
+}
+```
+
+**netlify.toml:**
+```toml
+[[headers]]
+  for = "/*"
+  [headers.values]
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:"
+```
+
+### Additional Security Headers
+
+For both deployments, add these security headers:
+
+```
+X-Frame-Options: SAMEORIGIN
+X-Content-Type-Options: nosniff
+Referrer-Policy: strict-origin-when-cross-origin
+Permissions-Policy: camera=(), microphone=(), geolocation=()
+```
+
 ## Performance Considerations
 
 ### Landing Page

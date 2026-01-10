@@ -94,6 +94,7 @@ export function Navbar() {
                 const element = document.getElementById('contact');
                 element?.scrollIntoView({ behavior: 'smooth' });
               }}
+              aria-label="Scroll to contact section"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-electric-blue to-cyber-purple rounded-lg blur-md opacity-75 group-hover:opacity-100 transition-opacity" />
               <div className="relative px-6 py-2.5 bg-gray-900 border border-electric-blue/50 rounded-lg font-body font-semibold text-sm text-white group-hover:border-electric-blue transition-colors">
@@ -106,6 +107,9 @@ export function Navbar() {
           <button
             className="md:hidden p-2 text-gray-300 hover:text-white transition-colors"
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+            aria-label={mobileMenuOpen ? 'Close navigation menu' : 'Open navigation menu'}
+            aria-expanded={mobileMenuOpen}
+            aria-controls="mobile-menu"
           >
             {mobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}
           </button>
@@ -114,10 +118,13 @@ export function Navbar() {
         {/* Mobile Menu */}
         {mobileMenuOpen && (
           <motion.div
+            id="mobile-menu"
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
             className="md:hidden border-t border-white/10 py-4 bg-gray-900/95 backdrop-blur-xl"
+            role="navigation"
+            aria-label="Mobile navigation"
           >
             <div className="flex flex-col gap-4">
               {navItems.map((item) => (
@@ -140,6 +147,7 @@ export function Navbar() {
                   element?.scrollIntoView({ behavior: 'smooth' });
                   setMobileMenuOpen(false);
                 }}
+                aria-label="Scroll to contact section to book a call"
               >
                 Book a Call
               </button>

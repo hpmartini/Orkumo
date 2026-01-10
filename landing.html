@@ -5,52 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>DevOrbit - AI-Powered Developer Dashboard</title>
     <meta name="description" content="DevOrbit Dashboard: AI-powered development environment for monitoring and managing local applications with intelligent analysis and recommendations." />
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@200;400;500;700&family=Space+Grotesk:wght@300;400;500;600;700;800&family=DM+Sans:wght@200;300;400;500;600;700;800&display=swap" rel="stylesheet">
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: {
-              sans: ['Inter', 'sans-serif'],
-              mono: ['JetBrains Mono', 'monospace'],
-              heading: ['Space Grotesk', 'sans-serif'],
-              body: ['DM Sans', 'sans-serif'],
-            },
-            colors: {
-              gray: {
-                750: '#2d3748',
-                850: '#1a202c',
-                950: '#0d1117',
-              },
-              obsidian: '#030305',
-              'cyber-purple': '#8B5CF6',
-              'electric-blue': '#3B82F6',
-              'acid-green': '#84cc16',
-            }
-          }
-        }
-      }
-    </script>
-    <style>
-      body { background-color: #030305; color: #e2e8f0; }
-
-      /* Gradient animation for hero text */
-      @keyframes gradient {
-        0% { background-position: 0% 50%; }
-        50% { background-position: 100% 50%; }
-        100% { background-position: 0% 50%; }
-      }
-      .animate-gradient {
-        background-size: 200% 200%;
-        animation: gradient 5s ease infinite;
-      }
-
-      /* Radial gradient utility */
-      .bg-gradient-radial {
-        background-image: radial-gradient(var(--tw-gradient-stops));
-      }
-    </style>
   </head>
   <body>
     <div id="root"></div>
