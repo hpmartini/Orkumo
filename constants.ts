@@ -1,4 +1,11 @@
 /**
+ * Application configuration constants
+ */
+
+/** Application name used throughout the app */
+export { APP_NAME } from './electron/constants.js';
+
+/**
  * Port configuration constants
  */
 

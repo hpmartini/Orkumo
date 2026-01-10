@@ -19,6 +19,7 @@ import { useApps } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { generateProjectUrl } from './utils/routing';
 import { KeyboardShortcuts } from './types';
+import { APP_NAME } from './constants';
 
 type ActiveTab = 'dashboard' | 'apps';
 
@@ -410,7 +411,7 @@ function AppContent() {
             {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
           <div className="flex items-center gap-2 text-blue-500 font-bold">
-            <LayoutDashboard size={20} /> DevOrbit
+            <LayoutDashboard size={20} /> {APP_NAME}
           </div>
         </header>
 

@@ -7,6 +7,7 @@ import { createServer } from 'net';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { isValidExternalUrl, validateDialogOptions } from './validation.js';
+import { APP_NAME } from './constants.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -30,7 +31,7 @@ function createWindow() {
     minWidth: 1024,
     minHeight: 768,
     backgroundColor: '#0f172a',
-    title: 'DevOrbit Dashboard',
+    title: APP_NAME,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -232,7 +233,7 @@ async function startBackendServer() {
     throw new Error(
       `Port ${SERVER_PORT} is already in use. Please close the application using this port and try again.\n\n` +
       `Common solutions:\n` +
-      `- Check if another instance of DevOrbit is running\n` +
+      `- Check if another instance of ${APP_NAME} is running\n` +
       `- Check for other applications using port ${SERVER_PORT}\n` +
       `- Kill the process: lsof -ti:${SERVER_PORT} | xargs kill -9 (macOS/Linux)`
     );
@@ -552,7 +553,7 @@ app.whenReady().then(async () => {
     dialog.showMessageBox({
       type: 'error',
       title: 'Startup Error',
-      message: 'Failed to start DevOrbit Dashboard',
+      message: `Failed to start ${APP_NAME}`,
       detail: error.message,
       buttons: ['OK']
     })

@@ -23,6 +23,7 @@ import { KebabMenu, createAppMenuItems } from './KebabMenu';
 import { FavoritesPopup, ProjectsPopup } from './SidebarPopup';
 import { ShortcutTooltip } from './Tooltip';
 import { getShortcutString } from '../hooks/useKeyboardShortcuts';
+import { APP_NAME } from '../constants';
 
 interface SidebarProps {
   apps: AppConfig[];
@@ -511,7 +512,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img src="/logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
-            <span className="text-blue-500 font-bold text-xl tracking-tight">DevOrbit</span>
+            <span className="text-blue-500 font-bold text-xl tracking-tight">{APP_NAME}</span>
           </div>
           {onToggleCollapse && (
             <ShortcutTooltip
