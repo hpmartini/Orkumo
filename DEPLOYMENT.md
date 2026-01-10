@@ -165,7 +165,7 @@ The landing page uses WebGL shaders (Three.js) and requires the following CSP co
 ```
 Content-Security-Policy:
   default-src 'self';
-  script-src 'self' 'unsafe-eval';
+  script-src 'self';
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
   img-src 'self' data: https:;
@@ -174,9 +174,9 @@ Content-Security-Policy:
 ```
 
 **Why these directives are needed:**
-- `'unsafe-eval'` in `script-src`: Required by Three.js for shader compilation
 - `'unsafe-inline'` in `style-src`: Required by Framer Motion for animation styles
 - `blob:` in `worker-src`: Three.js may use Web Workers for performance
+- **Note:** Three.js r152+ does NOT require `'unsafe-eval'` for shader compilation
 
 #### Dashboard CSP Headers
 
@@ -185,7 +185,7 @@ The dashboard requires WebSocket support and additional permissions:
 ```
 Content-Security-Policy:
   default-src 'self';
-  script-src 'self' 'unsafe-eval';
+  script-src 'self';
   style-src 'self' 'unsafe-inline' https://fonts.googleapis.com;
   font-src 'self' https://fonts.gstatic.com;
   img-src 'self' data: https:;
@@ -195,7 +195,7 @@ Content-Security-Policy:
 
 **Additional requirements:**
 - `ws:` and `wss:` in `connect-src`: Required for WebSocket connections to backend
-- `'unsafe-eval'`: Required for terminal emulator and dynamic code execution features
+- **Note:** If using terminal emulator features that require dynamic code execution (e.g., xterm.js addons), you may need to add `'unsafe-eval'` to `script-src`. Test your specific terminal implementation to verify.
 
 #### Nginx Configuration Example
 
@@ -204,7 +204,7 @@ server {
   server_name landing.devorbit.com;
 
   location / {
-    add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:;" always;
+    add_header Content-Security-Policy "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:;" always;
 
     # Other headers
     add_header X-Frame-Options "SAMEORIGIN" always;
@@ -225,7 +225,7 @@ server {
       "headers": [
         {
           "key": "Content-Security-Policy",
-          "value": "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:"
+          "value": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:"
         }
       ]
     }
@@ -238,7 +238,7 @@ server {
 [[headers]]
   for = "/*"
   [headers.values]
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:"
+    Content-Security-Policy = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: https:; connect-src 'self'; worker-src 'self' blob:"
 ```
 
 ### Additional Security Headers

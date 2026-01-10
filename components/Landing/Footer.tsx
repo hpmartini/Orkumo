@@ -6,18 +6,31 @@ export function Footer() {
   const navigate = useNavigate();
   const currentYear = new Date().getFullYear();
 
+  // Check for reduced motion preference
+  const prefersReducedMotion =
+    typeof window !== 'undefined' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
   return (
     <footer id="contact" className="relative pt-20 pb-8 px-4 sm:px-6 lg:px-8 overflow-hidden">
-      {/* Massive Marquee */}
+      {/* Massive Marquee - Respects reduced motion preference */}
       <div className="mb-20 overflow-hidden">
         <motion.div
-          animate={{ x: [0, -2000] }}
+          animate={
+            prefersReducedMotion
+              ? {} // No animation if user prefers reduced motion
+              : { x: [0, -2000] }
+          }
           transition={{
             duration: 30,
             repeat: Infinity,
             ease: 'linear',
+            // Add repeatType to prevent memory accumulation
+            repeatType: 'loop',
           }}
           className="flex whitespace-nowrap"
+          // Force hardware acceleration for better performance
+          style={{ willChange: prefersReducedMotion ? 'auto' : 'transform' }}
         >
           {[...Array(3)].map((_, i) => (
             <span
@@ -57,7 +70,6 @@ export function Footer() {
                 { label: 'Dashboard', href: '/dashboard' },
                 { label: 'Features', href: '#features' },
                 { label: 'Why DevOrbit', href: '#why-us' },
-                { label: 'Documentation', href: '#' },
               ].map((link) => (
                 <li key={link.label}>
                   <a
@@ -101,12 +113,12 @@ export function Footer() {
             © {currentYear} DevOrbit. Built with AI-first principles.
           </p>
 
-          {/* Social Links */}
-          <div className="flex items-center gap-4">
+          {/* Social Links - Commented out until actual URLs are available */}
+          {/* <div className="flex items-center gap-4">
             {[
-              { icon: <Github className="w-5 h-5" />, href: '#', label: 'GitHub' },
-              { icon: <Twitter className="w-5 h-5" />, href: '#', label: 'Twitter' },
-              { icon: <Linkedin className="w-5 h-5" />, href: '#', label: 'LinkedIn' },
+              { icon: <Github className="w-5 h-5" />, href: 'https://github.com/yourorg/devorbit', label: 'GitHub' },
+              { icon: <Twitter className="w-5 h-5" />, href: 'https://twitter.com/devorbit', label: 'Twitter' },
+              { icon: <Linkedin className="w-5 h-5" />, href: 'https://linkedin.com/company/devorbit', label: 'LinkedIn' },
             ].map((social, idx) => (
               <motion.a
                 key={idx}
@@ -115,11 +127,13 @@ export function Footer() {
                 whileTap={{ scale: 0.9 }}
                 className="p-2 rounded-lg bg-white/5 border border-white/10 text-gray-400 hover:text-electric-blue hover:border-electric-blue/50 transition-colors"
                 aria-label={`Visit our ${social.label} page`}
+                target="_blank"
+                rel="noopener noreferrer"
               >
                 {social.icon}
               </motion.a>
             ))}
-          </div>
+          </div> */}
         </div>
       </div>
 
