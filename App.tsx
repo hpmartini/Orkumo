@@ -15,6 +15,7 @@ import {
   AppTabs,
   useAppTabs,
 } from './components';
+import { LandingPage } from './components/Landing';
 import { useApps } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { generateProjectUrl } from './utils/routing';
@@ -121,7 +122,7 @@ function AppContent() {
         setActiveTab('apps');
       } else {
         // Invalid/stale project ID - redirect to dashboard
-        navigateRef.current('/', { replace: true });
+        navigateRef.current('/dashboard', { replace: true });
       }
     } else {
       setActiveTab('dashboard');
@@ -194,14 +195,14 @@ function AppContent() {
   }, [isResizing]);
 
   const handleSelectDashboard = () => {
-    navigate('/');
+    navigate('/dashboard');
     setMobileMenuOpen(false);
   };
 
   const handleSelectApp = (id: string) => {
     const app = apps.find((a) => a.id === id);
     if (app) {
-      navigate(generateProjectUrl(app.name, id));
+      navigate(`/dashboard${generateProjectUrl(app.name, id)}`);
     }
     setMobileMenuOpen(false);
   };
@@ -210,7 +211,7 @@ function AppContent() {
     selectTab(id); // Update activeTabId for visual sync
     const app = apps.find((a) => a.id === id);
     if (app) {
-      navigate(generateProjectUrl(app.name, id));
+      navigate(`/dashboard${generateProjectUrl(app.name, id)}`);
     }
   };
 
@@ -227,10 +228,10 @@ function AppContent() {
       if (remainingTabs.length > 0) {
         const nextApp = apps.find((a) => a.id === remainingTabs[remainingTabs.length - 1].appId);
         if (nextApp) {
-          navigate(generateProjectUrl(nextApp.name, nextApp.id));
+          navigate(`/dashboard${generateProjectUrl(nextApp.name, nextApp.id)}`);
         }
       } else {
-        navigate('/');
+        navigate('/dashboard');
       }
     }
   };
@@ -252,8 +253,8 @@ function AppContent() {
   // Keyboard shortcuts
   const keyboardShortcutActions = useMemo(() => [
     { id: 'toggleSidebar' as keyof KeyboardShortcuts, handler: handleToggleSidebarCollapse },
-    { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
-    { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: () => navigate('/') },
+    { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/dashboard') },
+    { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: () => navigate('/dashboard') },
     { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
     { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
     { id: 'openFavorites' as keyof KeyboardShortcuts, handler: handleToggleFavoritesPopup },
@@ -509,8 +510,9 @@ function AppContent() {
 function AppRouter() {
   return (
     <Routes>
-      <Route path="/" element={<AppContent />} />
-      <Route path="/:projectName/:projectId" element={<AppContent />} />
+      <Route path="/" element={<LandingPage />} />
+      <Route path="/dashboard" element={<AppContent />} />
+      <Route path="/dashboard/:projectName/:projectId" element={<AppContent />} />
     </Routes>
   );
 }
