@@ -257,10 +257,25 @@ async function startBackendServer() {
   };
 
   // Fork the server process
+  // In production, we need to set up proper module resolution
+  // The server runs from extraResources/server, and node_modules are in app.asar
+  const serverCwd = isDev
+    ? path.join(__dirname, '..')
+    : process.resourcesPath;
+
+  // Add the asar path to NODE_PATH so the server can find its dependencies
+  const asarNodeModules = isDev
+    ? ''
+    : path.join(process.resourcesPath, 'app.asar', 'node_modules');
+
   serverProcess = fork(serverPath, [], {
-    env,
+    env: {
+      ...env,
+      // Extend NODE_PATH to include asar node_modules for production
+      NODE_PATH: asarNodeModules ? `${asarNodeModules}${path.delimiter}${process.env.NODE_PATH || ''}` : process.env.NODE_PATH || '',
+    },
     stdio: 'inherit',
-    cwd: isDev ? path.join(__dirname, '..') : process.resourcesPath,
+    cwd: serverCwd,
   });
 
   serverProcess.on('error', (error) => {
