@@ -101,36 +101,24 @@ jobs:
   # Build Electron Apps for All Platforms
   # ===========================================
   build-electron:
-    name: Build Electron - ${{ matrix.platform }} (${{ matrix.arch }})
+    name: Build Electron - ${{ matrix.platform }}
     needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # macOS builds (both Intel and Apple Silicon)
+          # macOS builds (electron-builder builds both x64 and arm64)
           - os: macos-latest
             platform: mac
-            arch: x64
-          - os: macos-latest
-            platform: mac
-            arch: arm64
 
-          # Windows builds (Intel and ARM)
+          # Windows builds (electron-builder builds both x64 and arm64)
           - os: windows-latest
             platform: win
-            arch: x64
-          - os: windows-latest
-            platform: win
-            arch: arm64
 
-          # Linux builds (Intel and ARM)
+          # Linux builds (electron-builder builds both x64 and arm64)
           - os: ubuntu-latest
             platform: linux
-            arch: x64
-          - os: ubuntu-latest
-            platform: linux
-            arch: arm64
 
     steps:
       - name: Checkout code
@@ -191,7 +179,7 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: electron-${{ matrix.platform }}-${{ matrix.arch }}
+          name: electron-${{ matrix.platform }}
           path: |
             dist-electron/*.exe
             dist-electron/*.dmg
