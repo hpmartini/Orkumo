@@ -1,7 +1,9 @@
 import { motion } from 'framer-motion';
 import { ArrowRight, Sparkles } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 
 export function Hero() {
+  const navigate = useNavigate();
   return (
     <section className="relative min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 overflow-hidden">
       {/* Content */}
@@ -58,7 +60,7 @@ export function Hero() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="group relative w-full sm:w-auto"
-            onClick={() => window.location.href = '/dashboard'}
+            onClick={() => navigate('/dashboard')}
           >
             <div className="absolute inset-0 bg-gradient-to-r from-electric-blue to-cyber-purple rounded-xl blur-xl opacity-75 group-hover:opacity-100 transition-opacity" />
             <div className="relative flex items-center justify-center gap-2 px-8 py-4 bg-gradient-to-r from-electric-blue to-cyber-purple rounded-xl font-body font-bold text-base sm:text-lg text-white shadow-2xl shadow-electric-blue/50">
@@ -72,7 +74,10 @@ export function Hero() {
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
             className="group relative w-full sm:w-auto"
-            onClick={() => window.location.href = '#features'}
+            onClick={() => {
+              const element = document.getElementById('features');
+              element?.scrollIntoView({ behavior: 'smooth' });
+            }}
           >
             <div className="absolute inset-0 bg-white/5 rounded-xl" />
             <div className="relative flex items-center justify-center gap-2 px-8 py-4 bg-transparent border-2 border-white/20 rounded-xl font-body font-semibold text-base sm:text-lg text-white backdrop-blur-sm group-hover:border-white/40 transition-colors">

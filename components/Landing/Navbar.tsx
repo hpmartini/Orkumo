@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Rocket, Menu, X } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { cn } from '@/utils/cn';
 
 export function Navbar() {
+  const navigate = useNavigate();
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -16,10 +18,20 @@ export function Navbar() {
   }, []);
 
   const navItems = [
-    { label: 'Features', href: '#features' },
-    { label: 'Why Us', href: '#why-us' },
-    { label: 'Dashboard', href: '/dashboard' },
+    { label: 'Features', href: '#features', isHash: true },
+    { label: 'Why Us', href: '#why-us', isHash: true },
+    { label: 'Dashboard', href: '/dashboard', isHash: false },
   ];
+
+  const handleNavClick = (e: React.MouseEvent, href: string, isHash: boolean) => {
+    e.preventDefault();
+    if (isHash) {
+      const element = document.getElementById(href.substring(1));
+      element?.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      navigate(href);
+    }
+  };
 
   return (
     <motion.nav
@@ -41,6 +53,10 @@ export function Navbar() {
             className="flex items-center gap-3 group"
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
+            onClick={(e) => {
+              e.preventDefault();
+              navigate('/');
+            }}
           >
             <div className="relative">
               <div className="absolute inset-0 bg-electric-blue blur-xl opacity-20 group-hover:opacity-40 transition-opacity" />
@@ -61,6 +77,7 @@ export function Navbar() {
                 initial={{ opacity: 0, y: -20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 + idx * 0.1 }}
+                onClick={(e) => handleNavClick(e, item.href, item.isHash)}
               >
                 {item.label}
                 <span className="absolute -bottom-1 left-0 w-0 h-0.5 bg-gradient-to-r from-electric-blue to-cyber-purple group-hover:w-full transition-all duration-300" />
@@ -73,7 +90,10 @@ export function Navbar() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
               className="relative group"
-              onClick={() => window.location.href = '#contact'}
+              onClick={() => {
+                const element = document.getElementById('contact');
+                element?.scrollIntoView({ behavior: 'smooth' });
+              }}
             >
               <div className="absolute inset-0 bg-gradient-to-r from-electric-blue to-cyber-purple rounded-lg blur-md opacity-75 group-hover:opacity-100 transition-opacity" />
               <div className="relative px-6 py-2.5 bg-gray-900 border border-electric-blue/50 rounded-lg font-body font-semibold text-sm text-white group-hover:border-electric-blue transition-colors">
@@ -105,7 +125,10 @@ export function Navbar() {
                   key={item.href}
                   href={item.href}
                   className="font-body font-medium text-gray-300 hover:text-white transition-colors px-4 py-2"
-                  onClick={() => setMobileMenuOpen(false)}
+                  onClick={(e) => {
+                    handleNavClick(e, item.href, item.isHash);
+                    setMobileMenuOpen(false);
+                  }}
                 >
                   {item.label}
                 </a>
@@ -113,7 +136,8 @@ export function Navbar() {
               <button
                 className="mx-4 px-6 py-3 bg-gradient-to-r from-electric-blue to-cyber-purple rounded-lg font-body font-semibold text-white"
                 onClick={() => {
-                  window.location.href = '#contact';
+                  const element = document.getElementById('contact');
+                  element?.scrollIntoView({ behavior: 'smooth' });
                   setMobileMenuOpen(false);
                 }}
               >

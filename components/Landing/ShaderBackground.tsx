@@ -1,13 +1,39 @@
-import { useRef, useMemo } from 'react';
+import { useRef, useMemo, useEffect, Component, ReactNode } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
+
+// Error boundary for WebGL failures
+class WebGLErrorBoundary extends Component<
+  { children: ReactNode; fallback: ReactNode },
+  { hasError: boolean }
+> {
+  constructor(props: { children: ReactNode; fallback: ReactNode }) {
+    super(props);
+    this.state = { hasError: false };
+  }
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.warn('WebGL Error:', error);
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
 
 function WaveShader() {
   const meshRef = useRef<THREE.Mesh>(null);
   const mouseRef = useRef({ x: 0, y: 0 });
 
   // Track mouse movement
-  useMemo(() => {
+  useEffect(() => {
     const handleMouseMove = (e: MouseEvent) => {
       mouseRef.current = {
         x: (e.clientX / window.innerWidth) * 2 - 1,
@@ -16,6 +42,20 @@ function WaveShader() {
     };
     window.addEventListener('mousemove', handleMouseMove);
     return () => window.removeEventListener('mousemove', handleMouseMove);
+  }, []);
+
+  // Handle window resize for shader resolution
+  useEffect(() => {
+    const handleResize = () => {
+      if (meshRef.current) {
+        const material = meshRef.current.material as THREE.ShaderMaterial;
+        if (material.uniforms) {
+          material.uniforms.uResolution.value.set(window.innerWidth, window.innerHeight);
+        }
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
   }, []);
 
   // Custom shader material
@@ -103,12 +143,18 @@ function WaveShader() {
 export function ShaderBackground() {
   return (
     <div className="fixed inset-0 -z-10">
-      <Canvas
-        camera={{ position: [0, 0, 1], fov: 75 }}
-        style={{ background: '#030305' }}
+      <WebGLErrorBoundary
+        fallback={
+          <div className="w-full h-full bg-gradient-to-br from-gray-900 via-gray-900 to-black" />
+        }
       >
-        <WaveShader />
-      </Canvas>
+        <Canvas
+          camera={{ position: [0, 0, 1], fov: 75 }}
+          style={{ background: '#030305' }}
+        >
+          <WaveShader />
+        </Canvas>
+      </WebGLErrorBoundary>
       {/* Radial gradient overlay for additional depth */}
       <div className="absolute inset-0 bg-gradient-radial from-transparent via-obsidian/50 to-obsidian pointer-events-none" />
     </div>
