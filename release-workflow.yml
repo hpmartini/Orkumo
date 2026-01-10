@@ -14,6 +14,7 @@ on:
 permissions:
   contents: write
   packages: write
+  security-events: write
 
 jobs:
   # ===========================================
@@ -100,7 +101,7 @@ jobs:
   # Build Electron Apps for All Platforms
   # ===========================================
   build-electron:
-    name: Build Electron - ${{ matrix.os }}
+    name: Build Electron - ${{ matrix.platform }} (${{ matrix.arch }})
     needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
@@ -110,17 +111,26 @@ jobs:
           # macOS builds (both Intel and Apple Silicon)
           - os: macos-latest
             platform: mac
-            arch: x64,arm64
+            arch: x64
+          - os: macos-latest
+            platform: mac
+            arch: arm64
 
           # Windows builds (Intel and ARM)
           - os: windows-latest
             platform: win
-            arch: x64,arm64
+            arch: x64
+          - os: windows-latest
+            platform: win
+            arch: arm64
 
           # Linux builds (Intel and ARM)
           - os: ubuntu-latest
             platform: linux
-            arch: x64,arm64
+            arch: x64
+          - os: ubuntu-latest
+            platform: linux
+            arch: arm64
 
     steps:
       - name: Checkout code
@@ -142,6 +152,41 @@ jobs:
         run: npm run electron:build:${{ matrix.platform }}
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify artifact paths
+        run: |
+          echo "Verifying electron-builder output structure..."
+          ls -lah dist-electron/ || echo "dist-electron directory not found"
+
+          # Check for expected artifact patterns
+          FOUND_ARTIFACTS=false
+
+          if [ "${{ matrix.platform }}" = "win" ]; then
+            if ls dist-electron/*.exe 1> /dev/null 2>&1; then
+              echo "✓ Found Windows executables"
+              ls -lh dist-electron/*.exe
+              FOUND_ARTIFACTS=true
+            fi
+          elif [ "${{ matrix.platform }}" = "mac" ]; then
+            if ls dist-electron/*.dmg 1> /dev/null 2>&1 || ls dist-electron/*.zip 1> /dev/null 2>&1; then
+              echo "✓ Found macOS installers"
+              ls -lh dist-electron/*.dmg dist-electron/*.zip 2>/dev/null || true
+              FOUND_ARTIFACTS=true
+            fi
+          elif [ "${{ matrix.platform }}" = "linux" ]; then
+            if ls dist-electron/*.AppImage 1> /dev/null 2>&1 || ls dist-electron/*.deb 1> /dev/null 2>&1 || ls dist-electron/*.rpm 1> /dev/null 2>&1; then
+              echo "✓ Found Linux packages"
+              ls -lh dist-electron/*.AppImage dist-electron/*.deb dist-electron/*.rpm 2>/dev/null || true
+              FOUND_ARTIFACTS=true
+            fi
+          fi
+
+          if [ "$FOUND_ARTIFACTS" = false ]; then
+            echo "ERROR: No expected artifacts found for platform ${{ matrix.platform }}"
+            echo "Full dist-electron contents:"
+            ls -lahR dist-electron/ || echo "Directory does not exist"
+            exit 1
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
