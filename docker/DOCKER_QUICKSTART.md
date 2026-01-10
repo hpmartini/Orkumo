@@ -288,13 +288,84 @@ services:
 
 ## Security Considerations
 
+### Critical Security Warnings
+
+#### ⚠️ Docker Socket Mounting (High Risk)
+
+The default `docker-compose.yml` mounts the Docker socket (`/var/run/docker.sock`) into the API container. **This grants the API container root-level access to the host Docker daemon.**
+
+**Risks:**
+- An attacker exploiting the API could launch privileged containers
+- Could access all containers and volumes on the host system
+- Could escape the container and compromise the host system
+- Effectively grants root access to the host machine
+
+**Recommendations:**
+1. **Production environments**: Remove the Docker socket mount unless Docker management features are explicitly required:
+   ```yaml
+   # Comment out or remove this line in docker-compose.yml
+   # - /var/run/docker.sock:/var/run/docker.sock
+   ```
+
+2. **If Docker access is required**:
+   - Use a [Docker socket proxy](https://github.com/Tecnativa/docker-socket-proxy) with restricted permissions
+   - Implement strict network policies and firewall rules
+   - Run the API container with minimal privileges
+   - Consider using rootless Docker mode
+   - Monitor Docker API calls and audit logs
+
+3. **Alternative approaches**:
+   - Use Kubernetes with RBAC for container orchestration
+   - Implement a separate, isolated service for Docker operations
+   - Use Docker contexts to connect to remote Docker daemons
+
+#### 🔒 Other Security Best Practices
+
 1. **Never commit `.env` to version control**
+   - Use `.gitignore` to exclude `.env` files
+   - Store secrets in a secure secrets manager (e.g., HashiCorp Vault, AWS Secrets Manager)
+
 2. **Use strong passwords for CODE_SERVER_PASSWORD**
+   - Minimum 16 characters with mixed case, numbers, and symbols
+   - Consider using a password manager to generate strong passwords
+
 3. **Keep Docker images updated**
+   - Regularly run `docker compose pull` to get latest security patches
+   - Subscribe to security advisories for the images you use
+
 4. **Only expose necessary ports**
+   - Bind ports to localhost (`127.0.0.1`) when possible
+   - Use a reverse proxy (Nginx, Traefik) with HTTPS for external access
+   - Configure firewall rules to restrict access
+
 5. **Use a firewall to restrict access**
-6. **Regular backups of important data**
-7. **Monitor logs for suspicious activity**
+   - Configure iptables or ufw to allow only necessary connections
+   - Use network policies to isolate containers
+
+6. **Network isolation**
+   - Use separate Docker networks for different components
+   - Avoid using `host` network mode
+   - Implement least privilege network access
+
+7. **Host directory permissions**
+   - Review mounted volume permissions carefully
+   - Avoid mounting sensitive host directories
+   - Use read-only mounts where possible (`:ro` flag)
+
+8. **Secrets management**
+   - Use Docker secrets or external secrets managers
+   - Rotate credentials regularly
+   - Never log sensitive information
+
+9. **Regular backups of important data**
+   - Automate backups of PostgreSQL, Redis, and application data
+   - Test restore procedures regularly
+   - Store backups securely off-site
+
+10. **Monitor logs for suspicious activity**
+    - Implement centralized logging (ELK stack, Grafana Loki)
+    - Set up alerts for unusual patterns
+    - Review logs regularly for security incidents
 
 ## Next Steps
 

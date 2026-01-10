@@ -13,7 +13,12 @@ DevOrbit Dashboard provides two distribution methods:
 
 ### Installing the Release Workflow
 
-The automated release workflow is provided in `release-workflow.yml`. To install it:
+The automated release workflow is provided in `release-workflow.yml` at the repository root. **It must be manually moved to `.github/workflows/` to become active.**
+
+**Why manual installation is required:**
+GitHub's security model prevents automated tools (like GitHub Apps and bots) from creating or modifying workflow files without explicit `workflows` permission. This prevents malicious code from being injected into CI/CD pipelines.
+
+**Installation steps:**
 
 ```bash
 # Move the workflow file to the correct location
@@ -21,11 +26,11 @@ mv release-workflow.yml .github/workflows/release.yml
 
 # Commit and push
 git add .github/workflows/release.yml
-git commit -m "chore: add release workflow"
+git commit -m "chore: enable release automation workflow"
 git push
 ```
 
-Note: This file is not included in the automated commit because GitHub Apps require special permissions to modify workflow files.
+Once installed, the workflow will run automatically when you push version tags.
 
 ## Creating a Release
 
@@ -119,6 +124,108 @@ Before creating a release:
   ```
 - [ ] Update documentation if needed
 - [ ] Commit all changes
+
+## Automated Testing and Validation
+
+The release workflow automatically validates releases before building:
+
+### Version Format Validation
+- Ensures version follows semantic versioning (v1.2.3 or v1.2.3-beta.1)
+- Compares package.json version with the Git tag
+
+### Code Quality Checks
+- Runs ESLint to check code quality
+- Executes test suite to verify functionality
+- Both run with `continue-on-error` to provide warnings without blocking release
+
+### Docker Configuration Validation
+- Verifies all required Dockerfile files exist
+- Validates docker-compose.yml syntax
+- Ensures Docker configuration is deployable
+
+### Security Scanning
+- Scans Docker images for vulnerabilities using Trivy
+- Uploads security findings to GitHub Security tab
+- Provides visibility into potential security issues
+
+### Build Artifact Verification
+The workflow ensures:
+- Expected build outputs are created
+- Artifacts are properly uploaded
+- All platforms build successfully
+
+## Rollback Procedures
+
+If you need to rollback a problematic release:
+
+### Option 1: Delete Release and Tag (Clean Rollback)
+
+```bash
+# Delete the GitHub release
+gh release delete v1.2.3 --yes
+
+# Delete the local tag
+git tag -d v1.2.3
+
+# Delete the remote tag
+git push origin :refs/tags/v1.2.3
+
+# Delete Docker images from GHCR (via web UI)
+# Go to: https://github.com/users/YOUR_USERNAME/packages
+```
+
+### Option 2: Create a Patch Release
+
+If users have already downloaded the release:
+
+```bash
+# Create a fix
+git checkout main
+# Make your fixes...
+git commit -m "fix: address issues in v1.2.3"
+
+# Create a new patch version
+git tag v1.2.4
+git push origin v1.2.4
+```
+
+### Option 3: Mark as Pre-release
+
+If the release is unstable but you want to keep it:
+
+1. Go to the release page on GitHub
+2. Click "Edit"
+3. Check "Set as a pre-release"
+4. Update the release notes to warn users
+5. Save changes
+
+### Rollback Docker Images
+
+Users who pulled the problematic image:
+
+```bash
+# Pull a specific older version
+docker pull ghcr.io/hpmartini/devorbit:v1.2.2
+
+# Update docker-compose.yml to pin the version
+# Change:
+#   image: ghcr.io/hpmartini/devorbit:latest
+# To:
+#   image: ghcr.io/hpmartini/devorbit:v1.2.2
+
+# Restart with the pinned version
+docker compose down
+docker compose up -d
+```
+
+### Communication
+
+When rolling back a release:
+
+1. Create a GitHub issue explaining the problem
+2. Update the release notes with a warning
+3. Notify users via appropriate channels
+4. Document the issue in CHANGELOG.md
 
 ## Distribution
 

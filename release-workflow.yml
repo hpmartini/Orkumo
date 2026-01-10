@@ -17,10 +17,91 @@ permissions:
 
 jobs:
   # ===========================================
+  # Validate Workflow and Version Format
+  # ===========================================
+  validate:
+    name: Validate Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Validate version format
+        id: validate_version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/}"
+          fi
+
+          # Validate semantic version format (v1.2.3 or v1.2.3-beta.1)
+          if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$ ]]; then
+            echo "ERROR: Invalid version format: $VERSION"
+            echo "Version must follow semantic versioning: v1.2.3 or v1.2.3-beta.1"
+            exit 1
+          fi
+
+          echo "✓ Version format is valid: $VERSION"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+        continue-on-error: true
+
+      - name: Run tests
+        run: npm run test:run
+        continue-on-error: true
+
+      - name: Validate package.json version
+        run: |
+          PACKAGE_VERSION="v$(node -p "require('./package.json').version")"
+          TAG_VERSION="${{ steps.validate_version.outputs.version }}"
+
+          # Remove pre-release suffix for comparison
+          PACKAGE_VERSION_BASE="${PACKAGE_VERSION%%-*}"
+          TAG_VERSION_BASE="${TAG_VERSION%%-*}"
+
+          if [ "$PACKAGE_VERSION_BASE" != "$TAG_VERSION_BASE" ]; then
+            echo "WARNING: package.json version ($PACKAGE_VERSION) doesn't match tag ($TAG_VERSION)"
+            echo "Consider updating package.json to match the release tag"
+          else
+            echo "✓ package.json version matches tag"
+          fi
+
+      - name: Verify Docker files exist
+        run: |
+          echo "Checking Docker configuration files..."
+          for file in Dockerfile Dockerfile.frontend Dockerfile.api docker-compose.yml; do
+            if [ -f "$file" ]; then
+              echo "✓ Found: $file"
+            else
+              echo "ERROR: Missing required file: $file"
+              exit 1
+            fi
+          done
+
+      - name: Validate Docker Compose configuration
+        run: |
+          docker compose config > /dev/null
+          echo "✓ docker-compose.yml is valid"
+
+  # ===========================================
   # Build Electron Apps for All Platforms
   # ===========================================
   build-electron:
     name: Build Electron - ${{ matrix.os }}
+    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -80,6 +161,7 @@ jobs:
   # ===========================================
   build-docker:
     name: Build Docker Images
+    needs: validate
     runs-on: ubuntu-latest
 
     steps:
@@ -151,6 +233,20 @@ jobs:
             ghcr.io/${{ github.repository_owner }}/devorbit:${{ steps.version.outputs.version_short }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Run Trivy vulnerability scanner on Frontend image
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/devorbit-frontend:${{ steps.version.outputs.version }}
+          format: 'sarif'
+          output: 'trivy-frontend-results.sarif'
+        continue-on-error: true
+
+      - name: Upload Trivy results to GitHub Security tab
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-frontend-results.sarif'
+        continue-on-error: true
 
   # ===========================================
   # Create GitHub Release
