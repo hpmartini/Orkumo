@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { FolderOpen, FolderRoot, Box, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { FolderOpen, FolderRoot, Box, RefreshCw, ChevronDown, ChevronRight, Star } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -96,6 +96,22 @@ export const AppList: React.FC<AppListProps> = ({
     });
   };
 
+  const isLoading = (status: AppStatus) =>
+    status === AppStatus.STARTING ||
+    status === AppStatus.ANALYZING ||
+    status === AppStatus.RESTARTING;
+
+  const canStart = (status: AppStatus) =>
+    status === AppStatus.STOPPED || status === AppStatus.ERROR || status === AppStatus.CANCELLED;
+
+  const handleStatusClick = (app: AppConfig) => {
+    if (app.status === AppStatus.RUNNING && onStop) {
+      onStop(app.id);
+    } else if (canStart(app.status) && onStart) {
+      onStart(app.id);
+    }
+  };
+
   const renderAppItem = (app: AppConfig) => (
     <div
       key={app.id}
@@ -130,7 +146,28 @@ export const AppList: React.FC<AppListProps> = ({
         </div>
       </div>
       <div className="flex items-center gap-3">
-        <StatusBadge status={app.status} />
+        <StatusBadge
+          status={app.status}
+          onClick={(onStart || onStop) ? () => handleStatusClick(app) : undefined}
+          isLoading={isLoading(app.status)}
+        />
+        {/* Favorite Button */}
+        {onToggleFavorite && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(app.id);
+            }}
+            className={`p-1.5 rounded transition-colors opacity-0 group-hover:opacity-100 ${
+              app.isFavorite
+                ? 'text-yellow-400 hover:bg-yellow-500/20 !opacity-100'
+                : 'text-gray-500 hover:bg-gray-700 hover:text-yellow-400'
+            }`}
+            title={app.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          >
+            <Star size={14} fill={app.isFavorite ? 'currentColor' : 'none'} />
+          </button>
+        )}
         <div className="opacity-0 group-hover:opacity-100 transition-opacity">
           <KebabMenu
             items={createAppMenuItems({

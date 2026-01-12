@@ -295,6 +295,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </button>
           )
         )}
+        {/* Favorite Button */}
+        {onToggleFavorite && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(app.id);
+            }}
+            className={`p-1 rounded transition-colors ${
+              app.isFavorite
+                ? 'text-yellow-400 hover:bg-yellow-500/20'
+                : 'text-gray-500 hover:bg-gray-700 hover:text-yellow-400'
+            }`}
+            title={app.isFavorite ? 'Remove from favorites' : 'Add to favorites'}
+          >
+            <Star size={12} fill={app.isFavorite ? 'currentColor' : 'none'} />
+          </button>
+        )}
         {/* Kebab Menu */}
         <KebabMenu
           items={createAppMenuItems({
