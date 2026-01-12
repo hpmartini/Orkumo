@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { BrowserRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import { isElectron } from './utils/apiConfig';
 import { LayoutDashboard, RefreshCw, Menu, X, GripVertical } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import {
@@ -517,11 +518,14 @@ function AppRouter() {
 }
 
 export default function App() {
+  // Use HashRouter for Electron (file:// protocol) since BrowserRouter doesn't work with it
+  const Router = isElectron ? HashRouter : BrowserRouter;
+
   return (
     <ErrorBoundary>
-      <BrowserRouter>
+      <Router>
         <AppRouter />
-      </BrowserRouter>
+      </Router>
     </ErrorBoundary>
   );
 }

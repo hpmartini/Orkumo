@@ -1,7 +1,8 @@
 import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 import { DEFAULT_APP_START_PORT } from '../constants';
+import { API_BASE_URL } from '../utils/apiConfig';
 
-const API_BASE = '/api';
+const API_BASE = API_BASE_URL;
 
 // Track active SSE connections for cleanup
 const activeSSEConnections = new Set<EventSource>();

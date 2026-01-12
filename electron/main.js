@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, Menu, dialog, shell } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { fork } from 'child_process';
+import { fork, spawn } from 'child_process';
 import * as fs from 'fs';
 import { createServer } from 'net';
 import electronUpdater from 'electron-updater';
@@ -200,18 +200,26 @@ async function isPortAvailable(port) {
 /**
  * Check if the backend server is ready by polling health endpoint
  */
-async function waitForServerReady(maxAttempts = 30, delayMs = 200) {
+async function waitForServerReady(maxAttempts = 60, delayMs = 500) {
   const serverUrl = `http://localhost:${SERVER_PORT}`;
+
+  console.log(`[Electron] Waiting for server to be ready at ${serverUrl}/api/health...`);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      const response = await fetch(`${serverUrl}/api/health`).catch(() => null);
+      const response = await fetch(`${serverUrl}/api/health`);
       if (response && response.ok) {
-        console.log(`[Electron] Backend server ready after ${attempt * delayMs}ms`);
+        const data = await response.json().catch(() => ({}));
+        console.log(`[Electron] Backend server ready after ${attempt * delayMs}ms`, data);
         return true;
+      } else {
+        console.log(`[Electron] Health check attempt ${attempt}/${maxAttempts}: status=${response?.status}`);
       }
     } catch (error) {
       // Server not ready yet, continue polling
+      if (attempt % 10 === 0) {
+        console.log(`[Electron] Health check attempt ${attempt}/${maxAttempts}: ${error.message}`);
+      }
     }
 
     // Wait before next attempt
@@ -226,6 +234,8 @@ async function waitForServerReady(maxAttempts = 30, delayMs = 200) {
  */
 async function startBackendServer() {
   console.log('[Electron] Starting backend server...');
+  console.log('[Electron] isDev:', isDev);
+  console.log('[Electron] resourcesPath:', process.resourcesPath);
 
   // Check if port is available
   const portAvailable = await isPortAvailable(SERVER_PORT);
@@ -243,20 +253,13 @@ async function startBackendServer() {
     ? path.join(__dirname, '../server/index.js')
     : path.join(process.resourcesPath, 'server/index.js');
 
+  console.log('[Electron] Server path:', serverPath);
+
   // Check if server file exists
   if (!fs.existsSync(serverPath)) {
     throw new Error(`Server file not found at: ${serverPath}`);
   }
 
-  // Set environment variables for server
-  const env = {
-    ...process.env,
-    SERVER_PORT: String(SERVER_PORT),
-    NODE_ENV: isDev ? 'development' : 'production',
-    ELECTRON_MODE: 'true',
-  };
-
-  // Fork the server process
   // In production, we need to set up proper module resolution
   // The server runs from extraResources/server, and node_modules are in app.asar
   const serverCwd = isDev
@@ -268,23 +271,61 @@ async function startBackendServer() {
     ? ''
     : path.join(process.resourcesPath, 'app.asar', 'node_modules');
 
+  // Also add unpacked node_modules for native modules like node-pty
+  const unpackedNodeModules = isDev
+    ? ''
+    : path.join(process.resourcesPath, 'app.asar.unpacked', 'node_modules');
+
+  const nodePaths = [asarNodeModules, unpackedNodeModules, process.env.NODE_PATH || '']
+    .filter(Boolean)
+    .join(path.delimiter);
+
+  console.log('[Electron] Server CWD:', serverCwd);
+  console.log('[Electron] NODE_PATH:', nodePaths);
+
+  // Set environment variables for server
+  const env = {
+    ...process.env,
+    SERVER_PORT: String(SERVER_PORT),
+    NODE_ENV: isDev ? 'development' : 'production',
+    ELECTRON_MODE: 'true',
+    NODE_PATH: nodePaths,
+  };
+
+  // Store server output for debugging
+  let serverOutput = '';
+
   serverProcess = fork(serverPath, [], {
-    env: {
-      ...env,
-      // Extend NODE_PATH to include asar node_modules for production
-      NODE_PATH: asarNodeModules ? `${asarNodeModules}${path.delimiter}${process.env.NODE_PATH || ''}` : process.env.NODE_PATH || '',
-    },
-    stdio: 'inherit',
+    env,
+    stdio: ['pipe', 'pipe', 'pipe', 'ipc'],
     cwd: serverCwd,
+  });
+
+  // Capture stdout
+  serverProcess.stdout?.on('data', (data) => {
+    const output = data.toString();
+    serverOutput += output;
+    console.log('[Server]', output.trim());
+  });
+
+  // Capture stderr
+  serverProcess.stderr?.on('data', (data) => {
+    const output = data.toString();
+    serverOutput += output;
+    console.error('[Server Error]', output.trim());
   });
 
   serverProcess.on('error', (error) => {
     console.error('[Electron] Server process error:', error);
+    console.error('[Electron] Server output so far:', serverOutput);
     throw error;
   });
 
   serverProcess.on('exit', (code, signal) => {
     console.log(`[Electron] Server process exited with code ${code}, signal ${signal}`);
+    if (serverOutput) {
+      console.log('[Electron] Server output:', serverOutput.slice(-2000));
+    }
 
     // If server crashes after startup (code !== 0) and window exists, show error
     // Don't show error if we're in the process of shutting down
@@ -295,8 +336,8 @@ async function startBackendServer() {
         title: 'Backend Server Crashed',
         message: 'The backend server has unexpectedly crashed.',
         detail: `Exit code: ${code}\n\n` +
-          `The application may not function correctly. Please restart the application.\n\n` +
-          `If this problem persists, check the logs for more information.`,
+          `Server output:\n${serverOutput.slice(-1000)}\n\n` +
+          `The application may not function correctly. Please restart the application.`,
         buttons: ['OK']
       });
     }
@@ -518,7 +559,15 @@ function setupAutoUpdater() {
   autoUpdater.on('error', (error) => {
     console.error('[Electron] Update error:', error);
 
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    // Don't show dialog for expected errors (no releases, network issues on first run)
+    const ignoredErrors = [
+      'No published versions on GitHub',
+      'net::ERR_INTERNET_DISCONNECTED',
+      'net::ERR_NETWORK_CHANGED',
+    ];
+    const shouldIgnore = ignoredErrors.some(msg => error.message?.includes(msg));
+
+    if (!shouldIgnore && mainWindow && !mainWindow.isDestroyed()) {
       dialog.showMessageBox(mainWindow, {
         type: 'error',
         title: 'Update Error',

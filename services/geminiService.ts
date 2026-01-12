@@ -12,7 +12,7 @@ export interface AnalysisError {
   rawResponse?: string;
 }
 
-const API_BASE_URL = '/api';
+import { API_BASE_URL } from '../utils/apiConfig';
 
 /**
  * Analyzes app configuration using the backend AI proxy.

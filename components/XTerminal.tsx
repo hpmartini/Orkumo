@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { ClaudeTerminalModal } from './ClaudeTerminalModal';
 import { parseAnsiToReact } from '../utils/ansiParser';
+import { getWsUrl as getApiWsUrl, API_BASE_URL } from '../utils/apiConfig';
 import type { ClaudeTerminalOptions, ClaudeCLIInfo, TerminalType } from '../types';
 
 interface TerminalTab {
@@ -48,11 +49,8 @@ interface XTerminalProps {
   };
 }
 
-// WebSocket URL - use current host to leverage Vite proxy
-const getWsUrl = () => {
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}/api/pty`;
-};
+// WebSocket URL - use centralized config
+const getWsUrl = () => getApiWsUrl('/api/pty');
 
 /**
  * Build WebSocket URL with terminal configuration parameters
@@ -139,7 +137,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   useEffect(() => {
     let mounted = true;
 
-    fetch('/api/claude-cli/status')
+    fetch(`${API_BASE_URL}/claude-cli/status`)
       .then((res) => res.json())
       .then((data) => {
         if (mounted) {

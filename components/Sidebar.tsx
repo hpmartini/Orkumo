@@ -326,7 +326,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <aside className="w-full bg-gray-950 border-r border-gray-800 flex flex-col h-full items-center">
         {/* Logo */}
         <div className="p-3 border-b border-gray-800 w-full flex justify-center">
-          <img src="/logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
+          <img src="./logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
         </div>
 
         {/* Overview Icon */}
@@ -511,7 +511,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       <div className="p-6 border-b border-gray-800">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <img src="/logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
+            <img src="./logo.png" alt="DevHub Logo" className="w-8 h-8 object-contain" />
             <span className="text-blue-500 font-bold text-xl tracking-tight">{APP_NAME}</span>
           </div>
           {onToggleCollapse && (

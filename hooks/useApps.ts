@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import toast from 'react-hot-toast';
 import { AppConfig, AppStatus } from '../types';
+import { API_BASE_URL } from '../utils/apiConfig';
 import {
   fetchApps,
   startApp,
@@ -550,7 +551,7 @@ export function useApps(): UseAppsReturn {
     const app = apps.find((a) => a.id === id);
     if (!app) return;
     // Use the API to open in Finder (macOS)
-    fetch(`/api/apps/${id}/open-finder`, { method: 'POST' })
+    fetch(`${API_BASE_URL}/apps/${id}/open-finder`, { method: 'POST' })
       .catch(() => {
         // Fallback: copy path to clipboard
         navigator.clipboard.writeText(app.path);
@@ -562,7 +563,7 @@ export function useApps(): UseAppsReturn {
     const app = apps.find((a) => a.id === id);
     if (!app) return;
     // Use the API to open in Terminal
-    fetch(`/api/apps/${id}/open-terminal`, { method: 'POST' })
+    fetch(`${API_BASE_URL}/apps/${id}/open-terminal`, { method: 'POST' })
       .catch(() => {
         // Fallback: copy path to clipboard
         navigator.clipboard.writeText(`cd "${app.path}"`);

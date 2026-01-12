@@ -12,6 +12,7 @@ import {
   Box,
   Terminal,
 } from 'lucide-react';
+import { API_BASE_URL } from '../../utils/apiConfig';
 
 interface FileNode {
   name: string;
@@ -244,7 +245,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/files/tree?path=${encodeURIComponent(directory)}&depth=4`);
+      const res = await fetch(`${API_BASE_URL}/files/tree?path=${encodeURIComponent(directory)}&depth=4`);
       if (!res.ok) throw new Error('Failed to load file tree');
       const data = await res.json();
       setFileTree(data.tree || []);
@@ -269,7 +270,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
     }
 
     try {
-      const res = await fetch(`/api/files/read?path=${encodeURIComponent(path)}`);
+      const res = await fetch(`${API_BASE_URL}/files/read?path=${encodeURIComponent(path)}`);
       if (!res.ok) throw new Error('Failed to read file');
       const data = await res.json();
 
@@ -310,7 +311,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
 
     setSaving(true);
     try {
-      const res = await fetch('/api/files/write', {
+      const res = await fetch(`${API_BASE_URL}/files/write`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ path, content: file.content }),
