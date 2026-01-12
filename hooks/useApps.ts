@@ -8,8 +8,8 @@ import {
   stopApp,
   restartApp,
   subscribeToEvents,
+  subscribeToStats,
   fetchAppPackage,
-  fetchAppStats,
   fetchSettings,
   fetchLogs,
   importSettings,
@@ -22,11 +22,11 @@ import {
   configureAllPorts,
   AppSettings,
   FavoritesSortMode,
+  StatsUpdate,
 } from '../services/api';
 import { DEFAULT_APP_START_PORT } from '../constants';
 
 // Constants
-const STATS_UPDATE_INTERVAL_MS = 2000;
 const LOG_RETENTION_COUNT = 100;
 const LOCALSTORAGE_MIGRATED_KEY = 'devOrbitMigratedToBackend';
 
@@ -78,7 +78,7 @@ interface UseAppsReturn {
   handleStopApp: (id: string) => Promise<void>;
   handleRestartApp: (id: string) => Promise<void>;
   handleAnalyzeApp: (id: string) => Promise<void>;
-  handleOpenInBrowser: (id: string) => void;
+  handleOpenInBrowser: (id: string) => Promise<void>;
   handleOpenInFinder: (id: string) => void;
   handleOpenInTerminal: (id: string) => void;
   handleToggleFavorite: (id: string) => Promise<void>;
@@ -100,7 +100,8 @@ export function useApps(): UseAppsReturn {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const statsIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Track last stats update time for uptime calculation
+  const lastStatsUpdateRef = useRef<number>(Date.now());
 
   // Fetch apps from backend
   const refreshApps = useCallback(async () => {
@@ -202,52 +203,37 @@ export function useApps(): UseAppsReturn {
     };
   }, []);
 
-  // Fetch real stats for running apps
+  // Subscribe to real-time stats via SSE (replaces polling)
   useEffect(() => {
-    statsIntervalRef.current = setInterval(async () => {
-      const runningApps = apps.filter(app => app.status === AppStatus.RUNNING);
+    const unsubscribe = subscribeToStats(
+      // On stats update
+      (statsUpdate: StatsUpdate) => {
+        const now = Date.now();
+        const timeDelta = (now - lastStatsUpdateRef.current) / 1000;
+        lastStatsUpdateRef.current = now;
 
-      for (const app of runningApps) {
-        try {
-          const stats = await fetchAppStats(app.id);
-          setApps((currentApps) =>
-            currentApps.map((a) => {
-              if (a.id !== app.id) return a;
-              return {
-                ...a,
-                uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
-                stats: {
-                  cpu: [...a.stats.cpu.slice(1), stats.cpu],
-                  memory: [...a.stats.memory.slice(1), stats.memory],
-                },
-              };
-            })
-          );
-        } catch {
-          // Fall back to simulated stats if real stats fail
-          setApps((currentApps) =>
-            currentApps.map((a) => {
-              if (a.id !== app.id || a.status !== AppStatus.RUNNING) return a;
-              const lastCpu = a.stats.cpu[a.stats.cpu.length - 1] || 0;
-              const lastMem = a.stats.memory[a.stats.memory.length - 1] || 100;
-              return {
-                ...a,
-                uptime: a.uptime + (STATS_UPDATE_INTERVAL_MS / 1000),
-                stats: {
-                  cpu: [...a.stats.cpu.slice(1), lastCpu + (Math.random() - 0.5) * 5],
-                  memory: [...a.stats.memory.slice(1), lastMem + (Math.random() - 0.5) * 10],
-                },
-              };
-            })
-          );
-        }
+        setApps((currentApps) =>
+          currentApps.map((app) => {
+            if (app.id !== statsUpdate.appId) return app;
+            // Only update stats for running apps
+            if (app.status !== AppStatus.RUNNING) return app;
+            return {
+              ...app,
+              uptime: app.uptime + timeDelta,
+              stats: {
+                cpu: [...app.stats.cpu.slice(1), statsUpdate.cpu],
+                memory: [...app.stats.memory.slice(1), statsUpdate.memory],
+              },
+            };
+          })
+        );
       }
-    }, STATS_UPDATE_INTERVAL_MS);
+    );
 
     return () => {
-      if (statsIntervalRef.current) clearInterval(statsIntervalRef.current);
+      unsubscribe();
     };
-  }, [apps]);
+  }, []);
 
   const handleStartApp = useCallback(async (id: string) => {
     const app = apps.find((a) => a.id === id);
@@ -370,10 +356,31 @@ export function useApps(): UseAppsReturn {
   }, [apps]);
 
   const handleOpenInBrowser = useCallback(
-    (id: string) => {
+    async (id: string) => {
       const app = apps.find((a) => a.id === id);
-      if (app?.port && app.status === AppStatus.RUNNING) {
-        window.open(`http://localhost:${app.port}`, '_blank');
+      if (!app?.port || app.status !== AppStatus.RUNNING) {
+        return;
+      }
+
+      const url = `http://localhost:${app.port}`;
+
+      // Use Electron's shell.openExternal when running in Electron
+      if (window.electronAPI?.openExternal) {
+        try {
+          console.log(`[useApps] Opening URL in external browser via Electron: ${url}`);
+          const result = await window.electronAPI.openExternal(url);
+          if (!result.success) {
+            console.error('[useApps] Failed to open URL:', result.error);
+            toast.error(`Failed to open browser: ${result.error}`);
+          }
+        } catch (err) {
+          console.error('[useApps] Error opening URL via Electron:', err);
+          toast.error('Failed to open browser');
+        }
+      } else {
+        // Fallback for browser environment
+        console.log(`[useApps] Opening URL in new tab: ${url}`);
+        window.open(url, '_blank');
       }
     },
     [apps]

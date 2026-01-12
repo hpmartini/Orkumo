@@ -284,6 +284,103 @@ processEvents.on('status', (data) => broadcast('process-status', data));
 processEvents.on('log', (data) => broadcast('process-log', data));
 
 // ============================================
+// SSE Endpoint for stats streaming (replaces polling)
+// ============================================
+
+// Store connected SSE clients for stats updates
+const statsSSEClients = new Map(); // Map<response, { lastActive: Date, heartbeatInterval: NodeJS.Timeout, statsInterval: NodeJS.Timeout }>
+
+// Stats update interval (2 seconds, matching previous polling interval)
+const STATS_UPDATE_INTERVAL = 2000;
+
+// Cleanup stale stats SSE clients periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [client, info] of statsSSEClients) {
+    if (now - info.lastActive > SSE_CLIENT_TIMEOUT) {
+      clearInterval(info.heartbeatInterval);
+      clearInterval(info.statsInterval);
+      statsSSEClients.delete(client);
+      try {
+        client.end();
+      } catch {
+        // Client already disconnected
+      }
+    }
+  }
+}, 60000); // Check every minute
+
+app.get('/api/apps/stats/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
+
+  // Send initial connection message
+  res.write(`event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+
+  // Set up heartbeat to keep connection alive and detect dead clients
+  const heartbeatInterval = setInterval(() => {
+    try {
+      res.write(`event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+      const clientInfo = statsSSEClients.get(res);
+      if (clientInfo) {
+        clientInfo.lastActive = Date.now();
+      }
+    } catch {
+      // Client disconnected, cleanup will handle it
+    }
+  }, SSE_HEARTBEAT_INTERVAL);
+
+  // Set up stats streaming interval - send stats for all running apps every 2 seconds
+  const statsInterval = setInterval(async () => {
+    try {
+      const processes = getAllProcesses();
+      const runningApps = Object.entries(processes).filter(
+        ([, info]) => info.status === 'RUNNING' && info.pid
+      );
+
+      // Collect stats for all running apps
+      for (const [appId, info] of runningApps) {
+        try {
+          const stats = await getProcessStats(info.pid);
+          res.write(`event: stats\ndata: ${JSON.stringify({ appId, cpu: stats.cpu, memory: stats.memory })}\n\n`);
+        } catch {
+          // Skip apps with failed stats
+        }
+      }
+
+      const clientInfo = statsSSEClients.get(res);
+      if (clientInfo) {
+        clientInfo.lastActive = Date.now();
+      }
+    } catch {
+      // Error getting stats, ignore
+    }
+  }, STATS_UPDATE_INTERVAL);
+
+  statsSSEClients.set(res, { lastActive: Date.now(), heartbeatInterval, statsInterval });
+
+  req.on('close', () => {
+    const clientInfo = statsSSEClients.get(res);
+    if (clientInfo) {
+      clearInterval(clientInfo.heartbeatInterval);
+      clearInterval(clientInfo.statsInterval);
+    }
+    statsSSEClients.delete(res);
+  });
+
+  req.on('error', () => {
+    const clientInfo = statsSSEClients.get(res);
+    if (clientInfo) {
+      clearInterval(clientInfo.heartbeatInterval);
+      clearInterval(clientInfo.statsInterval);
+    }
+    statsSSEClients.delete(res);
+  });
+});
+
+// ============================================
 // Configuration Endpoints
 // ============================================
 
@@ -1431,6 +1528,181 @@ app.get('/api/claude-cli/status', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       installed: false,
+      error: error.message
+    });
+  }
+});
+
+// ============================================
+// Code-Server (VS Code Web) Endpoints
+// ============================================
+
+// Track code-server process
+let codeServerProcess = null;
+let codeServerPort = 8080;
+
+/**
+ * GET /api/code-server/status
+ * Check if code-server is available and running
+ */
+app.get('/api/code-server/status', async (req, res) => {
+  try {
+    // First check if code-server is installed
+    const codeServerPath = await new Promise((resolve) => {
+      exec('which code-server', (error, stdout) => {
+        if (error) {
+          resolve(null);
+        } else {
+          resolve(stdout.trim());
+        }
+      });
+    });
+
+    if (!codeServerPath) {
+      return res.json({
+        installed: false,
+        running: false,
+        url: null,
+        message: 'code-server is not installed. Install it with: brew install code-server (macOS) or npm install -g code-server'
+      });
+    }
+
+    // Check if code-server is running by trying to connect
+    const isRunning = await new Promise((resolve) => {
+      const checkUrl = `http://127.0.0.1:${codeServerPort}`;
+      http.get(checkUrl, (response) => {
+        resolve(response.statusCode < 500);
+      }).on('error', () => {
+        resolve(false);
+      });
+    });
+
+    res.json({
+      installed: true,
+      path: codeServerPath,
+      running: isRunning,
+      url: isRunning ? `http://127.0.0.1:${codeServerPort}` : null,
+      port: codeServerPort,
+      managedByUs: codeServerProcess !== null
+    });
+  } catch (error) {
+    res.status(500).json({
+      installed: false,
+      running: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/code-server/start
+ * Start code-server if not already running
+ */
+app.post('/api/code-server/start', async (req, res) => {
+  try {
+    // Check if already running
+    const isRunning = await new Promise((resolve) => {
+      http.get(`http://127.0.0.1:${codeServerPort}`, (response) => {
+        resolve(response.statusCode < 500);
+      }).on('error', () => {
+        resolve(false);
+      });
+    });
+
+    if (isRunning) {
+      return res.json({
+        success: true,
+        url: `http://127.0.0.1:${codeServerPort}`,
+        message: 'code-server is already running'
+      });
+    }
+
+    // Check if code-server is installed
+    const codeServerPath = await new Promise((resolve) => {
+      exec('which code-server', (error, stdout) => {
+        resolve(error ? null : stdout.trim());
+      });
+    });
+
+    if (!codeServerPath) {
+      return res.status(400).json({
+        success: false,
+        error: 'code-server is not installed'
+      });
+    }
+
+    // Start code-server
+    const { spawn } = await import('child_process');
+    codeServerProcess = spawn(codeServerPath, [
+      '--bind-addr', `127.0.0.1:${codeServerPort}`,
+      '--auth', 'none',
+      '--disable-telemetry'
+    ], {
+      detached: true,
+      stdio: 'ignore'
+    });
+
+    codeServerProcess.unref();
+
+    // Wait for it to be ready
+    let attempts = 0;
+    const maxAttempts = 30;
+    while (attempts < maxAttempts) {
+      const ready = await new Promise((resolve) => {
+        http.get(`http://127.0.0.1:${codeServerPort}`, (response) => {
+          resolve(response.statusCode < 500);
+        }).on('error', () => {
+          resolve(false);
+        });
+      });
+
+      if (ready) {
+        return res.json({
+          success: true,
+          url: `http://127.0.0.1:${codeServerPort}`,
+          message: 'code-server started successfully'
+        });
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 500));
+      attempts++;
+    }
+
+    res.status(500).json({
+      success: false,
+      error: 'code-server failed to start within timeout'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
+/**
+ * POST /api/code-server/stop
+ * Stop code-server if we started it
+ */
+app.post('/api/code-server/stop', (req, res) => {
+  try {
+    if (codeServerProcess) {
+      codeServerProcess.kill();
+      codeServerProcess = null;
+      res.json({ success: true, message: 'code-server stopped' });
+    } else {
+      // Try to kill any running code-server
+      exec(`lsof -ti:${codeServerPort} | xargs kill -9`, (error) => {
+        if (error) {
+          res.json({ success: true, message: 'No code-server process to stop' });
+        } else {
+          res.json({ success: true, message: 'code-server stopped' });
+        }
+      });
+    }
+  } catch (error) {
+    res.status(500).json({
+      success: false,
       error: error.message
     });
   }

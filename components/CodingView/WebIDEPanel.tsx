@@ -209,28 +209,79 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
     );
   };
 
-  // Reset code-server state when switching to it with timeout fallback
+  // Check and auto-start code-server when switching to it
   useEffect(() => {
     if (editorType === 'code-server') {
       setCodeServerLoading(true);
       setCodeServerError(null);
 
-      // Set a shorter timeout (5 seconds) to detect if iframe never loads
-      // iframe onError doesn't reliably fire for content loading failures
-      const actualTimeout = Math.min(iframeTimeout, 5000);
-      const timeout = setTimeout(() => {
-        setCodeServerLoading(false);
-        setCodeServerError(
-          'VS Code Server is not available. To use VS Code:\n\n1. Run: docker compose up code-server\n2. Or use the Monaco editor instead'
-        );
-      }, actualTimeout);
+      // Check code-server status and try to start it if needed
+      const checkAndStartCodeServer = async () => {
+        try {
+          // First check status
+          const statusRes = await fetch(`${API_BASE_URL}/code-server/status`);
+          const status = await statusRes.json();
 
-      setLoadTimeout(timeout);
+          if (status.running) {
+            // Already running, just wait for iframe to load
+            const actualTimeout = Math.min(iframeTimeout, 10000);
+            const timeout = setTimeout(() => {
+              setCodeServerLoading(false);
+              setCodeServerError(
+                'VS Code Server is running but not responding. Try refreshing or use Monaco editor.'
+              );
+            }, actualTimeout);
+            setLoadTimeout(timeout);
+            return;
+          }
+
+          if (!status.installed) {
+            setCodeServerLoading(false);
+            setCodeServerError(
+              `VS Code Server (code-server) is not installed.\n\nInstall it with:\n• macOS: brew install code-server\n• npm: npm install -g code-server\n\nOr use the Monaco editor instead.`
+            );
+            return;
+          }
+
+          // Try to start code-server
+          console.log('[WebIDEPanel] Starting code-server...');
+          const startRes = await fetch(`${API_BASE_URL}/code-server/start`, { method: 'POST' });
+          const startResult = await startRes.json();
+
+          if (startResult.success) {
+            console.log('[WebIDEPanel] code-server started successfully');
+            // Set timeout for iframe load
+            const actualTimeout = Math.min(iframeTimeout, 10000);
+            const timeout = setTimeout(() => {
+              setCodeServerLoading(false);
+              setCodeServerError(
+                'VS Code Server started but iframe failed to load. Try refreshing.'
+              );
+            }, actualTimeout);
+            setLoadTimeout(timeout);
+          } else {
+            setCodeServerLoading(false);
+            setCodeServerError(
+              `Failed to start VS Code Server: ${startResult.error}\n\nUse the Monaco editor instead.`
+            );
+          }
+        } catch (error) {
+          console.error('[WebIDEPanel] Error checking/starting code-server:', error);
+          setCodeServerLoading(false);
+          setCodeServerError(
+            'Could not connect to backend to check VS Code Server status.\n\nMake sure the backend server is running.'
+          );
+        }
+      };
+
+      checkAndStartCodeServer();
 
       // Clean up timeout when component unmounts or editor type changes
       return () => {
-        clearTimeout(timeout);
-        setLoadTimeout(null);
+        if (loadTimeout) {
+          clearTimeout(loadTimeout);
+          setLoadTimeout(null);
+        }
       };
     } else {
       // Cleanup: When switching away from code-server, reset iframe src to free resources
@@ -238,6 +289,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
         iframeRef.current.src = 'about:blank';
       }
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorType, iframeTimeout]);
 
   // Fetch file tree

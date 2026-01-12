@@ -271,6 +271,106 @@ export function subscribeToEvents(
 }
 
 /**
+ * Stats update from SSE stream
+ */
+export interface StatsUpdate {
+  appId: string;
+  cpu: number;
+  memory: number;
+}
+
+/**
+ * Subscribe to real-time stats updates via Server-Sent Events (SSE)
+ * This replaces the polling approach with a more efficient pub-sub pattern
+ */
+export function subscribeToStats(
+  onStats: (data: StatsUpdate) => void,
+  onConnectionChange?: (connected: boolean) => void
+): () => void {
+  let eventSource: EventSource | null = null;
+  let reconnectAttempts = 0;
+  let reconnectTimeout: ReturnType<typeof setTimeout> | null = null;
+  let isClosing = false;
+
+  const MAX_RECONNECT_ATTEMPTS = 10;
+  const BASE_RECONNECT_DELAY = 1000;
+  const MAX_RECONNECT_DELAY = 30000;
+
+  function getReconnectDelay(): number {
+    // Exponential backoff with jitter
+    const delay = Math.min(
+      BASE_RECONNECT_DELAY * Math.pow(2, reconnectAttempts),
+      MAX_RECONNECT_DELAY
+    );
+    return delay + Math.random() * 1000;
+  }
+
+  function connect() {
+    if (isClosing) return;
+
+    eventSource = new EventSource(`${API_BASE}/apps/stats/stream`);
+    activeSSEConnections.add(eventSource);
+
+    eventSource.addEventListener('connected', () => {
+      reconnectAttempts = 0;
+      onConnectionChange?.(true);
+    });
+
+    eventSource.addEventListener('heartbeat', () => {
+      // Heartbeat received, connection is healthy
+    });
+
+    eventSource.addEventListener('stats', (event) => {
+      try {
+        const data = JSON.parse(event.data) as StatsUpdate;
+        onStats(data);
+      } catch (err) {
+        console.error('Failed to parse stats event:', err);
+      }
+    });
+
+    eventSource.onerror = () => {
+      onConnectionChange?.(false);
+      if (eventSource) {
+        activeSSEConnections.delete(eventSource);
+        eventSource.close();
+      }
+      eventSource = null;
+
+      // Clear existing timeout before setting new one to prevent memory leaks
+      if (reconnectTimeout) {
+        clearTimeout(reconnectTimeout);
+        reconnectTimeout = null;
+      }
+
+      if (!isClosing && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+        const delay = getReconnectDelay();
+        console.warn(`Stats SSE connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        reconnectTimeout = setTimeout(() => {
+          reconnectAttempts++;
+          connect();
+        }, delay);
+      } else if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+        console.error('Stats SSE max reconnection attempts reached');
+      }
+    };
+  }
+
+  connect();
+
+  return () => {
+    isClosing = true;
+    if (reconnectTimeout) {
+      clearTimeout(reconnectTimeout);
+    }
+    if (eventSource) {
+      activeSSEConnections.delete(eventSource);
+      eventSource.close();
+    }
+  };
+}
+
+/**
  * Fetch package.json content for an app
  */
 export async function fetchAppPackage(id: string): Promise<{ fileName: string; content: string }> {

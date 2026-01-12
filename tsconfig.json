@@ -37,7 +37,8 @@
     "components/**/*",
     "hooks/**/*",
     "services/**/*",
-    "server/**/*"
+    "server/**/*",
+    "electron/**/*.d.ts"
   ],
   "exclude": [
     "node_modules"
