@@ -50,6 +50,8 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
   const [error, setError] = useState<string | null>(null);
   const [codeServerLoading, setCodeServerLoading] = useState(true);
   const [codeServerError, setCodeServerError] = useState<string | null>(null);
+  const [codeServerStatus, setCodeServerStatus] = useState<string>('Initializing...');
+  const [codeServerRetryTrigger, setCodeServerRetryTrigger] = useState(0);
   const [loadTimeout, setLoadTimeout] = useState<NodeJS.Timeout | null>(null);
 
   // Ref for iframe to enable manual reload
@@ -214,11 +216,15 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
     if (editorType === 'code-server') {
       setCodeServerLoading(true);
       setCodeServerError(null);
+      setCodeServerStatus('Checking VS Code Server...');
 
       // Check code-server status and try to start it if needed
-      const checkAndStartCodeServer = async () => {
+      const checkAndStartCodeServer = async (retryCount = 0): Promise<void> => {
+        const maxRetries = 2;
+
         try {
           console.log('[WebIDEPanel] Checking code-server status at:', `${API_BASE_URL}/code-server/status`);
+          setCodeServerStatus('Checking if VS Code Server is installed...');
 
           // First check status
           const statusRes = await fetch(`${API_BASE_URL}/code-server/status`);
@@ -230,64 +236,145 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
           const status = await statusRes.json();
           console.log('[WebIDEPanel] code-server status:', status);
 
+          // Check if installed
+          if (!status.installed) {
+            setCodeServerLoading(false);
+            setCodeServerError(
+              `VS Code Server (code-server) is not installed.\n\n` +
+              `To install it, run one of these commands in your terminal:\n\n` +
+              `macOS (Homebrew):\n  brew install code-server\n\n` +
+              `npm (any platform):\n  npm install -g code-server\n\n` +
+              `After installation, click "Retry" or use the Monaco editor.`
+            );
+            return;
+          }
+
+          // If already running, wait for iframe
           if (status.running) {
-            // Already running, just wait for iframe to load
-            const actualTimeout = Math.min(iframeTimeout, 10000);
+            setCodeServerStatus('VS Code Server is running. Loading editor...');
+            console.log('[WebIDEPanel] code-server already running');
+            const actualTimeout = Math.min(iframeTimeout, 15000);
             const timeout = setTimeout(() => {
-              setCodeServerLoading(false);
-              setCodeServerError(
-                'VS Code Server is running but not responding. Try refreshing or use Monaco editor.'
-              );
+              // If iframe didn't load, try restarting code-server
+              if (retryCount < maxRetries) {
+                console.log('[WebIDEPanel] Iframe timeout, attempting restart...');
+                setCodeServerStatus('Editor not responding. Restarting VS Code Server...');
+                restartCodeServer(retryCount + 1);
+              } else {
+                setCodeServerLoading(false);
+                setCodeServerError(
+                  'VS Code Server is running but not responding.\n\n' +
+                  'This could be due to:\n' +
+                  '• code-server crashed or hung\n' +
+                  '• Port 8080 is blocked\n' +
+                  '• Browser security restrictions\n\n' +
+                  'Try clicking "Retry" or use the Monaco editor.'
+                );
+              }
             }, actualTimeout);
             setLoadTimeout(timeout);
             return;
           }
 
-          if (!status.installed) {
-            setCodeServerLoading(false);
-            setCodeServerError(
-              `VS Code Server (code-server) is not installed.\n\nInstall it with:\n• macOS: brew install code-server\n• npm: npm install -g code-server\n\nOr use the Monaco editor instead.`
-            );
-            return;
-          }
-
-          // Try to start code-server
+          // Not running - start it
+          setCodeServerStatus('Starting VS Code Server...');
           console.log('[WebIDEPanel] Starting code-server...');
+
           const startRes = await fetch(`${API_BASE_URL}/code-server/start`, { method: 'POST' });
           const startResult = await startRes.json();
 
           if (startResult.success) {
+            setCodeServerStatus('VS Code Server started. Loading editor...');
             console.log('[WebIDEPanel] code-server started successfully');
+
             // Set timeout for iframe load
-            const actualTimeout = Math.min(iframeTimeout, 10000);
+            const actualTimeout = Math.min(iframeTimeout, 15000);
             const timeout = setTimeout(() => {
-              setCodeServerLoading(false);
-              setCodeServerError(
-                'VS Code Server started but iframe failed to load. Try refreshing.'
-              );
+              if (retryCount < maxRetries) {
+                console.log('[WebIDEPanel] Iframe timeout after start, retrying...');
+                setCodeServerStatus('Editor taking too long. Retrying...');
+                restartCodeServer(retryCount + 1);
+              } else {
+                setCodeServerLoading(false);
+                setCodeServerError(
+                  'VS Code Server started but failed to load the editor.\n\n' +
+                  'Possible causes:\n' +
+                  '• Slow startup (try clicking "Retry")\n' +
+                  '• Port 8080 conflict with another application\n' +
+                  '• code-server configuration issue\n\n' +
+                  'Check if code-server works by opening:\n' +
+                  'http://127.0.0.1:8080 in your browser'
+                );
+              }
             }, actualTimeout);
             setLoadTimeout(timeout);
           } else {
-            setCodeServerLoading(false);
-            setCodeServerError(
-              `Failed to start VS Code Server: ${startResult.error}\n\nUse the Monaco editor instead.`
-            );
+            // Start failed - try restart if we have retries left
+            if (retryCount < maxRetries) {
+              console.log('[WebIDEPanel] Start failed, attempting restart...');
+              setCodeServerStatus('Start failed. Attempting restart...');
+              await restartCodeServer(retryCount + 1);
+            } else {
+              setCodeServerLoading(false);
+              setCodeServerError(
+                `Failed to start VS Code Server: ${startResult.error}\n\n` +
+                `Try these steps:\n` +
+                `1. Open Terminal and run: code-server\n` +
+                `2. Check if port 8080 is in use: lsof -i:8080\n` +
+                `3. Kill conflicting process: kill -9 $(lsof -ti:8080)\n\n` +
+                `Or use the Monaco editor instead.`
+              );
+            }
           }
         } catch (error) {
           console.error('[WebIDEPanel] Error checking/starting code-server:', error);
+
+          // Retry on transient errors
+          if (retryCount < maxRetries) {
+            console.log('[WebIDEPanel] Error occurred, retrying...');
+            setCodeServerStatus(`Connection error. Retrying (${retryCount + 1}/${maxRetries})...`);
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            return checkAndStartCodeServer(retryCount + 1);
+          }
+
           setCodeServerLoading(false);
 
-          // Provide more helpful error messages
+          // Provide helpful error messages based on error type
           const errorMessage = error instanceof Error ? error.message : String(error);
           if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
             setCodeServerError(
-              'Could not connect to backend server.\n\nThe backend server may not be running or is not accessible.'
+              'Could not connect to backend server.\n\n' +
+              'The DevOrbit backend server may not be running.\n' +
+              'This is an internal error - please restart the application.'
             );
           } else {
             setCodeServerError(
-              `Error: ${errorMessage}\n\nTry using the Monaco editor instead.`
+              `Error: ${errorMessage}\n\n` +
+              `Try clicking "Retry" or use the Monaco editor.`
             );
           }
+        }
+      };
+
+      // Helper function to restart code-server
+      const restartCodeServer = async (retryCount: number) => {
+        try {
+          setCodeServerStatus('Stopping VS Code Server...');
+          await fetch(`${API_BASE_URL}/code-server/stop`, { method: 'POST' });
+          await new Promise(resolve => setTimeout(resolve, 1000));
+
+          setCodeServerStatus('Restarting VS Code Server...');
+          await checkAndStartCodeServer(retryCount);
+        } catch (error) {
+          console.error('[WebIDEPanel] Failed to restart code-server:', error);
+          setCodeServerLoading(false);
+          setCodeServerError(
+            'Failed to restart VS Code Server.\n\n' +
+            'Try manually restarting:\n' +
+            '1. Kill code-server: pkill -f code-server\n' +
+            '2. Click "Retry"\n\n' +
+            'Or use the Monaco editor.'
+          );
         }
       };
 
@@ -307,7 +394,7 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
       }
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [editorType, iframeTimeout]);
+  }, [editorType, iframeTimeout, codeServerRetryTrigger]);
 
   // Fetch file tree
   const fetchFileTree = useCallback(async () => {
@@ -539,12 +626,13 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
       {/* Render code-server or Monaco based on editor type */}
       {editorType === 'code-server' ? (
         <div className="flex-1 min-h-0 relative">
-          {/* Loading state */}
+          {/* Loading state with status message */}
           {codeServerLoading && (
             <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
-              <div className="text-center">
-                <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin text-blue-500" />
-                <div className="text-sm text-gray-400">Loading VS Code...</div>
+              <div className="text-center max-w-md px-4">
+                <RefreshCw className="w-10 h-10 mx-auto mb-3 animate-spin text-blue-500" />
+                <div className="text-base font-medium text-gray-200 mb-2">Loading VS Code Server</div>
+                <div className="text-sm text-gray-400">{codeServerStatus}</div>
               </div>
             </div>
           )}
@@ -565,13 +653,8 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
                   </button>
                   <button
                     onClick={() => {
-                      // Reset state
-                      setCodeServerLoading(true);
-                      setCodeServerError(null);
-                      // Force iframe reload by changing src
-                      if (iframeRef.current) {
-                        iframeRef.current.src = iframeSrc;
-                      }
+                      // Trigger full check-and-start cycle again
+                      setCodeServerRetryTrigger(prev => prev + 1);
                     }}
                     className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors"
                     aria-label="Retry loading VS Code Server"
