@@ -696,7 +696,7 @@ export const WebIDEPanel = ({
             // code-server uses cookies for session management which requires same-origin access
             // This is safe because code-server is served through our nginx proxy on the same origin
             sandbox="allow-scripts allow-forms allow-popups allow-downloads allow-modals allow-same-origin"
-            allow="clipboard-read; clipboard-write"
+            allow="clipboard-read; clipboard-write; keyboard-map"
             aria-label="VS Code web editor"
           />
         </div>
