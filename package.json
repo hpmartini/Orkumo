@@ -5,6 +5,7 @@
   "type": "module",
   "main": "electron/main.js",
   "scripts": {
+    "postinstall": "node scripts/patch-node-pty.cjs",
     "dev": "concurrently \"npm run server\" \"npm run client\" \"npm run code-server\"",
     "client": "vite",
     "server": "node server/index.js",

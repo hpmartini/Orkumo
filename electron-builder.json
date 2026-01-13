@@ -1,6 +1,6 @@
 {
   "appId": "com.devorbit.dashboard",
-  "productName": "DevOrbit Dashboard",
+  "productName": "DevOrbitDashboard",
   "copyright": "Copyright © 2026",
   "directories": {
     "output": "dist-electron",
@@ -36,10 +36,8 @@
       }
     ],
     "darkModeSupport": true,
-    "hardenedRuntime": true,
-    "gatekeeperAssess": false,
-    "entitlements": "electron/entitlements.mac.plist",
-    "entitlementsInherit": "electron/entitlements.mac.plist"
+    "hardenedRuntime": false,
+    "gatekeeperAssess": false
   },
   "dmg": {
     "contents": [
@@ -103,6 +101,7 @@
     "owner": "hpmartini",
     "repo": "DevHub"
   },
+  "afterPack": "scripts/fix-node-pty-binaries.cjs",
   "afterSign": "electron/notarize.js",
   "asar": true,
   "asarUnpack": [

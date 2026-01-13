@@ -13,32 +13,43 @@ const ptySessions = new Map();
 // Event emitter for PTY events
 export const ptyEvents = new EventEmitter();
 
-// Default shell based on platform - uses user's configured shell from environment
-// Cached at module load time to ensure consistent shell across all sessions
-const defaultShell = (() => {
+/**
+ * Detect the best available shell - called lazily to ensure env is fully set up
+ * @returns {string} Path to shell binary
+ */
+function detectShell() {
   if (os.platform() === 'win32') {
     return 'powershell.exe';
   }
 
-  // Use the user's configured shell from environment variable
-  const userShell = process.env.SHELL;
-  if (userShell && fs.existsSync(userShell)) {
-    console.log(`[PTY] Using user's default shell: ${userShell}`);
-    return userShell;
-  }
+  // List of shells to try in order of preference
+  const shellCandidates = [
+    process.env.SHELL,  // User's configured shell
+    '/bin/zsh',
+    '/bin/bash',
+    '/bin/ash',
+    '/bin/sh',
+  ].filter(Boolean);
 
-  // Fallback for Docker/containers where SHELL may not be set
-  const fallbackShells = ['/bin/zsh', '/bin/bash', '/bin/ash', '/bin/sh'];
-  for (const shell of fallbackShells) {
-    if (fs.existsSync(shell)) {
-      console.log(`[PTY] SHELL env not set, using fallback: ${shell}`);
-      return shell;
+  for (const shell of shellCandidates) {
+    if (shell && fs.existsSync(shell)) {
+      try {
+        // Verify shell is executable
+        fs.accessSync(shell, fs.constants.X_OK);
+        return shell;
+      } catch {
+        // Shell exists but not executable, try next
+        continue;
+      }
     }
   }
 
+  // Last resort - sh should always exist
   return '/bin/sh';
-})();
+}
 
+// Detect shell on startup for logging
+const defaultShell = detectShell();
 console.log(`[PTY] Service initialized with default shell: ${defaultShell}`);
 
 /**
@@ -80,27 +91,76 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
   console.log(`[PTY] Creating session with command: ${command}, args: ${JSON.stringify(commandArgs)}, cwd: ${workingDir}`);
 
   try {
-    const ptyProcess = pty.spawn(command, commandArgs, {
+    // Re-detect shell at spawn time to ensure we use the best available
+    const shellToUse = isCustomCommand ? command : detectShell();
+
+    // Build a clean environment for the PTY
+    // Ensure PATH includes common binary locations
+    const homeDir = process.env.HOME || '/root';
+    const basePaths = [
+      `${homeDir}/.nvm/versions/node`,  // Will be expanded below
+      `${homeDir}/.bun/bin`,
+      `${homeDir}/.local/bin`,
+      '/opt/homebrew/bin',
+      '/usr/local/bin',
+      '/usr/bin',
+      '/bin',
+      '/usr/sbin',
+      '/sbin',
+    ];
+
+    // Add NVM paths if they exist
+    const nvmPaths = [];
+    try {
+      const nvmNodeDir = `${homeDir}/.nvm/versions/node`;
+      if (fs.existsSync(nvmNodeDir)) {
+        const versions = fs.readdirSync(nvmNodeDir).filter(v => v.startsWith('v'));
+        versions.sort().reverse().forEach(v => {
+          const binPath = `${nvmNodeDir}/${v}/bin`;
+          if (fs.existsSync(binPath)) {
+            nvmPaths.push(binPath);
+          }
+        });
+      }
+    } catch {
+      // Ignore NVM detection errors
+    }
+
+    // Build enhanced PATH - NVM first, then base paths, then existing PATH
+    const existingPath = process.env.PATH || '';
+    const enhancedPath = [...nvmPaths, ...basePaths.filter(p => fs.existsSync(p)), existingPath]
+      .filter(Boolean)
+      .join(':');
+
+    const ptyEnv = {
+      ...process.env,
+      ...options.env,
+      PATH: enhancedPath,
+      TERM: 'xterm-256color',
+      COLORTERM: 'truecolor',
+      HOME: homeDir,
+      USER: process.env.USER || 'root',
+      SHELL: shellToUse,
+      // Ensure these are set for proper shell initialization
+      LANG: process.env.LANG || 'en_US.UTF-8',
+      LC_ALL: process.env.LC_ALL || process.env.LANG || 'en_US.UTF-8',
+    };
+
+    console.log(`[PTY] Spawning shell: ${shellToUse}, cwd: ${workingDir}`);
+
+    const ptyProcess = pty.spawn(shellToUse, commandArgs, {
       name: 'xterm-256color',
       cols,
       rows,
       cwd: workingDir,
-      env: {
-        ...process.env,
-        ...options.env,
-        TERM: 'xterm-256color',
-        COLORTERM: 'truecolor',
-        HOME: process.env.HOME || '/root',
-        USER: process.env.USER || 'root',
-        SHELL: defaultShell,
-      },
+      env: ptyEnv,
     });
 
     const session = {
       id: sessionId,
       pty: ptyProcess,
-      cwd,
-      shell: command,
+      cwd: workingDir,
+      shell: shellToUse,
       type: isCustomCommand ? 'custom' : 'shell',
       commandInfo: isCustomCommand ? { command, args: commandArgs } : null,
       createdAt: Date.now(),
@@ -123,14 +183,25 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
       success: true,
       sessionId,
       pid: ptyProcess.pid,
-      shell: command,
+      shell: shellToUse,
       type: session.type,
     };
   } catch (error) {
-    console.error(`Failed to create PTY session ${sessionId}:`, error);
+    console.error(`[PTY] Failed to create session ${sessionId}:`, error);
+    console.error(`[PTY] Shell: ${command}, CWD: ${workingDir}`);
+    console.error(`[PTY] PATH: ${process.env.PATH?.substring(0, 200)}...`);
+
+    // Try to provide more helpful error message
+    let errorMessage = error.message;
+    if (errorMessage.includes('posix_spawnp') || errorMessage.includes('spawn')) {
+      errorMessage = `Failed to start shell (${command}). ` +
+        `The shell may not exist or may not be executable. ` +
+        `Try restarting the application.`;
+    }
+
     return {
       success: false,
-      error: error.message,
+      error: errorMessage,
     };
   }
 }
