@@ -218,9 +218,17 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
       // Check code-server status and try to start it if needed
       const checkAndStartCodeServer = async () => {
         try {
+          console.log('[WebIDEPanel] Checking code-server status at:', `${API_BASE_URL}/code-server/status`);
+
           // First check status
           const statusRes = await fetch(`${API_BASE_URL}/code-server/status`);
+
+          if (!statusRes.ok) {
+            throw new Error(`Backend returned ${statusRes.status}: ${statusRes.statusText}`);
+          }
+
           const status = await statusRes.json();
+          console.log('[WebIDEPanel] code-server status:', status);
 
           if (status.running) {
             // Already running, just wait for iframe to load
@@ -268,9 +276,18 @@ export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: W
         } catch (error) {
           console.error('[WebIDEPanel] Error checking/starting code-server:', error);
           setCodeServerLoading(false);
-          setCodeServerError(
-            'Could not connect to backend to check VS Code Server status.\n\nMake sure the backend server is running.'
-          );
+
+          // Provide more helpful error messages
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
+            setCodeServerError(
+              'Could not connect to backend server.\n\nThe backend server may not be running or is not accessible.'
+            );
+          } else {
+            setCodeServerError(
+              `Error: ${errorMessage}\n\nTry using the Monaco editor instead.`
+            );
+          }
         }
       };
 

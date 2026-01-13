@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import path from 'path';
+import fs from 'fs';
 import { EventEmitter } from 'events';
 import pidusage from 'pidusage';
 
@@ -133,10 +134,78 @@ export function startProcess(appId, appPath, command, port) {
   processes.set(appId, processInfo);
   processEvents.emit('status', { appId, status: 'STARTING' });
 
-  // Build PATH with local node_modules/.bin
+  // Build PATH with local node_modules/.bin and common system paths
+  // In Electron packaged apps, the shell PATH may not include standard npm locations
   const localBinPath = path.join(appPath, 'node_modules', '.bin');
   const currentPath = process.env.PATH || '';
-  const newPath = `${localBinPath}:${currentPath}`;
+  const homeDir = process.env.HOME || process.env.USERPROFILE || '';
+
+  // Include NVM versioned paths (check for existing NVM_DIR or common patterns)
+  const nvmDir = process.env.NVM_DIR || `${homeDir}/.nvm`;
+
+  // Scan for NVM node versions - these MUST come first
+  const nvmNodePaths = [];
+  try {
+    const nvmVersionsPath = `${nvmDir}/versions/node`;
+    if (fs.existsSync(nvmVersionsPath)) {
+      const versions = fs.readdirSync(nvmVersionsPath);
+      versions.sort().reverse().forEach(v => {
+        const binPath = `${nvmVersionsPath}/${v}/bin`;
+        if (fs.existsSync(binPath)) {
+          nvmNodePaths.push(binPath);
+        }
+      });
+    }
+  } catch {
+    // Ignore errors scanning NVM versions
+  }
+
+  // Check if /opt/homebrew/bin/node points to broken Homebrew node
+  let excludeHomebrewBin = false;
+  try {
+    const homebrewNodePath = '/opt/homebrew/bin/node';
+    if (fs.existsSync(homebrewNodePath)) {
+      const realPath = fs.realpathSync(homebrewNodePath);
+      if (realPath.includes('homebrew/Cellar/node')) {
+        excludeHomebrewBin = true;
+      }
+    }
+  } catch {
+    // Ignore
+  }
+
+  // NVM paths first, then other version managers, then system paths
+  const commonPaths = [
+    ...nvmNodePaths,  // NVM versioned paths FIRST
+    `${nvmDir}/current/bin`,
+    `${homeDir}/.volta/bin`,
+    `${homeDir}/.asdf/shims`,
+    `${homeDir}/.bun/bin`,
+    `${homeDir}/Library/pnpm`,
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ].filter(p => p && fs.existsSync(p));
+
+  // Filter out problematic paths from inherited PATH
+  const filteredCurrentPath = (currentPath || '')
+    .split(':')
+    .filter(p => {
+      if (!p) return false;
+      if (p.includes('homebrew/Cellar/node')) return false;
+      if (p.includes('homebrew/opt/node')) return false;
+      if (excludeHomebrewBin && p === '/opt/homebrew/bin') return false;
+      return true;
+    })
+    .join(':');
+
+  const newPath = [localBinPath, ...commonPaths, filteredCurrentPath]
+    .filter(Boolean)
+    .join(':');
+
+  console.log(`[Process] Starting ${appId}`);
+  console.log(`[Process] NVM paths: ${nvmNodePaths.length > 0 ? nvmNodePaths[0] : 'none found'}`);
+  console.log(`[Process] PATH (first 3): ${newPath.split(':').slice(0, 3).join(':')}`);
 
   // Build environment variables, including PORT if specified
   const env = {
@@ -150,10 +219,11 @@ export function startProcess(appId, appPath, command, port) {
     env.PORT = String(port);
   }
 
-  // Spawn the process
-  const childProcess = spawn(cmd, args, {
+  // Spawn the process using bash with --norc --noprofile to prevent
+  // loading shell config files that might override our PATH
+  const fullCommand = [cmd, ...args].join(' ');
+  const childProcess = spawn('/bin/bash', ['--norc', '--noprofile', '-c', fullCommand], {
     cwd: appPath,
-    shell: true,
     env,
   });
 

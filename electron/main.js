@@ -251,7 +251,7 @@ async function startBackendServer() {
 
   const serverPath = isDev
     ? path.join(__dirname, '../server/index.js')
-    : path.join(process.resourcesPath, 'server/index.js');
+    : path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-server/index.js');
 
   console.log('[Electron] Server path:', serverPath);
 
@@ -261,10 +261,10 @@ async function startBackendServer() {
   }
 
   // In production, we need to set up proper module resolution
-  // The server runs from extraResources/server, and node_modules are in app.asar
+  // The bundled server runs from app.asar.unpacked/dist-server
   const serverCwd = isDev
     ? path.join(__dirname, '..')
-    : process.resourcesPath;
+    : path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-server');
 
   // Add the asar path to NODE_PATH so the server can find its dependencies
   const asarNodeModules = isDev
@@ -283,9 +283,74 @@ async function startBackendServer() {
   console.log('[Electron] Server CWD:', serverCwd);
   console.log('[Electron] NODE_PATH:', nodePaths);
 
+  // Build enhanced PATH that includes common Node.js installation paths
+  // Electron apps don't inherit the user's shell PATH, so we need to add these manually
+  // Use multiple fallbacks for HOME since Electron might not have it set
+  const homeDir = process.env.HOME || process.env.USERPROFILE || `/Users/${process.env.USER}` || '/Users';
+  const nvmDir = process.env.NVM_DIR || `${homeDir}/.nvm`;
+
+  console.log('[Electron] HOME:', homeDir);
+  console.log('[Electron] NVM_DIR:', nvmDir);
+
+  // Scan for NVM node versions
+  const nvmNodePaths = [];
+  try {
+    const nvmVersionsPath = `${nvmDir}/versions/node`;
+    console.log('[Electron] Checking NVM path:', nvmVersionsPath);
+    if (fs.existsSync(nvmVersionsPath)) {
+      const versions = fs.readdirSync(nvmVersionsPath);
+      console.log('[Electron] Found NVM versions:', versions);
+      versions.sort().reverse().forEach(v => {
+        const binPath = `${nvmVersionsPath}/${v}/bin`;
+        if (fs.existsSync(binPath)) {
+          nvmNodePaths.push(binPath);
+        }
+      });
+    } else {
+      console.log('[Electron] NVM versions path does not exist');
+    }
+  } catch (err) {
+    console.error('[Electron] Error scanning NVM versions:', err);
+  }
+
+  // NVM paths MUST come first to override any Homebrew node installation
+  // This ensures NVM's node is used while other homebrew binaries (like code-server) remain accessible
+  const additionalPaths = [
+    ...nvmNodePaths,  // NVM versioned paths first (e.g., ~/.nvm/versions/node/v20.x.x/bin)
+    `${nvmDir}/current/bin`,  // NVM current symlink
+    `${homeDir}/.volta/bin`,
+    `${homeDir}/.asdf/shims`,
+    `${homeDir}/.bun/bin`,
+    `${homeDir}/Library/pnpm`,
+    '/usr/local/bin',
+    '/usr/bin',
+    '/bin',
+  ].filter(p => p && fs.existsSync(p));
+
+  // Filter out problematic paths from inherited PATH
+  // Only exclude node-specific paths - keep /opt/homebrew/bin for other binaries like code-server
+  const filteredInheritedPath = (process.env.PATH || '')
+    .split(':')
+    .filter(p => {
+      if (!p) return false;
+      // Exclude Homebrew's node-specific paths (NVM paths come first anyway)
+      if (p.includes('homebrew/Cellar/node')) return false;
+      if (p.includes('homebrew/opt/node')) return false;
+      return true;
+    })
+    .join(':');
+
+  const enhancedPath = [...additionalPaths, filteredInheritedPath]
+    .filter(Boolean)
+    .join(':');
+
+  console.log('[Electron] Enhanced PATH (first 5):', enhancedPath.split(':').slice(0, 5).join(':'));
+  console.log('[Electron] NVM paths found:', nvmNodePaths.length);
+
   // Set environment variables for server
   const env = {
     ...process.env,
+    PATH: enhancedPath,
     SERVER_PORT: String(SERVER_PORT),
     NODE_ENV: isDev ? 'development' : 'production',
     ELECTRON_MODE: 'true',
@@ -559,11 +624,14 @@ function setupAutoUpdater() {
   autoUpdater.on('error', (error) => {
     console.error('[Electron] Update error:', error);
 
-    // Don't show dialog for expected errors (no releases, network issues on first run)
+    // Don't show dialog for expected errors (no releases, network issues, missing config on dev builds)
     const ignoredErrors = [
       'No published versions on GitHub',
       'net::ERR_INTERNET_DISCONNECTED',
       'net::ERR_NETWORK_CHANGED',
+      'ENOENT',  // Missing app-update.yml (dev/local builds)
+      'app-update.yml',  // Missing update config file
+      'Cannot find channel',
     ];
     const shouldIgnore = ignoredErrors.some(msg => error.message?.includes(msg));
 

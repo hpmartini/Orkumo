@@ -21,6 +21,7 @@ import type { ConsoleLog, NetworkLog } from '../../types';
 import { ConsoleLogEntry } from './ConsoleLogEntry';
 import { NetworkLogEntry } from './NetworkLogEntry';
 import { DevToolsErrorBoundary } from './DevToolsErrorBoundary';
+import { API_BASE_URL } from '../../utils/apiConfig';
 
 interface BrowserPreviewPanelProps {
   url: string;
@@ -37,9 +38,6 @@ const VIEWPORTS: Record<Viewport, { width: string; label: string; icon: LucideIc
 };
 
 const MAX_LOGS = 500;
-
-// API base URL - use same origin for relative paths (works with proxy)
-const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface DevToolsStatus {
   detected: boolean;
@@ -70,7 +68,7 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
   const checkDevToolsStatus = useCallback(async () => {
     if (!appId) return;
     try {
-      const res = await fetch(`${API_BASE}/api/apps/${appId}/devtools-status`);
+      const res = await fetch(`${API_BASE_URL}/apps/${appId}/devtools-status`);
       if (res.ok) {
         const status = await res.json();
         setDevToolsStatus(status);
@@ -87,7 +85,7 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
     setDevToolsLoading(true);
     setDevToolsError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/apps/${appId}/inject-logger`, {
+      const res = await fetch(`${API_BASE_URL}/apps/${appId}/inject-logger`, {
         method: 'POST',
       });
       const data = await res.json();
@@ -111,7 +109,7 @@ export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) =>
     setDevToolsLoading(true);
     setDevToolsError(null);
     try {
-      const res = await fetch(`${API_BASE}/api/apps/${appId}/remove-logger`, {
+      const res = await fetch(`${API_BASE_URL}/apps/${appId}/remove-logger`, {
         method: 'POST',
       });
       const data = await res.json();

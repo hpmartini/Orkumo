@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { AreaChart, Area, Tooltip, ResponsiveContainer } from 'recharts';
 import { Cpu, Activity } from 'lucide-react';
 
@@ -11,6 +11,26 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
   cpuHistory,
   memoryHistory,
 }) => {
+  const [isReady, setIsReady] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  // Wait for container to have valid dimensions before rendering charts
+  useEffect(() => {
+    const checkDimensions = () => {
+      if (containerRef.current) {
+        const { clientHeight, clientWidth } = containerRef.current;
+        if (clientHeight > 0 && clientWidth > 0) {
+          setIsReady(true);
+        }
+      }
+    };
+
+    // Check immediately and after a short delay for layout to settle
+    checkDimensions();
+    const timer = setTimeout(checkDimensions, 100);
+    return () => clearTimeout(timer);
+  }, []);
+
   const chartData = useMemo(
     () =>
       cpuHistory.map((cpu, i) => ({
@@ -27,14 +47,18 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
     borderRadius: '8px',
   };
 
+  // Chart height in pixels (h-64 = 256px, minus header ~40px, use 160px for chart)
+  const chartHeight = 160;
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div ref={containerRef} className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 h-64">
         <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
           <Cpu size={16} /> CPU Usage History
         </h3>
-        <ResponsiveContainer width="100%" height="80%">
-          <AreaChart data={chartData}>
+        {isReady && (
+          <ResponsiveContainer width="100%" height={chartHeight}>
+            <AreaChart data={chartData}>
             <defs>
               <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
@@ -53,16 +77,18 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
               fillOpacity={1}
               fill="url(#colorCpu)"
             />
-          </AreaChart>
-        </ResponsiveContainer>
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
       <div className="bg-gray-800 p-4 rounded-xl border border-gray-700 h-64">
         <h3 className="text-sm font-medium text-gray-400 mb-4 flex items-center gap-2">
           <Activity size={16} /> Memory Usage (MB)
         </h3>
-        <ResponsiveContainer width="100%" height="80%">
-          <AreaChart data={chartData}>
+        {isReady && (
+          <ResponsiveContainer width="100%" height={chartHeight}>
+            <AreaChart data={chartData}>
             <defs>
               <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
@@ -81,8 +107,9 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
               fillOpacity={1}
               fill="url(#colorMem)"
             />
-          </AreaChart>
-        </ResponsiveContainer>
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

@@ -10,7 +10,7 @@
     "dist/**/*",
     "electron/**/*",
     "!electron/**/*.md",
-    "server/**/*",
+    "dist-server/**/*",
     "node_modules/**/*",
     "!node_modules/**/*.md",
     "!node_modules/**/test/**",
@@ -22,13 +22,7 @@
     "!node_modules/**/examples/**",
     "package.json"
   ],
-  "extraResources": [
-    {
-      "from": "server",
-      "to": "server",
-      "filter": ["**/*"]
-    }
-  ],
+  "extraResources": [],
   "mac": {
     "category": "public.app-category.developer-tools",
     "target": [
@@ -115,6 +109,6 @@
     "node_modules/**/*.node",
     "node_modules/node-pty/**/*",
     "node_modules/pidusage/**/*",
-    "server/**/*"
+    "dist-server/**/*"
   ]
 }
