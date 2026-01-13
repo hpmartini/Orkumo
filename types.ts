@@ -109,6 +109,34 @@ export interface KeyboardShortcuts {
   goToTab9: KeyboardShortcut;
 }
 
+// Per-app view state - stored separately for each app tab
+export type EditorType = 'monaco' | 'code-server';
+export type DevToolsTab = 'console' | 'network';
+export type ConsoleFilter = 'all' | 'log' | 'warn' | 'error';
+
+export interface PerAppViewState {
+  // Terminal state (tabs array is not stored here due to XTerm instances)
+  activeTerminalTabId: string | null;
+  showLogsTab: boolean;
+
+  // Editor state
+  editorType: EditorType;
+
+  // DevTools state
+  showDevTools: boolean;
+  devToolsTab: DevToolsTab;
+  consoleFilter: ConsoleFilter;
+}
+
+export const DEFAULT_PER_APP_STATE: PerAppViewState = {
+  activeTerminalTabId: null,
+  showLogsTab: true,
+  editorType: 'monaco',
+  showDevTools: true,
+  devToolsTab: 'console',
+  consoleFilter: 'all',
+};
+
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   toggleSidebar: { key: 'b', description: 'Toggle sidebar' },
   goToDashboard: { key: 'h', description: 'Go to dashboard' },

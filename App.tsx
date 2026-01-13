@@ -16,7 +16,7 @@ import {
   AppTabs,
   useAppTabs,
 } from './components';
-import { useApps } from './hooks';
+import { useApps, usePerAppState } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { generateProjectUrl } from './utils/routing';
 import { KeyboardShortcuts } from './types';
@@ -58,6 +58,9 @@ function AppContent() {
 
   // App tabs management
   const { tabs, activeTabId, closeTab, reorderTabs, selectTab } = useAppTabs(apps);
+
+  // Per-app view state management (terminals, editor type, devtools, etc.)
+  const { createAppStateHelpers } = usePerAppState();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -493,6 +496,7 @@ function AppContent() {
               onToggleViewTabBar={handleToggleViewTabBar}
               activeView={detailsViewMode}
               onViewChange={setDetailsViewMode}
+              perAppState={selectedApp ? createAppStateHelpers(selectedApp.id) : undefined}
             />
           )}
         </div>

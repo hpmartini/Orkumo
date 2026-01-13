@@ -4,16 +4,43 @@ import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
 import { WebIDEErrorBoundary } from './WebIDEErrorBoundary';
 import { BrowserPreviewPanel } from './BrowserPreviewPanel';
-import { AppConfig } from '../../types';
+import { AppConfig, EditorType, DevToolsTab, ConsoleFilter } from '../../types';
 import './CodingView.css';
 
 interface CodingViewProps {
   app: AppConfig;
   /** Ref for the terminal slot - the terminal wrapper will be moved here */
   terminalSlotRef: RefObject<HTMLDivElement | null>;
+  /** Controlled editor type (Monaco or VS Code) */
+  editorType?: EditorType;
+  /** Callback when editor type changes */
+  onEditorTypeChange?: (type: EditorType) => void;
+  /** Controlled devtools visibility */
+  showDevTools?: boolean;
+  /** Callback when devtools visibility changes */
+  onShowDevToolsChange?: (show: boolean) => void;
+  /** Controlled devtools active tab */
+  devToolsTab?: DevToolsTab;
+  /** Callback when devtools tab changes */
+  onDevToolsTabChange?: (tab: DevToolsTab) => void;
+  /** Controlled console filter */
+  consoleFilter?: ConsoleFilter;
+  /** Callback when console filter changes */
+  onConsoleFilterChange?: (filter: ConsoleFilter) => void;
 }
 
-export function CodingView({ app, terminalSlotRef }: CodingViewProps) {
+export function CodingView({
+  app,
+  terminalSlotRef,
+  editorType,
+  onEditorTypeChange,
+  showDevTools,
+  onShowDevToolsChange,
+  devToolsTab,
+  onDevToolsTabChange,
+  consoleFilter,
+  onConsoleFilterChange,
+}: CodingViewProps) {
   const [isTerminalHidden, setIsTerminalHidden] = useState(false);
   const visibleSlotRef = useRef<HTMLDivElement>(null);
 
@@ -112,6 +139,8 @@ export function CodingView({ app, terminalSlotRef }: CodingViewProps) {
               directory={app.path}
               showTerminalButton={isTerminalHidden}
               onShowTerminal={handleShowTerminal}
+              editorType={editorType}
+              onEditorTypeChange={onEditorTypeChange}
             />
           </WebIDEErrorBoundary>
         </Panel>
@@ -120,7 +149,16 @@ export function CodingView({ app, terminalSlotRef }: CodingViewProps) {
 
         {/* Browser Preview Panel */}
         <Panel defaultSize={isTerminalHidden ? 45 : 30} minSize={15} className="coding-panel">
-          <BrowserPreviewPanel url={app.addresses?.[0] || ''} appId={app.id} />
+          <BrowserPreviewPanel
+            url={app.addresses?.[0] || ''}
+            appId={app.id}
+            showDevTools={showDevTools}
+            onShowDevToolsChange={onShowDevToolsChange}
+            activeTab={devToolsTab}
+            onActiveTabChange={onDevToolsTabChange}
+            filter={consoleFilter}
+            onFilterChange={onConsoleFilterChange}
+          />
         </Panel>
       </Group>
     </div>

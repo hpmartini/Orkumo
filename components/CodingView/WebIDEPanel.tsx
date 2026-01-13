@@ -29,18 +29,37 @@ interface OpenFile {
   modified: boolean;
 }
 
+type EditorType = 'monaco' | 'code-server';
+
 interface WebIDEPanelProps {
   directory: string;
   /** Show button to restore terminal panel */
   showTerminalButton?: boolean;
   /** Callback to show terminal panel */
   onShowTerminal?: () => void;
+  /** Controlled editor type (Monaco or VS Code) */
+  editorType?: EditorType;
+  /** Callback when editor type changes */
+  onEditorTypeChange?: (type: EditorType) => void;
 }
 
-type EditorType = 'monaco' | 'code-server';
-
-export const WebIDEPanel = ({ directory, showTerminalButton, onShowTerminal }: WebIDEPanelProps) => {
-  const [editorType, setEditorType] = useState<EditorType>('monaco');
+export const WebIDEPanel = ({
+  directory,
+  showTerminalButton,
+  onShowTerminal,
+  editorType: controlledEditorType,
+  onEditorTypeChange,
+}: WebIDEPanelProps) => {
+  // Use controlled or uncontrolled editor type
+  const [internalEditorType, setInternalEditorType] = useState<EditorType>('monaco');
+  const editorType = controlledEditorType ?? internalEditorType;
+  const setEditorType = (type: EditorType) => {
+    if (onEditorTypeChange) {
+      onEditorTypeChange(type);
+    } else {
+      setInternalEditorType(type);
+    }
+  };
   const [fileTree, setFileTree] = useState<FileNode[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set([directory]));
   const [openFiles, setOpenFiles] = useState<OpenFile[]>([]);

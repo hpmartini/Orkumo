@@ -42,10 +42,11 @@ interface XTerminalProps {
     setTabs: React.Dispatch<React.SetStateAction<TerminalTab[]>>;
     setActiveTabId: (id: string | null) => void;
     setShowLogsTab: (show: boolean) => void;
-    createTab: (type?: TerminalType, name?: string) => string;
-    createClaudeTerminal: (options: ClaudeTerminalOptions) => string;
-    closeTab: (tabId: string) => void;
-    switchToLogs: () => void;
+    // These are optional - if not provided, internal implementations are used
+    createTab?: (type?: TerminalType, name?: string) => string;
+    createClaudeTerminal?: (options: ClaudeTerminalOptions) => string;
+    closeTab?: (tabId: string) => void;
+    switchToLogs?: () => void;
   };
 }
 
@@ -133,27 +134,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     activeTabIdRef.current = activeTabId;
   }, [activeTabId]);
 
-  // Track previous cwd to detect app changes
-  const prevCwdRef = useRef<string>(cwd);
-
-  // Reset terminals when cwd (app directory) changes - terminals are app-specific
-  useEffect(() => {
-    if (prevCwdRef.current !== cwd) {
-      console.log(`[XTerminal] App changed from ${prevCwdRef.current} to ${cwd}, resetting terminals`);
-      prevCwdRef.current = cwd;
-
-      // Close all existing terminal sessions
-      tabs.forEach((tab) => {
-        tab.ws?.close();
-        tab.terminal?.dispose();
-      });
-
-      // Reset to logs view with no terminals
-      setTabs([]);
-      setActiveTabId(null);
-      setShowLogsTab(true);
-    }
-  }, [cwd, tabs, setTabs, setActiveTabId, setShowLogsTab]);
+  // Note: Terminal state is now managed per-app at the parent level via sharedState/sharedActions.
+  // When switching apps, the parent provides different state, preserving each app's terminals.
 
   // Check Claude CLI status on mount
   useEffect(() => {

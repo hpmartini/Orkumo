@@ -25,8 +25,19 @@ import { API_BASE_URL } from '../../utils/apiConfig';
 
 interface BrowserPreviewPanelProps {
   url: string;
-  // appId will be used for panel state persistence in Phase 2
   appId: string;
+  /** Controlled devtools visibility */
+  showDevTools?: boolean;
+  /** Callback when devtools visibility changes */
+  onShowDevToolsChange?: (show: boolean) => void;
+  /** Controlled devtools active tab */
+  activeTab?: 'console' | 'network';
+  /** Callback when devtools tab changes */
+  onActiveTabChange?: (tab: 'console' | 'network') => void;
+  /** Controlled console filter */
+  filter?: 'all' | 'log' | 'warn' | 'error';
+  /** Callback when console filter changes */
+  onFilterChange?: (filter: 'all' | 'log' | 'warn' | 'error') => void;
 }
 
 type Viewport = 'desktop' | 'tablet' | 'mobile';
@@ -46,18 +57,57 @@ interface DevToolsStatus {
   file?: string;
 }
 
-export const BrowserPreviewPanel = ({ url, appId }: BrowserPreviewPanelProps) => {
+export const BrowserPreviewPanel = ({
+  url,
+  appId,
+  showDevTools: controlledShowDevTools,
+  onShowDevToolsChange,
+  activeTab: controlledActiveTab,
+  onActiveTabChange,
+  filter: controlledFilter,
+  onFilterChange,
+}: BrowserPreviewPanelProps) => {
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [iframeKey, setIframeKey] = useState(0);
   const [currentUrl, setCurrentUrl] = useState(url);
   const [urlError, setUrlError] = useState<string | null>(null);
   const [consoleLogs, setConsoleLogs] = useState<ConsoleLog[]>([]);
   const [networkLogs, setNetworkLogs] = useState<NetworkLog[]>([]);
-  const [showDevTools, setShowDevTools] = useState(true);
-  const [activeTab, setActiveTab] = useState<'console' | 'network'>('console');
-  const [filter, setFilter] = useState<'all' | 'log' | 'warn' | 'error'>('all');
   const [searchTerm, setSearchTerm] = useState('');
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Use controlled or uncontrolled state for devtools visibility
+  const [internalShowDevTools, setInternalShowDevTools] = useState(true);
+  const showDevTools = controlledShowDevTools ?? internalShowDevTools;
+  const setShowDevTools = (show: boolean) => {
+    if (onShowDevToolsChange) {
+      onShowDevToolsChange(show);
+    } else {
+      setInternalShowDevTools(show);
+    }
+  };
+
+  // Use controlled or uncontrolled state for active tab
+  const [internalActiveTab, setInternalActiveTab] = useState<'console' | 'network'>('console');
+  const activeTab = controlledActiveTab ?? internalActiveTab;
+  const setActiveTab = (tab: 'console' | 'network') => {
+    if (onActiveTabChange) {
+      onActiveTabChange(tab);
+    } else {
+      setInternalActiveTab(tab);
+    }
+  };
+
+  // Use controlled or uncontrolled state for filter
+  const [internalFilter, setInternalFilter] = useState<'all' | 'log' | 'warn' | 'error'>('all');
+  const filter = controlledFilter ?? internalFilter;
+  const setFilter = (f: 'all' | 'log' | 'warn' | 'error') => {
+    if (onFilterChange) {
+      onFilterChange(f);
+    } else {
+      setInternalFilter(f);
+    }
+  };
 
   // DevTools logger injection state
   const [devToolsStatus, setDevToolsStatus] = useState<DevToolsStatus | null>(null);

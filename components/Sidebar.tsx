@@ -549,6 +549,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
       </div>
 
       <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
+        {/* View Switcher - Above Overview to indicate global setting */}
+        {showViewSwitcher && activeTab === 'apps' && (
+          <div className="pb-3 mb-2 border-b border-gray-800">
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center gap-1 bg-gray-900 rounded-lg p-1">
+                <button
+                  onClick={() => onViewModeChange?.('details')}
+                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm transition-all ${
+                    detailsViewMode === 'details'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                  }`}
+                >
+                  <Info size={14} />
+                  <span>Details</span>
+                </button>
+                <button
+                  onClick={() => onViewModeChange?.('coding')}
+                  className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm transition-all ${
+                    detailsViewMode === 'coding'
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                  }`}
+                >
+                  <Code size={14} />
+                  <span>Coding</span>
+                </button>
+              </div>
+              {onShowViewTabBar && (
+                <button
+                  onClick={onShowViewTabBar}
+                  className="p-1.5 rounded text-gray-500 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+                  title="Show tab bar"
+                >
+                  <ChevronUp size={14} />
+                </button>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Dashboard Button */}
         <button
           onClick={onSelectDashboard}
@@ -655,48 +696,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {showArchive && (
             <div className="px-4 pb-3 space-y-1">{archived.map((app) => renderAppItem(app))}</div>
           )}
-        </div>
-      )}
-
-      {/* View Switcher (when tab bar is hidden) - Expanded view */}
-      {showViewSwitcher && activeTab === 'apps' && (
-        <div className="px-4 py-3 border-t border-gray-800">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-semibold text-gray-500 uppercase tracking-wider">View</span>
-            <div className="flex-1 flex items-center gap-1 bg-gray-900 rounded-lg p-1">
-              <button
-                onClick={() => onViewModeChange?.('details')}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm transition-all ${
-                  detailsViewMode === 'details'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                }`}
-              >
-                <Info size={14} />
-                <span>Details</span>
-              </button>
-              <button
-                onClick={() => onViewModeChange?.('coding')}
-                className={`flex-1 flex items-center justify-center gap-2 px-3 py-1.5 rounded-md text-sm transition-all ${
-                  detailsViewMode === 'coding'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                }`}
-              >
-                <Code size={14} />
-                <span>Coding</span>
-              </button>
-            </div>
-            {onShowViewTabBar && (
-              <button
-                onClick={onShowViewTabBar}
-                className="p-1.5 rounded text-gray-500 hover:bg-gray-800 hover:text-gray-300 transition-colors"
-                title="Show tab bar"
-              >
-                <ChevronUp size={14} />
-              </button>
-            )}
-          </div>
         </div>
       )}
 

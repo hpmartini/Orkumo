@@ -18,9 +18,9 @@ import {
   Code,
   MoreHorizontal,
   ChevronUp,
-  ChevronDown,
 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
+import type { PerAppStateHelpers } from '../hooks/usePerAppState';
 import { StatusBadge } from './StatusBadge';
 import { PerformanceCharts } from './PerformanceCharts';
 import { XTerminal } from './XTerminal';
@@ -47,6 +47,8 @@ interface AppDetailProps {
   onToggleViewTabBar?: () => void;
   activeView?: ViewMode;
   onViewChange?: (view: ViewMode) => void;
+  // Per-app state (terminals, editor, devtools)
+  perAppState?: PerAppStateHelpers;
 }
 
 export type ViewMode = 'details' | 'coding';
@@ -70,6 +72,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onToggleViewTabBar,
   activeView: controlledActiveView,
   onViewChange,
+  perAppState,
 }) => {
   // Use controlled or uncontrolled view mode
   const [internalActiveView, setInternalActiveView] = useState<ViewMode>('details');
@@ -473,6 +476,14 @@ export const AppDetail: React.FC<AppDetailProps> = ({
           <CodingView
             app={app}
             terminalSlotRef={codingTerminalSlotRef}
+            editorType={perAppState?.editorType}
+            onEditorTypeChange={perAppState?.setEditorType}
+            showDevTools={perAppState?.showDevTools}
+            onShowDevToolsChange={perAppState?.setShowDevTools}
+            devToolsTab={perAppState?.devToolsTab}
+            onDevToolsTabChange={perAppState?.setDevToolsTab}
+            consoleFilter={perAppState?.consoleFilter}
+            onConsoleFilterChange={perAppState?.setConsoleFilter}
           />
         </div>
 
@@ -482,6 +493,16 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             logs={app.logs}
             isRunning={app.status === AppStatus.RUNNING}
             cwd={app.path}
+            sharedState={perAppState ? {
+              tabs: perAppState.terminalTabs,
+              activeTabId: perAppState.activeTerminalTabId,
+              showLogsTab: perAppState.showLogsTab,
+            } : undefined}
+            sharedActions={perAppState ? {
+              setTabs: perAppState.setTerminalTabs,
+              setActiveTabId: perAppState.setActiveTerminalTabId,
+              setShowLogsTab: perAppState.setShowLogsTab,
+            } : undefined}
           />
         </div>
       </div>
