@@ -7,7 +7,7 @@ import {
   Workflow,
   ArrowUpRight
 } from 'lucide-react';
-import { cn } from '@/utils/cn';
+import { cn } from '../../shared/cn';
 
 interface ServiceCardProps {
   icon: React.ReactNode;

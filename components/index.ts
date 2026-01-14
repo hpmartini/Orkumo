@@ -1,3 +1,5 @@
+// Dashboard components only (no landing page components)
+// Landing page components are exported from ./Landing/index.tsx
 export { StatusBadge } from './StatusBadge';
 export { Terminal } from './Terminal';
 export { XTerminal } from './XTerminal';
@@ -11,7 +13,6 @@ export { Sidebar } from './Sidebar';
 export { SystemAlerts } from './SystemAlerts';
 export type { Alert } from './SystemAlerts';
 export { Recommendations } from './Recommendations';
-export { ErrorBoundary } from './ErrorBoundary';
 export { AdminPanel } from './AdminPanel';
 export { KebabMenu, createAppMenuItems } from './KebabMenu';
 export { AppTabs, useAppTabs, createTabsFromApps } from './AppTabs';

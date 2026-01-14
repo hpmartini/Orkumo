@@ -2,23 +2,27 @@
  * Standalone Dashboard Entry Point
  *
  * This file serves as the entry point for the standalone dashboard deployment.
- * It reuses the AppContent component from App.tsx but with simplified routing
- * (no landing page, dashboard at root path).
+ * It only includes dashboard functionality (no landing page).
+ *
+ * Routes:
+ *   / -> Dashboard home
+ *   /:projectName/:projectId -> Project detail view
  *
  * Deployment modes:
- * 1. Full app (App.tsx): Landing page at / + Dashboard at /dashboard
+ * 1. Full app (FullApp.tsx): Landing page at / + Dashboard at /dashboard
  * 2. Standalone dashboard (DashboardApp.tsx): Dashboard only at /
+ * 3. Standalone landing (landing.tsx): Landing page only
  */
 
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { ErrorBoundary } from './components';
-import { AppContent } from './App';
+import { ErrorBoundary } from './shared/ErrorBoundary';
+import { DashboardContent } from './components/Dashboard/DashboardContent';
 
 function DashboardRouter() {
   return (
     <Routes>
-      <Route path="/" element={<AppContent />} />
-      <Route path="/:projectName/:projectId" element={<AppContent />} />
+      <Route path="/" element={<DashboardContent />} />
+      <Route path="/:projectName/:projectId" element={<DashboardContent />} />
     </Routes>
   );
 }

@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Rocket, Menu, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { cn } from '@/utils/cn';
+import { cn } from '../../shared/cn';
 
 export function Navbar() {
   const navigate = useNavigate();
