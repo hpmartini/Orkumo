@@ -15,6 +15,7 @@ import {
   Zap,
   ZapOff,
   Loader2,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import type { ConsoleLog, NetworkLog } from '../../types';
@@ -22,6 +23,7 @@ import { ConsoleLogEntry } from './ConsoleLogEntry';
 import { NetworkLogEntry } from './NetworkLogEntry';
 import { DevToolsErrorBoundary } from './DevToolsErrorBoundary';
 import { API_BASE_URL } from '../../utils/apiConfig';
+import { ElectronBrowserView } from './ElectronBrowserView';
 
 interface BrowserPreviewPanelProps {
   url: string;
@@ -38,6 +40,8 @@ interface BrowserPreviewPanelProps {
   filter?: 'all' | 'log' | 'warn' | 'error';
   /** Callback when console filter changes */
   onFilterChange?: (filter: 'all' | 'log' | 'warn' | 'error') => void;
+  /** Callback to hide the browser panel */
+  onHide?: () => void;
 }
 
 type Viewport = 'desktop' | 'tablet' | 'mobile';
@@ -66,6 +70,47 @@ export const BrowserPreviewPanel = ({
   onActiveTabChange,
   filter: controlledFilter,
   onFilterChange,
+  onHide,
+}: BrowserPreviewPanelProps) => {
+  // Check if we're running in Electron with BrowserView support
+  const isElectron = typeof window !== 'undefined' && window.electronAPI?.browserView !== undefined;
+
+  // If running in Electron, use the native BrowserView component
+  if (isElectron) {
+    return (
+      <ElectronBrowserView
+        url={url}
+        appId={appId}
+        onHide={onHide}
+      />
+    );
+  }
+
+  // Otherwise, fall back to iframe-based preview (web mode)
+  return <IframeBrowserPreview
+    url={url}
+    appId={appId}
+    showDevTools={controlledShowDevTools}
+    onShowDevToolsChange={onShowDevToolsChange}
+    activeTab={controlledActiveTab}
+    onActiveTabChange={onActiveTabChange}
+    filter={controlledFilter}
+    onFilterChange={onFilterChange}
+    onHide={onHide}
+  />;
+};
+
+// Iframe-based browser preview for non-Electron environments
+const IframeBrowserPreview = ({
+  url,
+  appId,
+  showDevTools: controlledShowDevTools,
+  onShowDevToolsChange,
+  activeTab: controlledActiveTab,
+  onActiveTabChange,
+  filter: controlledFilter,
+  onFilterChange,
+  onHide,
 }: BrowserPreviewPanelProps) => {
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [iframeKey, setIframeKey] = useState(0);
@@ -311,8 +356,17 @@ export const BrowserPreviewPanel = ({
   return (
     <div className="h-full flex flex-col bg-gray-900">
       {/* Header */}
-      <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm">
-        Browser Preview
+      <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between">
+        <span>Browser Preview</span>
+        {onHide && (
+          <button
+            onClick={onHide}
+            className="p-1 hover:bg-gray-700 rounded transition-colors"
+            title="Hide browser preview"
+          >
+            <X size={14} />
+          </button>
+        )}
       </div>
 
       {/* URL Bar */}

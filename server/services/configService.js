@@ -1,11 +1,8 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { getDataFilePath, ensureDataDirectory } from './dataPath.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-const CONFIG_FILE = path.join(__dirname, '..', '..', 'data', 'config.json');
+const CONFIG_FILE = getDataFilePath('config.json');
 
 // Default configuration
 const defaultConfig = {
@@ -95,10 +92,7 @@ function validatePath(dirPath) {
  * Ensures the data directory and config file exist
  */
 function ensureConfigFile() {
-  const dataDir = path.dirname(CONFIG_FILE);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
+  ensureDataDirectory();
   if (!fs.existsSync(CONFIG_FILE)) {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify(defaultConfig, null, 2));
   }

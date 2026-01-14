@@ -1,12 +1,9 @@
 import fs from 'fs';
 import path from 'path';
-import { fileURLToPath } from 'url';
+import { getDataFilePath, ensureDataDirectory } from './dataPath.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Settings file path - stored in data/ directory
-const SETTINGS_FILE = path.join(__dirname, '..', '..', 'data', 'settings.json');
+// Settings file path - stored in persistent data directory
+const SETTINGS_FILE = getDataFilePath('settings.json');
 
 /**
  * Default settings structure
@@ -25,10 +22,7 @@ const defaultSettings = {
  * Ensures the data directory and settings file exist
  */
 function ensureSettingsFile() {
-  const dataDir = path.dirname(SETTINGS_FILE);
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
+  ensureDataDirectory();
   if (!fs.existsSync(SETTINGS_FILE)) {
     fs.writeFileSync(SETTINGS_FILE, JSON.stringify(defaultSettings, null, 2));
   }

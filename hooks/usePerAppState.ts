@@ -81,12 +81,14 @@ export function usePerAppState() {
       showDevTools: state.showDevTools,
       devToolsTab: state.devToolsTab,
       consoleFilter: state.consoleFilter,
+      isBrowserHidden: state.isBrowserHidden,
 
       // View state setters
       setEditorType: (value: EditorType) => updateAppState(appId, { editorType: value }),
       setShowDevTools: (value: boolean) => updateAppState(appId, { showDevTools: value }),
       setDevToolsTab: (value: DevToolsTab) => updateAppState(appId, { devToolsTab: value }),
       setConsoleFilter: (value: ConsoleFilter) => updateAppState(appId, { consoleFilter: value }),
+      setIsBrowserHidden: (value: boolean) => updateAppState(appId, { isBrowserHidden: value }),
 
       // Terminal state
       terminalTabs: terminalState.tabs,

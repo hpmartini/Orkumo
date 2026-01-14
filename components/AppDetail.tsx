@@ -484,6 +484,8 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             onDevToolsTabChange={perAppState?.setDevToolsTab}
             consoleFilter={perAppState?.consoleFilter}
             onConsoleFilterChange={perAppState?.setConsoleFilter}
+            isBrowserHidden={perAppState?.isBrowserHidden}
+            onBrowserHiddenChange={perAppState?.setIsBrowserHidden}
           />
         </div>
 

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, Menu, dialog, shell } from 'electron';
+import { app, BrowserWindow, BrowserView, ipcMain, Menu, dialog, shell } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { fork, spawn } from 'child_process';
@@ -16,6 +16,10 @@ const __dirname = path.dirname(__filename);
 let serverProcess = null;
 let mainWindow = null;
 let isShuttingDown = false;
+
+// BrowserView instances for embedded browser previews
+// Map of viewId -> { view: BrowserView, devToolsWindow: BrowserWindow | null }
+const browserViews = new Map();
 
 const isDev = !app.isPackaged;
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3000';
@@ -347,6 +351,54 @@ async function startBackendServer() {
   console.log('[Electron] Enhanced PATH (first 5):', enhancedPath.split(':').slice(0, 5).join(':'));
   console.log('[Electron] NVM paths found:', nvmNodePaths.length);
 
+  // Get the user data path for persistent storage
+  // This path persists across app updates (outside the app bundle)
+  const userDataPath = app.getPath('userData');
+  const dataPath = path.join(userDataPath, 'data');
+
+  console.log('[Electron] User data path:', userDataPath);
+  console.log('[Electron] Data storage path:', dataPath);
+
+  // Ensure data directory exists
+  if (!fs.existsSync(dataPath)) {
+    fs.mkdirSync(dataPath, { recursive: true });
+  }
+
+  // Migrate data from old location (inside app bundle) to new persistent location
+  // This is needed for users upgrading from versions that stored data inside the app
+  if (!isDev) {
+    const oldDataPath = path.join(process.resourcesPath, 'data');
+    const migrationMarker = path.join(dataPath, '.migrated');
+
+    if (!fs.existsSync(migrationMarker) && fs.existsSync(oldDataPath)) {
+      console.log('[Electron] Migrating data from old location:', oldDataPath);
+      const filesToMigrate = ['config.json', 'settings.json', 'custom-ides.json'];
+
+      for (const file of filesToMigrate) {
+        const oldFile = path.join(oldDataPath, file);
+        const newFile = path.join(dataPath, file);
+
+        if (fs.existsSync(oldFile) && !fs.existsSync(newFile)) {
+          try {
+            const content = fs.readFileSync(oldFile, 'utf-8');
+            fs.writeFileSync(newFile, content);
+            console.log(`[Electron] Migrated ${file}`);
+          } catch (err) {
+            console.error(`[Electron] Failed to migrate ${file}:`, err);
+          }
+        }
+      }
+
+      // Create migration marker
+      fs.writeFileSync(migrationMarker, JSON.stringify({
+        migratedAt: new Date().toISOString(),
+        oldPath: oldDataPath,
+        newPath: dataPath
+      }, null, 2));
+      console.log('[Electron] Data migration complete');
+    }
+  }
+
   // Set environment variables for server
   const env = {
     ...process.env,
@@ -355,6 +407,7 @@ async function startBackendServer() {
     NODE_ENV: isDev ? 'development' : 'production',
     ELECTRON_MODE: 'true',
     NODE_PATH: nodePaths,
+    DEVORBIT_DATA_PATH: dataPath, // Pass userData path to server for persistent storage
   };
 
   // Store server output for debugging
@@ -543,6 +596,218 @@ function setupIpcHandlers() {
       console.error('[Electron] Update installation failed:', error);
       return { success: false, error: error.message };
     }
+  });
+
+  // ============================================
+  // BrowserView IPC Handlers for embedded browser preview
+  // ============================================
+
+  // Create a new BrowserView
+  ipcMain.handle('browser-view-create', async (event, { viewId, bounds }) => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return { success: false, error: 'Main window not available' };
+    }
+
+    if (browserViews.has(viewId)) {
+      return { success: false, error: 'View already exists' };
+    }
+
+    try {
+      const view = new BrowserView({
+        webPreferences: {
+          nodeIntegration: false,
+          contextIsolation: true,
+          sandbox: true,
+        }
+      });
+
+      // Set bounds
+      view.setBounds({
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
+        width: Math.round(bounds.width),
+        height: Math.round(bounds.height)
+      });
+
+      // Enable auto-resize to match parent window
+      view.setAutoResize({ width: false, height: false, horizontal: false, vertical: false });
+
+      // Add to main window
+      mainWindow.addBrowserView(view);
+
+      // Store reference
+      browserViews.set(viewId, { view, devToolsWindow: null });
+
+      console.log(`[BrowserView] Created view ${viewId} with bounds:`, bounds);
+      return { success: true };
+    } catch (error) {
+      console.error(`[BrowserView] Failed to create view ${viewId}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Navigate BrowserView to URL
+  ipcMain.handle('browser-view-navigate', async (event, { viewId, url }) => {
+    const entry = browserViews.get(viewId);
+    if (!entry) {
+      return { success: false, error: 'View not found' };
+    }
+
+    try {
+      // Validate URL - only allow http/https localhost URLs
+      const parsed = new URL(url);
+      if (!['http:', 'https:'].includes(parsed.protocol)) {
+        return { success: false, error: 'Only http and https protocols are allowed' };
+      }
+
+      // For security, only allow localhost URLs in the browser preview
+      const hostname = parsed.hostname.toLowerCase();
+      if (!['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname)) {
+        return { success: false, error: 'Only localhost URLs are allowed in browser preview' };
+      }
+
+      await entry.view.webContents.loadURL(url);
+      console.log(`[BrowserView] Navigated view ${viewId} to ${url}`);
+      return { success: true };
+    } catch (error) {
+      console.error(`[BrowserView] Failed to navigate view ${viewId}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Resize/reposition BrowserView
+  ipcMain.handle('browser-view-resize', async (event, { viewId, bounds }) => {
+    const entry = browserViews.get(viewId);
+    if (!entry) {
+      return { success: false, error: 'View not found' };
+    }
+
+    try {
+      entry.view.setBounds({
+        x: Math.round(bounds.x),
+        y: Math.round(bounds.y),
+        width: Math.round(bounds.width),
+        height: Math.round(bounds.height)
+      });
+      return { success: true };
+    } catch (error) {
+      console.error(`[BrowserView] Failed to resize view ${viewId}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Destroy BrowserView
+  ipcMain.handle('browser-view-destroy', async (event, { viewId }) => {
+    const entry = browserViews.get(viewId);
+    if (!entry) {
+      return { success: false, error: 'View not found' };
+    }
+
+    try {
+      // Close DevTools window if open
+      if (entry.devToolsWindow && !entry.devToolsWindow.isDestroyed()) {
+        entry.devToolsWindow.close();
+      }
+
+      // Remove from main window and destroy
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.removeBrowserView(entry.view);
+      }
+
+      browserViews.delete(viewId);
+      console.log(`[BrowserView] Destroyed view ${viewId}`);
+      return { success: true };
+    } catch (error) {
+      console.error(`[BrowserView] Failed to destroy view ${viewId}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Open DevTools for BrowserView
+  ipcMain.handle('browser-view-open-devtools', async (event, { viewId }) => {
+    const entry = browserViews.get(viewId);
+    if (!entry) {
+      return { success: false, error: 'View not found' };
+    }
+
+    try {
+      // If DevTools window already exists and is open, focus it
+      if (entry.devToolsWindow && !entry.devToolsWindow.isDestroyed()) {
+        entry.devToolsWindow.focus();
+        return { success: true };
+      }
+
+      // Create a new window for DevTools
+      const devToolsWindow = new BrowserWindow({
+        width: 800,
+        height: 600,
+        title: 'DevTools - Browser Preview',
+        autoHideMenuBar: true,
+      });
+
+      // Open DevTools in the new window
+      entry.view.webContents.setDevToolsWebContents(devToolsWindow.webContents);
+      entry.view.webContents.openDevTools({ mode: 'detach' });
+
+      // Store reference
+      entry.devToolsWindow = devToolsWindow;
+
+      // Clean up when DevTools window is closed
+      devToolsWindow.on('closed', () => {
+        if (browserViews.has(viewId)) {
+          browserViews.get(viewId).devToolsWindow = null;
+        }
+      });
+
+      console.log(`[BrowserView] Opened DevTools for view ${viewId}`);
+      return { success: true };
+    } catch (error) {
+      console.error(`[BrowserView] Failed to open DevTools for view ${viewId}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Close DevTools for BrowserView
+  ipcMain.handle('browser-view-close-devtools', async (event, { viewId }) => {
+    const entry = browserViews.get(viewId);
+    if (!entry) {
+      return { success: false, error: 'View not found' };
+    }
+
+    try {
+      if (entry.devToolsWindow && !entry.devToolsWindow.isDestroyed()) {
+        entry.devToolsWindow.close();
+        entry.devToolsWindow = null;
+      }
+      entry.view.webContents.closeDevTools();
+      console.log(`[BrowserView] Closed DevTools for view ${viewId}`);
+      return { success: true };
+    } catch (error) {
+      console.error(`[BrowserView] Failed to close DevTools for view ${viewId}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Refresh BrowserView
+  ipcMain.handle('browser-view-refresh', async (event, { viewId }) => {
+    const entry = browserViews.get(viewId);
+    if (!entry) {
+      return { success: false, error: 'View not found' };
+    }
+
+    try {
+      entry.view.webContents.reload();
+      console.log(`[BrowserView] Refreshed view ${viewId}`);
+      return { success: true };
+    } catch (error) {
+      console.error(`[BrowserView] Failed to refresh view ${viewId}:`, error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // Check if running in Electron
+  ipcMain.handle('is-electron', () => {
+    return true;
   });
 }
 

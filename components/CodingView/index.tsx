@@ -27,6 +27,10 @@ interface CodingViewProps {
   consoleFilter?: ConsoleFilter;
   /** Callback when console filter changes */
   onConsoleFilterChange?: (filter: ConsoleFilter) => void;
+  /** Controlled browser panel visibility */
+  isBrowserHidden?: boolean;
+  /** Callback when browser panel visibility changes */
+  onBrowserHiddenChange?: (hidden: boolean) => void;
 }
 
 export function CodingView({
@@ -40,8 +44,21 @@ export function CodingView({
   onDevToolsTabChange,
   consoleFilter,
   onConsoleFilterChange,
+  isBrowserHidden: controlledBrowserHidden,
+  onBrowserHiddenChange,
 }: CodingViewProps) {
   const [isTerminalHidden, setIsTerminalHidden] = useState(false);
+
+  // Use controlled or uncontrolled browser visibility
+  const [internalBrowserHidden, setInternalBrowserHidden] = useState(false);
+  const isBrowserHidden = controlledBrowserHidden ?? internalBrowserHidden;
+  const setIsBrowserHidden = (hidden: boolean) => {
+    if (onBrowserHiddenChange) {
+      onBrowserHiddenChange(hidden);
+    } else {
+      setInternalBrowserHidden(hidden);
+    }
+  };
   const visibleSlotRef = useRef<HTMLDivElement>(null);
 
   const handleHideTerminal = () => {
@@ -133,33 +150,39 @@ export function CodingView({
         )}
 
         {/* Web IDE Panel */}
-        <Panel defaultSize={isTerminalHidden ? 55 : 45} minSize={20} className="coding-panel">
+        <Panel defaultSize={isTerminalHidden && isBrowserHidden ? 100 : isTerminalHidden ? 55 : isBrowserHidden ? 75 : 45} minSize={20} className="coding-panel">
           <WebIDEErrorBoundary>
             <WebIDEPanel
               directory={app.path}
               showTerminalButton={isTerminalHidden}
               onShowTerminal={handleShowTerminal}
+              showBrowserButton={isBrowserHidden}
+              onShowBrowser={() => setIsBrowserHidden(false)}
               editorType={editorType}
               onEditorTypeChange={onEditorTypeChange}
             />
           </WebIDEErrorBoundary>
         </Panel>
 
-        <Separator className="coding-separator" />
-
-        {/* Browser Preview Panel */}
-        <Panel defaultSize={isTerminalHidden ? 45 : 30} minSize={15} className="coding-panel">
-          <BrowserPreviewPanel
-            url={app.addresses?.[0] || ''}
-            appId={app.id}
-            showDevTools={showDevTools}
-            onShowDevToolsChange={onShowDevToolsChange}
-            activeTab={devToolsTab}
-            onActiveTabChange={onDevToolsTabChange}
-            filter={consoleFilter}
-            onFilterChange={onConsoleFilterChange}
-          />
-        </Panel>
+        {/* Browser Preview Panel - Conditionally rendered */}
+        {!isBrowserHidden && (
+          <>
+            <Separator className="coding-separator" />
+            <Panel defaultSize={isTerminalHidden ? 45 : 30} minSize={15} className="coding-panel">
+              <BrowserPreviewPanel
+                url={app.addresses?.[0] || ''}
+                appId={app.id}
+                showDevTools={showDevTools}
+                onShowDevToolsChange={onShowDevToolsChange}
+                activeTab={devToolsTab}
+                onActiveTabChange={onDevToolsTabChange}
+                filter={consoleFilter}
+                onFilterChange={onConsoleFilterChange}
+                onHide={() => setIsBrowserHidden(true)}
+              />
+            </Panel>
+          </>
+        )}
       </Group>
     </div>
   );

@@ -11,6 +11,7 @@ import {
   Code2,
   Box,
   Terminal,
+  Globe,
 } from 'lucide-react';
 import { API_BASE_URL } from '../../utils/apiConfig';
 
@@ -37,6 +38,10 @@ interface WebIDEPanelProps {
   showTerminalButton?: boolean;
   /** Callback to show terminal panel */
   onShowTerminal?: () => void;
+  /** Show button to restore browser panel */
+  showBrowserButton?: boolean;
+  /** Callback to show browser panel */
+  onShowBrowser?: () => void;
   /** Controlled editor type (Monaco or VS Code) */
   editorType?: EditorType;
   /** Callback when editor type changes */
@@ -47,11 +52,13 @@ export const WebIDEPanel = ({
   directory,
   showTerminalButton,
   onShowTerminal,
+  showBrowserButton,
+  onShowBrowser,
   editorType: controlledEditorType,
   onEditorTypeChange,
 }: WebIDEPanelProps) => {
   // Use controlled or uncontrolled editor type
-  const [internalEditorType, setInternalEditorType] = useState<EditorType>('monaco');
+  const [internalEditorType, setInternalEditorType] = useState<EditorType>('code-server');
   const editorType = controlledEditorType ?? internalEditorType;
   const setEditorType = (type: EditorType) => {
     if (onEditorTypeChange) {
@@ -75,6 +82,24 @@ export const WebIDEPanel = ({
 
   // Ref for iframe to enable manual reload
   const iframeRef = useRef<HTMLIFrameElement>(null);
+
+  // Copilot info dismissal state - persisted in localStorage
+  const [copilotInfoDismissed, setCopilotInfoDismissed] = useState(() => {
+    try {
+      return localStorage.getItem('devorbit-copilot-info-dismissed') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  const dismissCopilotInfo = () => {
+    setCopilotInfoDismissed(true);
+    try {
+      localStorage.setItem('devorbit-copilot-info-dismissed', 'true');
+    } catch {
+      // Ignore localStorage errors
+    }
+  };
 
   // Get code-server URL from environment or use default (memoized)
   // Default to http://127.0.0.1:8080 for local development
@@ -588,6 +613,16 @@ export const WebIDEPanel = ({
               Terminal
             </button>
           )}
+          {showBrowserButton && onShowBrowser && (
+            <button
+              onClick={onShowBrowser}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+              title="Show Browser Preview"
+            >
+              <Globe size={12} />
+              Browser
+            </button>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {/* Editor Type Switcher */}
@@ -699,6 +734,39 @@ export const WebIDEPanel = ({
             allow="clipboard-read; clipboard-write; keyboard-map"
             aria-label="VS Code web editor"
           />
+
+          {/* Copilot Alternatives Info - shown on first code-server load */}
+          {!codeServerLoading && !codeServerError && !copilotInfoDismissed && (
+            <div className="absolute bottom-4 right-4 bg-gray-800/95 backdrop-blur-sm p-4 rounded-lg text-sm max-w-xs z-20 border border-gray-700 shadow-xl">
+              <div className="flex items-start gap-2 mb-2">
+                <span className="text-amber-400 font-medium">GitHub Copilot unavailable</span>
+              </div>
+              <p className="text-gray-400 text-xs mb-2">
+                code-server uses the Open VSX registry, which doesn't include proprietary extensions like GitHub Copilot.
+              </p>
+              <p className="text-gray-300 text-xs mb-2">Try these free alternatives:</p>
+              <ul className="text-gray-300 text-xs space-y-1 mb-3">
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />
+                  <span><strong>Codeium</strong> - Free AI completion</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
+                  <span><strong>TabNine</strong> - AI autocomplete</span>
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 bg-purple-400 rounded-full" />
+                  <span><strong>Continue</strong> - Open source AI</span>
+                </li>
+              </ul>
+              <button
+                onClick={dismissCopilotInfo}
+                className="text-blue-400 hover:text-blue-300 text-xs transition-colors"
+              >
+                Got it, don't show again
+              </button>
+            </div>
+          )}
         </div>
       ) : (
         <div className="flex-1 flex min-h-0">

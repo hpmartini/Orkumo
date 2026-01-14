@@ -2,6 +2,7 @@ import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { getDataFilePath, ensureDataDirectory } from './dataPath.js';
 
 /**
  * Custom error codes for IDE operations
@@ -48,7 +49,7 @@ class IDEService {
    */
   _loadCustomIDEs() {
     try {
-      const settingsPath = path.join(process.cwd(), 'data', 'custom-ides.json');
+      const settingsPath = getDataFilePath('custom-ides.json');
       if (fs.existsSync(settingsPath)) {
         const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
         if (data.customIDEs && Array.isArray(data.customIDEs)) {
@@ -67,11 +68,8 @@ class IDEService {
    */
   _saveCustomIDEs() {
     try {
-      const settingsPath = path.join(process.cwd(), 'data', 'custom-ides.json');
-      const dir = path.dirname(settingsPath);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
+      ensureDataDirectory();
+      const settingsPath = getDataFilePath('custom-ides.json');
       const data = { customIDEs: Array.from(this.customIDEs.values()) };
       fs.writeFileSync(settingsPath, JSON.stringify(data, null, 2));
     } catch (error) {

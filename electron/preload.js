@@ -32,6 +32,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('download-progress', handler);
   },
 
+  // BrowserView API for embedded browser preview with real Chrome DevTools
+  browserView: {
+    create: (viewId, bounds) => ipcRenderer.invoke('browser-view-create', { viewId, bounds }),
+    navigate: (viewId, url) => ipcRenderer.invoke('browser-view-navigate', { viewId, url }),
+    resize: (viewId, bounds) => ipcRenderer.invoke('browser-view-resize', { viewId, bounds }),
+    destroy: (viewId) => ipcRenderer.invoke('browser-view-destroy', { viewId }),
+    openDevTools: (viewId) => ipcRenderer.invoke('browser-view-open-devtools', { viewId }),
+    closeDevTools: (viewId) => ipcRenderer.invoke('browser-view-close-devtools', { viewId }),
+    refresh: (viewId) => ipcRenderer.invoke('browser-view-refresh', { viewId }),
+  },
+
   // Environment
   isElectron: true,
   isDev: process.defaultApp || process.env.NODE_ENV === 'development',

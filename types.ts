@@ -126,15 +126,19 @@ export interface PerAppViewState {
   showDevTools: boolean;
   devToolsTab: DevToolsTab;
   consoleFilter: ConsoleFilter;
+
+  // Browser preview visibility
+  isBrowserHidden: boolean;
 }
 
 export const DEFAULT_PER_APP_STATE: PerAppViewState = {
   activeTerminalTabId: null,
   showLogsTab: true,
-  editorType: 'monaco',
+  editorType: 'code-server',
   showDevTools: true,
   devToolsTab: 'console',
   consoleFilter: 'all',
+  isBrowserHidden: false,
 };
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
