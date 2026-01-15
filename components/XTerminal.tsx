@@ -382,6 +382,18 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         }
       });
 
+      // Handle Shift+Enter to insert newline (needed for Claude Code CLI)
+      // Uses CSI u encoding: \x1b[13;2u = Shift+Enter
+      terminal.attachCustomKeyEventHandler((event) => {
+        if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
+          }
+          return false; // Prevent default handling
+        }
+        return true; // Allow all other keys
+      });
+
       // Handle terminal resize events - this fires when terminal dimensions actually change
       // This is the proper way to sync PTY dimensions with xterm
       terminal.onResize(({ cols, rows }) => {
@@ -592,6 +604,17 @@ export const XTerminal: React.FC<XTerminalProps> = ({
             })
           );
         }
+      });
+
+      // Rebind Shift+Enter handler
+      tab.terminal.attachCustomKeyEventHandler((event) => {
+        if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
+          }
+          return false;
+        }
+        return true;
       });
     },
     [tabs, cwd]
