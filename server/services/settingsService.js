@@ -15,6 +15,7 @@ const defaultSettings = {
   customNames: {},    // Map of appId -> custom name
   preferredIDEs: {},  // Map of appId -> preferred IDE id
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
+  apiKeys: {},        // Map of provider -> API key (e.g. { gemini: "AIza..." })
   version: 1,         // Settings schema version for future migrations
 };
 
@@ -46,6 +47,11 @@ function readSettings() {
     // Migrate: Ensure favoritesSortMode exists (added in v1.2)
     if (!loadedSettings.favoritesSortMode) {
       loadedSettings.favoritesSortMode = 'manual';
+    }
+
+    // Migrate: Ensure apiKeys exists (added in v1.3)
+    if (!loadedSettings.apiKeys) {
+      loadedSettings.apiKeys = {};
     }
 
     return { ...defaultSettings, ...loadedSettings };
@@ -337,6 +343,62 @@ class SettingsService {
     settings.favorites = newOrder;
     writeSettings(settings);
     return newOrder;
+  }
+
+  /**
+   * Get all API keys (masked for security)
+   * @returns {object} Map of provider -> masked key info
+   */
+  getApiKeys() {
+    const settings = readSettings();
+    const masked = {};
+    for (const [provider, key] of Object.entries(settings.apiKeys || {})) {
+      if (key && typeof key === 'string' && key.length > 4) {
+        masked[provider] = {
+          configured: true,
+          maskedKey: `${key.substring(0, 4)}...${key.substring(key.length - 4)}`,
+        };
+      } else if (key) {
+        masked[provider] = { configured: true, maskedKey: '****' };
+      }
+    }
+    return masked;
+  }
+
+  /**
+   * Get the raw API key for a provider (for server-side use only)
+   * @param {string} provider - Provider name (e.g. 'gemini')
+   * @returns {string|null} Raw API key or null
+   */
+  getApiKey(provider) {
+    const settings = readSettings();
+    return settings.apiKeys?.[provider] || null;
+  }
+
+  /**
+   * Set an API key for a provider
+   * @param {string} provider - Provider name
+   * @param {string} key - API key
+   */
+  setApiKey(provider, key) {
+    const settings = readSettings();
+    if (!settings.apiKeys) {
+      settings.apiKeys = {};
+    }
+    settings.apiKeys[provider] = key;
+    writeSettings(settings);
+  }
+
+  /**
+   * Remove an API key for a provider
+   * @param {string} provider - Provider name
+   */
+  removeApiKey(provider) {
+    const settings = readSettings();
+    if (settings.apiKeys) {
+      delete settings.apiKeys[provider];
+      writeSettings(settings);
+    }
   }
 
   /**

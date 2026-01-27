@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Settings, FolderPlus, Trash2, RefreshCw, X, Save, Code, Plus, Keyboard } from 'lucide-react';
-import { fetchConfig, addDirectory, removeDirectory, updateConfig, Config, fetchInstalledIDEs, fetchCustomIDEs, addCustomIDE, removeCustomIDE, IDE, fetchSettings, updateKeyboardShortcuts } from '../services/api';
+import { Settings, FolderPlus, Trash2, RefreshCw, X, Save, Code, Plus, Keyboard, Key, Eye, EyeOff, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
+import { fetchConfig, addDirectory, removeDirectory, updateConfig, Config, fetchInstalledIDEs, fetchCustomIDEs, addCustomIDE, removeCustomIDE, IDE, fetchSettings, updateKeyboardShortcuts, fetchApiKeys, updateApiKey, removeApiKey, validateApiKey, ApiKeyInfo } from '../services/api';
 import { KeyboardShortcuts, KeyboardShortcut, DEFAULT_KEYBOARD_SHORTCUTS } from '../types';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
@@ -24,6 +24,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [newIDE, setNewIDE] = useState({ id: '', name: '', path: '' });
   const [ideLoading, setIdeLoading] = useState(false);
 
+  // API Keys state
+  const [apiKeys, setApiKeys] = useState<Record<string, ApiKeyInfo>>({});
+  const [apiKeyInput, setApiKeyInput] = useState('');
+  const [apiKeyLoading, setApiKeyLoading] = useState(false);
+  const [apiKeyEditing, setApiKeyEditing] = useState(false);
+  const [apiKeyVisible, setApiKeyVisible] = useState(false);
+  const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'valid' | 'invalid' | 'validating'>('idle');
+  const [apiKeyStatusMessage, setApiKeyStatusMessage] = useState('');
+
   // Keyboard shortcuts state
   const [shortcuts, setShortcuts] = useState<KeyboardShortcuts>(DEFAULT_KEYBOARD_SHORTCUTS);
   const [shortcutsLoading, setShortcutsLoading] = useState(false);
@@ -35,6 +44,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
       loadConfig();
       loadIDEs();
       loadShortcuts();
+      loadApiKeys();
     }
   }, [isOpen]);
 
@@ -103,6 +113,79 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     }));
     setShortcutsDirty(true);
     setEditingShortcut(null);
+  };
+
+  const loadApiKeys = async () => {
+    try {
+      const keys = await fetchApiKeys();
+      setApiKeys(keys);
+      // Reset editing state when loading
+      setApiKeyEditing(false);
+      setApiKeyInput('');
+      setApiKeyVisible(false);
+      setApiKeyStatus(keys.gemini?.configured ? 'valid' : 'idle');
+      setApiKeyStatusMessage('');
+    } catch (err) {
+      console.error('Failed to load API keys:', err);
+    }
+  };
+
+  const handleSaveApiKey = async () => {
+    if (!apiKeyInput.trim()) return;
+    setApiKeyLoading(true);
+    setError(null);
+    try {
+      const result = await updateApiKey('gemini', apiKeyInput.trim());
+      setApiKeys(prev => ({
+        ...prev,
+        gemini: { configured: true, maskedKey: result.maskedKey },
+      }));
+      setApiKeyEditing(false);
+      setApiKeyInput('');
+      setApiKeyVisible(false);
+      setApiKeyStatus('valid');
+      setApiKeyStatusMessage('Key saved successfully');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save API key');
+    } finally {
+      setApiKeyLoading(false);
+    }
+  };
+
+  const handleValidateApiKey = async () => {
+    const keyToValidate = apiKeyInput.trim();
+    if (!keyToValidate) return;
+    setApiKeyStatus('validating');
+    setApiKeyStatusMessage('');
+    try {
+      const result = await validateApiKey('gemini', keyToValidate);
+      setApiKeyStatus(result.valid ? 'valid' : 'invalid');
+      setApiKeyStatusMessage(result.message);
+    } catch (err) {
+      setApiKeyStatus('invalid');
+      setApiKeyStatusMessage(err instanceof Error ? err.message : 'Validation failed');
+    }
+  };
+
+  const handleRemoveApiKey = async () => {
+    setApiKeyLoading(true);
+    setError(null);
+    try {
+      await removeApiKey('gemini');
+      setApiKeys(prev => {
+        const next = { ...prev };
+        delete next.gemini;
+        return next;
+      });
+      setApiKeyEditing(false);
+      setApiKeyInput('');
+      setApiKeyStatus('idle');
+      setApiKeyStatusMessage('');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to remove API key');
+    } finally {
+      setApiKeyLoading(false);
+    }
   };
 
   const loadIDEs = async () => {
@@ -484,6 +567,161 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                 </div>
               </div>
             )}
+          </div>
+
+          {/* AI Configuration Section */}
+          <div className="pt-4 border-t border-gray-700">
+            <div className="flex items-center gap-2 mb-4">
+              <Key className="text-amber-400" size={18} />
+              <label className="text-sm font-medium text-gray-300">
+                AI Configuration
+              </label>
+            </div>
+
+            {/* Gemini API Key */}
+            <div className="p-4 bg-gray-900 rounded-lg border border-gray-700 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-white font-medium">Gemini API Key</p>
+                  <p className="text-xs text-gray-500">Used for AI-powered project analysis</p>
+                </div>
+                {/* Status indicator */}
+                {apiKeys.gemini?.configured && !apiKeyEditing && (
+                  <span className="flex items-center gap-1 text-xs text-green-400">
+                    <CheckCircle size={14} />
+                    Configured
+                  </span>
+                )}
+                {!apiKeys.gemini?.configured && !apiKeyEditing && (
+                  <span className="flex items-center gap-1 text-xs text-gray-500">
+                    <AlertCircle size={14} />
+                    Not set
+                  </span>
+                )}
+              </div>
+
+              {apiKeyEditing ? (
+                <>
+                  {/* Input field */}
+                  <div className="relative">
+                    <input
+                      type={apiKeyVisible ? 'text' : 'password'}
+                      value={apiKeyInput}
+                      onChange={(e) => {
+                        setApiKeyInput(e.target.value);
+                        setApiKeyStatus('idle');
+                        setApiKeyStatusMessage('');
+                      }}
+                      placeholder="Enter your Gemini API key"
+                      className="w-full px-3 py-2 pr-10 bg-gray-800 border border-gray-600 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
+                    />
+                    <button
+                      onClick={() => setApiKeyVisible(!apiKeyVisible)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-300"
+                      title={apiKeyVisible ? 'Hide key' : 'Show key'}
+                    >
+                      {apiKeyVisible ? <EyeOff size={16} /> : <Eye size={16} />}
+                    </button>
+                  </div>
+
+                  {/* Validation status */}
+                  {apiKeyStatus === 'validating' && (
+                    <div className="flex items-center gap-2 text-xs text-blue-400">
+                      <RefreshCw className="animate-spin" size={12} />
+                      Validating key...
+                    </div>
+                  )}
+                  {apiKeyStatus === 'valid' && apiKeyStatusMessage && (
+                    <div className="flex items-center gap-2 text-xs text-green-400">
+                      <CheckCircle size={12} />
+                      {apiKeyStatusMessage}
+                    </div>
+                  )}
+                  {apiKeyStatus === 'invalid' && (
+                    <div className="flex items-center gap-2 text-xs text-red-400">
+                      <XCircle size={12} />
+                      {apiKeyStatusMessage || 'Invalid key'}
+                    </div>
+                  )}
+
+                  {/* Action buttons */}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleValidateApiKey}
+                      disabled={apiKeyLoading || !apiKeyInput.trim() || apiKeyStatus === 'validating'}
+                      className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      Validate
+                    </button>
+                    <button
+                      onClick={handleSaveApiKey}
+                      disabled={apiKeyLoading || !apiKeyInput.trim()}
+                      className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      <Save size={12} />
+                      Save
+                    </button>
+                    <button
+                      onClick={() => {
+                        setApiKeyEditing(false);
+                        setApiKeyInput('');
+                        setApiKeyVisible(false);
+                        setApiKeyStatus(apiKeys.gemini?.configured ? 'valid' : 'idle');
+                        setApiKeyStatusMessage('');
+                      }}
+                      className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  {/* Masked key display and actions */}
+                  {apiKeys.gemini?.configured ? (
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-gray-400 font-mono">
+                        {apiKeys.gemini.maskedKey}
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setApiKeyEditing(true)}
+                          className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
+                        >
+                          Change
+                        </button>
+                        <button
+                          onClick={handleRemoveApiKey}
+                          disabled={apiKeyLoading}
+                          className="px-2 py-1 text-xs text-red-400 hover:bg-red-500/10 rounded transition-colors disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setApiKeyEditing(true)}
+                      className="w-full px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-400 border border-dashed border-gray-600 rounded transition-colors"
+                    >
+                      + Add API Key
+                    </button>
+                  )}
+                </>
+              )}
+
+              <p className="text-xs text-gray-500">
+                Get a key from{' '}
+                <a
+                  href="https://aistudio.google.com/apikey"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:text-blue-300 underline"
+                >
+                  Google AI Studio
+                </a>
+              </p>
+            </div>
           </div>
 
           {/* Keyboard Shortcuts Section */}

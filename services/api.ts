@@ -746,3 +746,69 @@ export async function removeCustomIDE(id: string): Promise<boolean> {
   }
   return true;
 }
+
+// ============================================
+// API Keys Management
+// ============================================
+
+export interface ApiKeyInfo {
+  configured: boolean;
+  maskedKey: string;
+}
+
+/**
+ * Fetch configured API keys (masked)
+ */
+export async function fetchApiKeys(): Promise<Record<string, ApiKeyInfo>> {
+  const response = await fetch(`${API_BASE}/settings/api-keys`);
+  if (!response.ok) {
+    return {};
+  }
+  return response.json();
+}
+
+/**
+ * Set an API key for a provider
+ */
+export async function updateApiKey(provider: string, key: string): Promise<{ provider: string; maskedKey: string; configured: boolean }> {
+  const response = await fetch(`${API_BASE}/settings/api-keys/${provider}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to update API key');
+  }
+  return response.json();
+}
+
+/**
+ * Remove an API key for a provider
+ */
+export async function removeApiKey(provider: string): Promise<{ provider: string; configured: boolean }> {
+  const response = await fetch(`${API_BASE}/settings/api-keys/${provider}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to remove API key');
+  }
+  return response.json();
+}
+
+/**
+ * Validate an API key for a provider
+ */
+export async function validateApiKey(provider: string, key: string): Promise<{ valid: boolean; message: string }> {
+  const response = await fetch(`${API_BASE}/settings/api-keys/${provider}/validate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.error || 'Failed to validate API key');
+  }
+  return response.json();
+}

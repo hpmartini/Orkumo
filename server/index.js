@@ -192,10 +192,16 @@ function validateParams(schema) {
   };
 }
 
-// Validate API key on startup
-const apiKey = process.env.GEMINI_API_KEY;
-if (!apiKey) {
-  console.warn('⚠️  GEMINI_API_KEY not found in .env.local - AI features will be disabled');
+// Dynamic API key resolution: settings.json first, then env var fallback
+function getApiKey() {
+  const settingsKey = settingsService.getApiKey('gemini');
+  if (settingsKey) return settingsKey;
+  return process.env.GEMINI_API_KEY || null;
+}
+
+// Check on startup
+if (!getApiKey()) {
+  console.warn('⚠️  GEMINI_API_KEY not found - AI features will be disabled until configured in Admin Panel or .env.local');
 }
 
 // Store connected SSE clients for real-time updates
@@ -922,6 +928,103 @@ app.put('/api/settings/preferred-ide/:id', validateParams(idSchema), (req, res) 
 });
 
 // ============================================
+// API Keys Management Endpoints
+// ============================================
+
+/**
+ * GET /api/settings/api-keys
+ * Get configured API keys (masked for security)
+ */
+app.get('/api/settings/api-keys', (req, res) => {
+  try {
+    const keys = settingsService.getApiKeys();
+    res.json(keys);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/api-keys/:provider
+ * Set an API key for a provider
+ */
+app.put('/api/settings/api-keys/:provider', (req, res) => {
+  try {
+    const { provider } = req.params;
+    const { key } = req.body;
+
+    if (!key || typeof key !== 'string' || key.trim().length === 0) {
+      return res.status(400).json({ error: 'API key is required' });
+    }
+
+    // Validate provider name
+    const allowedProviders = ['gemini'];
+    if (!allowedProviders.includes(provider)) {
+      return res.status(400).json({ error: `Unknown provider: ${provider}. Allowed: ${allowedProviders.join(', ')}` });
+    }
+
+    settingsService.setApiKey(provider, key.trim());
+
+    // Return masked version
+    const maskedKey = key.length > 4
+      ? `${key.substring(0, 4)}...${key.substring(key.length - 4)}`
+      : '****';
+
+    res.json({ provider, maskedKey, configured: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * DELETE /api/settings/api-keys/:provider
+ * Remove an API key for a provider
+ */
+app.delete('/api/settings/api-keys/:provider', (req, res) => {
+  try {
+    const { provider } = req.params;
+    settingsService.removeApiKey(provider);
+    res.json({ provider, configured: false });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settings/api-keys/:provider/validate
+ * Validate an API key by making a minimal API call
+ */
+app.post('/api/settings/api-keys/:provider/validate', async (req, res) => {
+  try {
+    const { provider } = req.params;
+    const { key } = req.body;
+
+    if (!key || typeof key !== 'string' || key.trim().length === 0) {
+      return res.status(400).json({ error: 'API key is required' });
+    }
+
+    if (provider === 'gemini') {
+      try {
+        const ai = new GoogleGenAI({ apiKey: key.trim() });
+        const response = await ai.models.generateContent({
+          model: 'gemini-2.0-flash',
+          contents: 'Respond with exactly: OK',
+        });
+        const text = response.text;
+        res.json({ valid: true, message: 'API key is valid' });
+      } catch (err) {
+        const message = err.message || 'Invalid API key';
+        res.json({ valid: false, message });
+      }
+    } else {
+      res.status(400).json({ error: `Validation not supported for provider: ${provider}` });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // DevTools Logger Injection Endpoints
 // ============================================
 
@@ -1396,7 +1499,8 @@ app.post('/api/analyze', async (req, res) => {
     });
   }
 
-  if (!apiKey) {
+  const currentApiKey = getApiKey();
+  if (!currentApiKey) {
     return res.json({
       command: 'npm start',
       port: 3000,
@@ -1406,7 +1510,7 @@ app.post('/api/analyze', async (req, res) => {
   }
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
+    const ai = new GoogleGenAI({ apiKey: currentApiKey });
 
     const prompt = `Analyze this configuration file for a web application.
 
@@ -1510,7 +1614,7 @@ Return a JSON object with:
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'ok',
-    aiEnabled: !!apiKey,
+    aiEnabled: !!getApiKey(),
     databaseConnected: isDatabaseConnected(),
     terminalSessions: terminalSessionManager.getStats(),
     timestamp: new Date().toISOString()
@@ -2410,7 +2514,7 @@ async function startServer() {
 
   server.listen(PORT, () => {
     console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
-    console.log(`   AI Features: ${apiKey ? '✅ Enabled' : '❌ Disabled (no API key)'}`);
+    console.log(`   AI Features: ${getApiKey() ? '✅ Enabled' : '❌ Disabled (no API key)'}`);
     console.log(`   Database: ${dbConnected ? '✅ Connected' : '⚠️  Not connected (using file storage)'}`);
     console.log(`   WebSocket PTY: ws://localhost:${PORT}/api/pty`);
     console.log(`   Endpoints:`);
