@@ -235,3 +235,120 @@ The codebase is a full-stack application with:
 3. **Add app path display** - Show in AppDetail header and Sidebar tooltip
 4. **Expand test coverage** - Add tests for scannerService, processService
 5. **Add README** - Setup instructions and architecture documentation
+
+---
+
+## 📋 Upcoming Tasks
+
+### 🐛 Bug Fix: Prevent Process Suspension on Tab Switch (High Priority)
+
+**Problem:** Switching tabs unmounts AppDetail, killing iframes, terminals, and WebSocket connections.
+
+**Solution:** Render one AppDetail per open tab simultaneously using offscreen positioning instead of unmounting.
+
+#### Tasks
+
+- [ ] **[BUG]** Refactor tab system to keep all open AppDetail components mounted
+  - Use CSS `visibility: hidden` / `position: absolute` / `left: -9999px` for inactive tabs
+  - Preserve iframe state (code-server, browser preview)
+  - Preserve terminal sessions and WebSocket connections
+
+- [ ] **[UI]** AppDetail: Add "Code" button for quick view switching
+
+- [ ] **[UI]** BrowserPreviewPanel improvements:
+  - Add DevTools toggle button in header
+  - Improve layout consistency with ElectronBrowserView
+
+- [ ] **[PERF]** ElectronBrowserView optimizations:
+  - Debounce resize calls to reduce API overhead
+  - Track visibility and move BrowserView off-screen when hidden
+  - Avoid redundant resize/navigate calls
+  - Better URL change handling
+
+- [ ] **[UI]** WebIDEPanel improvements:
+  - Add Details button for view switching
+  - Poll code-server status for reliable loading detection
+
+- [ ] **[UI]** Add favicon to index.html
+
+---
+
+### ✨ Feature: Custom Commands, Docker Support, System Health & Recommendations
+
+#### Custom Commands & Port Injection
+
+- [ ] **[FEATURE]** Persist and edit custom run commands per app
+  - Add `customCommand` field to app config in `settingsService`
+  - Add API endpoints: `PUT /api/apps/:id/command`, `GET /api/apps/:id/command`
+  - Add UI in AppDetail to view/edit custom command
+
+- [ ] **[FEATURE]** Inject per-framework port flags when starting apps
+  - Vite/Nuxt/Vue: `--port`
+  - Next.js: `-p`
+  - Express/Node: Environment variable or detect from package.json scripts
+
+#### Docker Support
+
+- [ ] **[FEATURE]** Detect Docker Compose projects in scanner
+  - Check for `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml`
+  - Validate compose commands available (`docker compose` or `docker-compose`)
+  - Add `AppType: 'docker-compose'` to types
+
+- [ ] **[FEATURE]** Configure Docker projects for container management
+  - Parse compose file to extract service names
+  - Store container IDs for running services
+
+- [ ] **[FEATURE]** Add container controls in AppDetail view
+  - Start/stop/restart individual containers
+  - View container logs
+  - Show container status (running, exited, etc.)
+
+#### System Health Service
+
+- [ ] **[FEATURE]** Add system health service (`server/services/healthService.js`)
+  - Check Node.js version and compare to LTS
+  - Check npm/yarn/pnpm versions
+  - Check Git version
+  - Check Docker availability and version
+  - Check disk space on project directories
+
+- [ ] **[FEATURE]** Add project-level health checks
+  - Stale dependencies (package-lock.json age)
+  - `npm audit` vulnerability count
+  - Outdated packages (`npm outdated`)
+  - Missing `.nvmrc` or `.node-version`
+
+- [ ] **[FEATURE]** Support Node/npm updates via detected version manager
+  - Detect nvm, volta, fnm, or system Node
+  - Provide appropriate update commands
+  - Add API endpoint: `POST /api/system/update-node`
+
+#### Actionable Recommendations
+
+- [ ] **[FEATURE]** Replace hardcoded SystemAlerts with live health data
+  - Create new `SystemHealth` component
+  - Display system checks with pass/fail/warning status
+  - Add action buttons for quick fixes
+
+- [ ] **[FEATURE]** Add actionable recommendations engine
+  - Auto-fix port conflicts (suggest available ports, apply with one click)
+  - Reinstall dependencies (`npm ci` / `npm install`)
+  - Restart failed/crashed apps
+  - Clear node_modules and reinstall
+
+- [ ] **[FEATURE]** Surface system-level recommendations from health data
+  - Expandable details for each recommendation
+  - Severity levels (info, warning, error)
+  - Dismiss/snooze functionality
+
+---
+
+### Related Existing Tasks (Updated Context)
+
+The following existing tasks are related to the new features above:
+
+| Existing Task | Related New Task |
+|---------------|------------------|
+| Custom port setting UI | Custom commands & port injection |
+| Recommendations panel | Actionable recommendations engine |
+| Stats polling optimization | ElectronBrowserView optimizations |
