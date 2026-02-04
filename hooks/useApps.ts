@@ -7,8 +7,6 @@ import {
   startApp,
   stopApp,
   restartApp,
-  subscribeToEvents,
-  subscribeToStats,
   fetchAppPackage,
   fetchSettings,
   fetchLogs,
@@ -22,8 +20,13 @@ import {
   configureAllPorts,
   AppSettings,
   FavoritesSortMode,
-  StatsUpdate,
 } from '../services/api';
+// Use singleton SSE manager to avoid connection explosion with multi-tab rendering
+import {
+  subscribeToEventsShared,
+  subscribeToStatsShared,
+  StatsUpdate,
+} from '../services/sseManager';
 import { DEFAULT_APP_START_PORT } from '../constants';
 
 // Constants
@@ -169,9 +172,10 @@ export function useApps(): UseAppsReturn {
     refreshApps();
   }, [refreshApps]);
 
-  // Subscribe to real-time events
+  // Subscribe to real-time events using singleton SSE manager
+  // This ensures only one SSE connection is used regardless of how many tabs are mounted
   useEffect(() => {
-    const unsubscribe = subscribeToEvents(
+    const unsubscribe = subscribeToEventsShared(
       // On status change
       ({ appId, status }) => {
         setApps((currentApps) =>
@@ -203,9 +207,10 @@ export function useApps(): UseAppsReturn {
     };
   }, []);
 
-  // Subscribe to real-time stats via SSE (replaces polling)
+  // Subscribe to real-time stats via singleton SSE manager (replaces polling)
+  // This ensures only one stats SSE connection is used regardless of how many tabs are mounted
   useEffect(() => {
-    const unsubscribe = subscribeToStats(
+    const unsubscribe = subscribeToStatsShared(
       // On stats update
       (statsUpdate: StatsUpdate) => {
         const now = Date.now();

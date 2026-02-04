@@ -82,12 +82,19 @@ if (isRunningInDocker) {
 }
 
 // Rate limiting - prevent DoS attacks
+// NOTE: Rate limit increased from 100 to 500 to support multi-tab rendering
+// where each tab may make requests. SSE endpoints are exempted below.
 const limiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 100, // limit each IP to 100 requests per minute
+  max: 500, // limit each IP to 500 requests per minute (increased for multi-tab support)
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
+  // Skip rate limiting for SSE endpoints (they're long-lived connections, not repeated requests)
+  skip: (req) => {
+    const sseEndpoints = ['/api/events', '/api/apps/stats/stream'];
+    return sseEndpoints.some(endpoint => req.path === endpoint);
+  },
 });
 
 // Stricter rate limit for process operations
@@ -109,6 +116,13 @@ const portConfigLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 5, // limit port configuration to 5 per minute
   message: { error: 'Too many port configuration requests, please slow down' },
+});
+
+// Rate limit for file system operations (more permissive for multi-tab support)
+const fileSystemLimiter = rateLimit({
+  windowMs: 60 * 1000,
+  max: 100, // allow 100 file operations per minute (for multi-tab browsing)
+  message: { error: 'Too many file system requests, please slow down' },
 });
 
 app.use(cors());
@@ -1134,7 +1148,7 @@ app.post('/api/apps/:id/remove-logger', processLimiter, validateParams(idSchema)
  * GET /api/files/tree
  * Get file tree for a directory
  */
-app.get('/api/files/tree', async (req, res) => {
+app.get('/api/files/tree', fileSystemLimiter, async (req, res) => {
   try {
     const { path: dirPath, depth = 3 } = req.query;
     if (!dirPath) {

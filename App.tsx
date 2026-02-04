@@ -34,7 +34,7 @@ function AppContent() {
     loading,
     error: _error,
     selectedAppId,
-    selectedApp,
+    selectedApp: _selectedApp,
     settings,
     setSelectedAppId,
     handleStartApp,
@@ -419,86 +419,115 @@ function AppContent() {
           </div>
         </header>
 
+        {/* Content container - relative positioning for multi-tab absolute children */}
         <div
-          className={`${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'mt-[4rem] md:mt-10' : 'mt-14 md:mt-0'}`}
+          className={`relative ${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'mt-[4rem] md:mt-10' : 'mt-14 md:mt-0'}`}
         >
-          {activeTab === 'dashboard' ? (
-            <div className="space-y-8 animate-in fade-in duration-500">
-              <DashboardOverview
-                totalApps={apps.length}
-                runningCount={runningCount}
-                totalCpu={totalCpu}
-                apps={apps}
-              />
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                <div className="lg:col-span-2 space-y-6">
-                  <div className="flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-gray-200">Application Registry</h3>
-                  </div>
-                  {/* Favorites Section */}
-                  <FavoritesList
-                    apps={apps}
-                    selectedAppId={selectedAppId}
-                    favoritesOrder={settings?.favorites || []}
-                    favoritesSortMode={settings?.favoritesSortMode || 'manual'}
-                    onSelectApp={handleSelectApp}
-                    onStart={handleStartApp}
-                    onStop={handleStopApp}
-                    onRestart={handleRestartApp}
-                    onOpenInBrowser={handleOpenInBrowser}
-                    onToggleFavorite={handleToggleFavorite}
-                    onToggleArchive={handleToggleArchive}
-                    onReorderFavorites={handleReorderFavorites}
-                    onSetSortMode={handleSetFavoritesSortMode}
-                  />
-                  {/* All Applications */}
-                  <AppList
-                    apps={apps.filter((app) => !app.isArchived && !app.isFavorite)}
-                    selectedAppId={selectedAppId}
-                    onSelectApp={handleSelectApp}
-                    onRefresh={refreshApps}
-                    onStart={handleStartApp}
-                    onStop={handleStopApp}
-                    onRestart={handleRestartApp}
-                    onOpenInBrowser={handleOpenInBrowser}
-                    onToggleFavorite={handleToggleFavorite}
-                    onToggleArchive={handleToggleArchive}
-                    onOpenInFinder={handleOpenInFinder}
-                    onOpenInTerminal={handleOpenInTerminal}
-                    onRename={handleRenamePrompt}
-                    mainDirectory="projects"
-                  />
+          {/* Dashboard View */}
+          <div
+            className={`${activeTab === 'dashboard' ? 'block' : 'hidden'} space-y-8 animate-in fade-in duration-500`}
+          >
+            <DashboardOverview
+              totalApps={apps.length}
+              runningCount={runningCount}
+              totalCpu={totalCpu}
+              apps={apps}
+            />
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="lg:col-span-2 space-y-6">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-lg font-semibold text-gray-200">Application Registry</h3>
                 </div>
+                {/* Favorites Section */}
+                <FavoritesList
+                  apps={apps}
+                  selectedAppId={selectedAppId}
+                  favoritesOrder={settings?.favorites || []}
+                  favoritesSortMode={settings?.favoritesSortMode || 'manual'}
+                  onSelectApp={handleSelectApp}
+                  onStart={handleStartApp}
+                  onStop={handleStopApp}
+                  onRestart={handleRestartApp}
+                  onOpenInBrowser={handleOpenInBrowser}
+                  onToggleFavorite={handleToggleFavorite}
+                  onToggleArchive={handleToggleArchive}
+                  onReorderFavorites={handleReorderFavorites}
+                  onSetSortMode={handleSetFavoritesSortMode}
+                />
+                {/* All Applications */}
+                <AppList
+                  apps={apps.filter((app) => !app.isArchived && !app.isFavorite)}
+                  selectedAppId={selectedAppId}
+                  onSelectApp={handleSelectApp}
+                  onRefresh={refreshApps}
+                  onStart={handleStartApp}
+                  onStop={handleStopApp}
+                  onRestart={handleRestartApp}
+                  onOpenInBrowser={handleOpenInBrowser}
+                  onToggleFavorite={handleToggleFavorite}
+                  onToggleArchive={handleToggleArchive}
+                  onOpenInFinder={handleOpenInFinder}
+                  onOpenInTerminal={handleOpenInTerminal}
+                  onRename={handleRenamePrompt}
+                  mainDirectory="projects"
+                />
+              </div>
 
-                <div className="space-y-6">
-                  <Recommendations apps={apps} onAnalyzeApp={handleAnalyzeApp} />
-                  <SystemAlerts />
-                </div>
+              <div className="space-y-6">
+                <Recommendations apps={apps} onAnalyzeApp={handleAnalyzeApp} />
+                <SystemAlerts />
               </div>
             </div>
-          ) : (
-            <AppDetail
-              app={selectedApp ?? null}
-              onStart={handleStartApp}
-              onStop={handleStopApp}
-              onRestart={handleRestartApp}
-              onAnalyze={handleAnalyzeApp}
-              onOpenInBrowser={handleOpenInBrowser}
-              onInstallDeps={handleInstallDeps}
-              onSetPort={handleSetPort}
-              onRename={handleRename}
-              onToggleFavorite={handleToggleFavorite}
-              onToggleArchive={handleToggleArchive}
-              onOpenInFinder={handleOpenInFinder}
-              onOpenInTerminal={handleOpenInTerminal}
-              preferredIDE={(selectedApp && settings?.preferredIDEs?.[selectedApp.id]) || null}
-              isViewTabBarHidden={isViewTabBarHidden}
-              onToggleViewTabBar={handleToggleViewTabBar}
-              activeView={detailsViewMode}
-              onViewChange={setDetailsViewMode}
-              perAppState={selectedApp ? createAppStateHelpers(selectedApp.id) : undefined}
-            />
-          )}
+          </div>
+
+          {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.
+              This preserves iframe state (VS Code Server, Browser Preview) when switching tabs.
+              Previously conditional rendering caused iframes to reload on every tab switch. */}
+          {tabs.map((tab) => {
+            const tabApp = apps.find((a) => a.id === tab.appId);
+            const isActive = activeTab === 'apps' && tab.appId === selectedAppId;
+
+            return (
+              <div
+                key={tab.appId}
+                className={`absolute inset-0 flex flex-col min-h-0 ${
+                  isActive
+                    ? 'z-10 visible opacity-100'
+                    : 'z-0 invisible opacity-0 pointer-events-none'
+                }`}
+                style={{
+                  // Use transform to ensure hidden tabs don't affect layout
+                  transform: isActive ? 'none' : 'translateX(-9999px)',
+                  // Ensure the container fills available space
+                  top: tabs.length > 0 ? '2.5rem' : '0',
+                  marginTop: tabs.length > 0 ? '0' : undefined,
+                }}
+                aria-hidden={!isActive}
+              >
+                <AppDetail
+                  app={tabApp ?? null}
+                  onStart={handleStartApp}
+                  onStop={handleStopApp}
+                  onRestart={handleRestartApp}
+                  onAnalyze={handleAnalyzeApp}
+                  onOpenInBrowser={handleOpenInBrowser}
+                  onInstallDeps={handleInstallDeps}
+                  onSetPort={handleSetPort}
+                  onRename={handleRename}
+                  onToggleFavorite={handleToggleFavorite}
+                  onToggleArchive={handleToggleArchive}
+                  onOpenInFinder={handleOpenInFinder}
+                  onOpenInTerminal={handleOpenInTerminal}
+                  preferredIDE={(tabApp && settings?.preferredIDEs?.[tabApp.id]) || null}
+                  isViewTabBarHidden={isViewTabBarHidden}
+                  onToggleViewTabBar={handleToggleViewTabBar}
+                  activeView={detailsViewMode}
+                  onViewChange={setDetailsViewMode}
+                  perAppState={tabApp ? createAppStateHelpers(tabApp.id) : undefined}
+                />
+              </div>
+            );
+          })}
         </div>
       </main>
 
