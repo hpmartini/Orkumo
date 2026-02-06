@@ -580,7 +580,7 @@ export async function configureAllPorts(
         }
       };
 
-      eventSource.onerror = (err) => {
+      eventSource.onerror = () => {
         if (timeoutId) clearTimeout(timeoutId);
         eventSource?.close();
         reject(new Error('Failed to establish SSE connection'));
@@ -809,6 +809,307 @@ export async function validateApiKey(provider: string, key: string): Promise<{ v
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.error || 'Failed to validate API key');
+  }
+  return response.json();
+}
+
+// ============================================
+// Docker Compose API
+// ============================================
+
+export interface DockerContainerStatus {
+  id?: string;
+  name: string;
+  service?: string;
+  status: 'running' | 'exited' | 'paused' | 'created' | 'unknown';
+  ports?: string;
+  image?: string;
+}
+
+export interface DockerStatusResponse {
+  containers: DockerContainerStatus[];
+  error?: string;
+}
+
+export interface DockerServiceInfo {
+  name: string;
+  image?: string | null;
+  ports?: string[];
+  status: string;
+}
+
+export interface DockerServicesResponse {
+  services: DockerServiceInfo[];
+  error?: string;
+}
+
+export interface DockerActionResponse {
+  success: boolean;
+  message?: string;
+  output?: string;
+  error?: string;
+}
+
+export interface DockerLogsResponse {
+  success: boolean;
+  logs?: string;
+  error?: string;
+}
+
+/**
+ * Check if Docker is available on the system
+ */
+export async function isDockerAvailable(): Promise<boolean> {
+  const response = await fetch(`${API_BASE}/docker/available`);
+  if (!response.ok) {
+    return false;
+  }
+  const data = await response.json();
+  return data.available === true;
+}
+
+/**
+ * Get Docker container status for an app
+ */
+export async function fetchDockerStatus(appId: string): Promise<DockerStatusResponse> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/status`);
+  if (!response.ok) {
+    return { containers: [], error: 'Failed to fetch Docker status' };
+  }
+  return response.json();
+}
+
+/**
+ * Get Docker services defined in compose file
+ */
+export async function fetchDockerServices(appId: string): Promise<DockerServicesResponse> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/services`);
+  if (!response.ok) {
+    return { services: [], error: 'Failed to fetch Docker services' };
+  }
+  return response.json();
+}
+
+/**
+ * Start Docker containers for an app
+ */
+export async function startDockerContainers(appId: string, serviceName?: string): Promise<DockerActionResponse> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/start`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ service: serviceName }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    return { success: false, error: error.error || 'Failed to start containers' };
+  }
+  return response.json();
+}
+
+/**
+ * Stop Docker containers for an app
+ */
+export async function stopDockerContainers(appId: string, serviceName?: string): Promise<DockerActionResponse> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/stop`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ service: serviceName }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    return { success: false, error: error.error || 'Failed to stop containers' };
+  }
+  return response.json();
+}
+
+/**
+ * Restart Docker containers for an app
+ */
+export async function restartDockerContainers(appId: string, serviceName?: string): Promise<DockerActionResponse> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/restart`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ service: serviceName }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    return { success: false, error: error.error || 'Failed to restart containers' };
+  }
+  return response.json();
+}
+
+/**
+ * Get Docker logs for an app
+ */
+export async function fetchDockerLogs(appId: string, serviceName?: string, tail = 100): Promise<DockerLogsResponse> {
+  const params = new URLSearchParams({ tail: String(tail) });
+  if (serviceName) {
+    params.append('service', serviceName);
+  }
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/logs?${params}`);
+  if (!response.ok) {
+    return { success: false, error: 'Failed to fetch Docker logs' };
+  }
+  return response.json();
+}
+
+/**
+ * Pull latest Docker images for an app
+ */
+export async function pullDockerImages(appId: string): Promise<DockerActionResponse> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/pull`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    return { success: false, error: error.error || 'Failed to pull images' };
+  }
+  return response.json();
+}
+
+/**
+ * Build Docker images for an app
+ */
+export async function buildDockerImages(appId: string, serviceName?: string): Promise<DockerActionResponse> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/build`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ service: serviceName }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    return { success: false, error: error.error || 'Failed to build images' };
+  }
+  return response.json();
+}
+
+/**
+ * Remove Docker containers for an app (docker compose down)
+ */
+export async function removeDockerContainers(appId: string, removeVolumes = false): Promise<DockerActionResponse> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/docker/down`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ volumes: removeVolumes }),
+  });
+  if (!response.ok) {
+    const error = await response.json();
+    return { success: false, error: error.error || 'Failed to remove containers' };
+  }
+  return response.json();
+}
+
+// ============================================
+// System Health API
+// ============================================
+
+export interface SystemVersionInfo {
+  installed: boolean;
+  version: string | null;
+  running?: boolean;
+}
+
+export interface SystemVersions {
+  node: SystemVersionInfo;
+  npm: SystemVersionInfo;
+  git: SystemVersionInfo;
+  docker: SystemVersionInfo & { running: boolean };
+  versionManager: {
+    manager: 'nvm' | 'volta' | 'fnm' | 'asdf' | 'system';
+    path: string | null;
+  };
+  timestamp: number;
+}
+
+export interface MemoryInfo {
+  total: number;
+  free: number;
+  used: number;
+  usedPercent: number;
+}
+
+export interface CpuInfo {
+  cores: number;
+  model: string;
+  loadAverage: {
+    '1min': number;
+    '5min': number;
+    '15min': number;
+  };
+}
+
+export interface DiskInfo {
+  total: number;
+  used: number;
+  available: number;
+  usedPercent: number;
+}
+
+export interface SystemRecommendation {
+  type: 'update' | 'service' | 'disk' | 'memory' | 'project';
+  severity: 'info' | 'warning' | 'error';
+  title: string;
+  message: string;
+  action?: string;
+}
+
+export interface SystemHealthReport {
+  system: {
+    versions: SystemVersions;
+    memory: MemoryInfo;
+    cpu: CpuInfo;
+    disk: DiskInfo | null;
+    platform: string;
+    arch: string;
+    hostname: string;
+    uptime: number;
+  };
+  recommendations: SystemRecommendation[];
+  timestamp: number;
+}
+
+export interface ProjectHealthCheck {
+  name: string;
+  status: 'ok' | 'missing' | 'stale';
+  severity: 'ok' | 'info' | 'warning' | 'error';
+  message: string;
+  action?: string | null;
+}
+
+export interface ProjectHealth {
+  path: string;
+  checks: ProjectHealthCheck[];
+}
+
+/**
+ * Get full system health report
+ */
+export async function fetchSystemHealth(): Promise<SystemHealthReport> {
+  const response = await fetch(`${API_BASE}/system/health`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch system health');
+  }
+  return response.json();
+}
+
+/**
+ * Get system tool versions
+ */
+export async function fetchSystemVersions(): Promise<SystemVersions> {
+  const response = await fetch(`${API_BASE}/system/versions`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch system versions');
+  }
+  return response.json();
+}
+
+/**
+ * Get project health check
+ */
+export async function fetchProjectHealth(appId: string): Promise<ProjectHealth> {
+  const response = await fetch(`${API_BASE}/apps/${appId}/health`);
+  if (!response.ok) {
+    throw new Error('Failed to fetch project health');
   }
   return response.json();
 }

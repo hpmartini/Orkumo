@@ -38,6 +38,8 @@ import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
 import { ideService } from './services/ideService.js';
 import { injectLogger, removeLogger, checkLoggerStatus } from './services/loggerInjection.js';
+import * as dockerService from './services/dockerService.js';
+import * as healthService from './services/healthService.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -1715,6 +1717,59 @@ app.get('/api/claude-cli/status', async (req, res) => {
 });
 
 // ============================================
+// System Health Endpoints
+// ============================================
+
+/**
+ * GET /api/system/health
+ * Get full system health report with recommendations
+ */
+app.get('/api/system/health', async (req, res) => {
+  try {
+    const health = await healthService.getSystemHealth();
+    res.json(health);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/system/versions
+ * Get system tool versions (node, npm, git, docker)
+ */
+app.get('/api/system/versions', async (req, res) => {
+  try {
+    const versions = await healthService.getSystemVersions();
+    res.json(versions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/apps/:id/health
+ * Get health check for a specific project
+ */
+app.get('/api/apps/:id/health', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Get app path from scanned apps
+    const apps = scanAllDirectories();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    const health = await healthService.checkProjectHealth(app.path);
+    res.json(health);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// ============================================
 // Code-Server (VS Code Web) Endpoints
 // ============================================
 
@@ -1918,6 +1973,255 @@ app.post('/api/code-server/stop', (req, res) => {
       success: false,
       error: error.message
     });
+  }
+});
+
+// ============================================
+// Docker Compose Endpoints
+// ============================================
+
+/**
+ * GET /api/docker/available
+ * Check if Docker/Docker Compose is available on the system
+ */
+app.get('/api/docker/available', async (req, res) => {
+  try {
+    const available = await dockerService.isDockerAvailable();
+    res.json({ available });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/apps/:id/docker/status
+ * Get status of all containers for a Docker Compose project
+ */
+app.get('/api/apps/:id/docker/status', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Get project path from cache or scan
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.getContainerStatus(app.path);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/apps/:id/docker/services
+ * Get list of services defined in docker-compose file
+ */
+app.get('/api/apps/:id/docker/services', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.getServices(app.path);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/docker/start
+ * Start Docker Compose services
+ */
+app.post('/api/apps/:id/docker/start', processLimiter, validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { service } = req.body; // Optional: specific service to start
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.startServices(app.path, service);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/docker/stop
+ * Stop Docker Compose services
+ */
+app.post('/api/apps/:id/docker/stop', processLimiter, validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { service } = req.body; // Optional: specific service to stop
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.stopServices(app.path, service);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/docker/restart
+ * Restart Docker Compose services
+ */
+app.post('/api/apps/:id/docker/restart', processLimiter, validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { service } = req.body; // Optional: specific service to restart
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.restartServices(app.path, service);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * GET /api/apps/:id/docker/logs
+ * Get logs from Docker Compose services
+ */
+app.get('/api/apps/:id/docker/logs', validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { service, tail = 100 } = req.query;
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.getLogs(app.path, service, parseInt(tail, 10));
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/docker/pull
+ * Pull latest images for Docker Compose services
+ */
+app.post('/api/apps/:id/docker/pull', processLimiter, validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.pullImages(app.path);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/docker/build
+ * Build images for Docker Compose services
+ */
+app.post('/api/apps/:id/docker/build', processLimiter, validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { service } = req.body; // Optional: specific service to build
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.buildImages(app.path, service);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/apps/:id/docker/down
+ * Remove all containers for a Docker Compose project
+ */
+app.post('/api/apps/:id/docker/down', processLimiter, validateParams(idSchema), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { removeVolumes = false } = req.body;
+    const apps = await applicationsRepository.getAll();
+    const app = apps.find(a => a.id === id);
+
+    if (!app) {
+      return res.status(404).json({ error: 'App not found' });
+    }
+
+    if (app.type !== 'docker-compose') {
+      return res.status(400).json({ error: 'App is not a Docker Compose project' });
+    }
+
+    const result = await dockerService.removeContainers(app.path, removeVolumes);
+    res.json(result);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
   }
 });
 

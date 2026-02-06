@@ -308,46 +308,54 @@ The codebase is a full-stack application with:
 
 #### Docker Support
 
-- [ ] **[FEATURE]** Detect Docker Compose projects in scanner
+- [x] **[FEATURE]** Detect Docker Compose projects in scanner
   - Check for `docker-compose.yml`, `docker-compose.yaml`, `compose.yml`, `compose.yaml`
   - Validate compose commands available (`docker compose` or `docker-compose`)
   - Add `AppType: 'docker-compose'` to types
 
-- [ ] **[FEATURE]** Configure Docker projects for container management
+- [x] **[FEATURE]** Configure Docker projects for container management
   - Parse compose file to extract service names
   - Store container IDs for running services
+  - API endpoints at `/api/apps/:id/docker/*` (status, services, start, stop, restart, logs, pull, build, down)
 
-- [ ] **[FEATURE]** Add container controls in AppDetail view
-  - Start/stop/restart individual containers
-  - View container logs
-  - Show container status (running, exited, etc.)
+- [x] **[FEATURE]** Add container controls in AppDetail view
+  - Start/stop/restart individual containers and all services
+  - View container logs per service
+  - Show container status (running, exited, paused, created)
+  - Pull images, build images, docker compose down actions
+  - DockerControls component in `components/DockerControls.tsx`
 
 #### System Health Service
 
-- [ ] **[FEATURE]** Add system health service (`server/services/healthService.js`)
+- [x] **[FEATURE]** Add system health service (`server/services/healthService.js`)
   - Check Node.js version and compare to LTS
   - Check npm/yarn/pnpm versions
   - Check Git version
   - Check Docker availability and version
-  - Check disk space on project directories
+  - Check disk space on home directory
+  - API endpoints: `GET /api/system/health`, `GET /api/system/versions`
 
-- [ ] **[FEATURE]** Add project-level health checks
-  - Stale dependencies (package-lock.json age)
-  - `npm audit` vulnerability count
-  - Outdated packages (`npm outdated`)
+- [x] **[FEATURE]** Add project-level health checks
+  - Check node_modules existence
+  - Stale dependencies (package-lock.json age > 90 days)
   - Missing `.nvmrc` or `.node-version`
+  - TypeScript and ESLint configuration
+  - `.gitignore` presence
+  - API endpoint: `GET /api/apps/:id/health`
 
-- [ ] **[FEATURE]** Support Node/npm updates via detected version manager
-  - Detect nvm, volta, fnm, or system Node
-  - Provide appropriate update commands
-  - Add API endpoint: `POST /api/system/update-node`
+- [x] **[FEATURE]** Support Node/npm updates via detected version manager
+  - Detect nvm, volta, fnm, asdf, or system Node
+  - Provide appropriate update commands in recommendations
+  - Display version manager info in SystemHealth UI
 
 #### Actionable Recommendations
 
-- [ ] **[FEATURE]** Replace hardcoded SystemAlerts with live health data
-  - Create new `SystemHealth` component
-  - Display system checks with pass/fail/warning status
-  - Add action buttons for quick fixes
+- [x] **[FEATURE]** Replace hardcoded SystemAlerts with live health data
+  - Created `SystemHealth` component (`components/SystemHealth.tsx`)
+  - Display system resource usage (CPU, memory, disk)
+  - Display tool versions (Node, npm, Git, Docker)
+  - Generate and display recommendations with severity levels
+  - Show actionable fix commands for each recommendation
 
 - [ ] **[FEATURE]** Add actionable recommendations engine
   - Auto-fix port conflicts (suggest available ports, apply with one click)

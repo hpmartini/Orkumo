@@ -9,7 +9,7 @@ import {
   AppList,
   FavoritesList,
   AppDetail,
-  SystemAlerts,
+  SystemHealth,
   Recommendations,
   ErrorBoundary,
   AdminPanel,
@@ -475,7 +475,7 @@ function AppContent() {
 
               <div className="space-y-6">
                 <Recommendations apps={apps} onAnalyzeApp={handleAnalyzeApp} />
-                <SystemAlerts />
+                <SystemHealth />
               </div>
             </div>
           </div>

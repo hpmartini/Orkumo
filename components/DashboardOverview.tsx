@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { LayoutDashboard, Activity, Cpu, Zap, Radio, Settings, Loader2 } from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { DEFAULT_APP_START_PORT } from '../constants';

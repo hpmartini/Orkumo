@@ -9,7 +9,15 @@ export enum AppStatus {
   RESTARTING = 'RESTARTING'
 }
 
-export type AppType = 'vite' | 'next' | 'node' | 'static' | 'unknown';
+export type AppType = 'vite' | 'next' | 'node' | 'static' | 'docker-compose' | 'unknown';
+
+export interface DockerService {
+  name: string;
+  containerId?: string;
+  status: 'running' | 'exited' | 'paused' | 'created' | 'unknown';
+  ports?: string[];
+  image?: string;
+}
 
 export interface AppConfig {
   id: string;
@@ -30,6 +38,9 @@ export interface AppConfig {
   aiAnalysis?: string;
   isFavorite?: boolean;
   isArchived?: boolean;
+  // Docker Compose specific fields
+  dockerComposeFile?: string; // Path to compose file (docker-compose.yml, compose.yaml, etc.)
+  dockerServices?: DockerService[]; // List of services defined in compose file
 }
 
 export interface SystemStats {

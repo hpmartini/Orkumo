@@ -26,6 +26,7 @@ import { PerformanceCharts } from './PerformanceCharts';
 import { XTerminal } from './XTerminal';
 import { IDESelector } from './IDESelector';
 import { CodingView } from './CodingView';
+import { DockerControls } from './DockerControls';
 
 interface AppDetailProps {
   app: AppConfig | null;
@@ -461,6 +462,14 @@ export const AppDetail: React.FC<AppDetailProps> = ({
               cpuHistory={app.stats.cpu}
               memoryHistory={app.stats.memory}
             />
+
+            {/* Docker Controls - shown for docker-compose projects */}
+            {app.type === 'docker-compose' && (
+              <DockerControls
+                appId={app.id}
+                dockerComposeFile={app.dockerComposeFile}
+              />
+            )}
 
             {/* Terminal slot for Details view - the terminal wrapper will be moved here */}
             <div ref={detailsTerminalSlotRef} className="h-[400px]" />

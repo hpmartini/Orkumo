@@ -49,7 +49,7 @@ const notifyStatusChange = (status: string) => {
 // Shared function to ensure code-server is running (called by all panels)
 const ensureCodeServerRunning = async (
   apiBaseUrl: string,
-  iframeTimeout: number
+  _iframeTimeout: number // Kept for API compatibility but not used directly
 ): Promise<CodeServerResult> => {
   // If an operation is already in progress, return the same promise
   if (codeServerPromise) {

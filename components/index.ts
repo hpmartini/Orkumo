@@ -10,6 +10,7 @@ export { AppDetail } from './AppDetail';
 export { Sidebar } from './Sidebar';
 export { SystemAlerts } from './SystemAlerts';
 export type { Alert } from './SystemAlerts';
+export { SystemHealth } from './SystemHealth';
 export { Recommendations } from './Recommendations';
 export { ErrorBoundary } from './ErrorBoundary';
 export { AdminPanel } from './AdminPanel';
