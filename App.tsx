@@ -482,7 +482,11 @@ function AppContent() {
 
           {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.
               This preserves iframe state (VS Code Server, Browser Preview) when switching tabs.
-              Previously conditional rendering caused iframes to reload on every tab switch. */}
+              Previously conditional rendering caused iframes to reload on every tab switch.
+
+              IMPORTANT: We use clip-path and position:fixed with left:-200vw to truly hide inactive tabs.
+              Simple visibility:hidden or translateX doesn't work for iframes - they can "bleed through"
+              because iframes create their own stacking context. */}
           {tabs.map((tab) => {
             const tabApp = apps.find((a) => a.id === tab.appId);
             const isActive = activeTab === 'apps' && tab.appId === selectedAppId;
@@ -490,17 +494,24 @@ function AppContent() {
             return (
               <div
                 key={tab.appId}
-                className={`absolute inset-0 flex flex-col min-h-0 ${
+                className={`flex flex-col min-h-0 ${
                   isActive
-                    ? 'z-10 visible opacity-100'
-                    : 'z-0 invisible opacity-0 pointer-events-none'
+                    ? 'absolute inset-0 z-10'
+                    : 'fixed pointer-events-none'
                 }`}
-                style={{
-                  // Use transform to ensure hidden tabs don't affect layout
-                  transform: isActive ? 'none' : 'translateX(-9999px)',
-                  // Ensure the container fills available space
+                style={isActive ? {
+                  // Active tab: normal positioning
                   top: tabs.length > 0 ? '2.5rem' : '0',
-                  marginTop: tabs.length > 0 ? '0' : undefined,
+                } : {
+                  // Inactive tab: truly hide off-screen with clip to prevent iframe bleed-through
+                  // Using fixed position + left:-200vw ensures the iframe is completely off-viewport
+                  // clip-path ensures nothing renders even if browser tries to optimize
+                  left: '-200vw',
+                  top: 0,
+                  width: '100vw',
+                  height: '100vh',
+                  clipPath: 'inset(0 100% 100% 0)', // Clips the entire element
+                  visibility: 'hidden' as const,
                 }}
                 aria-hidden={!isActive}
               >
