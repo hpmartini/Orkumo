@@ -372,6 +372,7 @@ export async function restartProcess(appId) {
     setTimeout(() => {
       const result = startProcess(appId, appPath, command, port);
       resolve(result);
+    }, 1000);
   });
 }
 
