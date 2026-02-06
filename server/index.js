@@ -352,21 +352,62 @@ app.get('/api/apps/stats/stream', (req, res) => {
     }
   }, SSE_HEARTBEAT_INTERVAL);
 
+  // Backpressure control: track if stats collection is in progress
+  let statsInProgress = false;
+  let backpressureWarningLogged = false;
+
   // Set up stats streaming interval - send stats for all running apps every 2 seconds
+  // With backpressure control to prevent memory leak from stacking intervals
   const statsInterval = setInterval(async () => {
+    // Skip if previous collection is still in progress (backpressure)
+    if (statsInProgress) {
+      if (!backpressureWarningLogged) {
+        console.warn('[SSE Stats] Skipping - previous collection still in progress (backpressure detected)');
+        backpressureWarningLogged = true;
+      }
+      return;
+    }
+
+    statsInProgress = true;
+    backpressureWarningLogged = false;
+
     try {
       const processes = getAllProcesses();
       const runningApps = Object.entries(processes).filter(
         ([, info]) => info.status === 'RUNNING' && info.pid
       );
 
-      // Collect stats for all running apps
-      for (const [appId, info] of runningApps) {
+      // Collect all stats concurrently with timeout to prevent hanging
+      const STATS_TIMEOUT_MS = 1500; // Must be less than STATS_UPDATE_INTERVAL
+      const statsPromises = runningApps.map(async ([appId, info]) => {
         try {
-          const stats = await getProcessStats(info.pid);
-          res.write(`event: stats\ndata: ${JSON.stringify({ appId, cpu: stats.cpu, memory: stats.memory })}\n\n`);
+          const stats = await Promise.race([
+            getProcessStats(info.pid),
+            new Promise((_, reject) =>
+              setTimeout(() => reject(new Error('Stats collection timeout')), STATS_TIMEOUT_MS)
+            )
+          ]);
+          return { appId, stats, success: true };
         } catch {
-          // Skip apps with failed stats
+          return { appId, success: false };
+        }
+      });
+
+      const results = await Promise.all(statsPromises);
+
+      // Write all successful results to the stream
+      for (const result of results) {
+        if (result.success && result.stats) {
+          try {
+            res.write(`event: stats\ndata: ${JSON.stringify({
+              appId: result.appId,
+              cpu: result.stats.cpu,
+              memory: result.stats.memory
+            })}\n\n`);
+          } catch {
+            // Client disconnected during write, will be cleaned up
+            break;
+          }
         }
       }
 
@@ -376,6 +417,8 @@ app.get('/api/apps/stats/stream', (req, res) => {
       }
     } catch {
       // Error getting stats, ignore
+    } finally {
+      statsInProgress = false;
     }
   }, STATS_UPDATE_INTERVAL);
 
@@ -1621,17 +1664,37 @@ Return a JSON object with:
 // Health Check
 // ============================================
 
+// Track server start time for uptime calculation
+const serverStartTime = Date.now();
+
 /**
  * GET /api/health
- * Health check endpoint
+ * Health check endpoint with memory and uptime info
  */
 app.get('/api/health', (req, res) => {
+  const memUsage = process.memoryUsage();
   res.json({
     status: 'ok',
     aiEnabled: !!getApiKey(),
     databaseConnected: isDatabaseConnected(),
     terminalSessions: terminalSessionManager.getStats(),
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    uptime: Math.floor((Date.now() - serverStartTime) / 1000),
+    memory: {
+      heapUsed: Math.round(memUsage.heapUsed / 1024 / 1024),
+      heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
+      rss: Math.round(memUsage.rss / 1024 / 1024),
+      external: Math.round(memUsage.external / 1024 / 1024),
+    },
+    sseClients: {
+      general: sseClients.size,
+      stats: statsSSEClients.size,
+      portConfig: portConfigProgressClients.size,
+    },
+    codeServer: {
+      running: codeServerProcess !== null,
+      port: codeServerPort,
+    }
   });
 });
 
@@ -1749,18 +1812,50 @@ app.post('/api/code-server/start', async (req, res) => {
       });
     }
 
-    // Start code-server
+    // Start code-server with proper process management
+    // Note: We intentionally DO NOT use detached: true or unref() to:
+    // 1. Properly track the child process
+    // 2. Capture stdout/stderr for debugging
+    // 3. Clean up on parent exit
     const { spawn } = await import('child_process');
     codeServerProcess = spawn(codeServerPath, [
       '--bind-addr', `127.0.0.1:${codeServerPort}`,
       '--auth', 'none',
       '--disable-telemetry'
     ], {
-      detached: true,
-      stdio: 'ignore'
+      stdio: ['ignore', 'pipe', 'pipe']  // Capture stdout and stderr
     });
 
-    codeServerProcess.unref();
+    // Log code-server output for debugging
+    codeServerProcess.stdout.on('data', (data) => {
+      const output = data.toString().trim();
+      if (output) {
+        console.log('[code-server]', output);
+      }
+    });
+
+    codeServerProcess.stderr.on('data', (data) => {
+      const output = data.toString().trim();
+      if (output) {
+        // Filter out common non-error messages that code-server outputs to stderr
+        if (!output.includes('info') && !output.includes('HTTP')) {
+          console.error('[code-server]', output);
+        } else {
+          console.log('[code-server]', output);
+        }
+      }
+    });
+
+    // Handle code-server exit to detect crashes
+    codeServerProcess.on('exit', (code, signal) => {
+      console.log(`[code-server] Process exited with code=${code}, signal=${signal}`);
+      codeServerProcess = null;
+    });
+
+    codeServerProcess.on('error', (err) => {
+      console.error('[code-server] Process error:', err.message);
+      codeServerProcess = null;
+    });
 
     // Wait for it to be ready
     let attempts = 0;
@@ -2550,9 +2645,36 @@ function cleanup() {
   // Clear the SSE cleanup interval
   clearInterval(sseCleanupInterval);
 
-  // Close all SSE connections
+  // Close all stats SSE connections
+  console.log(`[Server] Closing ${statsSSEClients.size} stats SSE connections...`);
+  for (const [client, info] of statsSSEClients) {
+    clearInterval(info.heartbeatInterval);
+    clearInterval(info.statsInterval);
+    try {
+      client.write(`event: shutdown\ndata: ${JSON.stringify({ message: 'Server shutting down' })}\n\n`);
+      client.end();
+    } catch {
+      // Connection already closed
+    }
+  }
+  statsSSEClients.clear();
+
+  // Close all general SSE connections
+  console.log(`[Server] Closing ${sseClients.size} general SSE connections...`);
+  for (const [client, info] of sseClients) {
+    clearInterval(info.heartbeatInterval);
+    try {
+      client.write(`event: shutdown\ndata: ${JSON.stringify({ message: 'Server shutting down' })}\n\n`);
+      client.end();
+    } catch {
+      // Connection already closed
+    }
+  }
+  sseClients.clear();
+
+  // Close all port config progress SSE connections
   for (const [sessionId, client] of portConfigProgressClients) {
-    console.log(`[SSE] Closing connection for session ${sessionId}`);
+    console.log(`[SSE] Closing port config connection for session ${sessionId}`);
     clearTimeout(client.timeoutId);
     try {
       client.res.write('data: {"type":"shutdown","message":"Server shutting down"}\n\n');
@@ -2562,6 +2684,23 @@ function cleanup() {
     }
   }
   portConfigProgressClients.clear();
+
+  // Kill code-server if we started it
+  if (codeServerProcess) {
+    console.log('[Server] Stopping code-server...');
+    try {
+      codeServerProcess.kill('SIGTERM');
+      // Give it 2 seconds to shut down gracefully, then force kill
+      setTimeout(() => {
+        if (codeServerProcess) {
+          console.log('[Server] Force killing code-server...');
+          codeServerProcess.kill('SIGKILL');
+        }
+      }, 2000);
+    } catch (err) {
+      console.error('[Server] Error stopping code-server:', err.message);
+    }
+  }
 
   // Close the HTTP server
   server.close(() => {
