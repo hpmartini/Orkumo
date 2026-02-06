@@ -1461,10 +1461,10 @@ app.post('/api/apps/:id/start', processLimiter, validateParams(idSchema), valida
  * POST /api/apps/:id/stop
  * Stop an app
  */
-app.post('/api/apps/:id/stop', processLimiter, validateParams(idSchema), (req, res) => {
+app.post('/api/apps/:id/stop', processLimiter, validateParams(idSchema), async (req, res) => {
   try {
     const { id } = req.params;
-    const result = stopProcess(id);
+    const result = await stopProcess(id);
     res.json(result);
   } catch (error) {
     res.status(400).json({ error: error.message });

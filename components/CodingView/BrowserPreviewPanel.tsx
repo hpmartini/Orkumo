@@ -358,15 +358,30 @@ const IframeBrowserPreview = ({
       {/* Header */}
       <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between">
         <span>Browser Preview</span>
-        {onHide && (
+        <div className="flex items-center gap-1">
+          {/* DevTools Toggle */}
           <button
-            onClick={onHide}
-            className="p-1 hover:bg-gray-700 rounded transition-colors"
-            title="Hide browser preview"
+            onClick={() => setShowDevTools(!showDevTools)}
+            className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+              showDevTools
+                ? 'bg-blue-600 text-white'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+            }`}
+            title={showDevTools ? 'Hide DevTools' : 'Show DevTools'}
           >
-            <X size={14} />
+            <TerminalIcon size={12} />
+            DevTools
           </button>
-        )}
+          {onHide && (
+            <button
+              onClick={onHide}
+              className="p-1 hover:bg-gray-700 rounded transition-colors"
+              title="Hide browser preview"
+            >
+              <X size={14} />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* URL Bar */}

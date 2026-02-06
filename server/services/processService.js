@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import pidusage from 'pidusage';
+import treeKill from 'tree-kill';
 
 // Store running processes
 const processes = new Map();
@@ -298,46 +299,61 @@ export function startProcess(appId, appPath, command, port) {
 }
 
 /**
- * Stop a process
+ * Stop a process using tree-kill for reliable cross-platform process tree killing
  */
 export function stopProcess(appId) {
-  const processInfo = processes.get(appId);
+  return new Promise((resolve, reject) => {
+    const processInfo = processes.get(appId);
 
-  if (!processInfo || !processInfo.process) {
-    throw new Error('Process not found');
-  }
+    if (!processInfo || !processInfo.process) {
+      reject(new Error('Process not found'));
+      return;
+    }
 
-  if (processInfo.status !== 'RUNNING') {
-    throw new Error('Process is not running');
-  }
+    if (processInfo.status !== 'RUNNING') {
+      reject(new Error('Process is not running'));
+      return;
+    }
 
-  // Kill the process tree
-  const pid = processInfo.process.pid;
+    const pid = processInfo.process.pid;
 
-  try {
-    // On Unix, kill the process group
-    process.kill(-pid, 'SIGTERM');
-  } catch {
-    // Fallback to killing just the process
-    processInfo.process.kill('SIGTERM');
-  }
+    // Use tree-kill for reliable cross-platform process tree killing
+    // This kills the process and all its children (e.g., webpack-dev-server spawns child processes)
+    treeKill(pid, 'SIGTERM', (err) => {
+      if (err) {
+        console.warn(`[ProcessService] tree-kill SIGTERM failed for PID ${pid}:`, err.message);
+        // Try SIGKILL as fallback
+        treeKill(pid, 'SIGKILL', (killErr) => {
+          if (killErr) {
+            console.error(`[ProcessService] tree-kill SIGKILL also failed:`, killErr.message);
+            // Last resort: try the basic process kill
+            try {
+              processInfo.process.kill('SIGKILL');
+            } catch {
+              // Process may already be dead
+            }
+          }
+        });
+      }
 
-  processInfo.status = 'STOPPED';
-  processInfo.logs.push({
-    type: 'system',
-    message: '[SYSTEM] Process terminated',
-    timestamp: new Date().toISOString(),
+      processInfo.status = 'STOPPED';
+      processInfo.logs.push({
+        type: 'system',
+        message: '[SYSTEM] Process terminated',
+        timestamp: new Date().toISOString(),
+      });
+
+      processEvents.emit('status', { appId, status: 'STOPPED' });
+
+      resolve({ status: 'STOPPED' });
+    });
   });
-
-  processEvents.emit('status', { appId, status: 'STOPPED' });
-
-  return { status: 'STOPPED' };
 }
 
 /**
  * Restart a process
  */
-export function restartProcess(appId) {
+export async function restartProcess(appId) {
   const processInfo = processes.get(appId);
 
   if (!processInfo) {
@@ -346,9 +362,9 @@ export function restartProcess(appId) {
 
   const { appPath, command, port } = processInfo;
 
-  // Stop if running
+  // Stop if running (now async with tree-kill)
   if (processInfo.status === 'RUNNING') {
-    stopProcess(appId);
+    await stopProcess(appId);
   }
 
   // Wait a bit then start
@@ -356,7 +372,6 @@ export function restartProcess(appId) {
     setTimeout(() => {
       const result = startProcess(appId, appPath, command, port);
       resolve(result);
-    }, 1000);
   });
 }
 
@@ -374,14 +389,21 @@ export function getProcessLogs(appId, limit = 50) {
 /**
  * Clean up all processes on shutdown
  */
-export function cleanupAllProcesses() {
+export async function cleanupAllProcesses() {
+  const stopPromises = [];
   for (const [appId] of processes) {
-    try {
-      stopProcess(appId);
-    } catch {
-      // Ignore errors during cleanup
-    }
+    // Don't await here - fire all stop commands in parallel for faster shutdown
+    stopPromises.push(
+      stopProcess(appId).catch(() => {
+        // Ignore errors during cleanup
+      })
+    );
   }
+  // Wait for all to complete (with a timeout)
+  await Promise.race([
+    Promise.all(stopPromises),
+    new Promise((resolve) => setTimeout(resolve, 5000)), // 5 second max wait
+  ]);
 }
 
 // Cleanup on process exit

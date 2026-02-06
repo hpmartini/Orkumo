@@ -54,7 +54,7 @@ The codebase is a full-stack application with:
 
 - [x] **[SECURITY]** Add rate limiting to Express server - Added `express-rate-limit` middleware.
 
-- [ ] **[SECURITY]** Process kill in `processService.js:169` uses `-pid` for process group kill which fails silently on some systems. Add cross-platform process tree killing with `tree-kill` package.
+- [x] **[SECURITY]** Process kill in `processService.js:169` uses `-pid` for process group kill which fails silently on some systems. Add cross-platform process tree killing with `tree-kill` package. (Implemented with SIGTERM fallback to SIGKILL)
 
 - [x] **[RELIABILITY]** Memory leak in SSE clients - Fixed with heartbeat/timeout cleanup.
 
@@ -67,7 +67,7 @@ The codebase is a full-stack application with:
 - [x] **[FEATURE]** Implement real process management - Implemented in `server/services/processService.js`
 - [x] **[FEATURE]** Implement real CPU/memory metrics using `pidusage` - Added with `/api/apps/:id/stats` endpoint.
 
-- [ ] **[FEATURE]** Add custom port setting UI in app detail view - Allow users to override detected port.
+- [x] **[FEATURE]** Add custom port setting UI in app detail view - Allow users to override detected port. (Already implemented in AppDetail.tsx with persistence via updatePort API)
 - [ ] **[FEATURE]** Add recommendations panel showing "possible optimizations, updates, etc."
 
 ### Architecture
@@ -156,6 +156,21 @@ The codebase is a full-stack application with:
 ---
 
 ## Implementation Notes
+
+### Completed (2026-02-06)
+
+**Multi-Tab Stability Fixes:**
+1. Fixed code-server race condition with shared promise coordination across WebIDEPanel instances
+2. Added module-level lock to prevent concurrent code-server start/stop operations
+3. Iframe src gated by `codeServerReady` state - prevents ERR_CONNECTION_REFUSED errors
+4. Added 30-second minimum interval between restart attempts to prevent cascade failures
+5. Fixed iframe bleed-through between tabs using `clip-path` + `position: fixed` + `left: -200vw`
+
+**Server Stability:**
+1. Stats streaming backpressure control - prevents memory leak from stacking intervals
+2. Enhanced health endpoint with memory, uptime, SSE client counts, code-server status
+3. Better code-server process management - captures stdout/stderr, handles exit/error events
+4. Improved graceful shutdown - properly closes all SSE connections, kills code-server
 
 ### Completed (2026-01-03)
 
@@ -248,15 +263,16 @@ The codebase is a full-stack application with:
 
 #### Tasks
 
-- [ ] **[BUG]** Refactor tab system to keep all open AppDetail components mounted
-  - Use CSS `visibility: hidden` / `position: absolute` / `left: -9999px` for inactive tabs
+- [x] **[BUG]** Refactor tab system to keep all open AppDetail components mounted
+  - Use CSS `visibility: hidden` / `position: fixed` / `left: -200vw` / `clip-path` for inactive tabs
   - Preserve iframe state (code-server, browser preview)
   - Preserve terminal sessions and WebSocket connections
+  - Fixed iframe bleed-through issue with proper clip-path containment
 
 - [ ] **[UI]** AppDetail: Add "Code" button for quick view switching
 
-- [ ] **[UI]** BrowserPreviewPanel improvements:
-  - Add DevTools toggle button in header
+- [x] **[UI]** BrowserPreviewPanel improvements:
+  - Add DevTools toggle button in header (Added toggle with active state highlighting)
   - Improve layout consistency with ElectronBrowserView
 
 - [ ] **[PERF]** ElectronBrowserView optimizations:
@@ -265,11 +281,14 @@ The codebase is a full-stack application with:
   - Avoid redundant resize/navigate calls
   - Better URL change handling
 
-- [ ] **[UI]** WebIDEPanel improvements:
+- [x] **[UI]** WebIDEPanel improvements:
   - Add Details button for view switching
   - Poll code-server status for reliable loading detection
+  - Fixed multi-tab race condition with shared promise coordination
+  - Added backpressure control and 30s restart interval to prevent cascade failures
+  - Iframe src gated by codeServerReady state to prevent ERR_CONNECTION_REFUSED
 
-- [ ] **[UI]** Add favicon to index.html
+- [x] **[UI]** Add favicon to index.html (Added SVG favicon with orbit design)
 
 ---
 
