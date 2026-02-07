@@ -43,25 +43,34 @@ export const TitleBar: React.FC<TitleBarProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   useEffect(() => {
+    // Use Electron IPC for fullscreen detection (works with native macOS fullscreen)
+    // @ts-expect-error electronAPI is added by Electron preload script
+    const electronAPI = window.electronAPI;
+
+    if (electronAPI?.onFullscreenChange) {
+      // Get initial state
+      electronAPI.getFullscreenState?.().then((state: boolean) => {
+        setIsFullscreen(state);
+      });
+
+      // Subscribe to changes
+      const cleanup = electronAPI.onFullscreenChange((fullscreen: boolean) => {
+        setIsFullscreen(fullscreen);
+      });
+
+      return cleanup;
+    }
+
+    // Fallback for non-Electron: use document.fullscreenElement
     const handleFullscreenChange = () => {
       setIsFullscreen(!!document.fullscreenElement);
     };
 
-    // Also check for macOS native fullscreen via media query
-    const mediaQuery = window.matchMedia('(display-mode: fullscreen)');
-    const handleMediaChange = (e: MediaQueryListEvent) => {
-      setIsFullscreen(e.matches);
-    };
-
     document.addEventListener('fullscreenchange', handleFullscreenChange);
-    mediaQuery.addEventListener('change', handleMediaChange);
-
-    // Initial check
-    setIsFullscreen(!!document.fullscreenElement || mediaQuery.matches);
+    setIsFullscreen(!!document.fullscreenElement);
 
     return () => {
       document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      mediaQuery.removeEventListener('change', handleMediaChange);
     };
   }, []);
 

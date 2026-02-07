@@ -46,6 +46,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Environment
   isElectron: true,
   isDev: process.defaultApp || process.env.NODE_ENV === 'development',
+
+  // Window state
+  onFullscreenChange: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = (event, isFullscreen) => callback(isFullscreen);
+    ipcRenderer.on('fullscreen-change', handler);
+    // Return cleanup function to remove the listener
+    return () => ipcRenderer.removeListener('fullscreen-change', handler);
+  },
+  getFullscreenState: () => ipcRenderer.invoke('get-fullscreen-state'),
 });
 
 // Log successful preload

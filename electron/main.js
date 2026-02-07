@@ -77,6 +77,19 @@ function createWindow() {
     mainWindow = null;
   });
 
+  // Track fullscreen state and notify renderer
+  mainWindow.on('enter-full-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('fullscreen-change', true);
+    }
+  });
+
+  mainWindow.on('leave-full-screen', () => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('fullscreen-change', false);
+    }
+  });
+
   // Create application menu
   createApplicationMenu();
 }
@@ -565,6 +578,14 @@ function setupIpcHandlers() {
   // Get app version
   ipcMain.handle('get-app-version', () => {
     return app.getVersion();
+  });
+
+  // Get fullscreen state
+  ipcMain.handle('get-fullscreen-state', () => {
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      return false;
+    }
+    return mainWindow.isFullScreen();
   });
 
   // Get platform info
