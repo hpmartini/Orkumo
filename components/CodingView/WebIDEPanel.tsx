@@ -12,7 +12,11 @@ import {
   Box,
   Terminal,
   Globe,
+  Play,
+  Square,
+  FileText,
 } from 'lucide-react';
+import { AppStatus } from '../../types';
 import { API_BASE_URL } from '../../utils/apiConfig';
 
 // ============================================================================
@@ -43,7 +47,7 @@ type StatusCallback = (status: string) => void;
 const statusSubscribers = new Set<StatusCallback>();
 
 const notifyStatusChange = (status: string) => {
-  statusSubscribers.forEach(cb => cb(status));
+  statusSubscribers.forEach((cb) => cb(status));
 };
 
 // Shared function to ensure code-server is running (called by all panels)
@@ -84,7 +88,7 @@ const ensureCodeServerRunning = async (
               `To install it, run one of these commands in your terminal:\n\n` +
               `macOS (Homebrew):\n  brew install code-server\n\n` +
               `npm (any platform):\n  npm install -g code-server\n\n` +
-              `After installation, click "Retry" or use the Monaco editor.`
+              `After installation, click "Retry" or use the Monaco editor.`,
           };
         }
 
@@ -94,7 +98,7 @@ const ensureCodeServerRunning = async (
           notifyStatusChange('VS Code Server is running. Warming up...');
 
           const WARMUP_DELAY_MS = 2000;
-          await new Promise(resolve => setTimeout(resolve, WARMUP_DELAY_MS));
+          await new Promise((resolve) => setTimeout(resolve, WARMUP_DELAY_MS));
 
           notifyStatusChange('Loading editor...');
           lastCodeServerReadyTime = Date.now();
@@ -113,7 +117,7 @@ const ensureCodeServerRunning = async (
           notifyStatusChange('VS Code Server started. Warming up...');
 
           const STARTUP_WARMUP_DELAY_MS = 3000;
-          await new Promise(resolve => setTimeout(resolve, STARTUP_WARMUP_DELAY_MS));
+          await new Promise((resolve) => setTimeout(resolve, STARTUP_WARMUP_DELAY_MS));
 
           notifyStatusChange('Loading editor...');
           lastCodeServerReadyTime = Date.now();
@@ -133,7 +137,7 @@ const ensureCodeServerRunning = async (
               `1. Open Terminal and run: code-server\n` +
               `2. Check if port 8080 is in use: lsof -i:8080\n` +
               `3. Kill conflicting process: kill -9 $(lsof -ti:8080)\n\n` +
-              `Or use the Monaco editor instead.`
+              `Or use the Monaco editor instead.`,
           };
         }
       } catch (error) {
@@ -142,23 +146,27 @@ const ensureCodeServerRunning = async (
         if (retryCount < maxRetries) {
           console.log('[CodeServerManager] Error occurred, retrying...');
           notifyStatusChange(`Connection error. Retrying (${retryCount + 1}/${maxRetries})...`);
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          await new Promise((resolve) => setTimeout(resolve, 1000));
           return checkAndStart(retryCount + 1);
         }
 
         const errorMessage = error instanceof Error ? error.message : String(error);
-        if (errorMessage.includes('fetch') || errorMessage.includes('network') || errorMessage.includes('Failed to fetch')) {
+        if (
+          errorMessage.includes('fetch') ||
+          errorMessage.includes('network') ||
+          errorMessage.includes('Failed to fetch')
+        ) {
           return {
             success: false,
             error:
               'Could not connect to backend server.\n\n' +
               'The DevOrbit backend server may not be running.\n' +
-              'This is an internal error - please restart the application.'
+              'This is an internal error - please restart the application.',
           };
         }
         return {
           success: false,
-          error: `Error: ${errorMessage}\n\nTry clicking "Retry" or use the Monaco editor.`
+          error: `Error: ${errorMessage}\n\nTry clicking "Retry" or use the Monaco editor.`,
         };
       }
     };
@@ -167,7 +175,7 @@ const ensureCodeServerRunning = async (
       try {
         notifyStatusChange('Stopping VS Code Server...');
         await fetch(`${apiBaseUrl}/code-server/stop`, { method: 'POST' });
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        await new Promise((resolve) => setTimeout(resolve, 1000));
 
         notifyStatusChange('Restarting VS Code Server...');
         return checkAndStart(retryCount);
@@ -180,7 +188,7 @@ const ensureCodeServerRunning = async (
             'Try manually restarting:\n' +
             '1. Kill code-server: pkill -f code-server\n' +
             '2. Click "Retry"\n\n' +
-            'Or use the Monaco editor.'
+            'Or use the Monaco editor.',
         };
       }
     };
@@ -209,7 +217,9 @@ const forceRestartCodeServer = async (apiBaseUrl: string): Promise<CodeServerRes
   // This avoids unnecessary restarts when multiple panels timeout simultaneously
   const timeSinceReady = Date.now() - lastCodeServerReadyTime;
   if (timeSinceReady < MIN_RESTART_INTERVAL_MS) {
-    console.log(`[CodeServerManager] Skipping restart - code-server was ready ${Math.round(timeSinceReady / 1000)}s ago (min interval: ${MIN_RESTART_INTERVAL_MS / 1000}s)`);
+    console.log(
+      `[CodeServerManager] Skipping restart - code-server was ready ${Math.round(timeSinceReady / 1000)}s ago (min interval: ${MIN_RESTART_INTERVAL_MS / 1000}s)`
+    );
     // Return success since code-server was recently working
     return { success: true, url: 'http://127.0.0.1:8080' };
   }
@@ -218,7 +228,7 @@ const forceRestartCodeServer = async (apiBaseUrl: string): Promise<CodeServerRes
     try {
       notifyStatusChange('Stopping VS Code Server...');
       await fetch(`${apiBaseUrl}/code-server/stop`, { method: 'POST' });
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       notifyStatusChange('Restarting VS Code Server...');
       const startRes = await fetch(`${apiBaseUrl}/code-server/start`, { method: 'POST' });
@@ -226,7 +236,7 @@ const forceRestartCodeServer = async (apiBaseUrl: string): Promise<CodeServerRes
 
       if (startResult.success) {
         notifyStatusChange('VS Code Server started. Warming up...');
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
         notifyStatusChange('Loading editor...');
         lastCodeServerReadyTime = Date.now();
         return { success: true, url: 'http://127.0.0.1:8080' };
@@ -235,7 +245,7 @@ const forceRestartCodeServer = async (apiBaseUrl: string): Promise<CodeServerRes
     } catch (error) {
       return {
         success: false,
-        error: 'Failed to restart VS Code Server. Try manually restarting.'
+        error: 'Failed to restart VS Code Server. Try manually restarting.',
       };
     }
   })();
@@ -282,6 +292,16 @@ interface WebIDEPanelProps {
   editorType?: EditorType;
   /** Callback when editor type changes */
   onEditorTypeChange?: (type: EditorType) => void;
+  /** Current app status for flow controls */
+  appStatus?: AppStatus;
+  /** Callback to start the app */
+  onStart?: () => void;
+  /** Callback to stop the app */
+  onStop?: () => void;
+  /** Callback to restart the app */
+  onRestart?: () => void;
+  /** Callback to switch to details view */
+  onSwitchToDetails?: () => void;
 }
 
 export const WebIDEPanel = ({
@@ -292,6 +312,11 @@ export const WebIDEPanel = ({
   onShowBrowser,
   editorType: controlledEditorType,
   onEditorTypeChange,
+  appStatus,
+  onStart,
+  onStop,
+  onRestart,
+  onSwitchToDetails,
 }: WebIDEPanelProps) => {
   // Use controlled or uncontrolled editor type
   const [internalEditorType, setInternalEditorType] = useState<EditorType>('code-server');
@@ -379,7 +404,7 @@ export const WebIDEPanel = ({
       '/.gitconfig',
     ];
 
-    const isDenied = deniedPatterns.some(pattern => normalizedPath.includes(pattern));
+    const isDenied = deniedPatterns.some((pattern) => normalizedPath.includes(pattern));
     if (isDenied) {
       console.error(`[WebIDEPanel] Access to sensitive directory blocked: ${path}`);
       return false;
@@ -394,7 +419,7 @@ export const WebIDEPanel = ({
       'C:/Users/', // Windows user directories
     ];
 
-    const isAllowed = allowedPrefixes.some(prefix => {
+    const isAllowed = allowedPrefixes.some((prefix) => {
       const normalizedPrefix = prefix.replace(/\\/g, '/');
       return normalizedPath.startsWith(normalizedPrefix);
     });
@@ -410,58 +435,62 @@ export const WebIDEPanel = ({
   // Get the path for code-server
   // When running locally (not in Docker), use the path as-is
   // When running in Docker, convert host path to container path
-  const getContainerPath = useCallback((hostPath: string) => {
-    // Validate path first to prevent path traversal attacks
-    if (!validatePath(hostPath)) {
-      throw new Error(`Invalid or unsafe path: ${hostPath}`);
-    }
-
-    const normalizedPath = hostPath.replace(/\\/g, '/');
-
-    // Check if we're using local code-server (not Docker)
-    // If URL is localhost/127.0.0.1, use the path directly
-    const isLocalCodeServer = codeServerUrl.includes('127.0.0.1') || codeServerUrl.includes('localhost');
-
-    if (isLocalCodeServer) {
-      // Local code-server can access host paths directly
-      if (import.meta.env.DEV) {
-        console.log(`[WebIDEPanel] Using local path: ${normalizedPath}`);
+  const getContainerPath = useCallback(
+    (hostPath: string) => {
+      // Validate path first to prevent path traversal attacks
+      if (!validatePath(hostPath)) {
+        throw new Error(`Invalid or unsafe path: ${hostPath}`);
       }
-      return normalizedPath;
-    }
 
-    // Docker: code-server mounts volumes at /home/coder/Projects and /home/coder/PROJECTS
-    // Convert host path to container path
-    const projectsMatches = normalizedPath.match(/\/Projects\//g);
-    const PROJECTSMatches = normalizedPath.match(/\/PROJECTS\//g);
+      const normalizedPath = hostPath.replace(/\\/g, '/');
 
-    let containerPath: string | null = null;
+      // Check if we're using local code-server (not Docker)
+      // If URL is localhost/127.0.0.1, use the path directly
+      const isLocalCodeServer =
+        codeServerUrl.includes('127.0.0.1') || codeServerUrl.includes('localhost');
 
-    if (projectsMatches && projectsMatches.length > 0) {
-      const lastIndex = normalizedPath.lastIndexOf('/Projects/');
-      const relativePath = normalizedPath.substring(lastIndex + '/Projects/'.length);
-      containerPath = `/home/coder/Projects/${relativePath}`;
-      if (import.meta.env.DEV) {
-        console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
+      if (isLocalCodeServer) {
+        // Local code-server can access host paths directly
+        if (import.meta.env.DEV) {
+          console.log(`[WebIDEPanel] Using local path: ${normalizedPath}`);
+        }
+        return normalizedPath;
       }
-    } else if (PROJECTSMatches && PROJECTSMatches.length > 0) {
-      const lastIndex = normalizedPath.lastIndexOf('/PROJECTS/');
-      const relativePath = normalizedPath.substring(lastIndex + '/PROJECTS/'.length);
-      containerPath = `/home/coder/PROJECTS/${relativePath}`;
-      if (import.meta.env.DEV) {
-        console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
-      }
-    }
 
-    if (!containerPath) {
-      if (import.meta.env.DEV) {
-        console.warn(`[WebIDEPanel] Could not map path to container: ${hostPath}`);
-      }
-      return normalizedPath;
-    }
+      // Docker: code-server mounts volumes at /home/coder/Projects and /home/coder/PROJECTS
+      // Convert host path to container path
+      const projectsMatches = normalizedPath.match(/\/Projects\//g);
+      const PROJECTSMatches = normalizedPath.match(/\/PROJECTS\//g);
 
-    return containerPath;
-  }, [validatePath, codeServerUrl]);
+      let containerPath: string | null = null;
+
+      if (projectsMatches && projectsMatches.length > 0) {
+        const lastIndex = normalizedPath.lastIndexOf('/Projects/');
+        const relativePath = normalizedPath.substring(lastIndex + '/Projects/'.length);
+        containerPath = `/home/coder/Projects/${relativePath}`;
+        if (import.meta.env.DEV) {
+          console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
+        }
+      } else if (PROJECTSMatches && PROJECTSMatches.length > 0) {
+        const lastIndex = normalizedPath.lastIndexOf('/PROJECTS/');
+        const relativePath = normalizedPath.substring(lastIndex + '/PROJECTS/'.length);
+        containerPath = `/home/coder/PROJECTS/${relativePath}`;
+        if (import.meta.env.DEV) {
+          console.log(`[WebIDEPanel] Mapped path: ${hostPath} -> ${containerPath}`);
+        }
+      }
+
+      if (!containerPath) {
+        if (import.meta.env.DEV) {
+          console.warn(`[WebIDEPanel] Could not map path to container: ${hostPath}`);
+        }
+        return normalizedPath;
+      }
+
+      return containerPath;
+    },
+    [validatePath, codeServerUrl]
+  );
 
   // Memoize iframe src URL to avoid unnecessary recalculations
   const iframeSrc = useMemo(() => {
@@ -536,7 +565,7 @@ export const WebIDEPanel = ({
       // Use the shared manager to ensure code-server is running
       // All panels will wait for the same promise instead of starting independent operations
       console.log('[WebIDEPanel] Using shared ensureCodeServerRunning');
-      ensureCodeServerRunning(API_BASE_URL, iframeTimeout).then(result => {
+      ensureCodeServerRunning(API_BASE_URL, iframeTimeout).then((result) => {
         if (result.success) {
           console.log('[WebIDEPanel] code-server ready, enabling iframe load');
 
@@ -561,7 +590,7 @@ export const WebIDEPanel = ({
               setCodeServerReady(false); // Disable iframe during restart
 
               // Use shared restart to prevent race conditions
-              forceRestartCodeServer(API_BASE_URL).then(restartResult => {
+              forceRestartCodeServer(API_BASE_URL).then((restartResult) => {
                 if (restartResult.success) {
                   setCodeServerReady(true); // Re-enable iframe after restart
                 } else {
@@ -574,11 +603,11 @@ export const WebIDEPanel = ({
               setCodeServerLoading(false);
               setCodeServerError(
                 'VS Code Server is running but not responding.\n\n' +
-                'This could be due to:\n' +
-                '• code-server crashed or hung\n' +
-                '• Port 8080 is blocked\n' +
-                '• Browser security restrictions\n\n' +
-                'Try clicking "Retry" or use the Monaco editor.'
+                  'This could be due to:\n' +
+                  '• code-server crashed or hung\n' +
+                  '• Port 8080 is blocked\n' +
+                  '• Browser security restrictions\n\n' +
+                  'Try clicking "Retry" or use the Monaco editor.'
               );
             }
           }, actualTimeout);
@@ -603,7 +632,7 @@ export const WebIDEPanel = ({
         iframeRef.current.src = 'about:blank';
       }
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorType, iframeTimeout, codeServerRetryTrigger]);
 
   // Fetch file tree
@@ -611,7 +640,9 @@ export const WebIDEPanel = ({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`${API_BASE_URL}/files/tree?path=${encodeURIComponent(directory)}&depth=4`);
+      const res = await fetch(
+        `${API_BASE_URL}/files/tree?path=${encodeURIComponent(directory)}&depth=4`
+      );
       if (!res.ok) throw new Error('Failed to load file tree');
       const data = await res.json();
       setFileTree(data.tree || []);
@@ -684,9 +715,7 @@ export const WebIDEPanel = ({
       });
       if (!res.ok) throw new Error('Failed to save file');
 
-      setOpenFiles((prev) =>
-        prev.map((f) => (f.path === path ? { ...f, modified: false } : f))
-      );
+      setOpenFiles((prev) => prev.map((f) => (f.path === path ? { ...f, modified: false } : f)));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to save file');
     } finally {
@@ -753,9 +782,7 @@ export const WebIDEPanel = ({
           <span className="truncate">{node.name}</span>
         </div>
         {node.isDirectory && isExpanded && node.children && (
-          <div>
-            {node.children.map((child) => renderTreeNode(child, depth + 1))}
-          </div>
+          <div>{node.children.map((child) => renderTreeNode(child, depth + 1))}</div>
         )}
       </div>
     );
@@ -769,6 +796,51 @@ export const WebIDEPanel = ({
       <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <span>Web IDE</span>
+
+          {/* Flow Controls */}
+          {appStatus !== undefined && (
+            <div className="flex items-center gap-1 ml-2 pl-2 border-l border-gray-700">
+              {appStatus === AppStatus.RUNNING ? (
+                <>
+                  <button
+                    onClick={onStop}
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded transition-colors"
+                    title="Stop application"
+                  >
+                    <Square size={12} fill="currentColor" />
+                    Stop
+                  </button>
+                  <button
+                    onClick={onRestart}
+                    className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
+                    title="Restart application"
+                  >
+                    <RefreshCw size={12} />
+                  </button>
+                </>
+              ) : (
+                <button
+                  onClick={onStart}
+                  disabled={
+                    appStatus === AppStatus.STARTING ||
+                    appStatus === AppStatus.ANALYZING ||
+                    appStatus === AppStatus.RESTARTING
+                  }
+                  className="flex items-center gap-1 px-2 py-1 text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Start application"
+                >
+                  {appStatus === AppStatus.STARTING || appStatus === AppStatus.RESTARTING ? (
+                    <RefreshCw size={12} className="animate-spin" />
+                  ) : (
+                    <Play size={12} fill="currentColor" />
+                  )}
+                  {appStatus === AppStatus.STARTING ? 'Starting...' : 'Run'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Panel visibility buttons */}
           {showTerminalButton && onShowTerminal && (
             <button
               onClick={onShowTerminal}
@@ -792,7 +864,11 @@ export const WebIDEPanel = ({
         </div>
         <div className="flex items-center gap-2">
           {/* Editor Type Switcher */}
-          <div className="flex items-center gap-1 bg-gray-900 rounded p-0.5" role="group" aria-label="Editor type selector">
+          <div
+            className="flex items-center gap-1 bg-gray-900 rounded p-0.5"
+            role="group"
+            aria-label="Editor type selector"
+          >
             <button
               onClick={() => setEditorType('monaco')}
               className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
@@ -830,6 +906,18 @@ export const WebIDEPanel = ({
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
+
+          {/* Details button - switch back to details view */}
+          {onSwitchToDetails && (
+            <button
+              onClick={onSwitchToDetails}
+              className="flex items-center gap-1 px-2 py-1 text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30 rounded transition-colors"
+              title="Switch to Details view"
+            >
+              <FileText size={12} />
+              Details
+            </button>
+          )}
         </div>
       </div>
 
@@ -851,7 +939,9 @@ export const WebIDEPanel = ({
             <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
               <div className="text-center max-w-md px-4">
                 <RefreshCw className="w-10 h-10 mx-auto mb-3 animate-spin text-blue-500" />
-                <div className="text-base font-medium text-gray-200 mb-2">Loading VS Code Server</div>
+                <div className="text-base font-medium text-gray-200 mb-2">
+                  Loading VS Code Server
+                </div>
                 <div className="text-sm text-gray-400">{codeServerStatus}</div>
               </div>
             </div>
@@ -862,8 +952,12 @@ export const WebIDEPanel = ({
             <div className="absolute inset-0 flex items-center justify-center bg-gray-900 z-10">
               <div className="text-center max-w-md px-4">
                 <Box className="w-12 h-12 mx-auto mb-3 text-gray-500" />
-                <div className="text-base font-medium text-gray-300 mb-2">VS Code Server Unavailable</div>
-                <div className="text-sm text-gray-400 mb-4 whitespace-pre-line">{codeServerError}</div>
+                <div className="text-base font-medium text-gray-300 mb-2">
+                  VS Code Server Unavailable
+                </div>
+                <div className="text-sm text-gray-400 mb-4 whitespace-pre-line">
+                  {codeServerError}
+                </div>
                 <div className="flex gap-2 justify-center">
                   <button
                     onClick={() => setEditorType('monaco')}
@@ -874,7 +968,7 @@ export const WebIDEPanel = ({
                   <button
                     onClick={() => {
                       // Trigger full check-and-start cycle again
-                      setCodeServerRetryTrigger(prev => prev + 1);
+                      setCodeServerRetryTrigger((prev) => prev + 1);
                     }}
                     className="px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded text-sm transition-colors"
                     aria-label="Retry loading VS Code Server"
@@ -912,21 +1006,28 @@ export const WebIDEPanel = ({
                 <span className="text-amber-400 font-medium">GitHub Copilot unavailable</span>
               </div>
               <p className="text-gray-400 text-xs mb-2">
-                code-server uses the Open VSX registry, which doesn't include proprietary extensions like GitHub Copilot.
+                code-server uses the Open VSX registry, which doesn't include proprietary extensions
+                like GitHub Copilot.
               </p>
               <p className="text-gray-300 text-xs mb-2">Try these free alternatives:</p>
               <ul className="text-gray-300 text-xs space-y-1 mb-3">
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-green-400 rounded-full" />
-                  <span><strong>Codeium</strong> - Free AI completion</span>
+                  <span>
+                    <strong>Codeium</strong> - Free AI completion
+                  </span>
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-blue-400 rounded-full" />
-                  <span><strong>TabNine</strong> - AI autocomplete</span>
+                  <span>
+                    <strong>TabNine</strong> - AI autocomplete
+                  </span>
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="w-1.5 h-1.5 bg-purple-400 rounded-full" />
-                  <span><strong>Continue</strong> - Open source AI</span>
+                  <span>
+                    <strong>Continue</strong> - Open source AI
+                  </span>
                 </li>
               </ul>
               <button
@@ -954,86 +1055,86 @@ export const WebIDEPanel = ({
             )}
           </div>
 
-        {/* Editor Area */}
-        <div className="flex-1 flex flex-col min-w-0">
-          {/* Tabs */}
-          {openFiles.length > 0 && (
-            <div className="flex items-center bg-gray-850 border-b border-gray-700 overflow-x-auto">
-              {openFiles.map((file) => (
-                <div
-                  key={file.path}
-                  onClick={() => setActiveFile(file.path)}
-                  className={`flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer border-r border-gray-700 shrink-0 ${
-                    activeFile === file.path
-                      ? 'bg-gray-900 text-white'
-                      : 'bg-gray-850 text-gray-400 hover:bg-gray-800'
-                  }`}
-                >
-                  <File size={12} />
-                  <span className={file.modified ? 'italic' : ''}>
-                    {file.name}
-                    {file.modified && ' *'}
-                  </span>
-                  <button
-                    onClick={(e) => closeFile(file.path, e)}
-                    className="hover:bg-gray-700 rounded p-0.5"
-                  >
-                    <X size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-
-          {/* Editor */}
-          <div className="flex-1 min-h-0">
-            {currentFile ? (
-              <div className="h-full flex flex-col">
-                {/* Save button */}
-                <div className="px-2 py-1 bg-gray-850 border-b border-gray-700 flex items-center justify-end">
-                  <button
-                    onClick={() => saveFile(currentFile.path)}
-                    disabled={!currentFile.modified || saving}
-                    className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
-                      currentFile.modified
-                        ? 'bg-blue-600 hover:bg-blue-500 text-white'
-                        : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+          {/* Editor Area */}
+          <div className="flex-1 flex flex-col min-w-0">
+            {/* Tabs */}
+            {openFiles.length > 0 && (
+              <div className="flex items-center bg-gray-850 border-b border-gray-700 overflow-x-auto">
+                {openFiles.map((file) => (
+                  <div
+                    key={file.path}
+                    onClick={() => setActiveFile(file.path)}
+                    className={`flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer border-r border-gray-700 shrink-0 ${
+                      activeFile === file.path
+                        ? 'bg-gray-900 text-white'
+                        : 'bg-gray-850 text-gray-400 hover:bg-gray-800'
                     }`}
                   >
-                    <Save size={12} />
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
-                </div>
-                <div className="flex-1">
-                  <Editor
-                    height="100%"
-                    language={currentFile.language}
-                    value={currentFile.content}
-                    onChange={(value) => handleEditorChange(value, currentFile.path)}
-                    theme="vs-dark"
-                    options={{
-                      minimap: { enabled: false },
-                      fontSize: 13,
-                      fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
-                      lineNumbers: 'on',
-                      scrollBeyondLastLine: false,
-                      automaticLayout: true,
-                      tabSize: 2,
-                      wordWrap: 'on',
-                    }}
-                  />
-                </div>
-              </div>
-            ) : (
-              <div className="h-full flex items-center justify-center text-gray-500">
-                <div className="text-center">
-                  <File className="w-12 h-12 mx-auto mb-2 opacity-30" />
-                  <div className="text-sm">Select a file to edit</div>
-                </div>
+                    <File size={12} />
+                    <span className={file.modified ? 'italic' : ''}>
+                      {file.name}
+                      {file.modified && ' *'}
+                    </span>
+                    <button
+                      onClick={(e) => closeFile(file.path, e)}
+                      className="hover:bg-gray-700 rounded p-0.5"
+                    >
+                      <X size={12} />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
+
+            {/* Editor */}
+            <div className="flex-1 min-h-0">
+              {currentFile ? (
+                <div className="h-full flex flex-col">
+                  {/* Save button */}
+                  <div className="px-2 py-1 bg-gray-850 border-b border-gray-700 flex items-center justify-end">
+                    <button
+                      onClick={() => saveFile(currentFile.path)}
+                      disabled={!currentFile.modified || saving}
+                      className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
+                        currentFile.modified
+                          ? 'bg-blue-600 hover:bg-blue-500 text-white'
+                          : 'bg-gray-700 text-gray-500 cursor-not-allowed'
+                      }`}
+                    >
+                      <Save size={12} />
+                      {saving ? 'Saving...' : 'Save'}
+                    </button>
+                  </div>
+                  <div className="flex-1">
+                    <Editor
+                      height="100%"
+                      language={currentFile.language}
+                      value={currentFile.content}
+                      onChange={(value) => handleEditorChange(value, currentFile.path)}
+                      theme="vs-dark"
+                      options={{
+                        minimap: { enabled: false },
+                        fontSize: 13,
+                        fontFamily: 'JetBrains Mono, Menlo, Monaco, monospace',
+                        lineNumbers: 'on',
+                        scrollBeyondLastLine: false,
+                        automaticLayout: true,
+                        tabSize: 2,
+                        wordWrap: 'on',
+                      }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <div className="h-full flex items-center justify-center text-gray-500">
+                  <div className="text-center">
+                    <File className="w-12 h-12 mx-auto mb-2 opacity-30" />
+                    <div className="text-sm">Select a file to edit</div>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
-        </div>
         </div>
       )}
     </div>

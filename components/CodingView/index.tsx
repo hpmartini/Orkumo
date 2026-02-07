@@ -31,6 +31,16 @@ interface CodingViewProps {
   isBrowserHidden?: boolean;
   /** Callback when browser panel visibility changes */
   onBrowserHiddenChange?: (hidden: boolean) => void;
+  /** Controlled terminal panel visibility */
+  isTerminalHidden?: boolean;
+  /** Callback when terminal panel visibility changes */
+  onTerminalHiddenChange?: (hidden: boolean) => void;
+  /** Flow control callbacks */
+  onStart?: () => void;
+  onStop?: () => void;
+  onRestart?: () => void;
+  /** Switch to details view */
+  onSwitchToDetails?: () => void;
 }
 
 export function CodingView({
@@ -46,8 +56,24 @@ export function CodingView({
   onConsoleFilterChange,
   isBrowserHidden: controlledBrowserHidden,
   onBrowserHiddenChange,
+  isTerminalHidden: controlledTerminalHidden,
+  onTerminalHiddenChange,
+  onStart,
+  onStop,
+  onRestart,
+  onSwitchToDetails,
 }: CodingViewProps) {
-  const [isTerminalHidden, setIsTerminalHidden] = useState(false);
+  // Use controlled or uncontrolled terminal visibility
+  // Default to hidden (true) when first entering coding view
+  const [internalTerminalHidden, setInternalTerminalHidden] = useState(true);
+  const isTerminalHidden = controlledTerminalHidden ?? internalTerminalHidden;
+  const setIsTerminalHidden = (hidden: boolean) => {
+    if (onTerminalHiddenChange) {
+      onTerminalHiddenChange(hidden);
+    } else {
+      setInternalTerminalHidden(hidden);
+    }
+  };
 
   // Use controlled or uncontrolled browser visibility
   const [internalBrowserHidden, setInternalBrowserHidden] = useState(false);
@@ -150,7 +176,19 @@ export function CodingView({
         )}
 
         {/* Web IDE Panel */}
-        <Panel defaultSize={isTerminalHidden && isBrowserHidden ? 100 : isTerminalHidden ? 55 : isBrowserHidden ? 75 : 45} minSize={20} className="coding-panel">
+        <Panel
+          defaultSize={
+            isTerminalHidden && isBrowserHidden
+              ? 100
+              : isTerminalHidden
+                ? 55
+                : isBrowserHidden
+                  ? 75
+                  : 45
+          }
+          minSize={20}
+          className="coding-panel"
+        >
           <WebIDEErrorBoundary>
             <WebIDEPanel
               directory={app.path}
@@ -160,6 +198,11 @@ export function CodingView({
               onShowBrowser={() => setIsBrowserHidden(false)}
               editorType={editorType}
               onEditorTypeChange={onEditorTypeChange}
+              appStatus={app.status}
+              onStart={onStart}
+              onStop={onStop}
+              onRestart={onRestart}
+              onSwitchToDetails={onSwitchToDetails}
             />
           </WebIDEErrorBoundary>
         </Panel>
