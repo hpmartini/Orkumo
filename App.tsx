@@ -15,6 +15,7 @@ import {
   AdminPanel,
   AppTabs,
   useAppTabs,
+  LoadingSkeleton,
 } from './components';
 import { useApps, usePerAppState } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -316,14 +317,7 @@ function AppContent() {
   });
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-900 flex items-center justify-center text-white">
-        <div className="flex flex-col items-center gap-4">
-          <RefreshCw className="animate-spin text-blue-500" size={32} />
-          <p className="text-gray-400 font-mono">Scanning directory structure...</p>
-        </div>
-      </div>
-    );
+    return <LoadingSkeleton />;
   }
 
   return (
@@ -510,7 +504,10 @@ function AppContent() {
 
               <div className="space-y-6">
                 <Recommendations apps={apps} onAnalyzeApp={handleAnalyzeApp} />
-                <SystemHealth />
+                <SystemHealth
+                  onRestartApp={handleRestartApp}
+                  onInstallDeps={handleInstallDeps}
+                />
               </div>
             </div>
           </div>

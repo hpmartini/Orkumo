@@ -21,9 +21,12 @@ import {
   SystemHealthReport,
   SystemRecommendation,
 } from '../services/api';
+import toast from 'react-hot-toast';
 
 interface SystemHealthProps {
   className?: string;
+  onRestartApp?: (appId: string) => Promise<void>;
+  onInstallDeps?: (appId: string) => Promise<void>;
 }
 
 const formatBytes = (bytes: number): string => {
@@ -89,7 +92,11 @@ const ProgressBar: React.FC<{ value: number; className?: string }> = ({ value, c
   );
 };
 
-export const SystemHealth: React.FC<SystemHealthProps> = ({ className = '' }) => {
+export const SystemHealth: React.FC<SystemHealthProps> = ({
+  className = '',
+  onRestartApp,
+  onInstallDeps,
+}) => {
   const [health, setHealth] = useState<SystemHealthReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -291,7 +298,12 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({ className = '' }) =>
             <div className="space-y-2">
               <h4 className="text-sm font-medium text-gray-400">Recommendations</h4>
               {recommendations.map((rec, index) => (
-                <RecommendationCard key={index} recommendation={rec} />
+                <RecommendationCard
+                  key={index}
+                  recommendation={rec}
+                  onRestartApp={onRestartApp}
+                  onInstallDeps={onInstallDeps}
+                />
               ))}
             </div>
           )}
@@ -307,15 +319,81 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({ className = '' }) =>
   );
 };
 
-const RecommendationCard: React.FC<{ recommendation: SystemRecommendation }> = ({
+interface RecommendationCardProps {
+  recommendation: SystemRecommendation;
+  onRestartApp?: (appId: string) => Promise<void>;
+  onInstallDeps?: (appId: string) => Promise<void>;
+}
+
+const RecommendationCard: React.FC<RecommendationCardProps> = ({
   recommendation,
+  onRestartApp,
+  onInstallDeps,
 }) => {
   const [showAction, setShowAction] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
 
   const severityColors = {
     error: 'border-red-500/30 bg-red-500/10',
     warning: 'border-yellow-500/30 bg-yellow-500/10',
     info: 'border-blue-500/30 bg-blue-500/10',
+  };
+
+  // Extract appId from recommendation message if present (e.g., "App 'my-app' (id123) has...")
+  const extractAppId = (): string | null => {
+    const match = recommendation.message.match(/\(([a-f0-9]+)\)/);
+    return match ? match[1] : null;
+  };
+
+  // Determine if this recommendation has a one-click action
+  const getQuickAction = (): { label: string; handler: () => Promise<void> } | null => {
+    const appId = extractAppId();
+
+    // Project-related recommendations with actionable fixes
+    if (recommendation.type === 'project' && appId) {
+      if (recommendation.title.toLowerCase().includes('crashed') ||
+          recommendation.title.toLowerCase().includes('failed') ||
+          recommendation.title.toLowerCase().includes('error')) {
+        if (onRestartApp) {
+          return {
+            label: 'Restart App',
+            handler: async () => {
+              await onRestartApp(appId);
+            },
+          };
+        }
+      }
+
+      if (recommendation.title.toLowerCase().includes('dependencies') ||
+          recommendation.title.toLowerCase().includes('node_modules')) {
+        if (onInstallDeps) {
+          return {
+            label: 'Install Dependencies',
+            handler: async () => {
+              await onInstallDeps(appId);
+            },
+          };
+        }
+      }
+    }
+
+    return null;
+  };
+
+  const quickAction = getQuickAction();
+
+  const handleQuickAction = async () => {
+    if (!quickAction) return;
+
+    setIsExecuting(true);
+    try {
+      await quickAction.handler();
+      toast.success(`${quickAction.label} completed`);
+    } catch (err) {
+      toast.error(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      setIsExecuting(false);
+    }
   };
 
   return (
@@ -325,14 +403,32 @@ const RecommendationCard: React.FC<{ recommendation: SystemRecommendation }> = (
         <div className="flex-1">
           <div className="font-medium text-white text-sm">{recommendation.title}</div>
           <div className="text-xs text-gray-400 mt-0.5">{recommendation.message}</div>
-          {recommendation.action && (
-            <button
-              onClick={() => setShowAction(!showAction)}
-              className="text-xs text-blue-400 hover:text-blue-300 mt-1"
-            >
-              {showAction ? 'Hide fix' : 'Show fix'}
-            </button>
-          )}
+          <div className="flex items-center gap-2 mt-2">
+            {quickAction && (
+              <button
+                onClick={handleQuickAction}
+                disabled={isExecuting}
+                className="px-2 py-1 text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30 rounded transition-colors disabled:opacity-50"
+              >
+                {isExecuting ? (
+                  <span className="flex items-center gap-1">
+                    <RefreshCw size={12} className="animate-spin" />
+                    Running...
+                  </span>
+                ) : (
+                  quickAction.label
+                )}
+              </button>
+            )}
+            {recommendation.action && (
+              <button
+                onClick={() => setShowAction(!showAction)}
+                className="text-xs text-gray-400 hover:text-gray-300"
+              >
+                {showAction ? 'Hide command' : 'Show command'}
+              </button>
+            )}
+          </div>
           {showAction && recommendation.action && (
             <code className="block mt-2 text-xs bg-gray-900 text-emerald-400 p-2 rounded font-mono">
               {recommendation.action}

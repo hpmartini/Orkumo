@@ -17,3 +17,4 @@ export { AdminPanel } from './AdminPanel';
 export { KebabMenu, createAppMenuItems } from './KebabMenu';
 export { AppTabs, useAppTabs, createTabsFromApps } from './AppTabs';
 export { PortConflictModal } from './PortConflictModal';
+export { LoadingSkeleton } from './LoadingSkeleton';

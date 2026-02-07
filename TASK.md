@@ -112,7 +112,9 @@ The codebase is a full-stack application with:
 
 ### UI/UX
 
-- [ ] **[UI]** Add loading skeleton states during initial scan instead of just spinner
+- [x] **[UI]** Add loading skeleton states during initial scan instead of just spinner
+  - Created `LoadingSkeleton` component with sidebar and content area placeholders
+  - Mimics main app layout for better perceived performance
 - [x] **[UI]** Add toast notifications for actions - Added `react-hot-toast` with Toaster component.
 - [x] **[UI]** Mobile responsiveness - Added hamburger menu in `App.tsx`.
 - [x] **[UI]** Add keyboard shortcuts (Ctrl+Enter to start, Ctrl+. to stop)
@@ -153,9 +155,9 @@ The codebase is a full-stack application with:
 
 - [x] **[CLEANUP]** Add ESLint configuration - Added `eslint.config.js`
 - [x] **[CLEANUP]** Add Prettier configuration - Added `.prettierrc`
-- [ ] **[CLEANUP]** Remove unused `services/mockOs.ts` (replaced by real scanner)
+- [x] **[CLEANUP]** Remove unused `services/mockOs.ts` (replaced by real scanner)
 - [ ] **[CLEANUP]** Extract Tailwind custom colors from `index.html` to `tailwind.config.js`
-- [ ] **[CLEANUP]** Add `.nvmrc` with Node version (e.g., `v20`)
+- [x] **[CLEANUP]** Add `.nvmrc` with Node version (e.g., `v20`)
 - [ ] **[CLEANUP]** Consistent file naming (some PascalCase, some camelCase in components)
 
 ### DevOps
@@ -373,11 +375,11 @@ The codebase is a full-stack application with:
   - Generate and display recommendations with severity levels
   - Show actionable fix commands for each recommendation
 
-- [ ] **[FEATURE]** Add actionable recommendations engine
-  - Auto-fix port conflicts (suggest available ports, apply with one click)
-  - Reinstall dependencies (`npm ci` / `npm install`)
-  - Restart failed/crashed apps
-  - Clear node_modules and reinstall
+- [x] **[FEATURE]** Add actionable recommendations engine
+  - Added one-click "Restart App" button for crashed/failed apps
+  - Added one-click "Install Dependencies" button for missing node_modules
+  - RecommendationCard now extracts appId from message and shows quick action buttons
+  - Handlers passed from App.tsx through SystemHealth component
 
 - [ ] **[FEATURE]** Surface system-level recommendations from health data
   - Expandable details for each recommendation
