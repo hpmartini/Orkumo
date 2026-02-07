@@ -37,9 +37,13 @@ export default [
         HTMLDivElement: 'readonly',
         HTMLIFrameElement: 'readonly',
         MouseEvent: 'readonly',
+        KeyboardEvent: 'readonly',
+        MediaQueryList: 'readonly',
+        MediaQueryListEvent: 'readonly',
         Node: 'readonly',
         MutationObserver: 'readonly',
         React: 'readonly',
+        navigator: 'readonly',
         // Web APIs
         Response: 'readonly',
         RequestInit: 'readonly',

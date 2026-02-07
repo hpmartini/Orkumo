@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { isElectron } from './utils/apiConfig';
-import { LayoutDashboard, RefreshCw, Menu, X, GripVertical } from 'lucide-react';
+import { LayoutDashboard, Menu, X, GripVertical } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import {
   Sidebar,
@@ -13,7 +13,7 @@ import {
   Recommendations,
   ErrorBoundary,
   AdminPanel,
-  AppTabs,
+  TitleBar,
   useAppTabs,
   LoadingSkeleton,
 } from './components';
@@ -62,7 +62,7 @@ function AppContent() {
   const { tabs, activeTabId, closeTab, reorderTabs, selectTab } = useAppTabs(apps);
 
   // Per-app view state management (terminals, editor type, devtools, etc.)
-  const { createAppStateHelpers } = usePerAppState();
+  const { createAppStateHelpers, getAppState, updateAppState } = usePerAppState();
 
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
@@ -85,20 +85,20 @@ function AppContent() {
   }, [isViewTabBarHidden]);
 
   const handleToggleViewTabBar = useCallback(() => {
-    setIsViewTabBarHidden(prev => !prev);
+    setIsViewTabBarHidden((prev) => !prev);
   }, []);
 
   const handleToggleDetailsView = useCallback(() => {
-    setDetailsViewMode(prev => prev === 'details' ? 'coding' : 'details');
+    setDetailsViewMode((prev) => (prev === 'details' ? 'coding' : 'details'));
   }, []);
 
   const handleToggleFavoritesPopup = useCallback(() => {
-    setShowFavoritesPopup(prev => !prev);
+    setShowFavoritesPopup((prev) => !prev);
     setShowProjectsPopup(false);
   }, []);
 
   const handleToggleProjectsPopup = useCallback(() => {
-    setShowProjectsPopup(prev => !prev);
+    setShowProjectsPopup((prev) => !prev);
     setShowFavoritesPopup(false);
   }, []);
 
@@ -121,7 +121,7 @@ function AppContent() {
 
     if (projectId) {
       // Validate that the project exists
-      const projectExists = apps.find(app => app.id === projectId);
+      const projectExists = apps.find((app) => app.id === projectId);
       if (projectExists) {
         setSelectedAppIdRef.current(projectId);
         selectTabRef.current(projectId);
@@ -257,58 +257,109 @@ function AppContent() {
   );
 
   // Keyboard shortcuts
-  const keyboardShortcutActions = useMemo(() => [
-    { id: 'toggleSidebar' as keyof KeyboardShortcuts, handler: handleToggleSidebarCollapse },
-    { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
-    { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: () => navigate('/') },
-    { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
-    { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
-    { id: 'openFavorites' as keyof KeyboardShortcuts, handler: handleToggleFavoritesPopup },
-    { id: 'openProjects' as keyof KeyboardShortcuts, handler: handleToggleProjectsPopup },
-    { id: 'goToTab1' as keyof KeyboardShortcuts, handler: () => tabs[0] && handleTabSelect(tabs[0].appId) },
-    { id: 'goToTab2' as keyof KeyboardShortcuts, handler: () => tabs[1] && handleTabSelect(tabs[1].appId) },
-    { id: 'goToTab3' as keyof KeyboardShortcuts, handler: () => tabs[2] && handleTabSelect(tabs[2].appId) },
-    { id: 'goToTab4' as keyof KeyboardShortcuts, handler: () => tabs[3] && handleTabSelect(tabs[3].appId) },
-    { id: 'goToTab5' as keyof KeyboardShortcuts, handler: () => tabs[4] && handleTabSelect(tabs[4].appId) },
-    { id: 'goToTab6' as keyof KeyboardShortcuts, handler: () => tabs[5] && handleTabSelect(tabs[5].appId) },
-    { id: 'goToTab7' as keyof KeyboardShortcuts, handler: () => tabs[6] && handleTabSelect(tabs[6].appId) },
-    { id: 'goToTab8' as keyof KeyboardShortcuts, handler: () => tabs[7] && handleTabSelect(tabs[7].appId) },
-    { id: 'goToTab9' as keyof KeyboardShortcuts, handler: () => tabs[8] && handleTabSelect(tabs[8].appId) },
-    // App control shortcuts
-    { id: 'startApp' as keyof KeyboardShortcuts, handler: () => {
-      if (selectedAppId) {
-        toast.promise(handleStartApp(selectedAppId), {
-          loading: 'Starting...',
-          success: 'App started',
-          error: 'Failed to start',
-        });
-      } else {
-        toast('Select an app first', { icon: 'ℹ️' });
-      }
-    }},
-    { id: 'stopApp' as keyof KeyboardShortcuts, handler: () => {
-      if (selectedAppId) {
-        toast.promise(handleStopApp(selectedAppId), {
-          loading: 'Stopping...',
-          success: 'App stopped',
-          error: 'Failed to stop',
-        });
-      } else {
-        toast('Select an app first', { icon: 'ℹ️' });
-      }
-    }},
-    { id: 'restartApp' as keyof KeyboardShortcuts, handler: () => {
-      if (selectedAppId) {
-        toast.promise(handleRestartApp(selectedAppId), {
-          loading: 'Restarting...',
-          success: 'App restarted',
-          error: 'Failed to restart',
-        });
-      } else {
-        toast('Select an app first', { icon: 'ℹ️' });
-      }
-    }},
-  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect, handleToggleDetailsView, handleToggleFavoritesPopup, handleToggleProjectsPopup, selectedAppId, handleStartApp, handleStopApp, handleRestartApp]);
+  const keyboardShortcutActions = useMemo(
+    () => [
+      { id: 'toggleSidebar' as keyof KeyboardShortcuts, handler: handleToggleSidebarCollapse },
+      { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
+      { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: () => navigate('/') },
+      { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
+      { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
+      { id: 'openFavorites' as keyof KeyboardShortcuts, handler: handleToggleFavoritesPopup },
+      { id: 'openProjects' as keyof KeyboardShortcuts, handler: handleToggleProjectsPopup },
+      {
+        id: 'goToTab1' as keyof KeyboardShortcuts,
+        handler: () => tabs[0] && handleTabSelect(tabs[0].appId),
+      },
+      {
+        id: 'goToTab2' as keyof KeyboardShortcuts,
+        handler: () => tabs[1] && handleTabSelect(tabs[1].appId),
+      },
+      {
+        id: 'goToTab3' as keyof KeyboardShortcuts,
+        handler: () => tabs[2] && handleTabSelect(tabs[2].appId),
+      },
+      {
+        id: 'goToTab4' as keyof KeyboardShortcuts,
+        handler: () => tabs[3] && handleTabSelect(tabs[3].appId),
+      },
+      {
+        id: 'goToTab5' as keyof KeyboardShortcuts,
+        handler: () => tabs[4] && handleTabSelect(tabs[4].appId),
+      },
+      {
+        id: 'goToTab6' as keyof KeyboardShortcuts,
+        handler: () => tabs[5] && handleTabSelect(tabs[5].appId),
+      },
+      {
+        id: 'goToTab7' as keyof KeyboardShortcuts,
+        handler: () => tabs[6] && handleTabSelect(tabs[6].appId),
+      },
+      {
+        id: 'goToTab8' as keyof KeyboardShortcuts,
+        handler: () => tabs[7] && handleTabSelect(tabs[7].appId),
+      },
+      {
+        id: 'goToTab9' as keyof KeyboardShortcuts,
+        handler: () => tabs[8] && handleTabSelect(tabs[8].appId),
+      },
+      // App control shortcuts
+      {
+        id: 'startApp' as keyof KeyboardShortcuts,
+        handler: () => {
+          if (selectedAppId) {
+            toast.promise(handleStartApp(selectedAppId), {
+              loading: 'Starting...',
+              success: 'App started',
+              error: 'Failed to start',
+            });
+          } else {
+            toast('Select an app first', { icon: 'ℹ️' });
+          }
+        },
+      },
+      {
+        id: 'stopApp' as keyof KeyboardShortcuts,
+        handler: () => {
+          if (selectedAppId) {
+            toast.promise(handleStopApp(selectedAppId), {
+              loading: 'Stopping...',
+              success: 'App stopped',
+              error: 'Failed to stop',
+            });
+          } else {
+            toast('Select an app first', { icon: 'ℹ️' });
+          }
+        },
+      },
+      {
+        id: 'restartApp' as keyof KeyboardShortcuts,
+        handler: () => {
+          if (selectedAppId) {
+            toast.promise(handleRestartApp(selectedAppId), {
+              loading: 'Restarting...',
+              success: 'App restarted',
+              error: 'Failed to restart',
+            });
+          } else {
+            toast('Select an app first', { icon: 'ℹ️' });
+          }
+        },
+      },
+    ],
+    [
+      handleToggleSidebarCollapse,
+      navigate,
+      tabs,
+      handleTabSelect,
+      handleToggleDetailsView,
+      handleToggleFavoritesPopup,
+      handleToggleProjectsPopup,
+      selectedAppId,
+      handleStartApp,
+      handleStopApp,
+      handleRestartApp,
+    ]
+  );
 
   useKeyboardShortcuts({
     shortcuts: settings?.keyboardShortcuts,
@@ -352,10 +403,34 @@ function AppContent() {
         />
       )}
 
-      {/* Sidebar - fixed position, doesn't scroll with content */}
+      {/* TitleBar - custom titlebar with tabs and pane controls */}
+      <TitleBar
+        tabs={tabs}
+        activeTabId={activeTabId}
+        onSelectTab={handleTabSelect}
+        onCloseTab={handleTabClose}
+        onReorderTabs={reorderTabs}
+        showPaneControls={activeTab === 'apps' && detailsViewMode === 'coding' && !!selectedAppId}
+        isTerminalVisible={selectedAppId ? !getAppState(selectedAppId).isTerminalHidden : true}
+        isBrowserVisible={selectedAppId ? !getAppState(selectedAppId).isBrowserHidden : true}
+        onToggleTerminal={() => {
+          if (selectedAppId) {
+            const current = getAppState(selectedAppId).isTerminalHidden;
+            updateAppState(selectedAppId, { isTerminalHidden: !current });
+          }
+        }}
+        onToggleBrowser={() => {
+          if (selectedAppId) {
+            const current = getAppState(selectedAppId).isBrowserHidden;
+            updateAppState(selectedAppId, { isBrowserHidden: !current });
+          }
+        }}
+      />
+
+      {/* Sidebar - fixed position below titlebar (when present), doesn't scroll with content */}
       <div
         className={`
-          fixed inset-y-0 left-0 z-50
+          fixed ${isElectron || tabs.length > 0 ? 'top-10' : 'top-0'} bottom-0 left-0 z-40
           transform transition-all duration-300 ease-in-out
           ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
         `}
@@ -417,24 +492,16 @@ function AppContent() {
         )}
       </div>
 
-      {/* Main Content - with left margin for fixed sidebar */}
-      <main className="flex-1 flex flex-col relative ml-0 md:ml-[var(--sidebar-width)] overflow-auto">
-        {/* App Tabs - fixed at top, only show when tabs exist */}
-        {tabs.length > 0 && (
-          <div className="fixed top-0 right-0 left-0 md:left-[var(--sidebar-width)] z-30 bg-gray-900">
-            <AppTabs
-              tabs={tabs}
-              activeTabId={activeTabId}
-              onSelectTab={handleTabSelect}
-              onCloseTab={handleTabClose}
-              onReorderTabs={reorderTabs}
-            />
-          </div>
-        )}
-
+      {/* Main Content - with left margin for fixed sidebar, top margin for titlebar (when present) */}
+      <main
+        className={`flex-1 flex flex-col relative ml-0 md:ml-[var(--sidebar-width)] overflow-auto ${
+          // TitleBar is shown in Electron OR when tabs exist in browser mode
+          isElectron || tabs.length > 0 ? 'mt-10' : ''
+        }`}
+      >
         {/* Mobile header - only shown on small screens */}
         <header
-          className={`fixed ${tabs.length > 0 ? 'top-10' : 'top-0'} right-0 left-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 py-3 flex items-center gap-3 md:hidden`}
+          className={`fixed ${isElectron || tabs.length > 0 ? 'top-10' : 'top-0'} right-0 left-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 py-3 flex items-center gap-3 md:hidden`}
         >
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -450,7 +517,10 @@ function AppContent() {
 
         {/* Content container - relative positioning for multi-tab absolute children */}
         <div
-          className={`relative ${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${tabs.length > 0 ? 'mt-[4rem] md:mt-10' : 'mt-14 md:mt-0'}`}
+          className={`relative ${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${
+            // On mobile: add extra margin for the mobile header
+            isElectron || tabs.length > 0 ? 'mt-14 md:mt-0' : 'mt-14 md:mt-0'
+          }`}
         >
           {/* Dashboard View */}
           <div
@@ -504,10 +574,7 @@ function AppContent() {
 
               <div className="space-y-6">
                 <Recommendations apps={apps} onAnalyzeApp={handleAnalyzeApp} />
-                <SystemHealth
-                  onRestartApp={handleRestartApp}
-                  onInstallDeps={handleInstallDeps}
-                />
+                <SystemHealth onRestartApp={handleRestartApp} onInstallDeps={handleInstallDeps} />
               </div>
             </div>
           </div>
@@ -527,24 +594,26 @@ function AppContent() {
               <div
                 key={tab.appId}
                 className={`flex flex-col min-h-0 ${
-                  isActive
-                    ? 'absolute inset-0 z-10'
-                    : 'fixed pointer-events-none'
+                  isActive ? 'absolute inset-0 z-10' : 'fixed pointer-events-none'
                 }`}
-                style={isActive ? {
-                  // Active tab: normal positioning
-                  top: tabs.length > 0 ? '2.5rem' : '0',
-                } : {
-                  // Inactive tab: truly hide off-screen with clip to prevent iframe bleed-through
-                  // Using fixed position + left:-200vw ensures the iframe is completely off-viewport
-                  // clip-path ensures nothing renders even if browser tries to optimize
-                  left: '-200vw',
-                  top: 0,
-                  width: '100vw',
-                  height: '100vh',
-                  clipPath: 'inset(0 100% 100% 0)', // Clips the entire element
-                  visibility: 'hidden' as const,
-                }}
+                style={
+                  isActive
+                    ? {
+                        // Active tab: normal positioning (no extra top since main has mt-10 for titlebar)
+                        top: 0,
+                      }
+                    : {
+                        // Inactive tab: truly hide off-screen with clip to prevent iframe bleed-through
+                        // Using fixed position + left:-200vw ensures the iframe is completely off-viewport
+                        // clip-path ensures nothing renders even if browser tries to optimize
+                        left: '-200vw',
+                        top: 0,
+                        width: '100vw',
+                        height: '100vh',
+                        clipPath: 'inset(0 100% 100% 0)', // Clips the entire element
+                        visibility: 'hidden' as const,
+                      }
+                }
                 aria-hidden={!isActive}
               >
                 <AppDetail

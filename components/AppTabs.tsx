@@ -16,6 +16,8 @@ interface AppTabsProps {
   onCloseTab: (id: string) => void;
   onReorderTabs?: (fromIndex: number, toIndex: number) => void;
   onOpenNewTab?: () => void;
+  /** When true, renders without border for embedding in TitleBar */
+  isInTitleBar?: boolean;
 }
 
 export const AppTabs: React.FC<AppTabsProps> = ({
@@ -25,6 +27,7 @@ export const AppTabs: React.FC<AppTabsProps> = ({
   onCloseTab,
   onReorderTabs,
   onOpenNewTab,
+  isInTitleBar = false,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
@@ -142,7 +145,9 @@ export const AppTabs: React.FC<AppTabsProps> = ({
   }
 
   return (
-    <div className="flex items-center bg-gray-900 border-b border-gray-800 h-10">
+    <div
+      className={`flex items-center bg-gray-900 h-10 ${isInTitleBar ? '' : 'border-b border-gray-800'}`}
+    >
       {/* Scroll left button */}
       {canScrollLeft && (
         <button
@@ -248,7 +253,12 @@ export const AppTabs: React.FC<AppTabsProps> = ({
 // Helper to create tabs from running apps
 export const createTabsFromApps = (apps: AppConfig[]): AppTab[] => {
   return apps
-    .filter((app) => app.status === AppStatus.RUNNING || app.status === AppStatus.STARTING || app.status === AppStatus.RESTARTING)
+    .filter(
+      (app) =>
+        app.status === AppStatus.RUNNING ||
+        app.status === AppStatus.STARTING ||
+        app.status === AppStatus.RESTARTING
+    )
     .map((app) => ({
       appId: app.id,
       name: app.name,

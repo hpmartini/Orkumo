@@ -36,6 +36,9 @@ function createWindow() {
     minHeight: 768,
     backgroundColor: '#0f172a',
     title: APP_NAME,
+    // Custom titlebar like Notion/VS Code - tabs are rendered in the titlebar area
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 12, y: 12 }, // Position macOS traffic lights
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -127,12 +130,7 @@ function createApplicationMenu() {
     },
     {
       label: 'Window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-        { type: 'separator' },
-        { role: 'front' },
-      ],
+      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }],
     },
     {
       label: 'Help',
@@ -217,7 +215,9 @@ async function waitForServerReady(maxAttempts = 60, delayMs = 500) {
         console.log(`[Electron] Backend server ready after ${attempt * delayMs}ms`, data);
         return true;
       } else {
-        console.log(`[Electron] Health check attempt ${attempt}/${maxAttempts}: status=${response?.status}`);
+        console.log(
+          `[Electron] Health check attempt ${attempt}/${maxAttempts}: status=${response?.status}`
+        );
       }
     } catch (error) {
       // Server not ready yet, continue polling
@@ -227,7 +227,7 @@ async function waitForServerReady(maxAttempts = 60, delayMs = 500) {
     }
 
     // Wait before next attempt
-    await new Promise(resolve => setTimeout(resolve, delayMs));
+    await new Promise((resolve) => setTimeout(resolve, delayMs));
   }
 
   throw new Error(`Server failed to become ready after ${maxAttempts * delayMs}ms`);
@@ -246,10 +246,10 @@ async function startBackendServer() {
   if (!portAvailable) {
     throw new Error(
       `Port ${SERVER_PORT} is already in use. Please close the application using this port and try again.\n\n` +
-      `Common solutions:\n` +
-      `- Check if another instance of ${APP_NAME} is running\n` +
-      `- Check for other applications using port ${SERVER_PORT}\n` +
-      `- Kill the process: lsof -ti:${SERVER_PORT} | xargs kill -9 (macOS/Linux)`
+        `Common solutions:\n` +
+        `- Check if another instance of ${APP_NAME} is running\n` +
+        `- Check for other applications using port ${SERVER_PORT}\n` +
+        `- Kill the process: lsof -ti:${SERVER_PORT} | xargs kill -9 (macOS/Linux)`
     );
   }
 
@@ -271,9 +271,7 @@ async function startBackendServer() {
     : path.join(process.resourcesPath, 'app.asar.unpacked', 'dist-server');
 
   // Add the asar path to NODE_PATH so the server can find its dependencies
-  const asarNodeModules = isDev
-    ? ''
-    : path.join(process.resourcesPath, 'app.asar', 'node_modules');
+  const asarNodeModules = isDev ? '' : path.join(process.resourcesPath, 'app.asar', 'node_modules');
 
   // Also add unpacked node_modules for native modules like node-pty
   const unpackedNodeModules = isDev
@@ -290,7 +288,8 @@ async function startBackendServer() {
   // Build enhanced PATH that includes common Node.js installation paths
   // Electron apps don't inherit the user's shell PATH, so we need to add these manually
   // Use multiple fallbacks for HOME since Electron might not have it set
-  const homeDir = process.env.HOME || process.env.USERPROFILE || `/Users/${process.env.USER}` || '/Users';
+  const homeDir =
+    process.env.HOME || process.env.USERPROFILE || `/Users/${process.env.USER}` || '/Users';
   const nvmDir = process.env.NVM_DIR || `${homeDir}/.nvm`;
 
   console.log('[Electron] HOME:', homeDir);
@@ -304,12 +303,15 @@ async function startBackendServer() {
     if (fs.existsSync(nvmVersionsPath)) {
       const versions = fs.readdirSync(nvmVersionsPath);
       console.log('[Electron] Found NVM versions:', versions);
-      versions.sort().reverse().forEach(v => {
-        const binPath = `${nvmVersionsPath}/${v}/bin`;
-        if (fs.existsSync(binPath)) {
-          nvmNodePaths.push(binPath);
-        }
-      });
+      versions
+        .sort()
+        .reverse()
+        .forEach((v) => {
+          const binPath = `${nvmVersionsPath}/${v}/bin`;
+          if (fs.existsSync(binPath)) {
+            nvmNodePaths.push(binPath);
+          }
+        });
     } else {
       console.log('[Electron] NVM versions path does not exist');
     }
@@ -320,8 +322,8 @@ async function startBackendServer() {
   // NVM paths MUST come first to override any Homebrew node installation
   // This ensures NVM's node is used while other homebrew binaries (like code-server) remain accessible
   const additionalPaths = [
-    ...nvmNodePaths,  // NVM versioned paths first (e.g., ~/.nvm/versions/node/v20.x.x/bin)
-    `${nvmDir}/current/bin`,  // NVM current symlink
+    ...nvmNodePaths, // NVM versioned paths first (e.g., ~/.nvm/versions/node/v20.x.x/bin)
+    `${nvmDir}/current/bin`, // NVM current symlink
     `${homeDir}/.volta/bin`,
     `${homeDir}/.asdf/shims`,
     `${homeDir}/.bun/bin`,
@@ -329,13 +331,13 @@ async function startBackendServer() {
     '/usr/local/bin',
     '/usr/bin',
     '/bin',
-  ].filter(p => p && fs.existsSync(p));
+  ].filter((p) => p && fs.existsSync(p));
 
   // Filter out problematic paths from inherited PATH
   // Only exclude node-specific paths - keep /opt/homebrew/bin for other binaries like code-server
   const filteredInheritedPath = (process.env.PATH || '')
     .split(':')
-    .filter(p => {
+    .filter((p) => {
       if (!p) return false;
       // Exclude Homebrew's node-specific paths (NVM paths come first anyway)
       if (p.includes('homebrew/Cellar/node')) return false;
@@ -344,9 +346,7 @@ async function startBackendServer() {
     })
     .join(':');
 
-  const enhancedPath = [...additionalPaths, filteredInheritedPath]
-    .filter(Boolean)
-    .join(':');
+  const enhancedPath = [...additionalPaths, filteredInheritedPath].filter(Boolean).join(':');
 
   console.log('[Electron] Enhanced PATH (first 5):', enhancedPath.split(':').slice(0, 5).join(':'));
   console.log('[Electron] NVM paths found:', nvmNodePaths.length);
@@ -390,11 +390,18 @@ async function startBackendServer() {
       }
 
       // Create migration marker
-      fs.writeFileSync(migrationMarker, JSON.stringify({
-        migratedAt: new Date().toISOString(),
-        oldPath: oldDataPath,
-        newPath: dataPath
-      }, null, 2));
+      fs.writeFileSync(
+        migrationMarker,
+        JSON.stringify(
+          {
+            migratedAt: new Date().toISOString(),
+            oldPath: oldDataPath,
+            newPath: dataPath,
+          },
+          null,
+          2
+        )
+      );
       console.log('[Electron] Data migration complete');
     }
   }
@@ -453,10 +460,11 @@ async function startBackendServer() {
         type: 'error',
         title: 'Backend Server Crashed',
         message: 'The backend server has unexpectedly crashed.',
-        detail: `Exit code: ${code}\n\n` +
+        detail:
+          `Exit code: ${code}\n\n` +
           `Server output:\n${serverOutput.slice(-1000)}\n\n` +
           `The application may not function correctly. Please restart the application.`,
-        buttons: ['OK']
+        buttons: ['OK'],
       });
     }
   });
@@ -507,7 +515,10 @@ function setupIpcHandlers() {
 
     if (!isValidExternalUrl(url, isDev)) {
       console.warn('[Electron] Blocked attempt to open invalid URL:', url);
-      return { success: false, error: 'URL validation failed: Only http:// and https:// URLs are allowed' };
+      return {
+        success: false,
+        error: 'URL validation failed: Only http:// and https:// URLs are allowed',
+      };
     }
 
     try {
@@ -568,7 +579,11 @@ function setupIpcHandlers() {
   // Check for updates manually
   ipcMain.handle('check-for-updates', async () => {
     if (isDev) {
-      return { success: true, updateAvailable: false, message: 'Update checking is disabled in development mode' };
+      return {
+        success: true,
+        updateAvailable: false,
+        message: 'Update checking is disabled in development mode',
+      };
     }
 
     try {
@@ -576,7 +591,7 @@ function setupIpcHandlers() {
       return {
         success: true,
         updateAvailable: result && result.updateInfo,
-        version: result?.updateInfo?.version
+        version: result?.updateInfo?.version,
       };
     } catch (error) {
       console.error('[Electron] Update check failed:', error);
@@ -618,7 +633,7 @@ function setupIpcHandlers() {
           nodeIntegration: false,
           contextIsolation: true,
           sandbox: true,
-        }
+        },
       });
 
       // Set bounds
@@ -626,7 +641,7 @@ function setupIpcHandlers() {
         x: Math.round(bounds.x),
         y: Math.round(bounds.y),
         width: Math.round(bounds.width),
-        height: Math.round(bounds.height)
+        height: Math.round(bounds.height),
       });
 
       // Enable auto-resize to match parent window
@@ -687,7 +702,7 @@ function setupIpcHandlers() {
         x: Math.round(bounds.x),
         y: Math.round(bounds.y),
         width: Math.round(bounds.width),
-        height: Math.round(bounds.height)
+        height: Math.round(bounds.height),
       });
       return { success: true };
     } catch (error) {
@@ -830,20 +845,23 @@ function setupAutoUpdater() {
     console.log('[Electron] Update available:', info.version);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Update Available',
-        message: `A new version (${info.version}) is available!`,
-        detail: 'Would you like to download it now? The update will be installed when you restart the application.',
-        buttons: ['Download', 'Later'],
-        defaultId: 0,
-        cancelId: 1
-      }).then((result) => {
-        if (result.response === 0) {
-          // User clicked "Download"
-          autoUpdater.downloadUpdate();
-        }
-      });
+      dialog
+        .showMessageBox(mainWindow, {
+          type: 'info',
+          title: 'Update Available',
+          message: `A new version (${info.version}) is available!`,
+          detail:
+            'Would you like to download it now? The update will be installed when you restart the application.',
+          buttons: ['Download', 'Later'],
+          defaultId: 0,
+          cancelId: 1,
+        })
+        .then((result) => {
+          if (result.response === 0) {
+            // User clicked "Download"
+            autoUpdater.downloadUpdate();
+          }
+        });
     }
   });
 
@@ -868,20 +886,23 @@ function setupAutoUpdater() {
     console.log('[Electron] Update downloaded:', info.version);
 
     if (mainWindow && !mainWindow.isDestroyed()) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'info',
-        title: 'Update Ready',
-        message: 'Update downloaded successfully!',
-        detail: 'The update will be installed when you restart the application. Would you like to restart now?',
-        buttons: ['Restart Now', 'Later'],
-        defaultId: 0,
-        cancelId: 1
-      }).then((result) => {
-        if (result.response === 0) {
-          // User clicked "Restart Now"
-          autoUpdater.quitAndInstall(false, true);
-        }
-      });
+      dialog
+        .showMessageBox(mainWindow, {
+          type: 'info',
+          title: 'Update Ready',
+          message: 'Update downloaded successfully!',
+          detail:
+            'The update will be installed when you restart the application. Would you like to restart now?',
+          buttons: ['Restart Now', 'Later'],
+          defaultId: 0,
+          cancelId: 1,
+        })
+        .then((result) => {
+          if (result.response === 0) {
+            // User clicked "Restart Now"
+            autoUpdater.quitAndInstall(false, true);
+          }
+        });
     }
   });
 
@@ -894,11 +915,11 @@ function setupAutoUpdater() {
       'No published versions on GitHub',
       'net::ERR_INTERNET_DISCONNECTED',
       'net::ERR_NETWORK_CHANGED',
-      'ENOENT',  // Missing app-update.yml (dev/local builds)
-      'app-update.yml',  // Missing update config file
+      'ENOENT', // Missing app-update.yml (dev/local builds)
+      'app-update.yml', // Missing update config file
       'Cannot find channel',
     ];
-    const shouldIgnore = ignoredErrors.some(msg => error.message?.includes(msg));
+    const shouldIgnore = ignoredErrors.some((msg) => error.message?.includes(msg));
 
     if (!shouldIgnore && mainWindow && !mainWindow.isDestroyed()) {
       dialog.showMessageBox(mainWindow, {
@@ -906,7 +927,7 @@ function setupAutoUpdater() {
         title: 'Update Error',
         message: 'Failed to check for updates',
         detail: error.message,
-        buttons: ['OK']
+        buttons: ['OK'],
       });
     }
   });
@@ -947,14 +968,15 @@ app.whenReady().then(async () => {
     });
   } catch (error) {
     console.error('[Electron] Failed to start application:', error);
-    dialog.showMessageBox({
-      type: 'error',
-      title: 'Startup Error',
-      message: `Failed to start ${APP_NAME}`,
-      detail: error.message,
-      buttons: ['OK']
-    })
-      .catch(err => console.error('[Electron] Failed to show error dialog:', err))
+    dialog
+      .showMessageBox({
+        type: 'error',
+        title: 'Startup Error',
+        message: `Failed to start ${APP_NAME}`,
+        detail: error.message,
+        buttons: ['OK'],
+      })
+      .catch((err) => console.error('[Electron] Failed to show error dialog:', err))
       .finally(() => app.quit());
   }
 });
@@ -982,7 +1004,7 @@ app.on('render-process-gone', (event, webContents, details) => {
       title: 'Application Crash',
       message: 'The application has crashed.',
       detail: `Reason: ${details.reason}`,
-      buttons: ['OK']
+      buttons: ['OK'],
     });
   }
 });

@@ -16,5 +16,6 @@ export { ErrorBoundary } from './ErrorBoundary';
 export { AdminPanel } from './AdminPanel';
 export { KebabMenu, createAppMenuItems } from './KebabMenu';
 export { AppTabs, useAppTabs, createTabsFromApps } from './AppTabs';
+export { TitleBar } from './TitleBar';
 export { PortConflictModal } from './PortConflictModal';
 export { LoadingSkeleton } from './LoadingSkeleton';

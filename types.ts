@@ -152,8 +152,9 @@ export interface PerAppViewState {
   devToolsTab: DevToolsTab;
   consoleFilter: ConsoleFilter;
 
-  // Browser preview visibility
+  // Panel visibility
   isBrowserHidden: boolean;
+  isTerminalHidden: boolean;
 }
 
 export const DEFAULT_PER_APP_STATE: PerAppViewState = {
@@ -164,6 +165,7 @@ export const DEFAULT_PER_APP_STATE: PerAppViewState = {
   devToolsTab: 'console',
   consoleFilter: 'all',
   isBrowserHidden: false,
+  isTerminalHidden: true, // Default to hidden when first entering coding view
 };
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {

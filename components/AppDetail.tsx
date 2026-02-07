@@ -588,6 +588,8 @@ export const AppDetail: React.FC<AppDetailProps> = ({
             onConsoleFilterChange={perAppState?.setConsoleFilter}
             isBrowserHidden={perAppState?.isBrowserHidden}
             onBrowserHiddenChange={perAppState?.setIsBrowserHidden}
+            isTerminalHidden={perAppState?.isTerminalHidden}
+            onTerminalHiddenChange={perAppState?.setIsTerminalHidden}
             onStart={() => onStart(app.id)}
             onStop={() => onStop(app.id)}
             onRestart={() => onRestart(app.id)}
