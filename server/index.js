@@ -674,6 +674,42 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
   }
 });
 
+/**
+ * GET /api/settings/command/:id
+ * Get custom command for an app
+ */
+app.get('/api/settings/command/:id', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const command = settingsService.getCommand(id);
+    res.json({ id, command });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/command/:id
+ * Set custom command for an app
+ */
+app.put('/api/settings/command/:id', validateParams(idSchema), (req, res) => {
+  try {
+    const { id } = req.params;
+    const { command } = req.body;
+
+    if (command && typeof command === 'string' && command.trim().length > 0) {
+      settingsService.setCommand(id, command.trim());
+      res.json({ id, command: command.trim() });
+    } else {
+      // Clear custom command
+      settingsService.setCommand(id, null);
+      res.json({ id, command: null });
+    }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Track active SSE connections for port configuration progress
 const portConfigProgressClients = new Map();
 const SSE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout

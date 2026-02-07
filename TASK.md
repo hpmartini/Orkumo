@@ -111,7 +111,10 @@ The codebase is a full-stack application with:
 - [ ] **[UI]** Add loading skeleton states during initial scan instead of just spinner
 - [x] **[UI]** Add toast notifications for actions - Added `react-hot-toast` with Toaster component.
 - [x] **[UI]** Mobile responsiveness - Added hamburger menu in `App.tsx`.
-- [ ] **[UI]** Add keyboard shortcuts (Ctrl+Enter to start, Ctrl+. to stop)
+- [x] **[UI]** Add keyboard shortcuts (Ctrl+Enter to start, Ctrl+. to stop)
+  - Added `startApp`, `stopApp`, `restartApp` shortcuts to KeyboardShortcuts type
+  - Default bindings: ⌘/Ctrl+Enter (start), ⌘/Ctrl+. (stop), ⌘/Ctrl+Shift+R (restart)
+  - Integrated with existing keyboard shortcuts system (configurable)
 - [ ] **[UI]** Show app's actual path in AppDetail header (currently only shows command)
 - [ ] **[UI]** Add app path tooltip or display in Sidebar items
 
@@ -269,7 +272,10 @@ The codebase is a full-stack application with:
   - Preserve terminal sessions and WebSocket connections
   - Fixed iframe bleed-through issue with proper clip-path containment
 
-- [ ] **[UI]** AppDetail: Add "Code" button for quick view switching
+- [x] **[UI]** AppDetail: Add "Code" button for quick view switching
+  - Added toggle button in header action buttons
+  - Shows "Code" when in details view, "Details" when in coding view
+  - Uses blue accent when in coding view for visual feedback
 
 - [x] **[UI]** BrowserPreviewPanel improvements:
   - Add DevTools toggle button in header (Added toggle with active state highlighting)
@@ -296,15 +302,17 @@ The codebase is a full-stack application with:
 
 #### Custom Commands & Port Injection
 
-- [ ] **[FEATURE]** Persist and edit custom run commands per app
-  - Add `customCommand` field to app config in `settingsService`
-  - Add API endpoints: `PUT /api/apps/:id/command`, `GET /api/apps/:id/command`
-  - Add UI in AppDetail to view/edit custom command
+- [x] **[FEATURE]** Persist and edit custom run commands per app
+  - Added `customCommands` field to settings in `settingsService.js`
+  - Added API endpoints: `PUT /api/settings/command/:id`, `GET /api/settings/command/:id`
+  - Added UI in AppDetail to view/edit custom command (inline editor)
+  - Added `handleSetCommand` in useApps.ts with optimistic updates
 
-- [ ] **[FEATURE]** Inject per-framework port flags when starting apps
-  - Vite/Nuxt/Vue: `--port`
-  - Next.js: `-p`
-  - Express/Node: Environment variable or detect from package.json scripts
+- [x] **[FEATURE]** Inject per-framework port flags when starting apps
+  - Added `injectPortFlag()` in `processService.js`
+  - Auto-appends `-- --port XXXX` to npm/yarn/pnpm commands
+  - Works with Vite, Nuxt, Vue, Next.js (all use `--port`)
+  - PORT environment variable also set as fallback
 
 #### Docker Support
 

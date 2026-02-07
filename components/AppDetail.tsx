@@ -37,6 +37,7 @@ interface AppDetailProps {
   onOpenInBrowser: (id: string) => void;
   onInstallDeps?: (id: string) => void;
   onSetPort?: (id: string, port: number) => void;
+  onSetCommand?: (id: string, command: string | null) => void;
   onRename?: (id: string, newName: string) => void;
   onToggleFavorite?: (id: string) => void;
   onToggleArchive?: (id: string) => void;
@@ -63,6 +64,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   onOpenInBrowser,
   onInstallDeps,
   onSetPort,
+  onSetCommand,
   onRename,
   onToggleFavorite,
   onToggleArchive,
@@ -87,6 +89,8 @@ export const AppDetail: React.FC<AppDetailProps> = ({
   }, [onViewChange]);
   const [showPortEditor, setShowPortEditor] = useState(false);
   const [portValue, setPortValue] = useState('');
+  const [showCommandEditor, setShowCommandEditor] = useState(false);
+  const [commandValue, setCommandValue] = useState('');
   const [showNameEditor, setShowNameEditor] = useState(false);
   const [nameValue, setNameValue] = useState('');
 
@@ -147,6 +151,15 @@ export const AppDetail: React.FC<AppDetailProps> = ({
       onSetPort(app.id, port);
       setShowPortEditor(false);
       setPortValue('');
+    }
+  };
+
+  const handleCommandSubmit = () => {
+    const trimmedCommand = commandValue.trim();
+    if (onSetCommand) {
+      onSetCommand(app.id, trimmedCommand || null);
+      setShowCommandEditor(false);
+      setCommandValue('');
     }
   };
 
@@ -305,9 +318,51 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                   {/* Start Command */}
                   <div className="flex items-center gap-2">
                     <span className="text-gray-500 text-xs">Command:</span>
-                    <code className="text-gray-300 text-sm font-mono bg-gray-900/50 px-2 py-0.5 rounded">
-                      {app.startCommand || 'npm run dev'}
-                    </code>
+                    {showCommandEditor ? (
+                      <div className="flex items-center gap-1 flex-1 max-w-md">
+                        <input
+                          type="text"
+                          value={commandValue}
+                          onChange={(e) => setCommandValue(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleCommandSubmit();
+                            if (e.key === 'Escape') setShowCommandEditor(false);
+                          }}
+                          placeholder={app.startCommand || 'npm run dev'}
+                          className="flex-1 px-2 py-1 bg-gray-900 border border-gray-700 rounded text-sm font-mono text-white focus:outline-none focus:border-blue-500"
+                          autoFocus
+                        />
+                        <button
+                          onClick={handleCommandSubmit}
+                          className="p-1 text-emerald-400 hover:bg-gray-700 rounded"
+                          title="Save"
+                        >
+                          <Check size={14} />
+                        </button>
+                        <button
+                          onClick={() => setShowCommandEditor(false)}
+                          className="p-1 text-gray-400 hover:bg-gray-700 rounded"
+                          title="Cancel"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setCommandValue(app.startCommand || 'npm run dev');
+                          setShowCommandEditor(true);
+                        }}
+                        disabled={!onSetCommand}
+                        className="flex items-center gap-1 text-gray-300 text-sm font-mono bg-gray-900/50 px-2 py-0.5 rounded hover:bg-gray-900 transition-colors disabled:cursor-default disabled:hover:bg-gray-900/50 group"
+                        title={onSetCommand ? 'Click to edit command' : undefined}
+                      >
+                        {app.startCommand || 'npm run dev'}
+                        {onSetCommand && (
+                          <Settings2 size={12} className="text-gray-500 opacity-0 group-hover:opacity-100 transition-opacity" />
+                        )}
+                      </button>
+                    )}
                   </div>
 
                   {/* Port & Addresses */}
@@ -432,6 +487,20 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                     title="Open in browser"
                   >
                     <Globe size={18} />
+                  </button>
+
+                  {/* Toggle Code View */}
+                  <button
+                    onClick={() => setActiveView(activeView === 'coding' ? 'details' : 'coding')}
+                    className={`flex items-center justify-center gap-2 px-3 h-10 rounded-lg transition-all ${
+                      activeView === 'coding'
+                        ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                        : 'bg-gray-700 text-gray-200 hover:bg-gray-600 border border-gray-600'
+                    }`}
+                    title={activeView === 'coding' ? 'Switch to Details view' : 'Switch to Code view'}
+                  >
+                    <Code size={18} />
+                    <span className="hidden sm:inline">{activeView === 'coding' ? 'Details' : 'Code'}</span>
                   </button>
 
                   {/* More Menu - Secondary Actions in overflow */}

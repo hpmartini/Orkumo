@@ -533,6 +533,32 @@ export async function updateName(id: string, name: string | null): Promise<{ id:
 }
 
 /**
+ * Get custom command for an app
+ */
+export async function fetchCommand(id: string): Promise<{ id: string; command: string | null }> {
+  const response = await fetch(`${API_BASE}/settings/command/${id}`);
+  if (!response.ok) {
+    return { id, command: null };
+  }
+  return response.json();
+}
+
+/**
+ * Set custom command for an app
+ */
+export async function updateCommand(id: string, command: string | null): Promise<{ id: string; command: string | null }> {
+  const response = await fetch(`${API_BASE}/settings/command/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ command }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update command');
+  }
+  return response.json();
+}
+
+/**
  * Configure ports for all apps consistently, starting from a base port
  * @param startPort - Starting port number
  * @param onProgress - Optional progress callback (current, total, percentage)

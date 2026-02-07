@@ -118,6 +118,10 @@ export interface KeyboardShortcuts {
   goToTab7: KeyboardShortcut;
   goToTab8: KeyboardShortcut;
   goToTab9: KeyboardShortcut;
+  // App control shortcuts
+  startApp: KeyboardShortcut;
+  stopApp: KeyboardShortcut;
+  restartApp: KeyboardShortcut;
 }
 
 // Per-app view state - stored separately for each app tab
@@ -169,4 +173,8 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   goToTab7: { key: '7', modifiers: { meta: true }, description: 'Go to tab 7' },
   goToTab8: { key: '8', modifiers: { meta: true }, description: 'Go to tab 8' },
   goToTab9: { key: '9', modifiers: { meta: true }, description: 'Go to tab 9' },
+  // App control shortcuts
+  startApp: { key: 'Enter', modifiers: { meta: true }, description: 'Start selected app' },
+  stopApp: { key: '.', modifiers: { meta: true }, description: 'Stop selected app' },
+  restartApp: { key: 'r', modifiers: { meta: true, shift: true }, description: 'Restart selected app' },
 };

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { BrowserRouter, HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
 import { isElectron } from './utils/apiConfig';
 import { LayoutDashboard, RefreshCw, Menu, X, GripVertical } from 'lucide-react';
-import { Toaster } from 'react-hot-toast';
+import toast, { Toaster } from 'react-hot-toast';
 import {
   Sidebar,
   DashboardOverview,
@@ -48,6 +48,7 @@ function AppContent() {
     handleToggleArchive,
     handleInstallDeps,
     handleSetPort,
+    handleSetCommand,
     handleRename,
     handleReorderFavorites,
     handleSetFavoritesSortMode,
@@ -272,7 +273,41 @@ function AppContent() {
     { id: 'goToTab7' as keyof KeyboardShortcuts, handler: () => tabs[6] && handleTabSelect(tabs[6].appId) },
     { id: 'goToTab8' as keyof KeyboardShortcuts, handler: () => tabs[7] && handleTabSelect(tabs[7].appId) },
     { id: 'goToTab9' as keyof KeyboardShortcuts, handler: () => tabs[8] && handleTabSelect(tabs[8].appId) },
-  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect, handleToggleDetailsView, handleToggleFavoritesPopup, handleToggleProjectsPopup]);
+    // App control shortcuts
+    { id: 'startApp' as keyof KeyboardShortcuts, handler: () => {
+      if (selectedAppId) {
+        toast.promise(handleStartApp(selectedAppId), {
+          loading: 'Starting...',
+          success: 'App started',
+          error: 'Failed to start',
+        });
+      } else {
+        toast('Select an app first', { icon: 'ℹ️' });
+      }
+    }},
+    { id: 'stopApp' as keyof KeyboardShortcuts, handler: () => {
+      if (selectedAppId) {
+        toast.promise(handleStopApp(selectedAppId), {
+          loading: 'Stopping...',
+          success: 'App stopped',
+          error: 'Failed to stop',
+        });
+      } else {
+        toast('Select an app first', { icon: 'ℹ️' });
+      }
+    }},
+    { id: 'restartApp' as keyof KeyboardShortcuts, handler: () => {
+      if (selectedAppId) {
+        toast.promise(handleRestartApp(selectedAppId), {
+          loading: 'Restarting...',
+          success: 'App restarted',
+          error: 'Failed to restart',
+        });
+      } else {
+        toast('Select an app first', { icon: 'ℹ️' });
+      }
+    }},
+  ], [handleToggleSidebarCollapse, navigate, tabs, handleTabSelect, handleToggleDetailsView, handleToggleFavoritesPopup, handleToggleProjectsPopup, selectedAppId, handleStartApp, handleStopApp, handleRestartApp]);
 
   useKeyboardShortcuts({
     shortcuts: settings?.keyboardShortcuts,
@@ -524,6 +559,7 @@ function AppContent() {
                   onOpenInBrowser={handleOpenInBrowser}
                   onInstallDeps={handleInstallDeps}
                   onSetPort={handleSetPort}
+                  onSetCommand={handleSetCommand}
                   onRename={handleRename}
                   onToggleFavorite={handleToggleFavorite}
                   onToggleArchive={handleToggleArchive}

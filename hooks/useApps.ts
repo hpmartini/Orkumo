@@ -16,6 +16,7 @@ import {
   updateFavoritesSortMode,
   updateArchive,
   updatePort,
+  updateCommand,
   updateName,
   configureAllPorts,
   AppSettings,
@@ -88,6 +89,7 @@ interface UseAppsReturn {
   handleToggleArchive: (id: string) => Promise<void>;
   handleInstallDeps: (id: string) => Promise<void>;
   handleSetPort: (id: string, port: number) => Promise<void>;
+  handleSetCommand: (id: string, command: string | null) => Promise<void>;
   handleRename: (id: string, newName: string) => Promise<void>;
   handleReorderFavorites: (newOrder: string[]) => Promise<void>;
   handleSetFavoritesSortMode: (mode: FavoritesSortMode) => Promise<void>;
@@ -532,6 +534,47 @@ export function useApps(): UseAppsReturn {
     }
   }, [apps]);
 
+  const handleSetCommand = useCallback(async (id: string, command: string | null) => {
+    const currentApp = apps.find((a) => a.id === id);
+    const oldCommand = currentApp?.startCommand;
+
+    // Optimistically update UI
+    setApps((currentApps) =>
+      currentApps.map((app) =>
+        app.id === id
+          ? {
+              ...app,
+              startCommand: command || oldCommand,
+            }
+          : app
+      )
+    );
+
+    // Persist to backend
+    try {
+      await updateCommand(id, command);
+      if (command) {
+        toast.success('Command updated');
+      } else {
+        toast.success('Command reset to default');
+      }
+    } catch (err) {
+      console.error('Failed to update command:', err);
+      // Revert on failure
+      setApps((currentApps) =>
+        currentApps.map((app) =>
+          app.id === id
+            ? {
+                ...app,
+                startCommand: oldCommand,
+              }
+            : app
+        )
+      );
+      toast.error('Failed to update command');
+    }
+  }, [apps]);
+
   const handleRename = useCallback(async (id: string, newName: string) => {
     const currentApp = apps.find((a) => a.id === id);
     const oldName = currentApp?.name;
@@ -706,6 +749,7 @@ export function useApps(): UseAppsReturn {
     handleToggleArchive,
     handleInstallDeps,
     handleSetPort,
+    handleSetCommand,
     handleRename,
     handleReorderFavorites,
     handleSetFavoritesSortMode,

@@ -13,6 +13,7 @@ const defaultSettings = {
   archived: [],       // Array of app IDs that are archived
   customPorts: {},    // Map of appId -> port number
   customNames: {},    // Map of appId -> custom name
+  customCommands: {}, // Map of appId -> custom start command
   preferredIDEs: {},  // Map of appId -> preferred IDE id
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
   apiKeys: {},        // Map of provider -> API key (e.g. { gemini: "AIza..." })
@@ -52,6 +53,11 @@ function readSettings() {
     // Migrate: Ensure apiKeys exists (added in v1.3)
     if (!loadedSettings.apiKeys) {
       loadedSettings.apiKeys = {};
+    }
+
+    // Migrate: Ensure customCommands exists (added in v1.4)
+    if (!loadedSettings.customCommands) {
+      loadedSettings.customCommands = {};
     }
 
     return { ...defaultSettings, ...loadedSettings };
@@ -99,6 +105,7 @@ class SettingsService {
       isArchived: settings.archived.includes(appId),
       customPort: settings.customPorts[appId] || null,
       customName: settings.customNames[appId] || null,
+      customCommand: settings.customCommands?.[appId] || null,
       preferredIDE: settings.preferredIDEs?.[appId] || null,
     };
   }
@@ -227,6 +234,39 @@ class SettingsService {
 
     writeSettings(settings);
     return name;
+  }
+
+  /**
+   * Set custom command for an app
+   * @param {string} appId - Application ID
+   * @param {string|null} command - Custom command or null to clear
+   * @returns {string|null} The set command
+   */
+  setCommand(appId, command) {
+    const settings = readSettings();
+
+    if (!settings.customCommands) {
+      settings.customCommands = {};
+    }
+
+    if (command === null || command === undefined || command.trim() === '') {
+      delete settings.customCommands[appId];
+    } else {
+      settings.customCommands[appId] = command.trim();
+    }
+
+    writeSettings(settings);
+    return command;
+  }
+
+  /**
+   * Get custom command for an app
+   * @param {string} appId - Application ID
+   * @returns {string|null} Custom command or null
+   */
+  getCommand(appId) {
+    const settings = readSettings();
+    return settings.customCommands?.[appId] || null;
   }
 
   /**
@@ -426,6 +466,15 @@ class SettingsService {
     for (const appId of Object.keys(settings.customNames)) {
       if (!validSet.has(appId)) {
         delete settings.customNames[appId];
+      }
+    }
+
+    // Clean up custom commands
+    if (settings.customCommands) {
+      for (const appId of Object.keys(settings.customCommands)) {
+        if (!validSet.has(appId)) {
+          delete settings.customCommands[appId];
+        }
       }
     }
 

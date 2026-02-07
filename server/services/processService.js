@@ -22,9 +22,10 @@ const ALLOWED_COMMANDS = [
 ];
 
 // Allowlist of safe npm script patterns
+// Allows optional -- --port XXXX suffix for port injection
 const ALLOWED_SCRIPT_PATTERNS = [
-  /^(run\s+)?(dev|start|serve|develop|preview|build|test)$/,
-  /^start$/,
+  /^(run\s+)?(dev|start|serve|develop|preview|build|test)(\s+--\s+--port\s+\d{1,5})?$/,
+  /^start(\s+--\s+--port\s+\d{1,5})?$/,
 ];
 
 /**
@@ -57,6 +58,36 @@ function validateCommand(command) {
   }
 
   return true;
+}
+
+/**
+ * Inject port flag into command for frameworks that need it
+ * Supports npm/yarn/pnpm run scripts with -- --port syntax
+ * @param {string} command - Original command (e.g., "npm run dev")
+ * @param {number|string} port - Port number to inject
+ * @returns {string} Command with port flag appended
+ */
+function injectPortFlag(command, port) {
+  if (!port) return command;
+
+  const portNum = parseInt(port, 10);
+  if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
+    return command; // Invalid port, don't modify command
+  }
+
+  // Check if command already has --port flag
+  if (/--port\s+\d+/.test(command)) {
+    return command; // Already has port flag, don't duplicate
+  }
+
+  // For npm/yarn/pnpm run commands, append -- --port XXXX
+  // The -- separator passes the flag through to the underlying script
+  const npmRunPattern = /^(npm|yarn|pnpm)\s+(run\s+)?(dev|start|serve|develop|preview)$/i;
+  if (npmRunPattern.test(command.trim())) {
+    return `${command} -- --port ${portNum}`;
+  }
+
+  return command;
 }
 
 /**
@@ -105,8 +136,11 @@ export function getAllProcesses() {
  * @param {number} [port] - Optional port number to set as PORT env variable
  */
 export function startProcess(appId, appPath, command, port) {
+  // Inject port flag into command if port is specified
+  const commandWithPort = injectPortFlag(command, port);
+
   // Validate command before execution (security check)
-  validateCommand(command);
+  validateCommand(commandWithPort);
 
   // Check if already running
   if (processes.has(appId)) {
@@ -117,7 +151,7 @@ export function startProcess(appId, appPath, command, port) {
   }
 
   // Parse command safely
-  const parts = command.trim().split(/\s+/);
+  const parts = commandWithPort.trim().split(/\s+/);
   const cmd = parts[0];
   const args = parts.slice(1);
 
@@ -125,7 +159,8 @@ export function startProcess(appId, appPath, command, port) {
   const processInfo = {
     appId,
     appPath,
-    command,
+    command: commandWithPort, // Store the command with port flag
+    originalCommand: command, // Keep original for reference
     port,
     status: 'STARTING',
     startTime: null,
