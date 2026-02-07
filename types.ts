@@ -6,10 +6,19 @@ export enum AppStatus {
   ANALYZING = 'ANALYZING',
   CANCELLED = 'CANCELLED',
   WAITING = 'WAITING',
-  RESTARTING = 'RESTARTING'
+  RESTARTING = 'RESTARTING',
 }
 
-export type AppType = 'vite' | 'next' | 'node' | 'static' | 'docker-compose' | 'unknown';
+export type AppType =
+  | 'vite'
+  | 'next'
+  | 'cra'
+  | 'vue'
+  | 'nuxt'
+  | 'node'
+  | 'static'
+  | 'docker-compose'
+  | 'unknown';
 
 export interface DockerService {
   name: string;
@@ -91,14 +100,15 @@ export type TerminalType = 'shell' | 'claude';
 
 // Keyboard shortcuts configuration
 export interface KeyboardShortcut {
-  key: string;          // The key to press (e.g., 'b', 'h', '1')
-  modifiers?: {         // Optional modifier keys
+  key: string; // The key to press (e.g., 'b', 'h', '1')
+  modifiers?: {
+    // Optional modifier keys
     ctrl?: boolean;
-    meta?: boolean;     // Cmd on Mac
+    meta?: boolean; // Cmd on Mac
     alt?: boolean;
     shift?: boolean;
   };
-  description: string;  // Human-readable description
+  description: string; // Human-readable description
 }
 
 export interface KeyboardShortcuts {
@@ -176,5 +186,9 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   // App control shortcuts
   startApp: { key: 'Enter', modifiers: { meta: true }, description: 'Start selected app' },
   stopApp: { key: '.', modifiers: { meta: true }, description: 'Stop selected app' },
-  restartApp: { key: 'r', modifiers: { meta: true, shift: true }, description: 'Restart selected app' },
+  restartApp: {
+    key: 'r',
+    modifiers: { meta: true, shift: true },
+    description: 'Restart selected app',
+  },
 };

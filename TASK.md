@@ -100,7 +100,8 @@ The codebase is a full-stack application with:
   id: app.id as string,
   ```
 
-- [ ] **[TYPING]** AppType enum mismatch - Backend returns 'cra', 'nuxt', 'vue' but frontend `types.ts:12` only has `'vite' | 'next' | 'node' | 'static' | 'unknown'`
+- [x] **[TYPING]** AppType enum mismatch - Backend returns 'cra', 'nuxt', 'vue' but frontend `types.ts:12` only has `'vite' | 'next' | 'node' | 'static' | 'unknown'`
+  - Added 'cra', 'vue', 'nuxt' to AppType union type
 
 - [ ] **[TYPING]** Define proper interfaces for all backend API responses
 
@@ -143,7 +144,13 @@ The codebase is a full-stack application with:
 ### Testing
 
 - [x] **[TESTING]** Set up Vitest testing framework - Configured in `vitest.config.ts`
-- [ ] **[TESTING]** Add unit tests for `scannerService.js` functions
+- [x] **[TESTING]** Add unit tests for `scannerService.js` functions
+  - Added `test/scannerService.test.js` with 26 tests covering:
+    - generateProjectId (hash consistency)
+    - detectProjectType (all framework types)
+    - detectStartCommand (script detection)
+    - detectPort (port extraction and defaults)
+    - Docker Compose file detection and parsing
 - [ ] **[TESTING]** Add unit tests for `processService.js` functions
 - [ ] **[TESTING]** Add component tests for StatusBadge, Terminal, AppDetail
 - [ ] **[TESTING]** Add integration tests for API endpoints
@@ -161,7 +168,8 @@ The codebase is a full-stack application with:
 - [x] **[CLEANUP]** Remove unused `services/mockOs.ts` (replaced by real scanner)
 - [ ] **[CLEANUP]** Extract Tailwind custom colors from `index.html` to `tailwind.config.js`
 - [x] **[CLEANUP]** Add `.nvmrc` with Node version (e.g., `v20`)
-- [ ] **[CLEANUP]** Consistent file naming (some PascalCase, some camelCase in components)
+- [x] **[CLEANUP]** Consistent file naming (some PascalCase, some camelCase in components)
+  - Verified: All component files already use PascalCase naming convention
 
 ### DevOps
 
