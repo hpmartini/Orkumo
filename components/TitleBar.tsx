@@ -89,9 +89,9 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       {/* Traffic light spacer for macOS - only in Electron and not fullscreen */}
       {showTrafficLightSpacer && <div className="w-[78px] shrink-0" />}
 
-      {/* App logo - always visible */}
+      {/* App logo - always visible, flush left in fullscreen */}
       <div
-        className="flex items-center gap-2 px-3 shrink-0 text-blue-500"
+        className={`flex items-center gap-2 shrink-0 text-blue-500 ${showTrafficLightSpacer ? 'px-3' : 'pl-3 pr-2'}`}
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
         <Rocket size={18} />
