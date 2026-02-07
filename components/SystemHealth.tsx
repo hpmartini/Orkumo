@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   Activity,
   Cpu,
@@ -15,11 +15,17 @@ import {
   Package,
   GitBranch,
   Container,
+  X,
+  Clock,
 } from 'lucide-react';
 import {
   fetchSystemHealth,
   SystemHealthReport,
   SystemRecommendation,
+  fetchHiddenRecommendations,
+  dismissRecommendation,
+  snoozeRecommendation,
+  HiddenRecommendations,
 } from '../services/api';
 import toast from 'react-hot-toast';
 
@@ -75,7 +81,10 @@ const VersionIcon: React.FC<{ tool: string }> = ({ tool }) => {
   }
 };
 
-const ProgressBar: React.FC<{ value: number; className?: string }> = ({ value, className = '' }) => {
+const ProgressBar: React.FC<{ value: number; className?: string }> = ({
+  value,
+  className = '',
+}) => {
   const getColor = () => {
     if (value > 90) return 'bg-red-500';
     if (value > 75) return 'bg-yellow-500';
@@ -92,12 +101,21 @@ const ProgressBar: React.FC<{ value: number; className?: string }> = ({ value, c
   );
 };
 
+// Generate a unique key for a recommendation
+const getRecommendationKey = (rec: SystemRecommendation): string => {
+  return `${rec.type}-${rec.title.toLowerCase().replace(/\s+/g, '-')}`;
+};
+
 export const SystemHealth: React.FC<SystemHealthProps> = ({
   className = '',
   onRestartApp,
   onInstallDeps,
 }) => {
   const [health, setHealth] = useState<SystemHealthReport | null>(null);
+  const [hiddenRecs, setHiddenRecs] = useState<HiddenRecommendations>({
+    dismissed: [],
+    snoozed: {},
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
@@ -106,8 +124,9 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
   const loadHealth = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await fetchSystemHealth();
+      const [data, hidden] = await Promise.all([fetchSystemHealth(), fetchHiddenRecommendations()]);
       setHealth(data);
+      setHiddenRecs(hidden);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load system health');
@@ -122,6 +141,49 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
     const interval = setInterval(loadHealth, 120000);
     return () => clearInterval(interval);
   }, [loadHealth]);
+
+  // Filter out hidden recommendations
+  const visibleRecommendations = useMemo(() => {
+    if (!health) return [];
+    const now = Date.now();
+    return health.recommendations.filter((rec) => {
+      const key = getRecommendationKey(rec);
+      // Check if dismissed
+      if (hiddenRecs.dismissed.includes(key)) return false;
+      // Check if snoozed and not expired
+      const snoozeExpiry = hiddenRecs.snoozed[key];
+      if (snoozeExpiry && snoozeExpiry > now) return false;
+      return true;
+    });
+  }, [health, hiddenRecs]);
+
+  const handleDismiss = async (rec: SystemRecommendation) => {
+    const key = getRecommendationKey(rec);
+    try {
+      await dismissRecommendation(key);
+      setHiddenRecs((prev) => ({
+        ...prev,
+        dismissed: [...prev.dismissed, key],
+      }));
+      toast.success('Recommendation dismissed');
+    } catch {
+      toast.error('Failed to dismiss');
+    }
+  };
+
+  const handleSnooze = async (rec: SystemRecommendation) => {
+    const key = getRecommendationKey(rec);
+    try {
+      const expiry = await snoozeRecommendation(key);
+      setHiddenRecs((prev) => ({
+        ...prev,
+        snoozed: { ...prev.snoozed, [key]: expiry },
+      }));
+      toast.success('Snoozed for 24 hours');
+    } catch {
+      toast.error('Failed to snooze');
+    }
+  };
 
   if (loading && !health) {
     return (
@@ -140,10 +202,7 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
         <div className="flex items-center gap-2 text-red-400">
           <AlertCircle size={16} />
           <span>{error}</span>
-          <button
-            onClick={loadHealth}
-            className="ml-auto text-gray-400 hover:text-white"
-          >
+          <button onClick={loadHealth} className="ml-auto text-gray-400 hover:text-white">
             <RefreshCw size={16} />
           </button>
         </div>
@@ -153,7 +212,7 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
 
   if (!health) return null;
 
-  const { system, recommendations } = health;
+  const { system } = health;
 
   return (
     <div className={`bg-gray-800 rounded-xl border border-gray-700 ${className}`}>
@@ -165,9 +224,10 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
         <div className="flex items-center gap-3">
           <Activity className="text-blue-400" size={20} />
           <h3 className="font-semibold text-white">System Health</h3>
-          {recommendations.length > 0 && (
+          {visibleRecommendations.length > 0 && (
             <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-              {recommendations.length} {recommendations.length === 1 ? 'issue' : 'issues'}
+              {visibleRecommendations.length}{' '}
+              {visibleRecommendations.length === 1 ? 'issue' : 'issues'}
             </span>
           )}
         </div>
@@ -182,7 +242,11 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
           </button>
-          {expanded ? <ChevronDown size={16} className="text-gray-400" /> : <ChevronRight size={16} className="text-gray-400" />}
+          {expanded ? (
+            <ChevronDown size={16} className="text-gray-400" />
+          ) : (
+            <ChevronRight size={16} className="text-gray-400" />
+          )}
         </div>
       </div>
 
@@ -199,9 +263,7 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
               <div className="text-lg font-semibold text-white">
                 {system.cpu.loadAverage['1min'].toFixed(2)}
               </div>
-              <div className="text-xs text-gray-500 mt-1">
-                {system.cpu.cores} cores
-              </div>
+              <div className="text-xs text-gray-500 mt-1">{system.cpu.cores} cores</div>
             </div>
 
             {/* Memory */}
@@ -210,9 +272,7 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
                 <MemoryStick size={14} className="text-purple-400" />
                 <span className="text-xs text-gray-400">Memory</span>
               </div>
-              <div className="text-lg font-semibold text-white">
-                {system.memory.usedPercent}%
-              </div>
+              <div className="text-lg font-semibold text-white">{system.memory.usedPercent}%</div>
               <ProgressBar value={system.memory.usedPercent} className="mt-1" />
               <div className="text-xs text-gray-500 mt-1">
                 {formatBytes(system.memory.used)} / {formatBytes(system.memory.total)}
@@ -226,9 +286,7 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
                   <HardDrive size={14} className="text-emerald-400" />
                   <span className="text-xs text-gray-400">Disk</span>
                 </div>
-                <div className="text-lg font-semibold text-white">
-                  {system.disk.usedPercent}%
-                </div>
+                <div className="text-lg font-semibold text-white">{system.disk.usedPercent}%</div>
                 <ProgressBar value={system.disk.usedPercent} className="mt-1" />
                 <div className="text-xs text-gray-500 mt-1">
                   {formatBytes(system.disk.available)} free
@@ -244,7 +302,11 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
               className="w-full flex items-center justify-between p-3 hover:bg-gray-850 transition-colors"
             >
               <span className="text-sm text-gray-300">Tool Versions</span>
-              {showVersions ? <ChevronDown size={14} className="text-gray-500" /> : <ChevronRight size={14} className="text-gray-500" />}
+              {showVersions ? (
+                <ChevronDown size={14} className="text-gray-500" />
+              ) : (
+                <ChevronRight size={14} className="text-gray-500" />
+              )}
             </button>
             {showVersions && (
               <div className="px-3 pb-3 grid grid-cols-2 gap-2">
@@ -253,7 +315,9 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
                   <VersionIcon tool="node" />
                   <span className="text-gray-400">Node:</span>
                   <span className="text-white font-mono">
-                    {system.versions.node.installed ? `v${system.versions.node.version}` : 'Not installed'}
+                    {system.versions.node.installed
+                      ? `v${system.versions.node.version}`
+                      : 'Not installed'}
                   </span>
                 </div>
                 {/* npm */}
@@ -261,7 +325,9 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
                   <VersionIcon tool="npm" />
                   <span className="text-gray-400">npm:</span>
                   <span className="text-white font-mono">
-                    {system.versions.npm.installed ? `v${system.versions.npm.version}` : 'Not installed'}
+                    {system.versions.npm.installed
+                      ? `v${system.versions.npm.version}`
+                      : 'Not installed'}
                   </span>
                 </div>
                 {/* Git */}
@@ -269,14 +335,18 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
                   <VersionIcon tool="git" />
                   <span className="text-gray-400">Git:</span>
                   <span className="text-white font-mono">
-                    {system.versions.git.installed ? `v${system.versions.git.version}` : 'Not installed'}
+                    {system.versions.git.installed
+                      ? `v${system.versions.git.version}`
+                      : 'Not installed'}
                   </span>
                 </div>
                 {/* Docker */}
                 <div className="flex items-center gap-2 text-sm">
                   <VersionIcon tool="docker" />
                   <span className="text-gray-400">Docker:</span>
-                  <span className={`font-mono ${system.versions.docker.running ? 'text-white' : 'text-yellow-400'}`}>
+                  <span
+                    className={`font-mono ${system.versions.docker.running ? 'text-white' : 'text-yellow-400'}`}
+                  >
                     {system.versions.docker.installed
                       ? `v${system.versions.docker.version}${system.versions.docker.running ? '' : ' (stopped)'}`
                       : 'Not installed'}
@@ -294,15 +364,17 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
           </div>
 
           {/* Recommendations */}
-          {recommendations.length > 0 && (
+          {visibleRecommendations.length > 0 && (
             <div className="space-y-2">
               <h4 className="text-sm font-medium text-gray-400">Recommendations</h4>
-              {recommendations.map((rec, index) => (
+              {visibleRecommendations.map((rec) => (
                 <RecommendationCard
-                  key={index}
+                  key={getRecommendationKey(rec)}
                   recommendation={rec}
                   onRestartApp={onRestartApp}
                   onInstallDeps={onInstallDeps}
+                  onDismiss={() => handleDismiss(rec)}
+                  onSnooze={() => handleSnooze(rec)}
                 />
               ))}
             </div>
@@ -310,7 +382,9 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
 
           {/* System Info Footer */}
           <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-700">
-            <span>{system.platform} ({system.arch})</span>
+            <span>
+              {system.platform} ({system.arch})
+            </span>
             <span>Uptime: {formatUptime(system.uptime)}</span>
           </div>
         </div>
@@ -323,12 +397,16 @@ interface RecommendationCardProps {
   recommendation: SystemRecommendation;
   onRestartApp?: (appId: string) => Promise<void>;
   onInstallDeps?: (appId: string) => Promise<void>;
+  onDismiss?: () => void;
+  onSnooze?: () => void;
 }
 
 const RecommendationCard: React.FC<RecommendationCardProps> = ({
   recommendation,
   onRestartApp,
   onInstallDeps,
+  onDismiss,
+  onSnooze,
 }) => {
   const [showAction, setShowAction] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
@@ -351,9 +429,11 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
 
     // Project-related recommendations with actionable fixes
     if (recommendation.type === 'project' && appId) {
-      if (recommendation.title.toLowerCase().includes('crashed') ||
-          recommendation.title.toLowerCase().includes('failed') ||
-          recommendation.title.toLowerCase().includes('error')) {
+      if (
+        recommendation.title.toLowerCase().includes('crashed') ||
+        recommendation.title.toLowerCase().includes('failed') ||
+        recommendation.title.toLowerCase().includes('error')
+      ) {
         if (onRestartApp) {
           return {
             label: 'Restart App',
@@ -364,8 +444,10 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
         }
       }
 
-      if (recommendation.title.toLowerCase().includes('dependencies') ||
-          recommendation.title.toLowerCase().includes('node_modules')) {
+      if (
+        recommendation.title.toLowerCase().includes('dependencies') ||
+        recommendation.title.toLowerCase().includes('node_modules')
+      ) {
         if (onInstallDeps) {
           return {
             label: 'Install Dependencies',
@@ -397,11 +479,35 @@ const RecommendationCard: React.FC<RecommendationCardProps> = ({
   };
 
   return (
-    <div className={`p-3 rounded-lg border ${severityColors[recommendation.severity] || severityColors.info}`}>
+    <div
+      className={`p-3 rounded-lg border ${severityColors[recommendation.severity] || severityColors.info}`}
+    >
       <div className="flex items-start gap-2">
         <SeverityIcon severity={recommendation.severity} />
         <div className="flex-1">
-          <div className="font-medium text-white text-sm">{recommendation.title}</div>
+          <div className="flex items-start justify-between gap-2">
+            <div className="font-medium text-white text-sm">{recommendation.title}</div>
+            <div className="flex items-center gap-1 shrink-0">
+              {onSnooze && (
+                <button
+                  onClick={onSnooze}
+                  className="p-1 text-gray-500 hover:text-yellow-400 hover:bg-gray-700/50 rounded transition-colors"
+                  title="Snooze for 24 hours"
+                >
+                  <Clock size={14} />
+                </button>
+              )}
+              {onDismiss && (
+                <button
+                  onClick={onDismiss}
+                  className="p-1 text-gray-500 hover:text-red-400 hover:bg-gray-700/50 rounded transition-colors"
+                  title="Dismiss permanently"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+          </div>
           <div className="text-xs text-gray-400 mt-0.5">{recommendation.message}</div>
           <div className="flex items-center gap-2 mt-2">
             {quickAction && (

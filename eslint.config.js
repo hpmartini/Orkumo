@@ -36,6 +36,15 @@ export default [
         module: 'readonly',
         require: 'readonly',
         exports: 'readonly',
+        Response: 'readonly',
+        RequestInit: 'readonly',
+        URLSearchParams: 'readonly',
+        crypto: 'readonly',
+        AbortController: 'readonly',
+        AbortSignal: 'readonly',
+        Headers: 'readonly',
+        Request: 'readonly',
+        FormData: 'readonly',
       },
     },
     plugins: {
@@ -44,8 +53,12 @@ export default [
       'react-hooks': reactHooks,
     },
     rules: {
-      // TypeScript rules
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      // TypeScript rules - disable base rule in favor of TypeScript version
+      'no-unused-vars': 'off',
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       '@typescript-eslint/no-explicit-any': 'warn',
 
       // React rules

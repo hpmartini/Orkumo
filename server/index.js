@@ -8,7 +8,12 @@ import http, { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import path from 'path';
 // NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
-import { getConfig, updateConfig, addDirectory, removeDirectory } from './services/configService.js';
+import {
+  getConfig,
+  updateConfig,
+  addDirectory,
+  removeDirectory,
+} from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
 import {
   startProcess,
@@ -95,7 +100,7 @@ const limiter = rateLimit({
   // Skip rate limiting for SSE endpoints (they're long-lived connections, not repeated requests)
   skip: (req) => {
     const sseEndpoints = ['/api/events', '/api/apps/stats/stream'];
-    return sseEndpoints.some(endpoint => req.path === endpoint);
+    return sseEndpoints.some((endpoint) => req.path === endpoint);
   },
 });
 
@@ -160,7 +165,11 @@ const analyzeSchema = z.object({
 });
 
 // IDE ID can be built-in or custom (alphanumeric with dashes)
-const ideIdSchema = z.string().min(1).max(50).regex(/^[a-z0-9-]+$/);
+const ideIdSchema = z
+  .string()
+  .min(1)
+  .max(50)
+  .regex(/^[a-z0-9-]+$/);
 
 const openIdeSchema = z.object({
   ide: ideIdSchema,
@@ -184,7 +193,7 @@ function validate(schema) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map(e => ({ path: e.path.join('.'), message: e.message })),
+          details: error.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
         });
       }
       next(error);
@@ -217,7 +226,9 @@ function getApiKey() {
 
 // Check on startup
 if (!getApiKey()) {
-  console.warn('⚠️  GEMINI_API_KEY not found - AI features will be disabled until configured in Admin Panel or .env.local');
+  console.warn(
+    '⚠️  GEMINI_API_KEY not found - AI features will be disabled until configured in Admin Panel or .env.local'
+  );
 }
 
 // Store connected SSE clients for real-time updates
@@ -255,12 +266,16 @@ app.get('/api/events', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
 
   // Send initial connection message
-  res.write(`event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+  res.write(
+    `event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
+  );
 
   // Set up heartbeat to keep connection alive and detect dead clients
   const heartbeatInterval = setInterval(() => {
     try {
-      res.write(`event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+      res.write(
+        `event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
+      );
       const clientInfo = sseClients.get(res);
       if (clientInfo) {
         clientInfo.lastActive = Date.now();
@@ -339,12 +354,16 @@ app.get('/api/apps/stats/stream', (req, res) => {
   res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
 
   // Send initial connection message
-  res.write(`event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+  res.write(
+    `event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
+  );
 
   // Set up heartbeat to keep connection alive and detect dead clients
   const heartbeatInterval = setInterval(() => {
     try {
-      res.write(`event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`);
+      res.write(
+        `event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
+      );
       const clientInfo = statsSSEClients.get(res);
       if (clientInfo) {
         clientInfo.lastActive = Date.now();
@@ -364,7 +383,9 @@ app.get('/api/apps/stats/stream', (req, res) => {
     // Skip if previous collection is still in progress (backpressure)
     if (statsInProgress) {
       if (!backpressureWarningLogged) {
-        console.warn('[SSE Stats] Skipping - previous collection still in progress (backpressure detected)');
+        console.warn(
+          '[SSE Stats] Skipping - previous collection still in progress (backpressure detected)'
+        );
         backpressureWarningLogged = true;
       }
       return;
@@ -387,7 +408,7 @@ app.get('/api/apps/stats/stream', (req, res) => {
             getProcessStats(info.pid),
             new Promise((_, reject) =>
               setTimeout(() => reject(new Error('Stats collection timeout')), STATS_TIMEOUT_MS)
-            )
+            ),
           ]);
           return { appId, stats, success: true };
         } catch {
@@ -401,11 +422,13 @@ app.get('/api/apps/stats/stream', (req, res) => {
       for (const result of results) {
         if (result.success && result.stats) {
           try {
-            res.write(`event: stats\ndata: ${JSON.stringify({
-              appId: result.appId,
-              cpu: result.stats.cpu,
-              memory: result.stats.memory
-            })}\n\n`);
+            res.write(
+              `event: stats\ndata: ${JSON.stringify({
+                appId: result.appId,
+                cpu: result.stats.cpu,
+                memory: result.stats.memory,
+              })}\n\n`
+            );
           } catch {
             // Client disconnected during write, will be cleaned up
             break;
@@ -591,7 +614,9 @@ app.put('/api/settings/favorites/sort-mode', (req, res) => {
     const { mode } = req.body;
 
     if (!mode || !['manual', 'alpha-asc', 'alpha-desc'].includes(mode)) {
-      return res.status(400).json({ error: 'Invalid sort mode. Must be one of: manual, alpha-asc, alpha-desc' });
+      return res
+        .status(400)
+        .json({ error: 'Invalid sort mode. Must be one of: manual, alpha-asc, alpha-desc' });
     }
 
     const newMode = settingsService.setFavoritesSortMode(mode);
@@ -710,6 +735,70 @@ app.put('/api/settings/command/:id', validateParams(idSchema), (req, res) => {
   }
 });
 
+/**
+ * GET /api/settings/recommendations/hidden
+ * Get dismissed and snoozed recommendations
+ */
+app.get('/api/settings/recommendations/hidden', (req, res) => {
+  try {
+    const hidden = settingsService.getHiddenRecommendations();
+    res.json(hidden);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settings/recommendations/dismiss
+ * Dismiss a recommendation permanently
+ */
+app.post('/api/settings/recommendations/dismiss', (req, res) => {
+  try {
+    const { key } = req.body;
+    if (!key || typeof key !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid key' });
+    }
+    settingsService.dismissRecommendation(key);
+    res.json({ success: true, key });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settings/recommendations/snooze
+ * Snooze a recommendation for 24 hours
+ */
+app.post('/api/settings/recommendations/snooze', (req, res) => {
+  try {
+    const { key } = req.body;
+    if (!key || typeof key !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid key' });
+    }
+    const expiry = settingsService.snoozeRecommendation(key);
+    res.json({ success: true, key, expiry });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * POST /api/settings/recommendations/restore
+ * Restore a dismissed recommendation
+ */
+app.post('/api/settings/recommendations/restore', (req, res) => {
+  try {
+    const { key } = req.body;
+    if (!key || typeof key !== 'string') {
+      return res.status(400).json({ error: 'Missing or invalid key' });
+    }
+    settingsService.restoreRecommendation(key);
+    res.json({ success: true, key });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Track active SSE connections for port configuration progress
 const portConfigProgressClients = new Map();
 const SSE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout
@@ -756,7 +845,9 @@ app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
   // Clean up any existing connection with the same sessionId before storing new one
   const existingClient = portConfigProgressClients.get(sessionId);
   if (existingClient) {
-    console.warn(`[SSE] Cleaning up existing connection for session ${sessionId} before creating new one`);
+    console.warn(
+      `[SSE] Cleaning up existing connection for session ${sessionId} before creating new one`
+    );
     clearTimeout(existingClient.timeoutId);
     try {
       existingClient.res.end();
@@ -804,23 +895,29 @@ app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) =>
     // Validate startPort
     const portNum = parseInt(startPort, 10);
     if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-      return res.status(400).json({ error: 'Invalid start port number (must be between 1 and 65535)' });
+      return res
+        .status(400)
+        .json({ error: 'Invalid start port number (must be between 1 and 65535)' });
     }
 
     // DoS Protection: Restrict to unprivileged ports (>= 1024) to prevent port exhaustion attacks
     // Privileged ports (1-1023) require root access and could cause system issues
     if (portNum < 1024) {
-      return res.status(400).json({ error: 'Start port must be >= 1024 (unprivileged ports only)' });
+      return res
+        .status(400)
+        .json({ error: 'Start port must be >= 1024 (unprivileged ports only)' });
     }
 
     // Validate that port 3000 is not used (reserved for DevHub)
     if (portNum <= 3000) {
-      return res.status(400).json({ error: 'Start port must be greater than 3000 (reserved for DevHub)' });
+      return res
+        .status(400)
+        .json({ error: 'Start port must be greater than 3000 (reserved for DevHub)' });
     }
 
     // Get all apps
     const apps = scanAllDirectories();
-    const appIds = apps.map(app => app.id);
+    const appIds = apps.map((app) => app.id);
 
     // Note: Port exhaustion validation is handled by the service layer which tracks
     // the actual highest port used (accounting for conflicts). A simple arithmetic
@@ -828,21 +925,28 @@ app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) =>
     // due to conflicts.
 
     // Progress callback to send SSE updates
-    const onProgress = sessionId ? (current, total, percentage) => {
-      const client = portConfigProgressClients.get(sessionId);
-      if (client && client.res) {
-        const progress = {
-          type: 'progress',
-          current,
-          total,
-          percentage: percentage || Math.round((current / total) * 100)
-        };
-        client.res.write(`data: ${JSON.stringify(progress)}\n\n`);
-      }
-    } : null;
+    const onProgress = sessionId
+      ? (current, total, percentage) => {
+          const client = portConfigProgressClients.get(sessionId);
+          if (client && client.res) {
+            const progress = {
+              type: 'progress',
+              current,
+              total,
+              percentage: percentage || Math.round((current / total) * 100),
+            };
+            client.res.write(`data: ${JSON.stringify(progress)}\n\n`);
+          }
+        }
+      : null;
 
     // Configure ports for all apps with conflict detection and progress tracking
-    const configured = await settingsService.configureAllPorts(appIds, portNum, portManager, onProgress);
+    const configured = await settingsService.configureAllPorts(
+      appIds,
+      portNum,
+      portManager,
+      onProgress
+    );
 
     // Send completion message via SSE if session exists
     if (sessionId) {
@@ -899,61 +1003,76 @@ app.get('/api/ides/installed', async (req, res) => {
  * POST /api/apps/:id/open-ide
  * Open app directory in specified IDE
  */
-app.post('/api/apps/:id/open-ide', ideLimiter, validateParams(idSchema), validate(openIdeSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { ide } = req.body;
+app.post(
+  '/api/apps/:id/open-ide',
+  ideLimiter,
+  validateParams(idSchema),
+  validate(openIdeSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { ide } = req.body;
 
-    // Verify IDE is actually installed before attempting to launch
-    const installedIDEs = await ideService.detectInstalledIDEs();
-    if (!installedIDEs.some(i => i.id === ide)) {
-      return res.status(404).json({
-        error: 'IDE not installed',
-        code: 'IDE_NOT_INSTALLED',
+      // Verify IDE is actually installed before attempting to launch
+      const installedIDEs = await ideService.detectInstalledIDEs();
+      if (!installedIDEs.some((i) => i.id === ide)) {
+        return res.status(404).json({
+          error: 'IDE not installed',
+          code: 'IDE_NOT_INSTALLED',
+        });
+      }
+
+      // Get app directory from config
+      const apps = scanAllDirectories();
+      const app = apps.find((a) => a.id === id);
+
+      if (!app) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+
+      // Open in IDE
+      const result = await ideService.openInIDE(app.path, ide);
+
+      // Save preferred IDE to settings
+      settingsService.setPreferredIDE(id, ide);
+
+      res.json(result);
+    } catch (error) {
+      console.error(`[IDE] Failed to open IDE for app ${req.params.id}:`, error.message);
+
+      // Invalidate cache on IDE_NOT_INSTALLED errors (IDE may have been uninstalled)
+      if (error.code === 'IDE_NOT_INSTALLED') {
+        ideService.detectionCache = null;
+        ideService.cacheTimestamp = null;
+      }
+
+      // Send appropriate status code based on error type
+      const statusCode =
+        error.code === 'IDE_NOT_INSTALLED'
+          ? 404
+          : error.code === 'IDE_NOT_SUPPORTED'
+            ? 400
+            : error.code === 'INVALID_PROJECT_PATH'
+              ? 404
+              : error.code === 'PERMISSION_DENIED'
+                ? 403
+                : 500;
+
+      // Sanitize error messages to avoid exposing sensitive paths
+      const sanitizedMessage =
+        error.code === 'PERMISSION_DENIED'
+          ? 'Permission denied accessing project directory'
+          : error.code === 'INVALID_PROJECT_PATH'
+            ? 'Project directory not found'
+            : error.message;
+
+      res.status(statusCode).json({
+        error: sanitizedMessage,
+        code: error.code || 'UNKNOWN_ERROR',
       });
     }
-
-    // Get app directory from config
-    const apps = scanAllDirectories();
-    const app = apps.find(a => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'Application not found' });
-    }
-
-    // Open in IDE
-    const result = await ideService.openInIDE(app.path, ide);
-
-    // Save preferred IDE to settings
-    settingsService.setPreferredIDE(id, ide);
-
-    res.json(result);
-  } catch (error) {
-    console.error(`[IDE] Failed to open IDE for app ${req.params.id}:`, error.message);
-
-    // Invalidate cache on IDE_NOT_INSTALLED errors (IDE may have been uninstalled)
-    if (error.code === 'IDE_NOT_INSTALLED') {
-      ideService.detectionCache = null;
-      ideService.cacheTimestamp = null;
-    }
-
-    // Send appropriate status code based on error type
-    const statusCode = error.code === 'IDE_NOT_INSTALLED' ? 404 :
-                      error.code === 'IDE_NOT_SUPPORTED' ? 400 :
-                      error.code === 'INVALID_PROJECT_PATH' ? 404 :
-                      error.code === 'PERMISSION_DENIED' ? 403 : 500;
-
-    // Sanitize error messages to avoid exposing sensitive paths
-    const sanitizedMessage = error.code === 'PERMISSION_DENIED' ? 'Permission denied accessing project directory' :
-                            error.code === 'INVALID_PROJECT_PATH' ? 'Project directory not found' :
-                            error.message;
-
-    res.status(statusCode).json({
-      error: sanitizedMessage,
-      code: error.code || 'UNKNOWN_ERROR',
-    });
   }
-});
+);
 
 /**
  * GET /api/ides/custom
@@ -1055,15 +1174,16 @@ app.put('/api/settings/api-keys/:provider', (req, res) => {
     // Validate provider name
     const allowedProviders = ['gemini'];
     if (!allowedProviders.includes(provider)) {
-      return res.status(400).json({ error: `Unknown provider: ${provider}. Allowed: ${allowedProviders.join(', ')}` });
+      return res
+        .status(400)
+        .json({ error: `Unknown provider: ${provider}. Allowed: ${allowedProviders.join(', ')}` });
     }
 
     settingsService.setApiKey(provider, key.trim());
 
     // Return masked version
-    const maskedKey = key.length > 4
-      ? `${key.substring(0, 4)}...${key.substring(key.length - 4)}`
-      : '****';
+    const maskedKey =
+      key.length > 4 ? `${key.substring(0, 4)}...${key.substring(key.length - 4)}` : '****';
 
     res.json({ provider, maskedKey, configured: true });
   } catch (error) {
@@ -1131,7 +1251,7 @@ app.get('/api/apps/:id/devtools-status', validateParams(idSchema), async (req, r
   try {
     const { id } = req.params;
     const apps = scanAllDirectories();
-    const app = apps.find(a => a.id === id);
+    const app = apps.find((a) => a.id === id);
 
     if (!app) {
       return res.status(404).json({ error: 'Application not found' });
@@ -1152,74 +1272,84 @@ app.get('/api/apps/:id/devtools-status', validateParams(idSchema), async (req, r
  * POST /api/apps/:id/inject-logger
  * Inject DevOrbit logger into a project's entry file
  */
-app.post('/api/apps/:id/inject-logger', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const apps = scanAllDirectories();
-    const app = apps.find(a => a.id === id);
+app.post(
+  '/api/apps/:id/inject-logger',
+  processLimiter,
+  validateParams(idSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const apps = scanAllDirectories();
+      const app = apps.find((a) => a.id === id);
 
-    if (!app) {
-      return res.status(404).json({ error: 'Application not found' });
+      if (!app) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+
+      const result = await injectLogger(app.path);
+
+      if (result.success) {
+        console.log(`[DevTools] Logger injected into ${app.name} (${result.framework})`);
+        res.json({
+          success: true,
+          message: result.message,
+          file: result.file,
+          framework: result.framework,
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.message,
+          file: result.file,
+        });
+      }
+    } catch (error) {
+      console.error(`[DevTools] Error injecting logger for app ${req.params.id}:`, error);
+      res.status(500).json({ error: error.message });
     }
-
-    const result = await injectLogger(app.path);
-
-    if (result.success) {
-      console.log(`[DevTools] Logger injected into ${app.name} (${result.framework})`);
-      res.json({
-        success: true,
-        message: result.message,
-        file: result.file,
-        framework: result.framework,
-      });
-    } else {
-      res.status(400).json({
-        success: false,
-        error: result.message,
-        file: result.file,
-      });
-    }
-  } catch (error) {
-    console.error(`[DevTools] Error injecting logger for app ${req.params.id}:`, error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 /**
  * POST /api/apps/:id/remove-logger
  * Remove DevOrbit logger from a project's entry file
  */
-app.post('/api/apps/:id/remove-logger', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const apps = scanAllDirectories();
-    const app = apps.find(a => a.id === id);
+app.post(
+  '/api/apps/:id/remove-logger',
+  processLimiter,
+  validateParams(idSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const apps = scanAllDirectories();
+      const app = apps.find((a) => a.id === id);
 
-    if (!app) {
-      return res.status(404).json({ error: 'Application not found' });
+      if (!app) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+
+      const result = await removeLogger(app.path);
+
+      if (result.success) {
+        console.log(`[DevTools] Logger removed from ${app.name}`);
+        res.json({
+          success: true,
+          message: result.message,
+          file: result.file,
+        });
+      } else {
+        res.status(400).json({
+          success: false,
+          error: result.message,
+          file: result.file,
+        });
+      }
+    } catch (error) {
+      console.error(`[DevTools] Error removing logger for app ${req.params.id}:`, error);
+      res.status(500).json({ error: error.message });
     }
-
-    const result = await removeLogger(app.path);
-
-    if (result.success) {
-      console.log(`[DevTools] Logger removed from ${app.name}`);
-      res.json({
-        success: true,
-        message: result.message,
-        file: result.file,
-      });
-    } else {
-      res.status(400).json({
-        success: false,
-        error: result.message,
-        file: result.file,
-      });
-    }
-  } catch (error) {
-    console.error(`[DevTools] Error removing logger for app ${req.params.id}:`, error);
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 // ============================================
 // File System Endpoints (for Monaco Editor)
@@ -1245,14 +1375,14 @@ app.get('/api/files/tree', fileSystemLimiter, async (req, res) => {
       try {
         const entries = fs.readdirSync(dir, { withFileTypes: true });
         return entries
-          .filter(entry => !entry.name.startsWith('.') && entry.name !== 'node_modules')
+          .filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules')
           .sort((a, b) => {
             // Directories first
             if (a.isDirectory() && !b.isDirectory()) return -1;
             if (!a.isDirectory() && b.isDirectory()) return 1;
             return a.name.localeCompare(b.name);
           })
-          .map(entry => {
+          .map((entry) => {
             const fullPath = pathModule.join(dir, entry.name);
             const node = {
               name: entry.name,
@@ -1294,7 +1424,7 @@ app.get('/api/files/read', async (req, res) => {
     const config = getConfig();
     const allowedDirs = config.directories || [];
     const realPath = fs.realpathSync(filePath);
-    const isAllowed = allowedDirs.some(dir => realPath.startsWith(fs.realpathSync(dir)));
+    const isAllowed = allowedDirs.some((dir) => realPath.startsWith(fs.realpathSync(dir)));
 
     if (!isAllowed) {
       return res.status(403).json({ error: 'Access denied' });
@@ -1344,7 +1474,7 @@ app.put('/api/files/write', async (req, res) => {
     const config = getConfig();
     const allowedDirs = config.directories || [];
     const realPath = fs.existsSync(filePath) ? fs.realpathSync(filePath) : filePath;
-    const isAllowed = allowedDirs.some(dir => {
+    const isAllowed = allowedDirs.some((dir) => {
       const realDir = fs.realpathSync(dir);
       return realPath.startsWith(realDir);
     });
@@ -1405,7 +1535,7 @@ app.get('/api/apps/:id/package', validateParams(idSchema), async (req, res) => {
   try {
     const { id } = req.params;
     const apps = scanAllDirectories();
-    const app = apps.find(a => a.id === id);
+    const app = apps.find((a) => a.id === id);
 
     if (!app) {
       return res.status(404).json({ error: 'App not found' });
@@ -1440,7 +1570,7 @@ app.get('/api/apps', (req, res) => {
 
     // Merge with running process info
     const processes = getAllProcesses();
-    const enrichedApps = apps.map(app => {
+    const enrichedApps = apps.map((app) => {
       const processInfo = processes[app.id];
       if (processInfo) {
         return {
@@ -1483,17 +1613,23 @@ app.post('/api/scan', (req, res) => {
  * POST /api/apps/:id/start
  * Start an app
  */
-app.post('/api/apps/:id/start', processLimiter, validateParams(idSchema), validate(startAppSchema), (req, res) => {
-  try {
-    const { id } = req.params;
-    const { path: appPath, command, port } = req.body;
+app.post(
+  '/api/apps/:id/start',
+  processLimiter,
+  validateParams(idSchema),
+  validate(startAppSchema),
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const { path: appPath, command, port } = req.body;
 
-    const result = startProcess(id, appPath, command, port);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
+      const result = startProcess(id, appPath, command, port);
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    }
   }
-});
+);
 
 /**
  * POST /api/apps/:id/stop
@@ -1590,7 +1726,7 @@ app.post('/api/analyze', async (req, res) => {
 
   if (!fileName || !fileContent) {
     return res.status(400).json({
-      error: 'Missing required fields: fileName and fileContent'
+      error: 'Missing required fields: fileName and fileContent',
     });
   }
 
@@ -1600,7 +1736,7 @@ app.post('/api/analyze', async (req, res) => {
       command: 'npm start',
       port: 3000,
       type: 'unknown',
-      summary: 'API Key missing. Using defaults.'
+      summary: 'API Key missing. Using defaults.',
     });
   }
 
@@ -1633,8 +1769,8 @@ Return a JSON object with:
             summary: { type: Type.STRING, description: 'One sentence project description' },
           },
           required: ['command', 'port', 'type', 'summary'],
-        }
-      }
+        },
+      },
     });
 
     const text = response.text;
@@ -1644,7 +1780,7 @@ Return a JSON object with:
       console.error('[Analyze] No response text from AI');
       return res.status(500).json({
         error: 'No response from AI',
-        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' }
+        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' },
       });
     }
 
@@ -1657,7 +1793,7 @@ Return a JSON object with:
       return res.status(500).json({
         error: 'Failed to parse AI response as JSON',
         rawResponse: text.substring(0, 500),
-        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' }
+        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' },
       });
     }
 
@@ -1674,7 +1810,7 @@ Return a JSON object with:
       return res.status(500).json({
         error: `Invalid response structure: missing ${criticalMissing.join(', ')}`,
         parsedResponse: parsed,
-        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' }
+        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' },
       });
     }
 
@@ -1683,7 +1819,7 @@ Return a JSON object with:
       command: parsed.command,
       port: parsed.port,
       type: parsed.type,
-      summary: parsed.summary || `${parsed.type} project running on port ${parsed.port}`
+      summary: parsed.summary || `${parsed.type} project running on port ${parsed.port}`,
     };
 
     console.log('[Analyze] Success:', result);
@@ -1693,7 +1829,7 @@ Return a JSON object with:
     console.error('[Analyze] Stack:', error.stack);
     return res.status(500).json({
       error: error.message,
-      fallback: { command: 'npm run dev', port: 3000, type: 'unknown' }
+      fallback: { command: 'npm run dev', port: 3000, type: 'unknown' },
     });
   }
 });
@@ -1732,7 +1868,7 @@ app.get('/api/health', (req, res) => {
     codeServer: {
       running: codeServerProcess !== null,
       port: codeServerPort,
-    }
+    },
   });
 });
 
@@ -1747,7 +1883,7 @@ app.get('/api/claude-cli/status', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       installed: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1792,7 +1928,7 @@ app.get('/api/apps/:id/health', async (req, res) => {
 
     // Get app path from scanned apps
     const apps = scanAllDirectories();
-    const app = apps.find(a => a.id === id);
+    const app = apps.find((a) => a.id === id);
 
     if (!app) {
       return res.status(404).json({ error: 'App not found' });
@@ -1835,18 +1971,21 @@ app.get('/api/code-server/status', async (req, res) => {
         installed: false,
         running: false,
         url: null,
-        message: 'code-server is not installed. Install it with: brew install code-server (macOS) or npm install -g code-server'
+        message:
+          'code-server is not installed. Install it with: brew install code-server (macOS) or npm install -g code-server',
       });
     }
 
     // Check if code-server is running by trying to connect
     const isRunning = await new Promise((resolve) => {
       const checkUrl = `http://127.0.0.1:${codeServerPort}`;
-      http.get(checkUrl, (response) => {
-        resolve(response.statusCode < 500);
-      }).on('error', () => {
-        resolve(false);
-      });
+      http
+        .get(checkUrl, (response) => {
+          resolve(response.statusCode < 500);
+        })
+        .on('error', () => {
+          resolve(false);
+        });
     });
 
     res.json({
@@ -1855,13 +1994,13 @@ app.get('/api/code-server/status', async (req, res) => {
       running: isRunning,
       url: isRunning ? `http://127.0.0.1:${codeServerPort}` : null,
       port: codeServerPort,
-      managedByUs: codeServerProcess !== null
+      managedByUs: codeServerProcess !== null,
     });
   } catch (error) {
     res.status(500).json({
       installed: false,
       running: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -1874,18 +2013,20 @@ app.post('/api/code-server/start', async (req, res) => {
   try {
     // Check if already running
     const isRunning = await new Promise((resolve) => {
-      http.get(`http://127.0.0.1:${codeServerPort}`, (response) => {
-        resolve(response.statusCode < 500);
-      }).on('error', () => {
-        resolve(false);
-      });
+      http
+        .get(`http://127.0.0.1:${codeServerPort}`, (response) => {
+          resolve(response.statusCode < 500);
+        })
+        .on('error', () => {
+          resolve(false);
+        });
     });
 
     if (isRunning) {
       return res.json({
         success: true,
         url: `http://127.0.0.1:${codeServerPort}`,
-        message: 'code-server is already running'
+        message: 'code-server is already running',
       });
     }
 
@@ -1899,7 +2040,7 @@ app.post('/api/code-server/start', async (req, res) => {
     if (!codeServerPath) {
       return res.status(400).json({
         success: false,
-        error: 'code-server is not installed'
+        error: 'code-server is not installed',
       });
     }
 
@@ -1909,13 +2050,13 @@ app.post('/api/code-server/start', async (req, res) => {
     // 2. Capture stdout/stderr for debugging
     // 3. Clean up on parent exit
     const { spawn } = await import('child_process');
-    codeServerProcess = spawn(codeServerPath, [
-      '--bind-addr', `127.0.0.1:${codeServerPort}`,
-      '--auth', 'none',
-      '--disable-telemetry'
-    ], {
-      stdio: ['ignore', 'pipe', 'pipe']  // Capture stdout and stderr
-    });
+    codeServerProcess = spawn(
+      codeServerPath,
+      ['--bind-addr', `127.0.0.1:${codeServerPort}`, '--auth', 'none', '--disable-telemetry'],
+      {
+        stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout and stderr
+      }
+    );
 
     // Log code-server output for debugging
     codeServerProcess.stdout.on('data', (data) => {
@@ -1953,33 +2094,35 @@ app.post('/api/code-server/start', async (req, res) => {
     const maxAttempts = 30;
     while (attempts < maxAttempts) {
       const ready = await new Promise((resolve) => {
-        http.get(`http://127.0.0.1:${codeServerPort}`, (response) => {
-          resolve(response.statusCode < 500);
-        }).on('error', () => {
-          resolve(false);
-        });
+        http
+          .get(`http://127.0.0.1:${codeServerPort}`, (response) => {
+            resolve(response.statusCode < 500);
+          })
+          .on('error', () => {
+            resolve(false);
+          });
       });
 
       if (ready) {
         return res.json({
           success: true,
           url: `http://127.0.0.1:${codeServerPort}`,
-          message: 'code-server started successfully'
+          message: 'code-server started successfully',
         });
       }
 
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise((resolve) => setTimeout(resolve, 500));
       attempts++;
     }
 
     res.status(500).json({
       success: false,
-      error: 'code-server failed to start within timeout'
+      error: 'code-server failed to start within timeout',
     });
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -2007,7 +2150,7 @@ app.post('/api/code-server/stop', (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error.message,
     });
   }
 });
@@ -2038,7 +2181,7 @@ app.get('/api/apps/:id/docker/status', validateParams(idSchema), async (req, res
     const { id } = req.params;
     // Get project path from cache or scan
     const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+    const app = apps.find((a) => a.id === id);
 
     if (!app) {
       return res.status(404).json({ error: 'App not found' });
@@ -2063,7 +2206,7 @@ app.get('/api/apps/:id/docker/services', validateParams(idSchema), async (req, r
   try {
     const { id } = req.params;
     const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+    const app = apps.find((a) => a.id === id);
 
     if (!app) {
       return res.status(404).json({ error: 'App not found' });
@@ -2084,79 +2227,94 @@ app.get('/api/apps/:id/docker/services', validateParams(idSchema), async (req, r
  * POST /api/apps/:id/docker/start
  * Start Docker Compose services
  */
-app.post('/api/apps/:id/docker/start', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { service } = req.body; // Optional: specific service to start
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+app.post(
+  '/api/apps/:id/docker/start',
+  processLimiter,
+  validateParams(idSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { service } = req.body; // Optional: specific service to start
+      const apps = await applicationsRepository.getAll();
+      const app = apps.find((a) => a.id === id);
 
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
+      if (!app) {
+        return res.status(404).json({ error: 'App not found' });
+      }
+
+      if (app.type !== 'docker-compose') {
+        return res.status(400).json({ error: 'App is not a Docker Compose project' });
+      }
+
+      const result = await dockerService.startServices(app.path, service);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.startServices(app.path, service);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 /**
  * POST /api/apps/:id/docker/stop
  * Stop Docker Compose services
  */
-app.post('/api/apps/:id/docker/stop', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { service } = req.body; // Optional: specific service to stop
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+app.post(
+  '/api/apps/:id/docker/stop',
+  processLimiter,
+  validateParams(idSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { service } = req.body; // Optional: specific service to stop
+      const apps = await applicationsRepository.getAll();
+      const app = apps.find((a) => a.id === id);
 
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
+      if (!app) {
+        return res.status(404).json({ error: 'App not found' });
+      }
+
+      if (app.type !== 'docker-compose') {
+        return res.status(400).json({ error: 'App is not a Docker Compose project' });
+      }
+
+      const result = await dockerService.stopServices(app.path, service);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.stopServices(app.path, service);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 /**
  * POST /api/apps/:id/docker/restart
  * Restart Docker Compose services
  */
-app.post('/api/apps/:id/docker/restart', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { service } = req.body; // Optional: specific service to restart
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+app.post(
+  '/api/apps/:id/docker/restart',
+  processLimiter,
+  validateParams(idSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { service } = req.body; // Optional: specific service to restart
+      const apps = await applicationsRepository.getAll();
+      const app = apps.find((a) => a.id === id);
 
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
+      if (!app) {
+        return res.status(404).json({ error: 'App not found' });
+      }
+
+      if (app.type !== 'docker-compose') {
+        return res.status(400).json({ error: 'App is not a Docker Compose project' });
+      }
+
+      const result = await dockerService.restartServices(app.path, service);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.restartServices(app.path, service);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 /**
  * GET /api/apps/:id/docker/logs
@@ -2167,7 +2325,7 @@ app.get('/api/apps/:id/docker/logs', validateParams(idSchema), async (req, res) 
     const { id } = req.params;
     const { service, tail = 100 } = req.query;
     const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+    const app = apps.find((a) => a.id === id);
 
     if (!app) {
       return res.status(404).json({ error: 'App not found' });
@@ -2188,78 +2346,93 @@ app.get('/api/apps/:id/docker/logs', validateParams(idSchema), async (req, res) 
  * POST /api/apps/:id/docker/pull
  * Pull latest images for Docker Compose services
  */
-app.post('/api/apps/:id/docker/pull', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+app.post(
+  '/api/apps/:id/docker/pull',
+  processLimiter,
+  validateParams(idSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const apps = await applicationsRepository.getAll();
+      const app = apps.find((a) => a.id === id);
 
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
+      if (!app) {
+        return res.status(404).json({ error: 'App not found' });
+      }
+
+      if (app.type !== 'docker-compose') {
+        return res.status(400).json({ error: 'App is not a Docker Compose project' });
+      }
+
+      const result = await dockerService.pullImages(app.path);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.pullImages(app.path);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 /**
  * POST /api/apps/:id/docker/build
  * Build images for Docker Compose services
  */
-app.post('/api/apps/:id/docker/build', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { service } = req.body; // Optional: specific service to build
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+app.post(
+  '/api/apps/:id/docker/build',
+  processLimiter,
+  validateParams(idSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { service } = req.body; // Optional: specific service to build
+      const apps = await applicationsRepository.getAll();
+      const app = apps.find((a) => a.id === id);
 
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
+      if (!app) {
+        return res.status(404).json({ error: 'App not found' });
+      }
+
+      if (app.type !== 'docker-compose') {
+        return res.status(400).json({ error: 'App is not a Docker Compose project' });
+      }
+
+      const result = await dockerService.buildImages(app.path, service);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.buildImages(app.path, service);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 /**
  * POST /api/apps/:id/docker/down
  * Remove all containers for a Docker Compose project
  */
-app.post('/api/apps/:id/docker/down', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { removeVolumes = false } = req.body;
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find(a => a.id === id);
+app.post(
+  '/api/apps/:id/docker/down',
+  processLimiter,
+  validateParams(idSchema),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { removeVolumes = false } = req.body;
+      const apps = await applicationsRepository.getAll();
+      const app = apps.find((a) => a.id === id);
 
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
+      if (!app) {
+        return res.status(404).json({ error: 'App not found' });
+      }
+
+      if (app.type !== 'docker-compose') {
+        return res.status(400).json({ error: 'App is not a Docker Compose project' });
+      }
+
+      const result = await dockerService.removeContainers(app.path, removeVolumes);
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error.message });
     }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.removeContainers(app.path, removeVolumes);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
   }
-});
+);
 
 // ============================================
 // Database Application Endpoints
@@ -2338,14 +2511,16 @@ app.get('/api/apps/:id/history', validateParams(idSchema), async (req, res) => {
 app.get('/api/terminal/sessions', (req, res) => {
   try {
     const sessions = terminalSessionManager.getActiveSessions();
-    res.json(sessions.map(s => ({
-      id: s.id,
-      appId: s.appId,
-      cwd: s.cwd,
-      createdAt: s.createdAt,
-      lastActivity: s.lastActivity,
-      bufferSize: s.outputBuffer?.length || 0,
-    })));
+    res.json(
+      sessions.map((s) => ({
+        id: s.id,
+        appId: s.appId,
+        cwd: s.cwd,
+        createdAt: s.createdAt,
+        lastActivity: s.lastActivity,
+        bufferSize: s.outputBuffer?.length || 0,
+      }))
+    );
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2515,7 +2690,7 @@ app.post('/api/apps/:id/open-finder', validateParams(idSchema), (req, res) => {
   try {
     const { id } = req.params;
     const apps = scanAllDirectories();
-    const app = apps.find(a => a.id === id);
+    const app = apps.find((a) => a.id === id);
 
     if (!app) {
       return res.status(404).json({ error: 'App not found' });
@@ -2541,7 +2716,7 @@ app.post('/api/apps/:id/open-terminal', validateParams(idSchema), (req, res) => 
   try {
     const { id } = req.params;
     const apps = scanAllDirectories();
-    const app = apps.find(a => a.id === id);
+    const app = apps.find((a) => a.id === id);
 
     if (!app) {
       return res.status(404).json({ error: 'App not found' });
@@ -2599,7 +2774,9 @@ function handlePreviewProxy(req, res, port, pathSuffix) {
     res.status(proxyRes.statusCode);
     Object.entries(proxyRes.headers).forEach(([key, value]) => {
       // Skip certain headers
-      if (!['transfer-encoding', 'content-length', 'content-encoding'].includes(key.toLowerCase())) {
+      if (
+        !['transfer-encoding', 'content-length', 'content-encoding'].includes(key.toLowerCase())
+      ) {
         res.setHeader(key, value);
       }
     });
@@ -2607,7 +2784,9 @@ function handlePreviewProxy(req, res, port, pathSuffix) {
     if (isHtml) {
       // Collect HTML to inject logger script
       let body = '';
-      proxyRes.on('data', chunk => { body += chunk.toString(); });
+      proxyRes.on('data', (chunk) => {
+        body += chunk.toString();
+      });
       proxyRes.on('end', () => {
         // Inject logger script into <head>
         const loggerScript = `<script src="/iframe-logger.js"></script>`;
@@ -2709,7 +2888,12 @@ function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows) {
   hostWs.on('error', (err) => {
     console.error(`[PTY-Proxy] Host PTY error for session ${sessionId}:`, err.message);
     if (clientWs.readyState === WebSocket.OPEN) {
-      clientWs.send(JSON.stringify({ type: 'error', message: `Failed to connect to host PTY service: ${err.message}` }));
+      clientWs.send(
+        JSON.stringify({
+          type: 'error',
+          message: `Failed to connect to host PTY service: ${err.message}`,
+        })
+      );
       clientWs.close();
     }
     wsProxyMap.delete(clientWs);
@@ -2761,15 +2945,19 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
     wsSessionMap.set(ws, sessionId);
 
     // Send session info
-    ws.send(JSON.stringify({
-      type: 'connected',
-      sessionId,
-      pid: result.pid,
-      shell: result.shell,
-      sessionType: result.type,
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'connected',
+        sessionId,
+        pid: result.pid,
+        shell: result.shell,
+        sessionType: result.type,
+      })
+    );
 
-    console.log(`[PTY] Session ${sessionId} created successfully, pid=${result.pid}, type=${result.type}`);
+    console.log(
+      `[PTY] Session ${sessionId} created successfully, pid=${result.pid}, type=${result.type}`
+    );
   } catch (err) {
     console.error(`[PTY] Exception creating session ${sessionId}:`, err);
     ws.send(JSON.stringify({ type: 'error', message: err.message }));
@@ -2879,7 +3067,7 @@ wss.on('connection', (ws, req) => {
     try {
       const parsedArgs = JSON.parse(decodeURIComponent(argsParam));
       // Validate that args is an array of strings
-      if (!Array.isArray(parsedArgs) || !parsedArgs.every(arg => typeof arg === 'string')) {
+      if (!Array.isArray(parsedArgs) || !parsedArgs.every((arg) => typeof arg === 'string')) {
         console.error('[PTY] Invalid args format: must be array of strings');
         ws.send(JSON.stringify({ type: 'error', message: 'Invalid args format' }));
         ws.close();
@@ -2887,8 +3075,12 @@ wss.on('connection', (ws, req) => {
       }
       // Validate args length to prevent DoS
       if (parsedArgs.length > MAX_ARGS_LENGTH) {
-        console.error(`[PTY] Args length exceeds maximum: ${parsedArgs.length} > ${MAX_ARGS_LENGTH}`);
-        ws.send(JSON.stringify({ type: 'error', message: `Too many arguments (max: ${MAX_ARGS_LENGTH})` }));
+        console.error(
+          `[PTY] Args length exceeds maximum: ${parsedArgs.length} > ${MAX_ARGS_LENGTH}`
+        );
+        ws.send(
+          JSON.stringify({ type: 'error', message: `Too many arguments (max: ${MAX_ARGS_LENGTH})` })
+        );
         ws.close();
         return;
       }
@@ -2901,7 +3093,12 @@ wss.on('connection', (ws, req) => {
       for (const arg of parsedArgs) {
         if (arg.length > maxArgLength) {
           console.error(`[PTY] Argument exceeds maximum length: ${arg.length} > ${maxArgLength}`);
-          ws.send(JSON.stringify({ type: 'error', message: `Argument too long (max: ${maxArgLength} characters)` }));
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              message: `Argument too long (max: ${maxArgLength} characters)`,
+            })
+          );
           ws.close();
           return;
         }
@@ -2909,7 +3106,12 @@ wss.on('connection', (ws, req) => {
         // For Claude CLI, we only allow specific flags, reject anything with shell metacharacters
         if (command === 'claude' && dangerousPatterns.test(arg)) {
           console.error(`[PTY] Argument contains dangerous characters: ${arg}`);
-          ws.send(JSON.stringify({ type: 'error', message: 'Invalid argument: contains forbidden characters' }));
+          ws.send(
+            JSON.stringify({
+              type: 'error',
+              message: 'Invalid argument: contains forbidden characters',
+            })
+          );
           ws.close();
           return;
         }
@@ -2926,7 +3128,9 @@ wss.on('connection', (ws, req) => {
 
   const options = command ? { command, args } : {};
 
-  console.log(`[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`);
+  console.log(
+    `[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`
+  );
 
   if (isRunningInDocker) {
     // In Docker: proxy to host PTY service
@@ -2964,7 +3168,9 @@ async function startServer() {
   server.listen(PORT, () => {
     console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
     console.log(`   AI Features: ${getApiKey() ? '✅ Enabled' : '❌ Disabled (no API key)'}`);
-    console.log(`   Database: ${dbConnected ? '✅ Connected' : '⚠️  Not connected (using file storage)'}`);
+    console.log(
+      `   Database: ${dbConnected ? '✅ Connected' : '⚠️  Not connected (using file storage)'}`
+    );
     console.log(`   WebSocket PTY: ws://localhost:${PORT}/api/pty`);
     console.log(`   Endpoints:`);
     console.log(`   - GET  /api/apps            - List discovered apps`);
@@ -2991,7 +3197,9 @@ function cleanup() {
     clearInterval(info.heartbeatInterval);
     clearInterval(info.statsInterval);
     try {
-      client.write(`event: shutdown\ndata: ${JSON.stringify({ message: 'Server shutting down' })}\n\n`);
+      client.write(
+        `event: shutdown\ndata: ${JSON.stringify({ message: 'Server shutting down' })}\n\n`
+      );
       client.end();
     } catch {
       // Connection already closed
@@ -3004,7 +3212,9 @@ function cleanup() {
   for (const [client, info] of sseClients) {
     clearInterval(info.heartbeatInterval);
     try {
-      client.write(`event: shutdown\ndata: ${JSON.stringify({ message: 'Server shutting down' })}\n\n`);
+      client.write(
+        `event: shutdown\ndata: ${JSON.stringify({ message: 'Server shutting down' })}\n\n`
+      );
       client.end();
     } catch {
       // Connection already closed

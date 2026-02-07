@@ -9,15 +9,17 @@ const SETTINGS_FILE = getDataFilePath('settings.json');
  * Default settings structure
  */
 const defaultSettings = {
-  favorites: [],      // Array of app IDs that are favorited (order matters for manual sort)
-  archived: [],       // Array of app IDs that are archived
-  customPorts: {},    // Map of appId -> port number
-  customNames: {},    // Map of appId -> custom name
+  favorites: [], // Array of app IDs that are favorited (order matters for manual sort)
+  archived: [], // Array of app IDs that are archived
+  customPorts: {}, // Map of appId -> port number
+  customNames: {}, // Map of appId -> custom name
   customCommands: {}, // Map of appId -> custom start command
-  preferredIDEs: {},  // Map of appId -> preferred IDE id
+  preferredIDEs: {}, // Map of appId -> preferred IDE id
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
-  apiKeys: {},        // Map of provider -> API key (e.g. { gemini: "AIza..." })
-  version: 1,         // Settings schema version for future migrations
+  apiKeys: {}, // Map of provider -> API key (e.g. { gemini: "AIza..." })
+  dismissedRecommendations: [], // Array of dismissed recommendation keys
+  snoozedRecommendations: {}, // Map of recommendation key -> snooze expiry timestamp
+  version: 1, // Settings schema version for future migrations
 };
 
 /**
@@ -58,6 +60,16 @@ function readSettings() {
     // Migrate: Ensure customCommands exists (added in v1.4)
     if (!loadedSettings.customCommands) {
       loadedSettings.customCommands = {};
+    }
+
+    // Migrate: Ensure dismissedRecommendations exists (added in v1.5)
+    if (!loadedSettings.dismissedRecommendations) {
+      loadedSettings.dismissedRecommendations = [];
+    }
+
+    // Migrate: Ensure snoozedRecommendations exists (added in v1.5)
+    if (!loadedSettings.snoozedRecommendations) {
+      loadedSettings.snoozedRecommendations = {};
     }
 
     return { ...defaultSettings, ...loadedSettings };
@@ -374,7 +386,7 @@ class SettingsService {
 
     // Validate that all IDs in newOrder are currently favorites
     const currentFavorites = new Set(settings.favorites);
-    const isValid = newOrder.every(id => currentFavorites.has(id));
+    const isValid = newOrder.every((id) => currentFavorites.has(id));
 
     if (!isValid || newOrder.length !== settings.favorites.length) {
       throw new Error('Invalid favorites order: IDs must match current favorites');
@@ -450,10 +462,10 @@ class SettingsService {
     const validSet = new Set(validAppIds);
 
     // Clean up favorites
-    settings.favorites = settings.favorites.filter(id => validSet.has(id));
+    settings.favorites = settings.favorites.filter((id) => validSet.has(id));
 
     // Clean up archived
-    settings.archived = settings.archived.filter(id => validSet.has(id));
+    settings.archived = settings.archived.filter((id) => validSet.has(id));
 
     // Clean up custom ports
     for (const appId of Object.keys(settings.customPorts)) {
@@ -510,7 +522,9 @@ class SettingsService {
     const maxPort = 65535;
     const estimatedPortsNeeded = Math.ceil(appIds.length * 1.2);
     if (startPort + estimatedPortsNeeded > maxPort) {
-      throw new Error(`Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort} (estimated ${estimatedPortsNeeded} ports needed including conflicts)`);
+      throw new Error(
+        `Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort} (estimated ${estimatedPortsNeeded} ports needed including conflicts)`
+      );
     }
 
     // If portManager is provided, check ports in parallel for better performance
@@ -525,18 +539,16 @@ class SettingsService {
       for (let i = 0; i < portsToCheck; i++) {
         const portToCheck = startPort + i;
         portCheckPromises.push(
-          portManager.isPortAvailable(portToCheck).then(available => ({
+          portManager.isPortAvailable(portToCheck).then((available) => ({
             port: portToCheck,
-            available
+            available,
           }))
         );
       }
 
       // Wait for all checks to complete
       const results = await Promise.all(portCheckPromises);
-      unavailablePorts = new Set(
-        results.filter(r => !r.available).map(r => r.port)
-      );
+      unavailablePorts = new Set(results.filter((r) => !r.available).map((r) => r.port));
     }
 
     // Assign sequential ports starting from startPort
@@ -586,6 +598,82 @@ class SettingsService {
 
     writeSettings(settings);
     return configured;
+  }
+
+  /**
+   * Dismiss a recommendation permanently
+   * @param {string} key - Recommendation key (type + title hash)
+   * @returns {boolean} Success
+   */
+  dismissRecommendation(key) {
+    const settings = readSettings();
+    if (!settings.dismissedRecommendations.includes(key)) {
+      settings.dismissedRecommendations.push(key);
+      writeSettings(settings);
+    }
+    return true;
+  }
+
+  /**
+   * Snooze a recommendation for 24 hours
+   * @param {string} key - Recommendation key
+   * @returns {number} Expiry timestamp
+   */
+  snoozeRecommendation(key) {
+    const settings = readSettings();
+    const expiry = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
+    settings.snoozedRecommendations[key] = expiry;
+    writeSettings(settings);
+    return expiry;
+  }
+
+  /**
+   * Get hidden recommendations (dismissed or snoozed)
+   * @returns {object} { dismissed: string[], snoozed: { key: expiry } }
+   */
+  getHiddenRecommendations() {
+    const settings = readSettings();
+    const now = Date.now();
+
+    // Clean up expired snoozes
+    const activeSnoozed = {};
+    for (const [key, expiry] of Object.entries(settings.snoozedRecommendations || {})) {
+      if (expiry > now) {
+        activeSnoozed[key] = expiry;
+      }
+    }
+
+    // Update if any expired
+    if (
+      Object.keys(activeSnoozed).length !==
+      Object.keys(settings.snoozedRecommendations || {}).length
+    ) {
+      settings.snoozedRecommendations = activeSnoozed;
+      writeSettings(settings);
+    }
+
+    return {
+      dismissed: settings.dismissedRecommendations || [],
+      snoozed: activeSnoozed,
+    };
+  }
+
+  /**
+   * Restore a dismissed recommendation
+   * @param {string} key - Recommendation key
+   * @returns {boolean} Success
+   */
+  restoreRecommendation(key) {
+    const settings = readSettings();
+    const index = settings.dismissedRecommendations.indexOf(key);
+    if (index !== -1) {
+      settings.dismissedRecommendations.splice(index, 1);
+      writeSettings(settings);
+    }
+    // Also remove from snoozed if present
+    delete settings.snoozedRecommendations[key];
+    writeSettings(settings);
+    return true;
   }
 }
 

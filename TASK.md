@@ -9,6 +9,7 @@
 ### Overview
 
 The codebase is a full-stack application with:
+
 - Express backend server for process management and directory scanning
 - Real file system scanning with framework detection
 - Process spawning/killing with SSE real-time updates
@@ -16,6 +17,7 @@ The codebase is a full-stack application with:
 - Modular React component architecture
 
 **Major Security Improvements Applied:**
+
 - Command injection prevention with allowlist validation
 - Path traversal protection with forbidden paths
 - Input validation with Zod schemas
@@ -92,6 +94,7 @@ The codebase is a full-stack application with:
 ### Type Safety
 
 - [ ] **[TYPING]** Remove unsafe type assertions in `services/api.ts:16-32` - Use Zod for runtime validation:
+
   ```typescript
   // Current: Multiple `as` casts that could mask errors
   id: app.id as string,
@@ -162,9 +165,9 @@ The codebase is a full-stack application with:
 
 ### DevOps
 
-- [ ] **[DEVOPS]** Add pre-commit hooks with Husky/lint-staged
-- [ ] **[DEVOPS]** Add GitHub Actions CI workflow
-- [ ] **[DEVOPS]** Add Dockerfile for containerized deployment
+- [x] **[DEVOPS]** Add pre-commit hooks with Husky/lint-staged
+- [x] **[DEVOPS]** Add GitHub Actions CI workflow
+- [x] **[DEVOPS]** Add Dockerfile for containerized deployment
 
 ---
 
@@ -173,6 +176,7 @@ The codebase is a full-stack application with:
 ### Completed (2026-02-06)
 
 **Multi-Tab Stability Fixes:**
+
 1. Fixed code-server race condition with shared promise coordination across WebIDEPanel instances
 2. Added module-level lock to prevent concurrent code-server start/stop operations
 3. Iframe src gated by `codeServerReady` state - prevents ERR_CONNECTION_REFUSED errors
@@ -180,6 +184,7 @@ The codebase is a full-stack application with:
 5. Fixed iframe bleed-through between tabs using `clip-path` + `position: fixed` + `left: -200vw`
 
 **Server Stability:**
+
 1. Stats streaming backpressure control - prevents memory leak from stacking intervals
 2. Enhanced health endpoint with memory, uptime, SSE client counts, code-server status
 3. Better code-server process management - captures stdout/stderr, handles exit/error events
@@ -188,23 +193,27 @@ The codebase is a full-stack application with:
 ### Completed (2026-01-03)
 
 **Security Hardening:**
+
 1. Command injection prevention - `processService.js` validates against allowlist (npm, npx, yarn, pnpm, node, bun) and blocks dangerous shell characters
 2. Path traversal protection - `configService.js` validates paths against forbidden list (/etc, /var, ~/.ssh, etc.) and checks symlinks
 3. Input validation - All Express endpoints use Zod schemas
 4. Rate limiting - General (100/min) and process operations (20/min)
 
 **Reliability:**
+
 1. SSE reconnection with exponential backoff (10 attempts, 1-30s delays)
 2. SSE heartbeat (30s) and client timeout cleanup (2min)
 3. Real CPU/memory metrics via `pidusage`
 
 **UI/UX:**
+
 1. Toast notifications with `react-hot-toast`
 2. Mobile hamburger menu with slide-in sidebar
 3. Terminal virtualization with `@tanstack/react-virtual`
 4. Color-coded log lines (errors=red, warnings=yellow, system=blue)
 
 **Developer Tooling:**
+
 1. Vitest configured with jsdom environment
 2. ESLint 9 with TypeScript and React rules
 3. Prettier with consistent formatting
@@ -381,10 +390,10 @@ The codebase is a full-stack application with:
   - RecommendationCard now extracts appId from message and shows quick action buttons
   - Handlers passed from App.tsx through SystemHealth component
 
-- [ ] **[FEATURE]** Surface system-level recommendations from health data
+- [x] **[FEATURE]** Surface system-level recommendations from health data
   - Expandable details for each recommendation
   - Severity levels (info, warning, error)
-  - Dismiss/snooze functionality
+  - Dismiss/snooze functionality (24h snooze, permanent dismiss)
 
 ---
 
@@ -392,8 +401,8 @@ The codebase is a full-stack application with:
 
 The following existing tasks are related to the new features above:
 
-| Existing Task | Related New Task |
-|---------------|------------------|
-| Custom port setting UI | Custom commands & port injection |
-| Recommendations panel | Actionable recommendations engine |
+| Existing Task              | Related New Task                  |
+| -------------------------- | --------------------------------- |
+| Custom port setting UI     | Custom commands & port injection  |
+| Recommendations panel      | Actionable recommendations engine |
 | Stats polling optimization | ElectronBrowserView optimizations |

@@ -51,7 +51,7 @@ if (typeof window !== 'undefined') {
     activeSSEConnections.forEach((eventSource) => {
       try {
         eventSource.close();
-      } catch (err) {
+      } catch {
         // Connection already closed, ignore
       }
     });
@@ -79,7 +79,7 @@ export async function fetchApps(): Promise<AppConfig[]> {
     addresses: app.addresses as string[],
     startCommand: app.startCommand as string,
     detectedFramework: app.detectedFramework as string,
-    status: (app.status as string) as AppStatus || AppStatus.STOPPED,
+    status: (app.status as string as AppStatus) || AppStatus.STOPPED,
     uptime: (app.uptime as number) || 0,
     logs: (app.logs as string[]) || [],
     stats: {
@@ -92,7 +92,12 @@ export async function fetchApps(): Promise<AppConfig[]> {
 /**
  * Start an app process
  */
-export async function startApp(id: string, appPath: string, command: string, port?: number): Promise<{ pid: number; status: string }> {
+export async function startApp(
+  id: string,
+  appPath: string,
+  command: string,
+  port?: number
+): Promise<{ pid: number; status: string }> {
   const response = await fetch(`${API_BASE}/apps/${id}/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -142,7 +147,10 @@ export async function restartApp(id: string): Promise<{ pid: number; status: str
 /**
  * Get logs for an app
  */
-export async function fetchLogs(id: string, limit = 50): Promise<Array<{ type: string; message: string; timestamp: string }>> {
+export async function fetchLogs(
+  id: string,
+  limit = 50
+): Promise<Array<{ type: string; message: string; timestamp: string }>> {
   const response = await fetchWithRetry(`${API_BASE}/apps/${id}/logs?limit=${limit}`);
   if (!response.ok) {
     return [];
@@ -153,7 +161,9 @@ export async function fetchLogs(id: string, limit = 50): Promise<Array<{ type: s
 /**
  * Get app status
  */
-export async function fetchAppStatus(id: string): Promise<{ status: string; pid?: number; uptime: number }> {
+export async function fetchAppStatus(
+  id: string
+): Promise<{ status: string; pid?: number; uptime: number }> {
   const response = await fetchWithRetry(`${API_BASE}/apps/${id}/status`);
   if (!response.ok) {
     return { status: 'STOPPED', uptime: 0 };
@@ -286,7 +296,9 @@ export function subscribeToEvents(
 
       if (!isClosing && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         const delay = getReconnectDelay();
-        console.warn(`SSE connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        console.warn(
+          `SSE connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`
+        );
         reconnectTimeout = setTimeout(() => {
           reconnectAttempts++;
           connect();
@@ -383,7 +395,9 @@ export function subscribeToStats(
 
       if (!isClosing && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
         const delay = getReconnectDelay();
-        console.warn(`Stats SSE connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+        console.warn(
+          `Stats SSE connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`
+        );
         reconnectTimeout = setTimeout(() => {
           reconnectAttempts++;
           connect();
@@ -483,7 +497,10 @@ export async function importSettings(settings: Partial<AppSettings>): Promise<Ap
 /**
  * Toggle or set favorite status for an app
  */
-export async function updateFavorite(id: string, value?: boolean): Promise<{ id: string; isFavorite: boolean }> {
+export async function updateFavorite(
+  id: string,
+  value?: boolean
+): Promise<{ id: string; isFavorite: boolean }> {
   const response = await fetch(`${API_BASE}/settings/favorite/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -513,7 +530,9 @@ export async function updateFavoritesOrder(order: string[]): Promise<{ favorites
 /**
  * Set favorites sort mode
  */
-export async function updateFavoritesSortMode(mode: FavoritesSortMode): Promise<{ favoritesSortMode: FavoritesSortMode }> {
+export async function updateFavoritesSortMode(
+  mode: FavoritesSortMode
+): Promise<{ favoritesSortMode: FavoritesSortMode }> {
   const response = await fetch(`${API_BASE}/settings/favorites/sort-mode`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -528,7 +547,10 @@ export async function updateFavoritesSortMode(mode: FavoritesSortMode): Promise<
 /**
  * Toggle or set archive status for an app
  */
-export async function updateArchive(id: string, value?: boolean): Promise<{ id: string; isArchived: boolean }> {
+export async function updateArchive(
+  id: string,
+  value?: boolean
+): Promise<{ id: string; isArchived: boolean }> {
   const response = await fetch(`${API_BASE}/settings/archive/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -543,7 +565,10 @@ export async function updateArchive(id: string, value?: boolean): Promise<{ id: 
 /**
  * Set custom port for an app
  */
-export async function updatePort(id: string, port: number | null): Promise<{ id: string; port: number | null }> {
+export async function updatePort(
+  id: string,
+  port: number | null
+): Promise<{ id: string; port: number | null }> {
   const response = await fetch(`${API_BASE}/settings/port/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -558,7 +583,10 @@ export async function updatePort(id: string, port: number | null): Promise<{ id:
 /**
  * Set custom name for an app
  */
-export async function updateName(id: string, name: string | null): Promise<{ id: string; name: string | null }> {
+export async function updateName(
+  id: string,
+  name: string | null
+): Promise<{ id: string; name: string | null }> {
   const response = await fetch(`${API_BASE}/settings/name/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -584,7 +612,10 @@ export async function fetchCommand(id: string): Promise<{ id: string; command: s
 /**
  * Set custom command for an app
  */
-export async function updateCommand(id: string, command: string | null): Promise<{ id: string; command: string | null }> {
+export async function updateCommand(
+  id: string,
+  command: string | null
+): Promise<{ id: string; command: string | null }> {
   const response = await fetch(`${API_BASE}/settings/command/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -594,6 +625,70 @@ export async function updateCommand(id: string, command: string | null): Promise
     throw new Error('Failed to update command');
   }
   return response.json();
+}
+
+// ============================================
+// Recommendation Management
+// ============================================
+
+export interface HiddenRecommendations {
+  dismissed: string[];
+  snoozed: Record<string, number>;
+}
+
+/**
+ * Get hidden (dismissed/snoozed) recommendations
+ */
+export async function fetchHiddenRecommendations(): Promise<HiddenRecommendations> {
+  const response = await fetchWithRetry(`${API_BASE}/settings/recommendations/hidden`);
+  if (!response.ok) {
+    return { dismissed: [], snoozed: {} };
+  }
+  return response.json();
+}
+
+/**
+ * Dismiss a recommendation permanently
+ */
+export async function dismissRecommendation(key: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/settings/recommendations/dismiss`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to dismiss recommendation');
+  }
+}
+
+/**
+ * Snooze a recommendation for 24 hours
+ */
+export async function snoozeRecommendation(key: string): Promise<number> {
+  const response = await fetch(`${API_BASE}/settings/recommendations/snooze`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to snooze recommendation');
+  }
+  const data = await response.json();
+  return data.expiry;
+}
+
+/**
+ * Restore a dismissed recommendation
+ */
+export async function restoreRecommendation(key: string): Promise<void> {
+  const response = await fetch(`${API_BASE}/settings/recommendations/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ key }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to restore recommendation');
+  }
 }
 
 /**
@@ -702,7 +797,9 @@ export async function configureAllPorts(
 /**
  * Update keyboard shortcuts configuration
  */
-export async function updateKeyboardShortcuts(shortcuts: KeyboardShortcuts): Promise<{ keyboardShortcuts: KeyboardShortcuts }> {
+export async function updateKeyboardShortcuts(
+  shortcuts: KeyboardShortcuts
+): Promise<{ keyboardShortcuts: KeyboardShortcuts }> {
   const response = await fetch(`${API_BASE}/settings/keyboard-shortcuts`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -740,7 +837,10 @@ export async function fetchInstalledIDEs(): Promise<IDE[]> {
 /**
  * Open app in specified IDE
  */
-export async function openInIDE(appId: string, ideId: string): Promise<{ success: boolean; ide: string; message?: string }> {
+export async function openInIDE(
+  appId: string,
+  ideId: string
+): Promise<{ success: boolean; ide: string; message?: string }> {
   const response = await fetch(`${API_BASE}/apps/${appId}/open-ide`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -756,7 +856,10 @@ export async function openInIDE(appId: string, ideId: string): Promise<{ success
 /**
  * Set preferred IDE for an app
  */
-export async function updatePreferredIDE(appId: string, ideId: string | null): Promise<{ id: string; ide: string | null }> {
+export async function updatePreferredIDE(
+  appId: string,
+  ideId: string | null
+): Promise<{ id: string; ide: string | null }> {
   const response = await fetch(`${API_BASE}/settings/preferred-ide/${appId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -834,7 +937,10 @@ export async function fetchApiKeys(): Promise<Record<string, ApiKeyInfo>> {
 /**
  * Set an API key for a provider
  */
-export async function updateApiKey(provider: string, key: string): Promise<{ provider: string; maskedKey: string; configured: boolean }> {
+export async function updateApiKey(
+  provider: string,
+  key: string
+): Promise<{ provider: string; maskedKey: string; configured: boolean }> {
   const response = await fetch(`${API_BASE}/settings/api-keys/${provider}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
@@ -850,7 +956,9 @@ export async function updateApiKey(provider: string, key: string): Promise<{ pro
 /**
  * Remove an API key for a provider
  */
-export async function removeApiKey(provider: string): Promise<{ provider: string; configured: boolean }> {
+export async function removeApiKey(
+  provider: string
+): Promise<{ provider: string; configured: boolean }> {
   const response = await fetch(`${API_BASE}/settings/api-keys/${provider}`, {
     method: 'DELETE',
   });
@@ -864,7 +972,10 @@ export async function removeApiKey(provider: string): Promise<{ provider: string
 /**
  * Validate an API key for a provider
  */
-export async function validateApiKey(provider: string, key: string): Promise<{ valid: boolean; message: string }> {
+export async function validateApiKey(
+  provider: string,
+  key: string
+): Promise<{ valid: boolean; message: string }> {
   const response = await fetch(`${API_BASE}/settings/api-keys/${provider}/validate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -957,7 +1068,10 @@ export async function fetchDockerServices(appId: string): Promise<DockerServices
 /**
  * Start Docker containers for an app
  */
-export async function startDockerContainers(appId: string, serviceName?: string): Promise<DockerActionResponse> {
+export async function startDockerContainers(
+  appId: string,
+  serviceName?: string
+): Promise<DockerActionResponse> {
   const response = await fetch(`${API_BASE}/apps/${appId}/docker/start`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -973,7 +1087,10 @@ export async function startDockerContainers(appId: string, serviceName?: string)
 /**
  * Stop Docker containers for an app
  */
-export async function stopDockerContainers(appId: string, serviceName?: string): Promise<DockerActionResponse> {
+export async function stopDockerContainers(
+  appId: string,
+  serviceName?: string
+): Promise<DockerActionResponse> {
   const response = await fetch(`${API_BASE}/apps/${appId}/docker/stop`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -989,7 +1106,10 @@ export async function stopDockerContainers(appId: string, serviceName?: string):
 /**
  * Restart Docker containers for an app
  */
-export async function restartDockerContainers(appId: string, serviceName?: string): Promise<DockerActionResponse> {
+export async function restartDockerContainers(
+  appId: string,
+  serviceName?: string
+): Promise<DockerActionResponse> {
   const response = await fetch(`${API_BASE}/apps/${appId}/docker/restart`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1005,7 +1125,11 @@ export async function restartDockerContainers(appId: string, serviceName?: strin
 /**
  * Get Docker logs for an app
  */
-export async function fetchDockerLogs(appId: string, serviceName?: string, tail = 100): Promise<DockerLogsResponse> {
+export async function fetchDockerLogs(
+  appId: string,
+  serviceName?: string,
+  tail = 100
+): Promise<DockerLogsResponse> {
   const params = new URLSearchParams({ tail: String(tail) });
   if (serviceName) {
     params.append('service', serviceName);
@@ -1034,7 +1158,10 @@ export async function pullDockerImages(appId: string): Promise<DockerActionRespo
 /**
  * Build Docker images for an app
  */
-export async function buildDockerImages(appId: string, serviceName?: string): Promise<DockerActionResponse> {
+export async function buildDockerImages(
+  appId: string,
+  serviceName?: string
+): Promise<DockerActionResponse> {
   const response = await fetch(`${API_BASE}/apps/${appId}/docker/build`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -1050,7 +1177,10 @@ export async function buildDockerImages(appId: string, serviceName?: string): Pr
 /**
  * Remove Docker containers for an app (docker compose down)
  */
-export async function removeDockerContainers(appId: string, removeVolumes = false): Promise<DockerActionResponse> {
+export async function removeDockerContainers(
+  appId: string,
+  removeVolumes = false
+): Promise<DockerActionResponse> {
   const response = await fetch(`${API_BASE}/apps/${appId}/docker/down`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
