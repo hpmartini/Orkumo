@@ -4,6 +4,44 @@ import { API_BASE_URL } from '../utils/apiConfig';
 
 const API_BASE = API_BASE_URL;
 
+/**
+ * Fetch with exponential backoff retry logic
+ * Retries on network errors or 5xx server errors
+ */
+async function fetchWithRetry(
+  url: string,
+  options?: RequestInit,
+  maxRetries = 3,
+  baseDelay = 1000
+): Promise<Response> {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await fetch(url, options);
+
+      // Don't retry on client errors (4xx), only on server errors (5xx)
+      if (response.ok || (response.status >= 400 && response.status < 500)) {
+        return response;
+      }
+
+      // Server error - will retry
+      lastError = new Error(`Server error: ${response.status} ${response.statusText}`);
+    } catch (err) {
+      // Network error - will retry
+      lastError = err instanceof Error ? err : new Error(String(err));
+    }
+
+    // Don't delay after the last attempt
+    if (attempt < maxRetries) {
+      const delay = baseDelay * Math.pow(2, attempt); // 1s, 2s, 4s
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError || new Error('Request failed after retries');
+}
+
 // Track active SSE connections for cleanup
 const activeSSEConnections = new Set<EventSource>();
 
@@ -25,7 +63,7 @@ if (typeof window !== 'undefined') {
  * Fetch all discovered apps from configured directories
  */
 export async function fetchApps(): Promise<AppConfig[]> {
-  const response = await fetch(`${API_BASE}/apps`);
+  const response = await fetchWithRetry(`${API_BASE}/apps`);
   if (!response.ok) {
     throw new Error(`Failed to fetch apps: ${response.statusText}`);
   }
@@ -105,7 +143,7 @@ export async function restartApp(id: string): Promise<{ pid: number; status: str
  * Get logs for an app
  */
 export async function fetchLogs(id: string, limit = 50): Promise<Array<{ type: string; message: string; timestamp: string }>> {
-  const response = await fetch(`${API_BASE}/apps/${id}/logs?limit=${limit}`);
+  const response = await fetchWithRetry(`${API_BASE}/apps/${id}/logs?limit=${limit}`);
   if (!response.ok) {
     return [];
   }
@@ -116,7 +154,7 @@ export async function fetchLogs(id: string, limit = 50): Promise<Array<{ type: s
  * Get app status
  */
 export async function fetchAppStatus(id: string): Promise<{ status: string; pid?: number; uptime: number }> {
-  const response = await fetch(`${API_BASE}/apps/${id}/status`);
+  const response = await fetchWithRetry(`${API_BASE}/apps/${id}/status`);
   if (!response.ok) {
     return { status: 'STOPPED', uptime: 0 };
   }
@@ -133,7 +171,7 @@ export interface Config {
 }
 
 export async function fetchConfig(): Promise<Config> {
-  const response = await fetch(`${API_BASE}/config`);
+  const response = await fetchWithRetry(`${API_BASE}/config`);
   if (!response.ok) {
     throw new Error('Failed to fetch config');
   }
@@ -412,7 +450,7 @@ export interface AppSettings {
  * Fetch all user settings from backend
  */
 export async function fetchSettings(): Promise<AppSettings> {
-  const response = await fetch(`${API_BASE}/settings`);
+  const response = await fetchWithRetry(`${API_BASE}/settings`);
   if (!response.ok) {
     // Return default settings if fetch fails
     return {
@@ -1111,7 +1149,7 @@ export interface ProjectHealth {
  * Get full system health report
  */
 export async function fetchSystemHealth(): Promise<SystemHealthReport> {
-  const response = await fetch(`${API_BASE}/system/health`);
+  const response = await fetchWithRetry(`${API_BASE}/system/health`);
   if (!response.ok) {
     throw new Error('Failed to fetch system health');
   }
@@ -1122,7 +1160,7 @@ export async function fetchSystemHealth(): Promise<SystemHealthReport> {
  * Get system tool versions
  */
 export async function fetchSystemVersions(): Promise<SystemVersions> {
-  const response = await fetch(`${API_BASE}/system/versions`);
+  const response = await fetchWithRetry(`${API_BASE}/system/versions`);
   if (!response.ok) {
     throw new Error('Failed to fetch system versions');
   }
@@ -1133,7 +1171,7 @@ export async function fetchSystemVersions(): Promise<SystemVersions> {
  * Get project health check
  */
 export async function fetchProjectHealth(appId: string): Promise<ProjectHealth> {
-  const response = await fetch(`${API_BASE}/apps/${appId}/health`);
+  const response = await fetchWithRetry(`${API_BASE}/apps/${appId}/health`);
   if (!response.ok) {
     throw new Error('Failed to fetch project health');
   }

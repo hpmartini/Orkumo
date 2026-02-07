@@ -99,14 +99,34 @@ interface UseAppsReturn {
   totalCpu: number;
 }
 
+const LAST_SELECTED_APP_KEY = 'devorbit-last-selected-app';
+
 export function useApps(): UseAppsReturn {
   const [apps, setApps] = useState<AppConfig[]>([]);
-  const [selectedAppId, setSelectedAppId] = useState<string | null>(null);
+  // Initialize from localStorage if available
+  const [selectedAppId, setSelectedAppIdInternal] = useState<string | null>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(LAST_SELECTED_APP_KEY);
+    }
+    return null;
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   // Track last stats update time for uptime calculation
   const lastStatsUpdateRef = useRef<number>(Date.now());
+
+  // Wrapper to persist selected app to localStorage
+  const setSelectedAppId = useCallback((id: string | null) => {
+    setSelectedAppIdInternal(id);
+    if (typeof window !== 'undefined') {
+      if (id) {
+        localStorage.setItem(LAST_SELECTED_APP_KEY, id);
+      } else {
+        localStorage.removeItem(LAST_SELECTED_APP_KEY);
+      }
+    }
+  }, []);
 
   // Fetch apps from backend
   const refreshApps = useCallback(async () => {
@@ -139,6 +159,13 @@ export function useApps(): UseAppsReturn {
           : app.addresses,
       }));
       setApps(enrichedData);
+
+      // Validate restored selection - clear if app no longer exists
+      const restoredId = localStorage.getItem(LAST_SELECTED_APP_KEY);
+      if (restoredId && !enrichedData.some(app => app.id === restoredId)) {
+        localStorage.removeItem(LAST_SELECTED_APP_KEY);
+        setSelectedAppIdInternal(null);
+      }
 
       // Fetch logs for running apps (to restore logs after page refresh)
       const runningApps = enrichedData.filter(app => app.status === AppStatus.RUNNING);

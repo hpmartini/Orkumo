@@ -80,7 +80,10 @@ The codebase is a full-stack application with:
 ### Error Handling
 
 - [x] **[RELIABILITY]** Add React Error Boundary - Added `ErrorBoundary.tsx`
-- [ ] **[RELIABILITY]** Add retry logic with exponential backoff for failed HTTP API requests (not just SSE)
+- [x] **[RELIABILITY]** Add retry logic with exponential backoff for failed HTTP API requests (not just SSE)
+  - Added `fetchWithRetry()` utility in `services/api.ts`
+  - Max 3 retries with delays: 1s, 2s, 4s
+  - Applied to key read operations: fetchApps, fetchLogs, fetchConfig, fetchSettings, fetchSystemHealth
 
 ---
 
@@ -104,7 +107,8 @@ The codebase is a full-stack application with:
 
 - [x] **[PERFORMANCE]** Add `useMemo` for chart data - Done in PerformanceCharts.tsx
 
-- [ ] **[PERFORMANCE]** Stats polling interval runs for ALL apps every 2s (`useApps.ts:94-133`). Consider only fetching stats for selected/visible app.
+- [x] **[PERFORMANCE]** Stats polling interval runs for ALL apps every 2s (`useApps.ts:94-133`). Consider only fetching stats for selected/visible app.
+  - Analyzed: Already uses SSE streaming, server only sends stats for running apps. No change needed.
 
 ### UI/UX
 
@@ -115,12 +119,16 @@ The codebase is a full-stack application with:
   - Added `startApp`, `stopApp`, `restartApp` shortcuts to KeyboardShortcuts type
   - Default bindings: ⌘/Ctrl+Enter (start), ⌘/Ctrl+. (stop), ⌘/Ctrl+Shift+R (restart)
   - Integrated with existing keyboard shortcuts system (configurable)
-- [ ] **[UI]** Show app's actual path in AppDetail header (currently only shows command)
-- [ ] **[UI]** Add app path tooltip or display in Sidebar items
+- [x] **[UI]** Show app's actual path in AppDetail header (currently only shows command)
+  - Already implemented - path shown below app name with folder icon
+- [x] **[UI]** Add app path tooltip or display in Sidebar items
+  - Added `title={app.path}` to sidebar app items for hover tooltip
 
 ### Data Persistence
 
-- [ ] **[FEATURE]** Remember last selected app on page reload (localStorage)
+- [x] **[FEATURE]** Remember last selected app on page reload (localStorage)
+  - Persist `selectedAppId` to localStorage key `devorbit-last-selected-app`
+  - Validates on load that app still exists, clears if not
 - [ ] **[FEATURE]** Persist terminal scroll position per app
 
 ---

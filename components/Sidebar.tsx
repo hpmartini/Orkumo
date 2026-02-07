@@ -226,6 +226,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') onSelectApp(app.id);
       }}
+      title={app.path}
       className={`w-full text-left px-3 py-2 rounded-lg flex items-center justify-between group transition-all cursor-pointer ${
         selectedAppId === app.id
           ? 'bg-gray-800 text-white'
