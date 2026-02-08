@@ -15,13 +15,14 @@ function useTerminalResize(
   maxWidthPercent: number
 ) {
   const [terminalWidth, setTerminalWidth] = useState(initialWidth);
-  const isDragging = useRef(false);
+  const [isDragging, setIsDragging] = useState(false);
   const startX = useRef(0);
   const startWidth = useRef(0);
 
   const handleMouseDown = useCallback(
     (e: React.MouseEvent) => {
-      isDragging.current = true;
+      e.preventDefault(); // Prevent text selection
+      setIsDragging(true);
       startX.current = e.clientX;
       startWidth.current = terminalWidth;
       document.body.style.cursor = 'col-resize';
@@ -31,8 +32,10 @@ function useTerminalResize(
   );
 
   useEffect(() => {
+    if (!isDragging) return;
+
     const handleMouseMove = (e: MouseEvent) => {
-      if (!isDragging.current || !containerRef.current) return;
+      if (!containerRef.current) return;
 
       const containerWidth = containerRef.current.getBoundingClientRect().width;
       const maxWidth = containerWidth * (maxWidthPercent / 100);
@@ -43,14 +46,13 @@ function useTerminalResize(
     };
 
     const handleMouseUp = () => {
-      if (isDragging.current) {
-        isDragging.current = false;
-        document.body.style.cursor = '';
-        document.body.style.userSelect = '';
-        window.dispatchEvent(new Event('resize')); // Trigger xterm fit
-      }
+      setIsDragging(false);
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.dispatchEvent(new Event('resize')); // Trigger xterm fit
     };
 
+    // Add listeners only when dragging
     document.addEventListener('mousemove', handleMouseMove);
     document.addEventListener('mouseup', handleMouseUp);
 
@@ -58,9 +60,9 @@ function useTerminalResize(
       document.removeEventListener('mousemove', handleMouseMove);
       document.removeEventListener('mouseup', handleMouseUp);
     };
-  }, [containerRef, minWidth, maxWidthPercent]);
+  }, [isDragging, containerRef, minWidth, maxWidthPercent]);
 
-  return { terminalWidth, setTerminalWidth, handleMouseDown, isDragging: isDragging.current };
+  return { terminalWidth, setTerminalWidth, handleMouseDown, isDragging };
 }
 
 interface CodingViewProps {
@@ -146,7 +148,7 @@ export function CodingView({
   const groupRef = useGroupRef();
 
   // Custom terminal resize (bypasses react-resizable-panels constraint bug)
-  const { terminalWidth, handleMouseDown } = useTerminalResize(
+  const { terminalWidth, handleMouseDown, isDragging } = useTerminalResize(
     containerRef,
     300, // initial width in pixels
     150, // min width
@@ -217,6 +219,19 @@ export function CodingView({
 
   return (
     <div className="coding-view-container" ref={containerRef}>
+      {/* Drag overlay - prevents iframes from capturing mouse events during resize */}
+      {isDragging && (
+        <div
+          className="coding-drag-overlay"
+          style={{
+            position: 'absolute',
+            inset: 0,
+            zIndex: 9999,
+            cursor: 'col-resize',
+          }}
+        />
+      )}
+
       {/* Offscreen slot - AppDetail moves terminal wrapper here, we then move it to visibleSlotRef when panel is open */}
       <div
         ref={terminalSlotRef}
