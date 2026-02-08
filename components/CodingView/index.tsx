@@ -177,30 +177,9 @@ export function CodingView({
     }
   }, [terminalSlotRef]);
 
-  // Move terminal from visibleSlot back to terminalSlotRef (offscreen)
-  const moveTerminalToOffscreen = useCallback(() => {
-    const terminalSlot = terminalSlotRef.current;
-    const visibleSlot = visibleSlotRef.current;
-    if (!terminalSlot) return;
-
-    const terminalWrapper = visibleSlot?.firstElementChild;
-    if (terminalWrapper && terminalWrapper.parentElement !== terminalSlot) {
-      terminalSlot.appendChild(terminalWrapper);
-    }
-  }, [terminalSlotRef]);
-
-  // When hiding, move terminal to offscreen holder
-  useEffect(() => {
-    if (isTerminalHidden) {
-      moveTerminalToOffscreen();
-    }
-  }, [isTerminalHidden, moveTerminalToOffscreen]);
-
-  // When panel becomes visible, move terminal into it
+  // Keep terminal in visibleSlot at all times (panel is now always mounted, just hidden via CSS)
   // Use MutationObserver to detect when AppDetail moves terminal into terminalSlotRef
   useEffect(() => {
-    if (isTerminalHidden) return;
-
     const terminalSlot = terminalSlotRef.current;
     if (!terminalSlot) return;
 
@@ -215,7 +194,7 @@ export function CodingView({
     observer.observe(terminalSlot, { childList: true });
 
     return () => observer.disconnect();
-  }, [isTerminalHidden, terminalSlotRef, moveTerminalToVisible]);
+  }, [terminalSlotRef, moveTerminalToVisible]);
 
   return (
     <div className="coding-view-container" ref={containerRef}>
@@ -247,19 +226,23 @@ export function CodingView({
 
       <div className="coding-view-flex">
         {/* Terminal Panel - Custom resizable (bypasses react-resizable-panels bug) */}
+        {/* Always render the panel structure to preserve visibleSlotRef, use CSS to hide */}
+        <div
+          className="coding-panel-terminals"
+          style={{
+            width: isTerminalHidden ? 0 : terminalWidth,
+            flex: isTerminalHidden ? '0 0 0px' : `0 0 ${terminalWidth}px`,
+            overflow: 'hidden',
+            visibility: isTerminalHidden ? 'hidden' : 'visible',
+          }}
+        >
+          <TerminalsPanel onHide={handleHideTerminal}>
+            <div ref={visibleSlotRef} className="h-full" />
+          </TerminalsPanel>
+        </div>
+        {/* Custom resize handle - only show when terminal is visible */}
         {!isTerminalHidden && (
-          <>
-            <div
-              className="coding-panel-terminals"
-              style={{ width: terminalWidth, flex: `0 0 ${terminalWidth}px` }}
-            >
-              <TerminalsPanel onHide={handleHideTerminal}>
-                <div ref={visibleSlotRef} className="h-full" />
-              </TerminalsPanel>
-            </div>
-            {/* Custom resize handle */}
-            <div className="coding-separator-draggable" onMouseDown={handleMouseDown} />
-          </>
+          <div className="coding-separator-draggable" onMouseDown={handleMouseDown} />
         )}
 
         {/* IDE and Browser use react-resizable-panels */}
