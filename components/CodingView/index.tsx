@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, type RefObject } from 'react';
-import { Panel, Group, Separator } from 'react-resizable-panels';
+import { Panel, Group, Separator, useGroupRef } from 'react-resizable-panels';
 import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
 import { WebIDEErrorBoundary } from './WebIDEErrorBoundary';
@@ -86,6 +86,7 @@ export function CodingView({
     }
   };
   const visibleSlotRef = useRef<HTMLDivElement>(null);
+  const groupRef = useGroupRef();
 
   const handleHideTerminal = useCallback(() => {
     setIsTerminalHidden(true);
@@ -95,16 +96,35 @@ export function CodingView({
     setIsTerminalHidden(false);
   }, []);
 
-  // Trigger terminal fit when panel expands
+  // Update panel layout when visibility changes
   useEffect(() => {
-    if (!isTerminalHidden) {
-      // Allow Panel to finish resize, then trigger terminal fit
-      const timeout = setTimeout(() => {
+    if (!groupRef.current) return;
+
+    // Calculate the target layout based on visibility
+    const terminalSize = isTerminalHidden ? 0 : 25;
+    const browserSize = isBrowserHidden ? 0 : isTerminalHidden ? 45 : 30;
+    const ideSize = 100 - terminalSize - browserSize;
+
+    // Set the layout with a small delay to ensure the Group is ready
+    const timeout = setTimeout(() => {
+      try {
+        groupRef.current?.setLayout({
+          'terminal-panel': terminalSize,
+          'ide-panel': ideSize,
+          'browser-panel': browserSize,
+        });
+      } catch {
+        // Ignore errors if layout fails (e.g., panel not found when browser is hidden)
+      }
+
+      // Also trigger terminal fit after layout change
+      if (!isTerminalHidden) {
         window.dispatchEvent(new Event('resize'));
-      }, 100);
-      return () => clearTimeout(timeout);
-    }
-  }, [isTerminalHidden]);
+      }
+    }, 50);
+
+    return () => clearTimeout(timeout);
+  }, [isTerminalHidden, isBrowserHidden, groupRef]);
 
   // Move terminal from terminalSlotRef to visibleSlot
   const moveTerminalToVisible = useCallback(() => {
@@ -186,7 +206,7 @@ export function CodingView({
         }}
       />
 
-      <Group orientation="horizontal" className="coding-view-group">
+      <Group orientation="horizontal" className="coding-view-group" groupRef={groupRef}>
         {/* Terminals Panel - Always mounted to preserve DOM and visibleSlotRef */}
         <Panel
           id="terminal-panel"

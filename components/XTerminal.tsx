@@ -264,9 +264,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         }
         // Clear the stale reference
         setTabs((prev) =>
-          prev.map((t) =>
-            t.id === tabId ? { ...t, terminal: null, fitAddon: null, ws: null } : t
-          )
+          prev.map((t) => (t.id === tabId ? { ...t, terminal: null, fitAddon: null, ws: null } : t))
         );
       }
 
@@ -328,11 +326,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       const ws = new WebSocket(wsUrl);
 
       ws.onopen = () => {
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.id === tabId ? { ...t, connected: true } : t
-          )
-        );
+        setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, connected: true } : t)));
       };
 
       ws.onmessage = (event) => {
@@ -347,11 +341,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
               break;
             case 'exit':
               terminal.write(`\r\n\x1b[2m# Process exited (code: ${data.exitCode})\x1b[0m\r\n`);
-              setTabs((prev) =>
-                prev.map((t) =>
-                  t.id === tabId ? { ...t, connected: false } : t
-                )
-              );
+              setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, connected: false } : t)));
               break;
             case 'error':
               terminal.write(`\x1b[31mError: ${data.message}\x1b[0m\r\n`);
@@ -364,11 +354,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       };
 
       ws.onclose = () => {
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.id === tabId ? { ...t, connected: false } : t
-          )
-        );
+        setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, connected: false } : t)));
       };
 
       ws.onerror = () => {
@@ -409,13 +395,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       });
 
       // Update tab with terminal instance
-      setTabs((prev) =>
-        prev.map((t) =>
-          t.id === tabId
-            ? { ...t, terminal, fitAddon, ws }
-            : t
-        )
-      );
+      setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, terminal, fitAddon, ws } : t)));
     },
     [tabs, cwd, isTerminalValid, setTabs]
   );
@@ -443,7 +423,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
     let resizeTimeout: ReturnType<typeof setTimeout> | null = null;
 
-    resizeObserverRef.current = new ResizeObserver(() => {
+    const triggerFit = () => {
       // Debounce resize events to prevent overwhelming the system
       if (resizeTimeout) {
         clearTimeout(resizeTimeout);
@@ -465,15 +445,20 @@ export const XTerminal: React.FC<XTerminalProps> = ({
           }
         }
       }, 50); // 50ms debounce for smoother resizing
-    });
+    };
 
+    resizeObserverRef.current = new ResizeObserver(triggerFit);
     resizeObserverRef.current.observe(terminalAreaRef.current);
+
+    // Also listen for window resize events (triggered by CodingView panel show/hide)
+    window.addEventListener('resize', triggerFit);
 
     return () => {
       if (resizeTimeout) {
         clearTimeout(resizeTimeout);
       }
       resizeObserverRef.current?.disconnect();
+      window.removeEventListener('resize', triggerFit);
     };
   }, []); // Empty deps - observer created once on mount, uses refs for current values
 
@@ -579,11 +564,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
       };
 
       ws.onclose = () => {
-        setTabs((prev) =>
-          prev.map((t) =>
-            t.id === tabId ? { ...t, connected: false } : t
-          )
-        );
+        setTabs((prev) => prev.map((t) => (t.id === tabId ? { ...t, connected: false } : t)));
       };
 
       // Rebind terminal input
@@ -637,9 +618,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         >
           <TerminalIcon size={12} />
           <span>Output</span>
-          {isRunning && (
-            <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />
-          )}
+          {isRunning && <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse" />}
         </button>
 
         {/* Terminal tabs */}
@@ -696,11 +675,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         <button
           onClick={() => setClaudeModalOpen(true)}
           className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400 hover:text-white hover:bg-blue-600/20 hover:border-blue-500/50 border border-transparent rounded transition-colors shrink-0"
-          title={
-            claudeInfo.installed
-              ? 'Open Claude Code terminal'
-              : 'Claude CLI not installed'
-          }
+          title={claudeInfo.installed ? 'Open Claude Code terminal' : 'Claude CLI not installed'}
         >
           <Bot size={12} />
           <span>Claude</span>
@@ -722,9 +697,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
         {/* Line count for logs tab */}
         {showLogsTab && !activeTabId && logs.length > 0 && (
-          <span className="text-xs text-gray-600 font-mono px-2">
-            {logs.length} lines
-          </span>
+          <span className="text-xs text-gray-600 font-mono px-2">{logs.length} lines</span>
         )}
       </div>
 
@@ -751,16 +724,14 @@ export const XTerminal: React.FC<XTerminalProps> = ({
                   lowerLog.includes('[error]') ||
                   lowerLog.includes('error:') ||
                   (lowerLog.includes('failed') && !lowerLog.includes('✗'));
-                const isWarning =
-                  lowerLog.includes('[warn]') ||
-                  lowerLog.includes('warning:');
+                const isWarning = lowerLog.includes('[warn]') || lowerLog.includes('warning:');
 
                 // Base container class
                 const containerClass = isError
                   ? 'bg-red-950/20'
                   : isWarning
-                  ? 'bg-yellow-950/10'
-                  : '';
+                    ? 'bg-yellow-950/10'
+                    : '';
 
                 return (
                   <div
@@ -781,9 +752,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
           <div
             key={tab.id}
             data-terminal-id={tab.id}
-            className={`absolute inset-0 p-1 ${
-              activeTabId === tab.id ? 'block' : 'hidden'
-            }`}
+            className={`absolute inset-0 p-1 ${activeTabId === tab.id ? 'block' : 'hidden'}`}
             style={{ backgroundColor: '#0a0a0f' }}
           />
         ))}

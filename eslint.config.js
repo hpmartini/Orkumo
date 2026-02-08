@@ -46,6 +46,10 @@ export default [
         MessageEvent: 'readonly',
         ResizeObserver: 'readonly',
         URL: 'readonly',
+        WebSocket: 'readonly',
+        HTMLElement: 'readonly',
+        requestAnimationFrame: 'readonly',
+        cancelAnimationFrame: 'readonly',
         React: 'readonly',
         navigator: 'readonly',
         // Web APIs
