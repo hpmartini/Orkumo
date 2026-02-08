@@ -231,6 +231,7 @@ export function CodingView({
           className="coding-panel-terminals"
           style={{
             width: isTerminalHidden ? 0 : terminalWidth,
+            minWidth: isTerminalHidden ? 0 : undefined,
             flex: isTerminalHidden ? '0 0 0px' : `0 0 ${terminalWidth}px`,
             overflow: 'hidden',
             visibility: isTerminalHidden ? 'hidden' : 'visible',
