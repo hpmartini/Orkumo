@@ -42,6 +42,10 @@ export default [
         MediaQueryListEvent: 'readonly',
         Node: 'readonly',
         MutationObserver: 'readonly',
+        Event: 'readonly',
+        MessageEvent: 'readonly',
+        ResizeObserver: 'readonly',
+        URL: 'readonly',
         React: 'readonly',
         navigator: 'readonly',
         // Web APIs

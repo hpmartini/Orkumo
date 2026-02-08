@@ -87,13 +87,24 @@ export function CodingView({
   };
   const visibleSlotRef = useRef<HTMLDivElement>(null);
 
-  const handleHideTerminal = () => {
+  const handleHideTerminal = useCallback(() => {
     setIsTerminalHidden(true);
-  };
+  }, []);
 
-  const handleShowTerminal = () => {
+  const handleShowTerminal = useCallback(() => {
     setIsTerminalHidden(false);
-  };
+  }, []);
+
+  // Trigger terminal fit when panel expands
+  useEffect(() => {
+    if (!isTerminalHidden) {
+      // Allow Panel to finish resize, then trigger terminal fit
+      const timeout = setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+      }, 100);
+      return () => clearTimeout(timeout);
+    }
+  }, [isTerminalHidden]);
 
   // Move terminal from terminalSlotRef to visibleSlot
   const moveTerminalToVisible = useCallback(() => {
@@ -147,12 +158,25 @@ export function CodingView({
     return () => observer.disconnect();
   }, [isTerminalHidden, terminalSlotRef, moveTerminalToVisible]);
 
+  // Compute panel sizes based on visibility
+  const getIDESize = () => {
+    if (isTerminalHidden && isBrowserHidden) return 100;
+    if (isTerminalHidden) return 55;
+    if (isBrowserHidden) return 75;
+    return 45;
+  };
+  const getBrowserSize = () => {
+    if (isBrowserHidden) return 0;
+    if (isTerminalHidden) return 45;
+    return 30;
+  };
+
   return (
     <div className="coding-view-container">
-      {/* terminalSlotRef - always mounted, AppDetail moves terminal here, we move it to visible slot */}
+      {/* Offscreen slot - AppDetail moves terminal wrapper here, we then move it to visibleSlotRef when panel is open */}
       <div
         ref={terminalSlotRef}
-        className="terminal-slot-persistent"
+        className="terminal-slot-offscreen"
         style={{
           position: 'absolute',
           left: '-9999px',
@@ -163,32 +187,31 @@ export function CodingView({
       />
 
       <Group orientation="horizontal" className="coding-view-group">
-        {/* Terminals Panel - Conditionally rendered */}
-        {!isTerminalHidden && (
-          <>
-            <Panel defaultSize={25} minSize={15} className="coding-panel">
-              <TerminalsPanel onHide={handleHideTerminal}>
-                <div ref={visibleSlotRef} className="h-full" />
-              </TerminalsPanel>
-            </Panel>
-            <Separator className="coding-separator" />
-          </>
-        )}
+        {/* Terminals Panel - Always mounted to preserve DOM and visibleSlotRef */}
+        <Panel
+          id="terminal-panel"
+          defaultSize={isTerminalHidden ? 0.001 : 25}
+          minSize={0}
+          maxSize={isTerminalHidden ? 0.001 : 100}
+          className={`coding-panel ${isTerminalHidden ? 'coding-panel-hidden' : ''}`}
+          style={isTerminalHidden ? { overflow: 'hidden' } : undefined}
+        >
+          <div
+            style={
+              isTerminalHidden
+                ? { position: 'absolute', left: '-9999px', width: '400px', height: '300px' }
+                : { height: '100%' }
+            }
+          >
+            <TerminalsPanel onHide={handleHideTerminal}>
+              <div ref={visibleSlotRef} className="h-full" />
+            </TerminalsPanel>
+          </div>
+        </Panel>
+        {!isTerminalHidden && <Separator className="coding-separator" />}
 
         {/* Web IDE Panel */}
-        <Panel
-          defaultSize={
-            isTerminalHidden && isBrowserHidden
-              ? 100
-              : isTerminalHidden
-                ? 55
-                : isBrowserHidden
-                  ? 75
-                  : 45
-          }
-          minSize={20}
-          className="coding-panel"
-        >
+        <Panel id="ide-panel" defaultSize={getIDESize()} minSize={20} className="coding-panel">
           <WebIDEErrorBoundary>
             <WebIDEPanel
               directory={app.path}
@@ -211,7 +234,12 @@ export function CodingView({
         {!isBrowserHidden && (
           <>
             <Separator className="coding-separator" />
-            <Panel defaultSize={isTerminalHidden ? 45 : 30} minSize={15} className="coding-panel">
+            <Panel
+              id="browser-panel"
+              defaultSize={getBrowserSize()}
+              minSize={15}
+              className="coding-panel"
+            >
               <BrowserPreviewPanel
                 url={app.addresses?.[0] || ''}
                 appId={app.id}
