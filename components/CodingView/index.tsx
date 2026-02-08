@@ -7,6 +7,62 @@ import { BrowserPreviewPanel } from './BrowserPreviewPanel';
 import { AppConfig, EditorType, DevToolsTab, ConsoleFilter } from '../../types';
 import './CodingView.css';
 
+// Custom resize hook for terminal panel (bypasses react-resizable-panels constraints bug)
+function useTerminalResize(
+  containerRef: RefObject<HTMLDivElement | null>,
+  initialWidth: number,
+  minWidth: number,
+  maxWidthPercent: number
+) {
+  const [terminalWidth, setTerminalWidth] = useState(initialWidth);
+  const isDragging = useRef(false);
+  const startX = useRef(0);
+  const startWidth = useRef(0);
+
+  const handleMouseDown = useCallback(
+    (e: React.MouseEvent) => {
+      isDragging.current = true;
+      startX.current = e.clientX;
+      startWidth.current = terminalWidth;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+    },
+    [terminalWidth]
+  );
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isDragging.current || !containerRef.current) return;
+
+      const containerWidth = containerRef.current.getBoundingClientRect().width;
+      const maxWidth = containerWidth * (maxWidthPercent / 100);
+      const delta = e.clientX - startX.current;
+      const newWidth = Math.max(minWidth, Math.min(maxWidth, startWidth.current + delta));
+
+      setTerminalWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      if (isDragging.current) {
+        isDragging.current = false;
+        document.body.style.cursor = '';
+        document.body.style.userSelect = '';
+        window.dispatchEvent(new Event('resize')); // Trigger xterm fit
+      }
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [containerRef, minWidth, maxWidthPercent]);
+
+  return { terminalWidth, setTerminalWidth, handleMouseDown, isDragging: isDragging.current };
+}
+
 interface CodingViewProps {
   app: AppConfig;
   /** Ref for the terminal slot - the terminal wrapper will be moved here */
@@ -86,7 +142,16 @@ export function CodingView({
     }
   };
   const visibleSlotRef = useRef<HTMLDivElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
   const groupRef = useGroupRef();
+
+  // Custom terminal resize (bypasses react-resizable-panels constraint bug)
+  const { terminalWidth, handleMouseDown } = useTerminalResize(
+    containerRef,
+    300, // initial width in pixels
+    150, // min width
+    60 // max width as percentage
+  );
 
   const handleHideTerminal = useCallback(() => {
     setIsTerminalHidden(true);
@@ -94,37 +159,9 @@ export function CodingView({
 
   const handleShowTerminal = useCallback(() => {
     setIsTerminalHidden(false);
+    // Trigger resize after showing terminal
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 100);
   }, []);
-
-  // Update panel layout when visibility changes
-  useEffect(() => {
-    if (!groupRef.current) return;
-
-    // Calculate the target layout based on visibility
-    const terminalSize = isTerminalHidden ? 0 : 25;
-    const browserSize = isBrowserHidden ? 0 : isTerminalHidden ? 45 : 30;
-    const ideSize = 100 - terminalSize - browserSize;
-
-    // Set the layout with a small delay to ensure the Group is ready
-    const timeout = setTimeout(() => {
-      try {
-        groupRef.current?.setLayout({
-          'terminal-panel': terminalSize,
-          'ide-panel': ideSize,
-          'browser-panel': browserSize,
-        });
-      } catch {
-        // Ignore errors if layout fails (e.g., panel not found when browser is hidden)
-      }
-
-      // Also trigger terminal fit after layout change
-      if (!isTerminalHidden) {
-        window.dispatchEvent(new Event('resize'));
-      }
-    }, 50);
-
-    return () => clearTimeout(timeout);
-  }, [isTerminalHidden, isBrowserHidden, groupRef]);
 
   // Move terminal from terminalSlotRef to visibleSlot
   const moveTerminalToVisible = useCallback(() => {
@@ -178,21 +215,8 @@ export function CodingView({
     return () => observer.disconnect();
   }, [isTerminalHidden, terminalSlotRef, moveTerminalToVisible]);
 
-  // Compute panel sizes based on visibility
-  const getIDESize = () => {
-    if (isTerminalHidden && isBrowserHidden) return 100;
-    if (isTerminalHidden) return 55;
-    if (isBrowserHidden) return 75;
-    return 45;
-  };
-  const getBrowserSize = () => {
-    if (isBrowserHidden) return 0;
-    if (isTerminalHidden) return 45;
-    return 30;
-  };
-
   return (
-    <div className="coding-view-container">
+    <div className="coding-view-container" ref={containerRef}>
       {/* Offscreen slot - AppDetail moves terminal wrapper here, we then move it to visibleSlotRef when panel is open */}
       <div
         ref={terminalSlotRef}
@@ -206,75 +230,71 @@ export function CodingView({
         }}
       />
 
-      <Group orientation="horizontal" className="coding-view-group" groupRef={groupRef}>
-        {/* Terminals Panel - Always mounted to preserve DOM and visibleSlotRef */}
-        <Panel
-          id="terminal-panel"
-          defaultSize={isTerminalHidden ? 0.001 : 25}
-          minSize={0}
-          maxSize={isTerminalHidden ? 0.001 : 100}
-          className={`coding-panel ${isTerminalHidden ? 'coding-panel-hidden' : ''}`}
-          style={isTerminalHidden ? { overflow: 'hidden' } : undefined}
-        >
-          <div
-            style={
-              isTerminalHidden
-                ? { position: 'absolute', left: '-9999px', width: '400px', height: '300px' }
-                : { height: '100%' }
-            }
-          >
-            <TerminalsPanel onHide={handleHideTerminal}>
-              <div ref={visibleSlotRef} className="h-full" />
-            </TerminalsPanel>
-          </div>
-        </Panel>
-        {!isTerminalHidden && <Separator className="coding-separator" />}
-
-        {/* Web IDE Panel */}
-        <Panel id="ide-panel" defaultSize={getIDESize()} minSize={20} className="coding-panel">
-          <WebIDEErrorBoundary>
-            <WebIDEPanel
-              directory={app.path}
-              showTerminalButton={isTerminalHidden}
-              onShowTerminal={handleShowTerminal}
-              showBrowserButton={isBrowserHidden}
-              onShowBrowser={() => setIsBrowserHidden(false)}
-              editorType={editorType}
-              onEditorTypeChange={onEditorTypeChange}
-              appStatus={app.status}
-              onStart={onStart}
-              onStop={onStop}
-              onRestart={onRestart}
-              onSwitchToDetails={onSwitchToDetails}
-            />
-          </WebIDEErrorBoundary>
-        </Panel>
-
-        {/* Browser Preview Panel - Conditionally rendered */}
-        {!isBrowserHidden && (
+      <div className="coding-view-flex">
+        {/* Terminal Panel - Custom resizable (bypasses react-resizable-panels bug) */}
+        {!isTerminalHidden && (
           <>
-            <Separator className="coding-separator" />
-            <Panel
-              id="browser-panel"
-              defaultSize={getBrowserSize()}
-              minSize={15}
-              className="coding-panel"
+            <div
+              className="coding-panel-terminals"
+              style={{ width: terminalWidth, flex: `0 0 ${terminalWidth}px` }}
             >
-              <BrowserPreviewPanel
-                url={app.addresses?.[0] || ''}
-                appId={app.id}
-                showDevTools={showDevTools}
-                onShowDevToolsChange={onShowDevToolsChange}
-                activeTab={devToolsTab}
-                onActiveTabChange={onDevToolsTabChange}
-                filter={consoleFilter}
-                onFilterChange={onConsoleFilterChange}
-                onHide={() => setIsBrowserHidden(true)}
-              />
-            </Panel>
+              <TerminalsPanel onHide={handleHideTerminal}>
+                <div ref={visibleSlotRef} className="h-full" />
+              </TerminalsPanel>
+            </div>
+            {/* Custom resize handle */}
+            <div className="coding-separator-draggable" onMouseDown={handleMouseDown} />
           </>
         )}
-      </Group>
+
+        {/* IDE and Browser use react-resizable-panels */}
+        <Group orientation="horizontal" className="coding-view-group-inner" groupRef={groupRef}>
+          {/* Web IDE Panel */}
+          <Panel
+            id="ide-panel"
+            defaultSize={isBrowserHidden ? 100 : 60}
+            minSize={20}
+            className="coding-panel"
+          >
+            <WebIDEErrorBoundary>
+              <WebIDEPanel
+                directory={app.path}
+                showTerminalButton={isTerminalHidden}
+                onShowTerminal={handleShowTerminal}
+                showBrowserButton={isBrowserHidden}
+                onShowBrowser={() => setIsBrowserHidden(false)}
+                editorType={editorType}
+                onEditorTypeChange={onEditorTypeChange}
+                appStatus={app.status}
+                onStart={onStart}
+                onStop={onStop}
+                onRestart={onRestart}
+                onSwitchToDetails={onSwitchToDetails}
+              />
+            </WebIDEErrorBoundary>
+          </Panel>
+
+          {/* Browser Preview Panel - Conditionally rendered */}
+          {!isBrowserHidden && (
+            <>
+              <Separator className="coding-separator" />
+              <Panel id="browser-panel" defaultSize={40} minSize={15} className="coding-panel">
+                <BrowserPreviewPanel
+                  url={app.addresses?.[0] || ''}
+                  appId={app.id}
+                  showDevTools={showDevTools}
+                  onShowDevToolsChange={onShowDevToolsChange}
+                  activeTab={devToolsTab}
+                  onActiveTabChange={onDevToolsTabChange}
+                  filter={consoleFilter}
+                  onFilterChange={onConsoleFilterChange}
+                  onHide={() => setIsBrowserHidden(true)}
+                />
+              </Panel>
+            </>
+          )}
+        </Group>
+      </div>
     </div>
   );
 }

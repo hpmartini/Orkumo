@@ -96,8 +96,7 @@
 
 .coding-panel-terminals {
   flex: 0 0 25%;
-  min-width: 200px;
-  max-width: 50%;
+  min-width: 150px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -133,4 +132,42 @@
   height: 30px;
   background-color: #4b5563;
   border-radius: 1px;
+}
+
+/* Draggable separator for terminal panel (custom implementation) */
+.coding-separator-draggable {
+  flex: 0 0 6px;
+  background-color: #1f2937;
+  cursor: col-resize;
+  position: relative;
+  transition: background-color 0.15s ease;
+}
+
+.coding-separator-draggable:hover {
+  background-color: #3b82f6;
+}
+
+.coding-separator-draggable::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 2px;
+  height: 30px;
+  background-color: #4b5563;
+  border-radius: 1px;
+  transition: background-color 0.15s ease;
+}
+
+.coding-separator-draggable:hover::after {
+  background-color: #60a5fa;
+}
+
+/* Inner group for IDE + Browser */
+.coding-view-group-inner {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  height: 100%;
 }
