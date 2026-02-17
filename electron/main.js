@@ -8,6 +8,7 @@ import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { isValidExternalUrl, validateDialogOptions } from './validation.js';
 import { APP_NAME } from './constants.js';
+import { PORTS } from '../config/defaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -22,8 +23,8 @@ let isShuttingDown = false;
 const browserViews = new Map();
 
 const isDev = !app.isPackaged;
-const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:3000';
-const SERVER_PORT = parseInt(process.env.SERVER_PORT || '3001', 10);
+const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || `http://localhost:${PORTS.devhub}`;
+const SERVER_PORT = parseInt(process.env.SERVER_PORT || String(PORTS.server), 10);
 
 /**
  * Create the main application window

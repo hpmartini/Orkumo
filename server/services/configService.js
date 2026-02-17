@@ -1,17 +1,12 @@
 import fs from 'fs';
 import path from 'path';
 import { getDataFilePath, ensureDataDirectory } from './dataPath.js';
+import { DEFAULT_USER_CONFIG } from '../../config/defaults.js';
 
 const CONFIG_FILE = getDataFilePath('config.json');
 
-// Default configuration
-const defaultConfig = {
-  directories: [
-    process.env.HOME ? path.join(process.env.HOME, 'projects') : '/projects',
-  ],
-  scanDepth: 2,
-  excludePatterns: ['node_modules', '.git', 'dist', 'build', '.next'],
-};
+// Default configuration from centralized config
+const defaultConfig = DEFAULT_USER_CONFIG;
 
 // Forbidden paths that should never be scanned (security)
 const FORBIDDEN_PATHS = [
@@ -145,7 +140,7 @@ export function addDirectory(dirPath) {
 export function removeDirectory(dirPath) {
   const config = getConfig();
   const absolutePath = path.resolve(dirPath);
-  config.directories = config.directories.filter(d => d !== absolutePath);
+  config.directories = config.directories.filter((d) => d !== absolutePath);
   updateConfig(config);
   return config;
 }

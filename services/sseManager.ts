@@ -13,13 +13,14 @@
  */
 
 import { API_BASE_URL } from '../utils/apiConfig';
+import { TIMEOUTS } from '../config/defaults';
 
 const API_BASE = API_BASE_URL;
 
-// Reconnection constants
-const MAX_RECONNECT_ATTEMPTS = 10;
-const BASE_RECONNECT_DELAY = 1000;
-const MAX_RECONNECT_DELAY = 30000;
+// Reconnection constants from centralized config
+const MAX_RECONNECT_ATTEMPTS = TIMEOUTS.maxReconnectAttempts;
+const BASE_RECONNECT_DELAY = TIMEOUTS.baseReconnectDelay;
+const MAX_RECONNECT_DELAY = TIMEOUTS.maxReconnectDelay;
 
 type EventCallback = (data: unknown) => void;
 type ConnectionCallback = (connected: boolean) => void;
@@ -69,10 +70,7 @@ function generateSubscriberId(): string {
 }
 
 function getReconnectDelay(attempts: number): number {
-  const delay = Math.min(
-    BASE_RECONNECT_DELAY * Math.pow(2, attempts),
-    MAX_RECONNECT_DELAY
-  );
+  const delay = Math.min(BASE_RECONNECT_DELAY * Math.pow(2, attempts), MAX_RECONNECT_DELAY);
   return delay + Math.random() * 1000;
 }
 
@@ -107,7 +105,7 @@ function connectEventsSSE() {
     conn.reconnectAttempts = 0;
     conn.isConnected = true;
     // Notify all subscribers
-    conn.subscribers.forEach(sub => sub.onConnection?.(true));
+    conn.subscribers.forEach((sub) => sub.onConnection?.(true));
   });
 
   eventSource.addEventListener('heartbeat', () => {
@@ -118,7 +116,7 @@ function connectEventsSSE() {
     try {
       const data = JSON.parse(event.data) as ProcessStatusEvent;
       // Notify all subscribers
-      conn.subscribers.forEach(sub => {
+      conn.subscribers.forEach((sub) => {
         sub.onData({ type: 'status', data });
       });
     } catch (err) {
@@ -130,7 +128,7 @@ function connectEventsSSE() {
     try {
       const data = JSON.parse(event.data) as ProcessLogEvent;
       // Notify all subscribers
-      conn.subscribers.forEach(sub => {
+      conn.subscribers.forEach((sub) => {
         sub.onData({ type: 'log', data });
       });
     } catch (err) {
@@ -141,7 +139,7 @@ function connectEventsSSE() {
   eventSource.onerror = () => {
     conn.isConnected = false;
     // Notify all subscribers
-    conn.subscribers.forEach(sub => sub.onConnection?.(false));
+    conn.subscribers.forEach((sub) => sub.onConnection?.(false));
 
     eventSource.close();
     conn.eventSource = null;
@@ -152,9 +150,15 @@ function connectEventsSSE() {
     }
 
     // Only reconnect if we have subscribers and haven't exceeded attempts
-    if (!conn.isClosing && conn.subscribers.size > 0 && conn.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    if (
+      !conn.isClosing &&
+      conn.subscribers.size > 0 &&
+      conn.reconnectAttempts < MAX_RECONNECT_ATTEMPTS
+    ) {
       const delay = getReconnectDelay(conn.reconnectAttempts);
-      console.warn(`[SSEManager] Events connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${conn.reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+      console.warn(
+        `[SSEManager] Events connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${conn.reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`
+      );
       conn.reconnectTimeout = setTimeout(() => {
         conn.reconnectAttempts++;
         connectEventsSSE();
@@ -244,7 +248,7 @@ function connectStatsSSE() {
     conn.reconnectAttempts = 0;
     conn.isConnected = true;
     // Notify all subscribers
-    conn.subscribers.forEach(sub => sub.onConnection?.(true));
+    conn.subscribers.forEach((sub) => sub.onConnection?.(true));
   });
 
   eventSource.addEventListener('heartbeat', () => {
@@ -255,7 +259,7 @@ function connectStatsSSE() {
     try {
       const data = JSON.parse(event.data) as StatsUpdate;
       // Notify all subscribers
-      conn.subscribers.forEach(sub => {
+      conn.subscribers.forEach((sub) => {
         sub.onData(data);
       });
     } catch (err) {
@@ -266,7 +270,7 @@ function connectStatsSSE() {
   eventSource.onerror = () => {
     conn.isConnected = false;
     // Notify all subscribers
-    conn.subscribers.forEach(sub => sub.onConnection?.(false));
+    conn.subscribers.forEach((sub) => sub.onConnection?.(false));
 
     eventSource.close();
     conn.eventSource = null;
@@ -277,9 +281,15 @@ function connectStatsSSE() {
     }
 
     // Only reconnect if we have subscribers and haven't exceeded attempts
-    if (!conn.isClosing && conn.subscribers.size > 0 && conn.reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
+    if (
+      !conn.isClosing &&
+      conn.subscribers.size > 0 &&
+      conn.reconnectAttempts < MAX_RECONNECT_ATTEMPTS
+    ) {
       const delay = getReconnectDelay(conn.reconnectAttempts);
-      console.warn(`[SSEManager] Stats connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${conn.reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`);
+      console.warn(
+        `[SSEManager] Stats connection error, reconnecting in ${Math.round(delay / 1000)}s (attempt ${conn.reconnectAttempts + 1}/${MAX_RECONNECT_ATTEMPTS})`
+      );
       conn.reconnectTimeout = setTimeout(() => {
         conn.reconnectAttempts++;
         connectStatsSSE();

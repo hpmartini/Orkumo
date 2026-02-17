@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { AppStatus } from '../../types';
 import { API_BASE_URL } from '../../utils/apiConfig';
+import { TIMEOUTS } from '../../config/defaults';
 
 // ============================================================================
 // Module-level state for code-server coordination across multiple WebIDEPanel instances
@@ -40,7 +41,7 @@ let codeServerPromise: Promise<CodeServerResult> | null = null;
 let lastCodeServerReadyTime = 0;
 
 // Minimum time between restart attempts (prevents cascade restarts from multiple panels)
-const MIN_RESTART_INTERVAL_MS = 30000; // 30 seconds
+const MIN_RESTART_INTERVAL_MS = TIMEOUTS.ideRestartInterval;
 
 // Subscribers to be notified when code-server status changes
 type StatusCallback = (status: string) => void;
@@ -116,7 +117,7 @@ const ensureCodeServerRunning = async (
           console.log('[CodeServerManager] code-server started, warming up...');
           notifyStatusChange('VS Code Server started. Warming up...');
 
-          const STARTUP_WARMUP_DELAY_MS = 3000;
+          const STARTUP_WARMUP_DELAY_MS = TIMEOUTS.ideWarmupDelay;
           await new Promise((resolve) => setTimeout(resolve, STARTUP_WARMUP_DELAY_MS));
 
           notifyStatusChange('Loading editor...');
@@ -236,7 +237,7 @@ const forceRestartCodeServer = async (apiBaseUrl: string): Promise<CodeServerRes
 
       if (startResult.success) {
         notifyStatusChange('VS Code Server started. Warming up...');
-        await new Promise((resolve) => setTimeout(resolve, 3000));
+        await new Promise((resolve) => setTimeout(resolve, TIMEOUTS.ideWarmupDelay));
         notifyStatusChange('Loading editor...');
         lastCodeServerReadyTime = Date.now();
         return { success: true, url: 'http://127.0.0.1:8080' };

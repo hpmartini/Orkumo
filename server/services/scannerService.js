@@ -4,6 +4,7 @@ import crypto from 'crypto';
 import { execFileSync } from 'child_process';
 import yaml from 'js-yaml';
 import { getConfig } from './configService.js';
+import { FRAMEWORK_PORTS } from '../../config/defaults.js';
 
 /**
  * Generate a unique ID from a project path using hash
@@ -71,7 +72,7 @@ function parseDockerComposeServices(filePath) {
       return [];
     }
 
-    return Object.keys(compose.services).map(serviceName => {
+    return Object.keys(compose.services).map((serviceName) => {
       const service = compose.services[serviceName];
       return {
         name: serviceName,
@@ -95,7 +96,9 @@ function scanDockerComposeProject(projectPath) {
 
   const dockerCmd = isDockerAvailable();
   if (!dockerCmd) {
-    console.log(`[Scanner] Docker not available, skipping Docker Compose project at ${projectPath}`);
+    console.log(
+      `[Scanner] Docker not available, skipping Docker Compose project at ${projectPath}`
+    );
     return null;
   }
 
@@ -168,10 +171,14 @@ function detectStartCommand(packageJson, projectType) {
 
   // Fallback based on project type
   switch (projectType) {
-    case 'next': return 'npm run dev';
-    case 'vite': return 'npm run dev';
-    case 'cra': return 'npm start';
-    default: return 'npm start';
+    case 'next':
+      return 'npm run dev';
+    case 'vite':
+      return 'npm run dev';
+    case 'cra':
+      return 'npm start';
+    default:
+      return 'npm start';
   }
 }
 
@@ -188,16 +195,8 @@ function detectPort(packageJson, projectType) {
     return parseInt(portMatch[1] || portMatch[2] || portMatch[3], 10);
   }
 
-  // Default ports by framework
-  switch (projectType) {
-    case 'next': return 3000;
-    case 'vite': return 5173;
-    case 'cra': return 3000;
-    case 'vue': return 8080;
-    case 'nuxt': return 3000;
-    case 'node': return 3000;
-    default: return 3000;
-  }
+  // Default ports by framework from centralized config
+  return FRAMEWORK_PORTS[projectType] || FRAMEWORK_PORTS.default;
 }
 
 /**
@@ -248,7 +247,7 @@ function scanDirectoryRecursive(dirPath, depth, maxDepth, excludePatterns) {
     const entries = fs.readdirSync(dirPath, { withFileTypes: true });
 
     // Check if this directory is a Node.js project (has package.json)
-    if (entries.some(e => e.name === 'package.json' && e.isFile())) {
+    if (entries.some((e) => e.name === 'package.json' && e.isFile())) {
       const project = scanProject(dirPath);
       if (project) {
         projects.push(project);
@@ -257,8 +256,8 @@ function scanDirectoryRecursive(dirPath, depth, maxDepth, excludePatterns) {
     }
 
     // Check if this directory is a Docker Compose project
-    const hasDockerCompose = DOCKER_COMPOSE_FILES.some(
-      filename => entries.some(e => e.name === filename && e.isFile())
+    const hasDockerCompose = DOCKER_COMPOSE_FILES.some((filename) =>
+      entries.some((e) => e.name === filename && e.isFile())
     );
     if (hasDockerCompose) {
       const dockerProject = scanDockerComposeProject(dirPath);
@@ -271,7 +270,7 @@ function scanDirectoryRecursive(dirPath, depth, maxDepth, excludePatterns) {
     // Scan subdirectories
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
-      if (excludePatterns.some(p => entry.name === p || entry.name.startsWith('.'))) continue;
+      if (excludePatterns.some((p) => entry.name === p || entry.name.startsWith('.'))) continue;
 
       const subPath = path.join(dirPath, entry.name);
       projects.push(...scanDirectoryRecursive(subPath, depth + 1, maxDepth, excludePatterns));
@@ -298,7 +297,7 @@ export function scanAllDirectories() {
   }
 
   // Add default stats structure
-  return allProjects.map(project => ({
+  return allProjects.map((project) => ({
     ...project,
     status: 'STOPPED',
     uptime: 0,

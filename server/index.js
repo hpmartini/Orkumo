@@ -45,18 +45,19 @@ import { ideService } from './services/ideService.js';
 import { injectLogger, removeLogger, checkLoggerStatus } from './services/loggerInjection.js';
 import * as dockerService from './services/dockerService.js';
 import * as healthService from './services/healthService.js';
+import { PORTS, TERMINAL, RATE_LIMIT, TIMEOUTS } from '../config/defaults.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
 
 const app = express();
-const PORT = process.env.SERVER_PORT || 3001;
+const PORT = process.env.SERVER_PORT || PORTS.server;
 
-// Constants
-const DEFAULT_TERMINAL_COLS = 80;
-const DEFAULT_TERMINAL_ROWS = 24;
-const ALLOWED_COMMANDS = ['claude']; // Whitelist of allowed custom commands
-const MAX_ARGS_LENGTH = 50; // Maximum number of arguments to prevent DoS
+// Constants from centralized config
+const DEFAULT_TERMINAL_COLS = TERMINAL.defaultCols;
+const DEFAULT_TERMINAL_ROWS = TERMINAL.defaultRows;
+const ALLOWED_COMMANDS = TERMINAL.allowedCommands;
+const MAX_ARGS_LENGTH = TERMINAL.maxArgsLength;
 
 // Detect if running inside Docker container
 const isRunningInDocker = (() => {
@@ -92,8 +93,8 @@ if (isRunningInDocker) {
 // NOTE: Rate limit increased from 100 to 500 to support multi-tab rendering
 // where each tab may make requests. SSE endpoints are exempted below.
 const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 minute
-  max: 500, // limit each IP to 500 requests per minute (increased for multi-tab support)
+  windowMs: RATE_LIMIT.windowMs,
+  max: RATE_LIMIT.maxRequests,
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
@@ -106,14 +107,14 @@ const limiter = rateLimit({
 
 // Stricter rate limit for process operations
 const processLimiter = rateLimit({
-  windowMs: 60 * 1000,
+  windowMs: RATE_LIMIT.windowMs,
   max: 20, // limit process operations to 20 per minute
   message: { error: 'Too many process operations, please slow down' },
 });
 
 // Rate limit for IDE launch operations
 const ideLimiter = rateLimit({
-  windowMs: 60 * 1000,
+  windowMs: RATE_LIMIT.windowMs,
   max: 10, // limit IDE launches to 10 per minute
   message: { error: 'Too many IDE launch requests, please slow down' },
 });
@@ -234,8 +235,8 @@ if (!getApiKey()) {
 // Store connected SSE clients for real-time updates
 const sseClients = new Map(); // Map<response, { lastActive: Date, heartbeatInterval: NodeJS.Timeout }>
 
-// SSE heartbeat interval (30 seconds)
-const SSE_HEARTBEAT_INTERVAL = 30000;
+// SSE heartbeat interval from centralized config
+const SSE_HEARTBEAT_INTERVAL = TIMEOUTS.sseHeartbeat;
 // SSE client timeout (2 minutes of no response)
 const SSE_CLIENT_TIMEOUT = 120000;
 
@@ -839,7 +840,10 @@ app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'http://localhost:3000');
+  res.setHeader(
+    'Access-Control-Allow-Origin',
+    process.env.FRONTEND_URL || `http://localhost:${PORTS.devhub}`
+  );
   res.setHeader('X-Accel-Buffering', 'no'); // For nginx proxies
 
   // Clean up any existing connection with the same sessionId before storing new one
@@ -890,7 +894,7 @@ app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
  */
 app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) => {
   try {
-    const { startPort = 3001, sessionId } = req.body;
+    const { startPort = PORTS.appStart, sessionId } = req.body;
 
     // Validate startPort
     const portNum = parseInt(startPort, 10);
@@ -908,11 +912,11 @@ app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) =>
         .json({ error: 'Start port must be >= 1024 (unprivileged ports only)' });
     }
 
-    // Validate that port 3000 is not used (reserved for DevHub)
-    if (portNum <= 3000) {
+    // Validate that DevHub port is not used (reserved for DevHub)
+    if (portNum <= PORTS.devhub) {
       return res
         .status(400)
-        .json({ error: 'Start port must be greater than 3000 (reserved for DevHub)' });
+        .json({ error: `Start port must be greater than ${PORTS.devhub} (reserved for DevHub)` });
     }
 
     // Get all apps
