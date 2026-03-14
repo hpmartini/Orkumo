@@ -289,8 +289,11 @@ export function scanAllDirectories() {
   const config = getConfig();
   const allProjects = [];
 
+  console.log(`[Scanner] Scanning ${config.directories.length} configured directories`);
   for (const dir of config.directories) {
-    if (fs.existsSync(dir)) {
+    const exists = fs.existsSync(dir);
+    console.log(`[Scanner] Checking directory: "${dir}", exists: ${exists}`);
+    if (exists) {
       const projects = scanDirectoryRecursive(dir, 0, config.scanDepth, config.excludePatterns);
       allProjects.push(...projects);
     }

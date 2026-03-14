@@ -32,6 +32,9 @@ const FORBIDDEN_PATHS = [
 function validatePath(dirPath) {
   const absolutePath = path.resolve(dirPath);
   const normalizedPath = path.normalize(absolutePath);
+  console.log(
+    `[Config] Validating path: input="${dirPath}", resolved="${absolutePath}", normalized="${normalizedPath}"`
+  );
 
   // Check if path tries to escape via ../
   if (normalizedPath !== absolutePath) {
@@ -123,6 +126,7 @@ export function updateConfig(updates) {
 export function addDirectory(dirPath) {
   // Validate path for security (prevents path traversal and forbidden access)
   const validatedPath = validatePath(dirPath);
+  console.log(`[Config] Adding directory: "${dirPath}" -> "${validatedPath}"`);
 
   const config = getConfig();
 
@@ -139,8 +143,13 @@ export function addDirectory(dirPath) {
  */
 export function removeDirectory(dirPath) {
   const config = getConfig();
-  const absolutePath = path.resolve(dirPath);
-  config.directories = config.directories.filter((d) => d !== absolutePath);
+  // Normalize path the same way addDirectory does for consistent comparison
+  const normalizedPath = path.normalize(path.resolve(dirPath));
+  console.log(`[Config] Removing directory: "${dirPath}" -> "${normalizedPath}"`);
+  config.directories = config.directories.filter((d) => {
+    const normalizedStored = path.normalize(path.resolve(d));
+    return normalizedStored !== normalizedPath;
+  });
   updateConfig(config);
   return config;
 }
