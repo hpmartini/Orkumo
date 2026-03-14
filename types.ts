@@ -116,6 +116,7 @@ export interface KeyboardShortcuts {
   goToDashboard: KeyboardShortcut;
   goToDashboardAlt: KeyboardShortcut;
   openSettings: KeyboardShortcut;
+  openSettingsAlt: KeyboardShortcut;
   toggleDetailsCoding: KeyboardShortcut;
   openFavorites: KeyboardShortcut;
   openProjects: KeyboardShortcut;
@@ -173,6 +174,7 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   goToDashboard: { key: 'h', description: 'Go to dashboard' },
   goToDashboardAlt: { key: 'd', description: 'Go to dashboard' },
   openSettings: { key: 's', description: 'Open settings' },
+  openSettingsAlt: { key: ',', modifiers: { meta: true }, description: 'Open settings (Cmd+,)' },
   toggleDetailsCoding: { key: 'c', description: 'Toggle Details/Coding view' },
   openFavorites: { key: 'f', description: 'Open favorites' },
   openProjects: { key: 'p', description: 'Open projects' },

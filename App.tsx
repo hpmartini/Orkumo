@@ -263,6 +263,7 @@ function AppContent() {
       { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
       { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: () => navigate('/') },
       { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
+      { id: 'openSettingsAlt' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
       { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
       { id: 'openFavorites' as keyof KeyboardShortcuts, handler: handleToggleFavoritesPopup },
       { id: 'openProjects' as keyof KeyboardShortcuts, handler: handleToggleProjectsPopup },
