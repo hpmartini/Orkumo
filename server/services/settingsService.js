@@ -19,6 +19,7 @@ const defaultSettings = {
   apiKeys: {}, // Map of provider -> API key (e.g. { gemini: "AIza..." })
   dismissedRecommendations: [], // Array of dismissed recommendation keys
   snoozedRecommendations: {}, // Map of recommendation key -> snooze expiry timestamp
+  keyboardShortcuts: {}, // Custom keyboard shortcut overrides
   version: 1, // Settings schema version for future migrations
 };
 
@@ -70,6 +71,11 @@ function readSettings() {
     // Migrate: Ensure snoozedRecommendations exists (added in v1.5)
     if (!loadedSettings.snoozedRecommendations) {
       loadedSettings.snoozedRecommendations = {};
+    }
+
+    // Migrate: Ensure keyboardShortcuts exists (added in v1.6)
+    if (!loadedSettings.keyboardShortcuts) {
+      loadedSettings.keyboardShortcuts = {};
     }
 
     return { ...defaultSettings, ...loadedSettings };
@@ -674,6 +680,27 @@ class SettingsService {
     delete settings.snoozedRecommendations[key];
     writeSettings(settings);
     return true;
+  }
+
+  /**
+   * Get keyboard shortcuts
+   * @returns {object} Keyboard shortcuts configuration
+   */
+  getKeyboardShortcuts() {
+    const settings = readSettings();
+    return settings.keyboardShortcuts || {};
+  }
+
+  /**
+   * Update keyboard shortcuts
+   * @param {object} shortcuts - Keyboard shortcuts configuration
+   * @returns {object} Updated settings
+   */
+  updateKeyboardShortcuts(shortcuts) {
+    const settings = readSettings();
+    settings.keyboardShortcuts = shortcuts;
+    writeSettings(settings);
+    return settings;
   }
 }
 

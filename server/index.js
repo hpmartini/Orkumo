@@ -628,6 +628,36 @@ app.put('/api/settings/favorites/sort-mode', (req, res) => {
 });
 
 /**
+ * GET /api/settings/keyboard-shortcuts
+ * Get keyboard shortcuts configuration
+ */
+app.get('/api/settings/keyboard-shortcuts', (req, res) => {
+  try {
+    const shortcuts = settingsService.getKeyboardShortcuts();
+    res.json({ keyboardShortcuts: shortcuts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
+ * PUT /api/settings/keyboard-shortcuts
+ * Update keyboard shortcuts configuration
+ */
+app.put('/api/settings/keyboard-shortcuts', (req, res) => {
+  try {
+    const { shortcuts } = req.body;
+    if (!shortcuts || typeof shortcuts !== 'object') {
+      return res.status(400).json({ error: 'Invalid shortcuts format' });
+    }
+    const settings = settingsService.updateKeyboardShortcuts(shortcuts);
+    res.json({ keyboardShortcuts: settings.keyboardShortcuts });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+/**
  * PUT /api/settings/archive/:id
  * Toggle or set archive status for an app
  */

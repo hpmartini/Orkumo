@@ -457,6 +457,7 @@ export interface AppSettings {
   customNames: Record<string, string>;
   preferredIDEs?: Record<string, string>;
   favoritesSortMode: FavoritesSortMode;
+  keyboardShortcuts?: Record<string, unknown>;
   version: number;
 }
 
