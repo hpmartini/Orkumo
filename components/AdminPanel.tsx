@@ -1,6 +1,41 @@
 import { useState, useEffect } from 'react';
-import { Settings, FolderPlus, Trash2, RefreshCw, X, Save, Code, Plus, Keyboard, Key, Eye, EyeOff, CheckCircle, XCircle, AlertCircle } from 'lucide-react';
-import { fetchConfig, addDirectory, removeDirectory, updateConfig, Config, fetchInstalledIDEs, fetchCustomIDEs, addCustomIDE, removeCustomIDE, IDE, fetchSettings, updateKeyboardShortcuts, fetchApiKeys, updateApiKey, removeApiKey, validateApiKey, ApiKeyInfo } from '../services/api';
+import {
+  Settings,
+  FolderPlus,
+  FolderOpen,
+  Trash2,
+  RefreshCw,
+  X,
+  Save,
+  Code,
+  Plus,
+  Keyboard,
+  Key,
+  Eye,
+  EyeOff,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+} from 'lucide-react';
+import {
+  fetchConfig,
+  addDirectory,
+  removeDirectory,
+  updateConfig,
+  Config,
+  fetchInstalledIDEs,
+  fetchCustomIDEs,
+  addCustomIDE,
+  removeCustomIDE,
+  IDE,
+  fetchSettings,
+  updateKeyboardShortcuts,
+  fetchApiKeys,
+  updateApiKey,
+  removeApiKey,
+  validateApiKey,
+  ApiKeyInfo,
+} from '../services/api';
 import { KeyboardShortcuts, KeyboardShortcut, DEFAULT_KEYBOARD_SHORTCUTS } from '../types';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
@@ -30,7 +65,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [apiKeyLoading, setApiKeyLoading] = useState(false);
   const [apiKeyEditing, setApiKeyEditing] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'valid' | 'invalid' | 'validating'>('idle');
+  const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'valid' | 'invalid' | 'validating'>(
+    'idle'
+  );
   const [apiKeyStatusMessage, setApiKeyStatusMessage] = useState('');
 
   // Keyboard shortcuts state
@@ -102,12 +139,16 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     };
 
     // Remove empty modifiers
-    if (!newShortcut.modifiers?.ctrl && !newShortcut.modifiers?.alt &&
-        !newShortcut.modifiers?.shift && !newShortcut.modifiers?.meta) {
+    if (
+      !newShortcut.modifiers?.ctrl &&
+      !newShortcut.modifiers?.alt &&
+      !newShortcut.modifiers?.shift &&
+      !newShortcut.modifiers?.meta
+    ) {
       delete newShortcut.modifiers;
     }
 
-    setShortcuts(prev => ({
+    setShortcuts((prev) => ({
       ...prev,
       [shortcutId]: newShortcut,
     }));
@@ -136,7 +177,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     setError(null);
     try {
       const result = await updateApiKey('gemini', apiKeyInput.trim());
-      setApiKeys(prev => ({
+      setApiKeys((prev) => ({
         ...prev,
         gemini: { configured: true, maskedKey: result.maskedKey },
       }));
@@ -172,7 +213,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     setError(null);
     try {
       await removeApiKey('gemini');
-      setApiKeys(prev => {
+      setApiKeys((prev) => {
         const next = { ...prev };
         delete next.gemini;
         return next;
@@ -191,10 +232,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const loadIDEs = async () => {
     setIdeLoading(true);
     try {
-      const [installed, custom] = await Promise.all([
-        fetchInstalledIDEs(),
-        fetchCustomIDEs()
-      ]);
+      const [installed, custom] = await Promise.all([fetchInstalledIDEs(), fetchCustomIDEs()]);
       setInstalledIDEs(installed);
       setCustomIDEs(custom);
     } catch (err) {
@@ -265,6 +303,28 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     }
   };
 
+  const handleBrowseDirectory = async () => {
+    // Check if running in Electron
+    if (!window.electronAPI?.showOpenDialog) {
+      setError('File browser is only available in the desktop app');
+      return;
+    }
+
+    try {
+      const result = await window.electronAPI.showOpenDialog({
+        title: 'Select Directory to Scan',
+        properties: ['openDirectory'],
+        buttonLabel: 'Select',
+      });
+
+      if (result.success && !result.canceled && result.filePaths?.length) {
+        setNewDirectory(result.filePaths[0]);
+      }
+    } catch (err) {
+      setError('Failed to open folder browser');
+    }
+  };
+
   const handleRemoveDirectory = async (dir: string) => {
     setLoading(true);
     setError(null);
@@ -296,8 +356,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl" onClick={(e) => e.stopPropagation()}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <div
+        className="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between p-6 border-b border-gray-700">
           <div className="flex items-center gap-3">
@@ -309,10 +375,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               <p className="text-sm text-gray-400">Configure directories to scan</p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-700 rounded-lg transition-colors"
-          >
+          <button onClick={onClose} className="p-2 hover:bg-gray-700 rounded-lg transition-colors">
             <X className="text-gray-400" size={20} />
           </button>
         </div>
@@ -340,6 +403,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                 placeholder="/path/to/projects"
                 className="flex-1 px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
+              <button
+                onClick={handleBrowseDirectory}
+                disabled={loading}
+                className="flex items-center gap-2 px-3 py-2 bg-gray-700 text-white rounded-lg hover:bg-gray-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Browse for folder"
+              >
+                <FolderOpen size={18} />
+              </button>
               <button
                 onClick={handleAddDirectory}
                 disabled={loading || !newDirectory.trim()}
@@ -371,9 +442,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                     key={dir}
                     className="flex items-center justify-between p-3 bg-gray-900 rounded-lg border border-gray-700 group"
                   >
-                    <span className="text-gray-300 font-mono text-sm truncate">
-                      {dir}
-                    </span>
+                    <span className="text-gray-300 font-mono text-sm truncate">{dir}</span>
                     <button
                       onClick={() => handleRemoveDirectory(dir)}
                       disabled={loading}
@@ -390,9 +459,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
 
           {/* Scan Depth */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Scan Depth
-            </label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Scan Depth</label>
             <div className="flex items-center gap-4">
               <input
                 type="range"
@@ -439,9 +506,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Code className="text-blue-400" size={18} />
-                <label className="text-sm font-medium text-gray-300">
-                  IDE Configuration
-                </label>
+                <label className="text-sm font-medium text-gray-300">IDE Configuration</label>
               </div>
               <button
                 onClick={() => setShowAddIDE(!showAddIDE)}
@@ -462,7 +527,12 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                   <input
                     type="text"
                     value={newIDE.id}
-                    onChange={(e) => setNewIDE({ ...newIDE, id: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-') })}
+                    onChange={(e) =>
+                      setNewIDE({
+                        ...newIDE,
+                        id: e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, '-'),
+                      })
+                    }
                     placeholder="my-editor"
                     className="w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
@@ -520,22 +590,24 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                   <RefreshCw className="animate-spin text-blue-500" size={14} />
                   <span className="text-sm text-gray-400">Detecting IDEs...</span>
                 </div>
-              ) : installedIDEs.filter(ide => !ide.custom).length === 0 ? (
+              ) : installedIDEs.filter((ide) => !ide.custom).length === 0 ? (
                 <p className="text-sm text-gray-500 py-2">No IDEs detected</p>
               ) : (
                 <div className="space-y-1">
-                  {installedIDEs.filter(ide => !ide.custom).map((ide) => (
-                    <div
-                      key={ide.id}
-                      className="flex items-center justify-between p-2 bg-gray-900 rounded border border-gray-700"
-                    >
-                      <div>
-                        <span className="text-sm text-white">{ide.name}</span>
-                        <span className="text-xs text-gray-500 ml-2 font-mono">{ide.id}</span>
+                  {installedIDEs
+                    .filter((ide) => !ide.custom)
+                    .map((ide) => (
+                      <div
+                        key={ide.id}
+                        className="flex items-center justify-between p-2 bg-gray-900 rounded border border-gray-700"
+                      >
+                        <div>
+                          <span className="text-sm text-white">{ide.name}</span>
+                          <span className="text-xs text-gray-500 ml-2 font-mono">{ide.id}</span>
+                        </div>
+                        <span className="text-xs text-green-400">Installed</span>
                       </div>
-                      <span className="text-xs text-green-400">Installed</span>
-                    </div>
-                  ))}
+                    ))}
                 </div>
               )}
             </div>
@@ -573,9 +645,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
           <div className="pt-4 border-t border-gray-700">
             <div className="flex items-center gap-2 mb-4">
               <Key className="text-amber-400" size={18} />
-              <label className="text-sm font-medium text-gray-300">
-                AI Configuration
-              </label>
+              <label className="text-sm font-medium text-gray-300">AI Configuration</label>
             </div>
 
             {/* Gemini API Key */}
@@ -648,7 +718,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                   <div className="flex gap-2">
                     <button
                       onClick={handleValidateApiKey}
-                      disabled={apiKeyLoading || !apiKeyInput.trim() || apiKeyStatus === 'validating'}
+                      disabled={
+                        apiKeyLoading || !apiKeyInput.trim() || apiKeyStatus === 'validating'
+                      }
                       className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                     >
                       Validate
@@ -729,9 +801,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
                 <Keyboard className="text-purple-400" size={18} />
-                <label className="text-sm font-medium text-gray-300">
-                  Keyboard Shortcuts
-                </label>
+                <label className="text-sm font-medium text-gray-300">Keyboard Shortcuts</label>
               </div>
               <div className="flex gap-2">
                 <button
