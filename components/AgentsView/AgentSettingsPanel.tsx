@@ -7,6 +7,7 @@ import type {
   ClaudeUserSettings,
   AgentDaemonStatus,
   AgentRepo,
+  AgentCapabilities,
 } from '../../types';
 import { stopAgentDaemon, respawnAllAgents } from '../../services/agentsApi';
 
@@ -18,6 +19,7 @@ interface AgentSettingsPanelProps {
   userSettings: ClaudeUserSettings | null;
   daemon: AgentDaemonStatus | null;
   repos: AgentRepo[];
+  capabilities: AgentCapabilities | null;
   onRefresh: () => void;
 }
 
@@ -54,6 +56,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
   userSettings,
   daemon,
   repos,
+  capabilities,
   onRefresh,
 }) => {
   const [busy, setBusy] = useState<string | null>(null);
@@ -62,6 +65,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
   const dispatch = settings.dispatch;
   const setDispatch = (partial: Partial<AgentDispatchDefaults>) =>
     onUpdate({ dispatch: { ...dispatch, ...partial } });
+  const unsafeLocked = capabilities ? !capabilities.unsafeFlagsAllowed : false;
 
   const runDaemon = async (label: string, fn: () => Promise<{ output: string }>) => {
     setBusy(label);
@@ -177,6 +181,16 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
             <h4 className="text-xs uppercase tracking-wider text-gray-500">
               Dispatch defaults (flags of `claude agents`)
             </h4>
+            {unsafeLocked && (
+              <div className="flex items-start gap-2 text-xs text-gray-300 bg-gray-800 border border-gray-700 rounded p-2">
+                <AlertTriangle size={14} className="shrink-0 mt-0.5 text-yellow-400" />
+                <span>
+                  Bypass permissions, --settings, --mcp-config and --plugin-dir are locked on this
+                  server. Start it with DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true to enable them.
+                  Sessions can only run inside the configured project directories.
+                </span>
+              </div>
+            )}
             {userSettings && (
               <div className="text-xs text-gray-500">
                 From ~/.claude/settings.json: model{' '}
@@ -251,6 +265,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
               <div>
                 <label className={label}>--settings (file or JSON)</label>
                 <input
+                  disabled={unsafeLocked}
                   className={field}
                   value={dispatch.settings || ''}
                   placeholder="./ci-settings.json"
@@ -271,6 +286,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
               <div>
                 <label className={label}>--plugin-dir (one per line)</label>
                 <textarea
+                  disabled={unsafeLocked}
                   className={`${field} font-mono text-xs`}
                   rows={3}
                   value={listToText(dispatch.pluginDirs)}
@@ -280,6 +296,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
               <div>
                 <label className={label}>--mcp-config (file or JSON, one per line)</label>
                 <textarea
+                  disabled={unsafeLocked}
                   className={`${field} font-mono text-xs`}
                   rows={3}
                   value={listToText(dispatch.mcpConfigs)}
@@ -308,6 +325,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                 <input
                   type="checkbox"
                   checked={dispatch.allowSkipPermissions}
+                  disabled={unsafeLocked}
                   onChange={(e) => setDispatch({ allowSkipPermissions: e.target.checked })}
                 />
                 --allow-dangerously-skip-permissions
@@ -316,6 +334,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                 <input
                   type="checkbox"
                   checked={dispatch.skipPermissions}
+                  disabled={unsafeLocked}
                   onChange={(e) => {
                     if (
                       e.target.checked &&

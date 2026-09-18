@@ -1,8 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 // node-pty is a native module - keep it out of the unit test
 vi.mock('node-pty', () => ({ spawn: vi.fn() }));
 
+const mod = await import('../server/services/agentService.js');
 const {
   buildDispatchArgs,
   parseDispatchOutput,
@@ -11,7 +15,7 @@ const {
   deriveDisplayState,
   extractPrLinks,
   projectSlug,
-} = await import('../server/services/agentService.js');
+} = mod;
 
 describe('agentService - buildDispatchArgs', () => {
   it('builds a plain background prompt', () => {
@@ -164,5 +168,82 @@ describe('agentService - state helpers', () => {
 
   it('slugs project directories like Claude Code does', () => {
     expect(projectSlug('/home/user/DevHub')).toBe('-home-user-DevHub');
+  });
+});
+
+describe('agentService - dispatch safety', () => {
+  const { assertAllowedPath, sanitizeDispatchOptions } = mod;
+
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'agents-allow-'));
+  const project = path.join(root, 'project');
+  const nested = path.join(project, 'packages', 'web');
+  const outside = path.join(root, 'elsewhere');
+  const link = path.join(project, 'escape');
+  fs.mkdirSync(nested, { recursive: true });
+  fs.mkdirSync(outside, { recursive: true });
+  fs.symlinkSync(outside, link, 'dir');
+
+  it('accepts the allowed directory itself and nested directories', () => {
+    expect(assertAllowedPath(project, [project])).toBe(fs.realpathSync(project));
+    expect(assertAllowedPath(nested, [project])).toBe(fs.realpathSync(nested));
+  });
+
+  it('rejects directories outside the allowlist, prefix look-alikes and symlink escapes', () => {
+    expect(() => assertAllowedPath(outside, [project])).toThrow(/outside the configured/);
+    fs.mkdirSync(`${project}-sibling`, { recursive: true });
+    expect(() => assertAllowedPath(`${project}-sibling`, [project])).toThrow(/outside/);
+    expect(() => assertAllowedPath(link, [project])).toThrow(/outside/);
+    expect(() => assertAllowedPath(path.join(project, 'missing'), [project])).toThrow(
+      /does not exist/
+    );
+  });
+
+  it('refuses unsafe flags unless the server opted in', () => {
+    const base = { prompt: 'do the thing', cwd: project };
+    expect(() =>
+      sanitizeDispatchOptions(
+        { ...base, skipPermissions: true },
+        { allowedDirs: [project], unsafeAllowed: false }
+      )
+    ).toThrow(/DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS/);
+    expect(() =>
+      sanitizeDispatchOptions(
+        { ...base, mcpConfigs: ['./mcp.json'] },
+        { allowedDirs: [project], unsafeAllowed: false }
+      )
+    ).toThrow(/mcpConfigs/);
+    expect(
+      sanitizeDispatchOptions(
+        { ...base, skipPermissions: true },
+        { allowedDirs: [project], unsafeAllowed: true }
+      ).skipPermissions
+    ).toBe(true);
+  });
+
+  it('resolves cwd and --add-dir inside the allowlist and rejects the rest', () => {
+    const safe = sanitizeDispatchOptions(
+      { prompt: 'x', cwd: project, addDirs: ['packages/web'] },
+      { allowedDirs: [project], unsafeAllowed: false }
+    );
+    expect(safe.cwd).toBe(fs.realpathSync(project));
+    expect(safe.addDirs).toEqual([fs.realpathSync(nested)]);
+    expect(() =>
+      sanitizeDispatchOptions(
+        { prompt: 'x', cwd: outside },
+        { allowedDirs: [project], unsafeAllowed: false }
+      )
+    ).toThrow(/Working directory/);
+    expect(() =>
+      sanitizeDispatchOptions(
+        { prompt: 'x', cwd: project, addDirs: [outside] },
+        { allowedDirs: [project], unsafeAllowed: false }
+      )
+    ).toThrow(/--add-dir/);
+    expect(() =>
+      sanitizeDispatchOptions(
+        { prompt: 'x', cwd: project },
+        { allowedDirs: [], unsafeAllowed: false }
+      )
+    ).toThrow(/No project directories/);
   });
 });

@@ -2866,7 +2866,7 @@ app.get('/api/preview/:port{/*path}', (req, res) => {
 // Claude Code Agent View API (browser counterpart of `claude agents`)
 // ============================================
 
-const agentIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/i);
+const agentIdSchema = z.string().regex(agentService.SHORT_ID_RE);
 const optionalShortString = z.string().max(200).optional().nullable();
 const agentDispatchSchema = z.object({
   prompt: z.string().max(20000).optional(),
@@ -2941,12 +2941,25 @@ function sendAgentError(res, error) {
   res.status(status).json({ error: error?.message || 'Agent operation failed' });
 }
 
+/**
+ * Scope directory for listing/discovery. An explicit ?cwd= must lie inside the configured
+ * project directories (throws a 403 otherwise); the stored scope is validated on save.
+ */
 function agentScopeCwd(req) {
   const query =
     typeof req.query.cwd === 'string' && req.query.cwd.trim() ? req.query.cwd.trim() : null;
-  if (query) return query;
+  if (query) {
+    return agentService.assertAllowedPath(query, agentService.getAllowedDirectories(), 'cwd');
+  }
   const scope = settingsService.getAgentViewSettings().scopeCwd;
   return scope || undefined;
+}
+
+function agentCapabilities() {
+  return {
+    unsafeFlagsAllowed: agentService.isUnsafeFlagsAllowed(),
+    allowedDirs: agentService.getAllowedDirectories(),
+  };
 }
 
 /**
@@ -2963,6 +2976,7 @@ app.get('/api/agents', async (req, res) => {
         daemon: null,
         userSettings: null,
         cli: { installed: false, path: null },
+        capabilities: agentCapabilities(),
       });
     }
     const [sessions, daemon, userSettings] = await Promise.all([
@@ -2970,7 +2984,13 @@ app.get('/api/agents', async (req, res) => {
       agentService.daemonStatus().catch(() => null),
       agentService.readClaudeUserSettings(),
     ]);
-    res.json({ sessions, daemon, userSettings, cli: { installed: true, path: cliPath } });
+    res.json({
+      sessions,
+      daemon,
+      userSettings,
+      cli: { installed: true, path: cliPath },
+      capabilities: agentCapabilities(),
+    });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -3232,6 +3252,13 @@ app.get('/api/settings/agent-view', (req, res) => {
 
 app.put('/api/settings/agent-view', validate(agentViewSettingsSchema), (req, res) => {
   try {
+    if (req.body.scopeCwd) {
+      req.body.scopeCwd = agentService.assertAllowedPath(
+        req.body.scopeCwd,
+        agentService.getAllowedDirectories(),
+        'Scope directory'
+      );
+    }
     res.json(settingsService.updateAgentViewSettings(req.body));
   } catch (error) {
     sendAgentError(res, error);

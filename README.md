@@ -91,6 +91,8 @@ What you get:
 - **Notifications** when a session needs input, finishes or fails (in-app toasts, optional browser notifications), and the tab title shows `N awaiting input · claude agents`.
 - Press `?` inside the view for the full shortcut list.
 
+Security: sessions can only be dispatched into (and `--add-dir` only point at) the project directories configured in the admin panel; the server resolves symlinks before checking. Flags that widen a session's reach (`--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--settings`, `--mcp-config`, `--plugin-dir`) are refused with `403` unless the server runs with `DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true`.
+
 API: `GET /api/agents`, `GET /api/agents/stream` (SSE), `POST /api/agents/dispatch`, `GET /api/agents/:id/logs`, `POST /api/agents/:id/reply|stop|respawn`, `DELETE /api/agents/:id`, `PUT /api/agents/:id/name|pin`, `PUT /api/agents/order`, `GET /api/agents/daemon`, `POST /api/agents/daemon/stop`, `GET /api/agents/subagents|repos|commands|past`, `GET|PUT /api/settings/agent-view`.
 
 ## 🐳 Docker Deployment

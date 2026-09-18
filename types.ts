@@ -289,6 +289,14 @@ export interface AgentsResponse {
   daemon: AgentDaemonStatus | null;
   userSettings: ClaudeUserSettings | null;
   cli: { installed: boolean; path: string | null };
+  capabilities?: AgentCapabilities;
+}
+
+export interface AgentCapabilities {
+  /** Unsafe dispatch flags need DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true on the server */
+  unsafeFlagsAllowed: boolean;
+  /** Configured project directories - the only valid session working directories */
+  allowedDirs: string[];
 }
 
 export type AgentGrouping = 'state' | 'directory';

@@ -105,6 +105,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     daemon,
     userSettings,
     cliInstalled,
+    capabilities,
     settings,
     updateSettings,
     loading,
@@ -1155,6 +1156,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         userSettings={userSettings}
         daemon={daemon}
         repos={directoryChoices as AgentRepo[]}
+        capabilities={capabilities}
         onRefresh={refresh}
       />
       <ResumePicker

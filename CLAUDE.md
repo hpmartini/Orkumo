@@ -61,12 +61,11 @@ The console output in the details view is a real webbased terminal emulator, sup
   - ability to control each container in the details view
 - Open in external IDE from details view
 - Open new terminal tab with claude code
+  - additional options: `-c` for continuing the last session, `--dangerously-skip-permissions`
 - Claude Code Agents View (browser version of `claude agents`, route `/agents`):
   - `components/AgentsView/` - list, dispatch input, peek panel, attached sessions in tabs / tiled panes
   - `server/services/agentService.js` - wraps the `claude` CLI (`--bg`, `agents --json`, `logs`, `stop`, `respawn`, `rm`, `daemon`) and `~/.claude/jobs` state; routes under `/api/agents/*`
   - `utils/agentInput.ts` (dispatch syntax) and `utils/agentSessions.ts` (grouping) are pure and unit-tested
-
-additional options: - `-c` for continuing the last session - `--dangerously-skip-permissions`
 
 - On details view add a “sub view” for coding with this elements as side-by-side view:
   - Terminals (reuse the terminals from the default details view)

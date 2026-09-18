@@ -19,6 +19,7 @@ import os from 'os';
 import path from 'path';
 import { EventEmitter } from 'events';
 import * as nodePty from 'node-pty';
+import { getConfig } from './configService.js';
 
 export const agentEvents = new EventEmitter();
 
@@ -28,10 +29,30 @@ const PINS_FILE = path.join(JOBS_DIR, 'pins.json');
 const PROJECTS_DIR = path.join(CLAUDE_HOME, 'projects');
 const USER_SETTINGS_FILE = path.join(CLAUDE_HOME, 'settings.json');
 
-const SHORT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/i;
+/** Short session id as printed by `claude --bg` (also used for route validation). */
+export const SHORT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/i;
+
+/**
+ * Dispatch options that widen what a background session may do on this machine.
+ * They are only forwarded to the CLI when the server was started with
+ * DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true - never on the say-so of a client request.
+ */
+export const UNSAFE_DISPATCH_FLAGS = [
+  'skipPermissions',
+  'allowSkipPermissions',
+  'settings',
+  'mcpConfigs',
+  'pluginDirs',
+];
+
+export function isUnsafeFlagsAllowed() {
+  return process.env.DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS === 'true';
+}
 const MIN_PROMPT_LENGTH = 4;
 const CLI_TIMEOUT = 60000;
 const POLL_INTERVAL = 2500;
+// eslint-disable-next-line no-control-regex
+const ANSI_ESCAPE_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
 // ---------------------------------------------------------------------------
 // CLI resolution
@@ -351,6 +372,106 @@ export async function readClaudeUserSettings() {
 }
 
 // ---------------------------------------------------------------------------
+// Path allowlisting (same convention as the file routes in server/index.js)
+// ---------------------------------------------------------------------------
+
+function forbidden(message) {
+  const error = new Error(message);
+  error.status = 403;
+  return error;
+}
+
+/**
+ * Configured scan directories - the only places sessions may be started in.
+ */
+export function getAllowedDirectories() {
+  try {
+    return (getConfig().directories || []).filter((dir) => typeof dir === 'string' && dir.trim());
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Resolve a directory and verify it lies inside one of the allowed directories.
+ * Symlinks are resolved on both sides so a link cannot escape the allowlist.
+ * @param {string} target
+ * @param {string[]} allowedDirs
+ * @param {string} label - used in error messages
+ * @returns {string} real path of the directory
+ */
+export function assertAllowedPath(target, allowedDirs, label = 'Directory') {
+  if (typeof target !== 'string' || !target.trim() || target.includes('\0')) {
+    throw forbidden(`${label} is invalid`);
+  }
+  let real;
+  try {
+    real = fs.realpathSync(path.resolve(target));
+  } catch {
+    const error = new Error(`${label} does not exist: ${target}`);
+    error.status = 400;
+    throw error;
+  }
+  if (!fs.statSync(real).isDirectory()) {
+    const error = new Error(`${label} is not a directory: ${target}`);
+    error.status = 400;
+    throw error;
+  }
+  const allowed = (allowedDirs || []).some((dir) => {
+    try {
+      const realDir = fs.realpathSync(path.resolve(dir));
+      return (
+        real === realDir ||
+        real.startsWith(realDir.endsWith(path.sep) ? realDir : realDir + path.sep)
+      );
+    } catch {
+      return false;
+    }
+  });
+  if (!allowed) {
+    throw forbidden(
+      `${label} is outside the configured project directories: ${target}. Add it in the admin panel first.`
+    );
+  }
+  return real;
+}
+
+/**
+ * Validate dispatch options coming from a client:
+ * - cwd and every --add-dir must be inside the allowed directories
+ * - unsafe flags (bypass permissions, --settings, --mcp-config, --plugin-dir) need the
+ *   server-side opt-in DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true
+ * @param {object} opts
+ * @param {{allowedDirs: string[], unsafeAllowed: boolean}} context
+ * @returns {object} sanitized options with real paths
+ */
+export function sanitizeDispatchOptions(opts, context) {
+  const allowedDirs = context?.allowedDirs || [];
+  const unsafeAllowed = context?.unsafeAllowed === true;
+  if (allowedDirs.length === 0) {
+    throw forbidden(
+      'No project directories are configured. Add one in the admin panel before dispatching sessions.'
+    );
+  }
+  const requested = UNSAFE_DISPATCH_FLAGS.filter((flag) => {
+    const value = opts[flag];
+    return Array.isArray(value) ? value.length > 0 : Boolean(value);
+  });
+  if (requested.length > 0 && !unsafeAllowed) {
+    throw forbidden(
+      `Option(s) ${requested.join(', ')} are disabled on this server. Start it with DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true to enable them.`
+    );
+  }
+  const cwd = assertAllowedPath(opts.cwd, allowedDirs, 'Working directory');
+  const addDirs = (Array.isArray(opts.addDirs) ? opts.addDirs : [])
+    .filter((dir) => typeof dir === 'string' && dir.trim())
+    .map((dir) =>
+      assertAllowedPath(path.isAbsolute(dir) ? dir : path.join(cwd, dir), allowedDirs, '--add-dir')
+    );
+  return { ...opts, cwd, addDirs };
+}
+
+// ---------------------------------------------------------------------------
 // Sessions
 // ---------------------------------------------------------------------------
 
@@ -472,7 +593,7 @@ async function findSession(id) {
  * Dispatch a new background session (`claude --bg ...`).
  * @param {object} opts - see buildDispatchArgs, plus cwd
  */
-export async function dispatch(opts = {}) {
+export async function dispatch(opts = {}, context = {}) {
   const prompt = typeof opts.prompt === 'string' ? opts.prompt.trim() : '';
   const exec = typeof opts.exec === 'string' ? opts.exec.trim() : '';
   if (!exec && !opts.resume && prompt.length < MIN_PROMPT_LENGTH) {
@@ -480,13 +601,12 @@ export async function dispatch(opts = {}) {
     error.status = 400;
     throw error;
   }
-  const cwd = opts.cwd && fs.existsSync(opts.cwd) ? opts.cwd : null;
-  if (!cwd) {
-    const error = new Error('Working directory does not exist');
-    error.status = 400;
-    throw error;
-  }
-  const args = buildDispatchArgs({ ...opts, prompt, exec });
+  const safe = sanitizeDispatchOptions(opts, {
+    allowedDirs: context.allowedDirs || getAllowedDirectories(),
+    unsafeAllowed: context.unsafeAllowed ?? isUnsafeFlagsAllowed(),
+  });
+  const cwd = safe.cwd;
+  const args = buildDispatchArgs({ ...safe, prompt, exec });
   const result = await runClaude(args, { cwd, timeout: 90000 });
   const parsed = parseDispatchOutput(`${result.stdout}\n${result.stderr}`);
   if (result.code !== 0 && !parsed.id) {
@@ -723,6 +843,10 @@ function replyViaAttach(id, cwd, message) {
     };
     const hardTimeout = setTimeout(() => finish(new Error('Timed out delivering reply')), 25000);
 
+    // Timing is a best-effort heuristic: the CLI has no "prompt ready" signal, so we wait for
+    // the output to go quiet (1.2 s), type, press Enter, give the session 2.5 s to accept the
+    // input and then detach. On a very slow machine a reply could land mid-render; the
+    // --resume fallback in replySession covers that case when the PTY path throws.
     const sendMessage = () => {
       if (sent) return;
       sent = true;
@@ -746,15 +870,7 @@ function replyViaAttach(id, cwd, message) {
       clearTimeout(quietTimer);
       quietTimer = setTimeout(sendMessage, 1200);
       if (/nothing to resume|no such session|not found/i.test(output)) {
-        // eslint-disable-next-line no-control-regex
-        finish(
-          new Error(
-            output
-              .replace(/\x1b\[[0-9;?]*[a-zA-Z]/g, '')
-              .trim()
-              .slice(-300)
-          )
-        );
+        finish(new Error(output.replace(ANSI_ESCAPE_RE, '').trim().slice(-300)));
       }
     });
     proc.onExit(({ exitCode }) => {

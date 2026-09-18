@@ -6,6 +6,7 @@ import type {
   ClaudeUserSettings,
   AgentViewSettings,
   AgentNotification,
+  AgentCapabilities,
 } from '../types';
 import { DEFAULT_AGENT_VIEW_SETTINGS } from '../types';
 import {
@@ -30,6 +31,7 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
   const [daemon, setDaemon] = useState<AgentDaemonStatus | null>(null);
   const [userSettings, setUserSettings] = useState<ClaudeUserSettings | null>(null);
   const [cliInstalled, setCliInstalled] = useState<boolean | null>(null);
+  const [capabilities, setCapabilities] = useState<AgentCapabilities | null>(null);
   const [settings, setSettings] = useState<AgentViewSettings>(DEFAULT_AGENT_VIEW_SETTINGS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,6 +47,7 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
       setDaemon(data.daemon);
       setUserSettings(data.userSettings);
       setCliInstalled(data.cli.installed);
+      setCapabilities(data.capabilities ?? null);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load agents');
@@ -172,6 +175,7 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
     daemon,
     userSettings,
     cliInstalled,
+    capabilities,
     settings,
     updateSettings,
     loading,
