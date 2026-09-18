@@ -45,6 +45,7 @@ import { ideService } from './services/ideService.js';
 import { injectLogger, removeLogger, checkLoggerStatus } from './services/loggerInjection.js';
 import * as dockerService from './services/dockerService.js';
 import * as healthService from './services/healthService.js';
+import * as agentService from './services/agentService.js';
 import { PORTS, TERMINAL, RATE_LIMIT, TIMEOUTS } from '../config/defaults.js';
 
 // Load environment variables from .env.local
@@ -100,7 +101,7 @@ const limiter = rateLimit({
   legacyHeaders: false,
   // Skip rate limiting for SSE endpoints (they're long-lived connections, not repeated requests)
   skip: (req) => {
-    const sseEndpoints = ['/api/events', '/api/apps/stats/stream'];
+    const sseEndpoints = ['/api/events', '/api/apps/stats/stream', '/api/agents/stream'];
     return sseEndpoints.some((endpoint) => req.path === endpoint);
   },
 });
@@ -2859,6 +2860,382 @@ app.get('/api/preview/:port{/*path}', (req, res) => {
   // path param captures everything after the port (or undefined for root)
   const pathSuffix = req.params.path || '';
   handlePreviewProxy(req, res, port, pathSuffix);
+});
+
+// ============================================
+// Claude Code Agent View API (browser counterpart of `claude agents`)
+// ============================================
+
+const agentIdSchema = z.string().regex(/^[a-z0-9][a-z0-9-]{0,63}$/i);
+const optionalShortString = z.string().max(200).optional().nullable();
+const agentDispatchSchema = z.object({
+  prompt: z.string().max(20000).optional(),
+  exec: z.string().max(4000).optional(),
+  resume: z.string().max(120).optional(),
+  cwd: pathSchema,
+  name: optionalShortString,
+  agent: optionalShortString,
+  model: optionalShortString,
+  fallbackModel: optionalShortString,
+  effort: optionalShortString,
+  permissionMode: z
+    .string()
+    .regex(/^[a-zA-Z]+$/)
+    .max(40)
+    .optional()
+    .nullable(),
+  skipPermissions: z.boolean().optional(),
+  allowSkipPermissions: z.boolean().optional(),
+  restricted: z.boolean().optional(),
+  settings: z.string().max(10000).optional().nullable(),
+  addDirs: z.array(z.string().max(500)).max(20).optional(),
+  pluginDirs: z.array(z.string().max(500)).max(20).optional(),
+  mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
+  strictMcpConfig: z.boolean().optional(),
+});
+const agentReplySchema = z.object({
+  text: z.string().min(1).max(20000),
+  mode: z.enum(['auto', 'attach', 'resume']).optional(),
+});
+const agentRemoveSchema = z.object({
+  discardUnpushed: z.string().max(200).optional().nullable(),
+  forceRemoveWorktree: z.string().max(200).optional().nullable(),
+});
+const agentViewSettingsSchema = z
+  .object({
+    grouping: z.enum(['state', 'directory']).optional(),
+    layout: z.enum(['tabs', 'columns', 'rows', 'grid']).optional(),
+    scopeCwd: z.string().max(500).nullable().optional(),
+    collapsedGroups: z.array(z.string().max(500)).max(200).optional(),
+    notifications: z.boolean().optional(),
+    desktopNotifications: z.boolean().optional(),
+    disabled: z.boolean().optional(),
+    dispatch: z
+      .object({
+        model: optionalShortString,
+        effort: optionalShortString,
+        permissionMode: optionalShortString,
+        agent: optionalShortString,
+        fallbackModel: optionalShortString,
+        skipPermissions: z.boolean().optional(),
+        allowSkipPermissions: z.boolean().optional(),
+        restricted: z.boolean().optional(),
+        strictMcpConfig: z.boolean().optional(),
+        settings: z.string().max(10000).optional().nullable(),
+        addDirs: z.array(z.string().max(500)).max(20).optional(),
+        pluginDirs: z.array(z.string().max(500)).max(20).optional(),
+        mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
+      })
+      .optional(),
+  })
+  .strict();
+
+const agentLimiter = rateLimit({
+  windowMs: RATE_LIMIT.windowMs,
+  max: 60,
+  message: { error: 'Too many agent operations, please slow down' },
+});
+
+function sendAgentError(res, error) {
+  const status = error?.status || 500;
+  res.status(status).json({ error: error?.message || 'Agent operation failed' });
+}
+
+function agentScopeCwd(req) {
+  const query =
+    typeof req.query.cwd === 'string' && req.query.cwd.trim() ? req.query.cwd.trim() : null;
+  if (query) return query;
+  const scope = settingsService.getAgentViewSettings().scopeCwd;
+  return scope || undefined;
+}
+
+/**
+ * GET /api/agents - sessions (background + interactive) enriched with state.json data
+ */
+app.get('/api/agents', async (req, res) => {
+  try {
+    const cwd = agentScopeCwd(req);
+    const all = req.query.all !== 'false';
+    const cliPath = agentService.resolveClaudeBinary();
+    if (!cliPath) {
+      return res.json({
+        sessions: [],
+        daemon: null,
+        userSettings: null,
+        cli: { installed: false, path: null },
+      });
+    }
+    const [sessions, daemon, userSettings] = await Promise.all([
+      agentService.listSessions({ cwd, all }),
+      agentService.daemonStatus().catch(() => null),
+      agentService.readClaudeUserSettings(),
+    ]);
+    res.json({ sessions, daemon, userSettings, cli: { installed: true, path: cliPath } });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/**
+ * GET /api/agents/json - raw `claude agents --json` output
+ */
+app.get('/api/agents/json', async (req, res) => {
+  try {
+    const cwd = agentScopeCwd(req);
+    const raw = await agentService.rawSessionsJson({ cwd, all: req.query.all === 'true' });
+    res.type('application/json').send(raw);
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/**
+ * GET /api/agents/stream - SSE with session snapshots and notifications
+ */
+app.get('/api/agents/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  res.write(
+    `event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
+  );
+
+  const send = (event, data) => {
+    try {
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+    } catch {
+      // client gone
+    }
+  };
+  const onSessions = (sessions) => send('sessions', sessions);
+  const onNotify = (notification) => send('notify', notification);
+  const onError = (error) => send('agent-error', error);
+  agentService.agentEvents.on('sessions', onSessions);
+  agentService.agentEvents.on('notify', onNotify);
+  agentService.agentEvents.on('error', onError);
+  const unsubscribe = agentService.subscribe();
+  const heartbeat = setInterval(
+    () => send('heartbeat', { timestamp: new Date().toISOString() }),
+    SSE_HEARTBEAT_INTERVAL
+  );
+
+  const cleanup = () => {
+    clearInterval(heartbeat);
+    unsubscribe();
+    agentService.agentEvents.off('sessions', onSessions);
+    agentService.agentEvents.off('notify', onNotify);
+    agentService.agentEvents.off('error', onError);
+  };
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+});
+
+/**
+ * POST /api/agents/dispatch - start a background session (`claude --bg`)
+ */
+app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), async (req, res) => {
+  try {
+    const result = await agentService.dispatch(req.body);
+    res.status(201).json(result);
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post('/api/agents/respawn-all', agentLimiter, async (req, res) => {
+  try {
+    res.json(await agentService.respawnSession('--all'));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.put(
+  '/api/agents/order',
+  validate(z.object({ ids: z.array(agentIdSchema).max(500) })),
+  async (req, res) => {
+    try {
+      res.json(await agentService.reorderSessions(req.body.ids));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.get('/api/agents/daemon', async (req, res) => {
+  try {
+    res.json(await agentService.daemonStatus());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post(
+  '/api/agents/daemon/stop',
+  agentLimiter,
+  validate(z.object({ any: z.boolean().optional(), keepWorkers: z.boolean().optional() })),
+  async (req, res) => {
+    try {
+      res.json(await agentService.daemonStop(req.body));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.get('/api/agents/subagents', async (req, res) => {
+  try {
+    res.json({ agents: await agentService.listSubagents(agentScopeCwd(req) || process.env.HOME) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.get('/api/agents/commands', async (req, res) => {
+  try {
+    res.json({
+      commands: await agentService.listSlashCommands(agentScopeCwd(req) || process.env.HOME),
+    });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.get('/api/agents/repos', async (req, res) => {
+  try {
+    const cwd = agentScopeCwd(req) || process.env.HOME;
+    const sessions = await agentService.listSessions({ all: true }).catch(() => []);
+    const repos = await agentService.listRepos(cwd, sessions);
+    // Configured scan directories and discovered apps are valid dispatch targets too
+    const config = getConfig();
+    for (const dir of config.directories || []) {
+      if (fs.existsSync(dir) && !repos.some((r) => r.path === dir)) {
+        repos.push({ name: path.basename(dir), path: dir, source: 'configured' });
+      }
+    }
+    res.json({ cwd, repos });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.get('/api/agents/past', async (req, res) => {
+  try {
+    const cwd = typeof req.query.cwd === 'string' && req.query.cwd ? req.query.cwd : undefined;
+    const query = typeof req.query.q === 'string' ? req.query.q : '';
+    res.json({ sessions: await agentService.listPastSessions({ cwd, query, limit: 100 }) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.get('/api/agents/:id/logs', validateParams(agentIdSchema), async (req, res) => {
+  try {
+    const lines = Math.min(200, Math.max(5, parseInt(String(req.query.lines || '40'), 10) || 40));
+    res.json(await agentService.getLogs(req.params.id, { lines }));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post(
+  '/api/agents/:id/reply',
+  agentLimiter,
+  validateParams(agentIdSchema),
+  validate(agentReplySchema),
+  async (req, res) => {
+    try {
+      res.json(
+        await agentService.replySession(req.params.id, req.body.text, {
+          mode: req.body.mode || 'auto',
+        })
+      );
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.post('/api/agents/:id/stop', agentLimiter, validateParams(agentIdSchema), async (req, res) => {
+  try {
+    res.json(await agentService.stopSession(req.params.id));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post(
+  '/api/agents/:id/respawn',
+  agentLimiter,
+  validateParams(agentIdSchema),
+  async (req, res) => {
+    try {
+      res.json(await agentService.respawnSession(req.params.id));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.delete(
+  '/api/agents/:id',
+  agentLimiter,
+  validateParams(agentIdSchema),
+  validate(agentRemoveSchema),
+  async (req, res) => {
+    try {
+      const result = await agentService.removeSession(req.params.id, req.body);
+      res.status(result.removed ? 200 : 409).json(result);
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.put(
+  '/api/agents/:id/name',
+  validateParams(agentIdSchema),
+  validate(z.object({ name: z.string().min(1).max(200) })),
+  async (req, res) => {
+    try {
+      res.json(await agentService.renameSession(req.params.id, req.body.name));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.put(
+  '/api/agents/:id/pin',
+  validateParams(agentIdSchema),
+  validate(z.object({ pinned: z.boolean() })),
+  async (req, res) => {
+    try {
+      res.json(await agentService.setPinned(req.params.id, req.body.pinned));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/**
+ * Agent view preferences (grouping, layout, dispatch defaults, scope)
+ */
+app.get('/api/settings/agent-view', (req, res) => {
+  try {
+    res.json(settingsService.getAgentViewSettings());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.put('/api/settings/agent-view', validate(agentViewSettingsSchema), (req, res) => {
+  try {
+    res.json(settingsService.updateAgentViewSettings(req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
 });
 
 // ============================================

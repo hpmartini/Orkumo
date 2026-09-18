@@ -19,3 +19,4 @@ export { AppTabs, useAppTabs, createTabsFromApps } from './AppTabs';
 export { TitleBar } from './TitleBar';
 export { PortConflictModal } from './PortConflictModal';
 export { LoadingSkeleton } from './LoadingSkeleton';
+export { AgentsView } from './AgentsView';

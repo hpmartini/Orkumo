@@ -8,6 +8,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+
+- **Claude Code Agents View**: browser counterpart of `claude agents` at `/agents` (sidebar entry, shortcut `a`)
+  - Session list grouped by state or directory, peek panel with reply / numbered choices / suggested reply
+  - Dispatch input with the TUI syntax (`@agent`, `@repo`, `/resume`, `/model`, `/effort`, `! command`, `#PR`, filters)
+  - Attach sessions in tabs or tiled (columns / rows / grid) via `claude attach`
+  - Pin, rename, reorder, stop, delete (with `claude rm` force hints), respawn, supervisor controls
+  - Dispatch defaults for every `claude agents` flag, `--cwd` scope, notifications
+  - New API under `/api/agents/*` and `/api/settings/agent-view`, backed by `server/services/agentService.js`
 - **code-server Integration**: VS Code in browser alongside Monaco Editor
   - Toggle between Monaco (lightweight) and VS Code (full IDE) modes
   - Configurable via `VITE_CODE_SERVER_URL` environment variable
@@ -38,6 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Memoized functions and values for better performance
 
 ### Changed
+
 - **BREAKING**: Docker volume mounts changed from hardcoded `/Users/example/` to `${HOME}/` variable
   - Migration required: Update your `.env` file or docker-compose overrides
   - API service: `/Users/example/Projects` → `${HOME}/Projects`
@@ -46,18 +55,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Action Required**: Restart containers after pulling this update
 
 ### Security
+
 - **CRITICAL**: `CODE_SERVER_PASSWORD` must be set - container won't start without it
 - Removed hardcoded default password from docker-compose.yml
 - iframe sandbox now uses stricter isolation (no `allow-same-origin`)
 - Path validation prevents directory traversal attacks
 
 ### Fixed
+
 - Path mapping now correctly handles nested `Projects` folders
 - iframe error detection with timeout fallback (onError doesn't reliably fire)
 - Retry button now properly reloads iframe
 - Console logs only appear in development mode
 
 ### Documentation
+
 - Complete setup guide with security best practices
 - HTTPS configuration options (Caddy, Nginx, SSH tunnel, Cloudflare)
 - CORS documentation for cross-origin scenarios
@@ -67,6 +79,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [0.1.0] - Initial Release
 
 ### Added
+
 - DevOrbit Dashboard - Developer application monitoring
 - Monaco Editor integration
 - Terminal panels with PTY support

@@ -11,6 +11,7 @@ It scans the configured directories and subdirectories and analyses inherited pr
 The directories can be configured on the admin panel.
 
 The dashboard shows:
+
 - Total Projects
 - Active Services
 - Total CPU Load
@@ -19,18 +20,19 @@ The dashboard shows:
 - System alerts
 - recommodations (like possible optimizations, updates, etc.)
 - per application:
-    - name
-    - directory
-    - technology
-    - the status (running, error, cancelled, stopped, starting, analyzing, waiting, etc.)
-    - the ports and adresses
-    - controls: start, stop, restart, open in browser
-- Applications 
-    - are grouped by directory and subdirectory
-    - can be set as favorites and showed at the top in a separate favorites card
-    - can be archived, meaning they are hidden. at the bottom is a panel which opens the archive
+  - name
+  - directory
+  - technology
+  - the status (running, error, cancelled, stopped, starting, analyzing, waiting, etc.)
+  - the ports and adresses
+  - controls: start, stop, restart, open in browser
+- Applications
+  - are grouped by directory and subdirectory
+  - can be set as favorites and showed at the top in a separate favorites card
+  - can be archived, meaning they are hidden. at the bottom is a panel which opens the archive
 
 The details view for the applicaions show:
+
 - name
 - cpu usage
 - memory usage
@@ -40,7 +42,7 @@ The details view for the applicaions show:
 - the status (running, error, cancelled, stopped, starting, analyzing, waiting, etc.)
 - the ports and adresses
 - the console output in a web terminal emulator
-and provides basic control mechanisms, like:
+  and provides basic control mechanisms, like:
 - start
 - stop
 - restart
@@ -54,19 +56,22 @@ The console output in the details view is a real webbased terminal emulator, sup
 - On demand, detect all ports of the favorite projects to resolve conflicts
 - Make sure the projects are started with their configured (or at build time set up) ports
 - Docker-Projekt-Support
-    - detect containers and setup (docker file and, docker compose file)
-    - configure project, so it can run and manage the containers
-    - ability to control each container in the details view
+  - detect containers and setup (docker file and, docker compose file)
+  - configure project, so it can run and manage the containers
+  - ability to control each container in the details view
 - Open in external IDE from details view
 - Open new terminal tab with claude code
-additional options:
-    - `-c` for continuing the last session
-    - `--dangerously-skip-permissions`
-- On details view add a “sub view” for coding with this elements as side-by-side view:
-    - Terminals (reuse the terminals from the default details view)
-    - Web-IDE (VS-Code) einbauen
-    - Browser-View im I-Frame mit Debugger einbauen
+- Claude Code Agents View (browser version of `claude agents`, route `/agents`):
+  - `components/AgentsView/` - list, dispatch input, peek panel, attached sessions in tabs / tiled panes
+  - `server/services/agentService.js` - wraps the `claude` CLI (`--bg`, `agents --json`, `logs`, `stop`, `respawn`, `rm`, `daemon`) and `~/.claude/jobs` state; routes under `/api/agents/*`
+  - `utils/agentInput.ts` (dispatch syntax) and `utils/agentSessions.ts` (grouping) are pure and unit-tested
 
+additional options: - `-c` for continuing the last session - `--dangerously-skip-permissions`
+
+- On details view add a “sub view” for coding with this elements as side-by-side view:
+  - Terminals (reuse the terminals from the default details view)
+  - Web-IDE (VS-Code) einbauen
+  - Browser-View im I-Frame mit Debugger einbauen
 
 ## Commands
 

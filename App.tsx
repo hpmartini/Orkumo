@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { BrowserRouter, HashRouter, Routes, Route, useNavigate, useParams } from 'react-router-dom';
+import {
+  BrowserRouter,
+  HashRouter,
+  Routes,
+  Route,
+  useNavigate,
+  useParams,
+  useLocation,
+} from 'react-router-dom';
 import { isElectron } from './utils/apiConfig';
 import { LayoutDashboard, Menu, X, GripVertical } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
@@ -16,6 +24,7 @@ import {
   TitleBar,
   useAppTabs,
   LoadingSkeleton,
+  AgentsView,
 } from './components';
 import { useApps, usePerAppState } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
@@ -23,12 +32,14 @@ import { generateProjectUrl } from './utils/routing';
 import { KeyboardShortcuts } from './types';
 import { APP_NAME } from './constants';
 
-type ActiveTab = 'dashboard' | 'apps';
+type ActiveTab = 'dashboard' | 'apps' | 'agents';
 
 function AppContent() {
   const navigate = useNavigate();
   const params = useParams();
+  const location = useLocation();
   const projectId = params.projectId;
+  const isAgentsRoute = location.pathname === '/agents';
 
   const {
     apps,
@@ -131,9 +142,9 @@ function AppContent() {
         navigateRef.current('/', { replace: true });
       }
     } else {
-      setActiveTab('dashboard');
+      setActiveTab(isAgentsRoute ? 'agents' : 'dashboard');
     }
-  }, [projectId, apps, loading]);
+  }, [projectId, apps, loading, isAgentsRoute]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
@@ -267,6 +278,7 @@ function AppContent() {
       { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
       { id: 'openFavorites' as keyof KeyboardShortcuts, handler: handleToggleFavoritesPopup },
       { id: 'openProjects' as keyof KeyboardShortcuts, handler: handleToggleProjectsPopup },
+      { id: 'openAgents' as keyof KeyboardShortcuts, handler: () => navigate('/agents') },
       {
         id: 'goToTab1' as keyof KeyboardShortcuts,
         handler: () => tabs[0] && handleTabSelect(tabs[0].appId),
@@ -444,6 +456,10 @@ function AppContent() {
           isCollapsed={sidebarCollapsed}
           onToggleCollapse={handleToggleSidebarCollapse}
           onSelectDashboard={handleSelectDashboard}
+          onSelectAgents={() => {
+            navigate('/agents');
+            setMobileMenuOpen(false);
+          }}
           onSelectApp={handleSelectApp}
           onToggleFavorite={handleToggleFavorite}
           onToggleArchive={handleToggleArchive}
@@ -580,6 +596,16 @@ function AppContent() {
             </div>
           </div>
 
+          {/* Claude Code agent view - always mounted so attached terminals survive navigation */}
+          <div
+            className={
+              activeTab === 'agents' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+            }
+            aria-hidden={activeTab !== 'agents'}
+          >
+            <AgentsView active={activeTab === 'agents'} apps={apps} onExit={() => navigate('/')} />
+          </div>
+
           {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.
               This preserves iframe state (VS Code Server, Browser Preview) when switching tabs.
               Previously conditional rendering caused iframes to reload on every tab switch.
@@ -659,6 +685,7 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<AppContent />} />
+      <Route path="/agents" element={<AppContent />} />
       <Route path="/:projectName/:projectId" element={<AppContent />} />
     </Routes>
   );

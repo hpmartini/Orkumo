@@ -17,6 +17,7 @@ import {
   Info,
   Code,
   ChevronUp,
+  Bot,
 } from 'lucide-react';
 import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -28,8 +29,9 @@ import { APP_NAME } from '../constants';
 interface SidebarProps {
   apps: AppConfig[];
   selectedAppId: string | null;
-  activeTab: 'dashboard' | 'apps';
+  activeTab: 'dashboard' | 'apps' | 'agents';
   isCollapsed?: boolean;
+  onSelectAgents?: () => void;
   onToggleCollapse?: () => void;
   onSelectDashboard: () => void;
   onSelectApp: (id: string) => void;
@@ -70,6 +72,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   isCollapsed,
   onToggleCollapse,
   onSelectDashboard,
+  onSelectAgents,
   onSelectApp,
   onToggleFavorite,
   onToggleArchive,
@@ -107,15 +110,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const showFavoritesPopup = showFavoritesPopupExternal ?? showFavoritesPopupInternal;
   const showProjectsPopup = showProjectsPopupExternal ?? showProjectsPopupInternal;
 
-  const setShowFavoritesPopup = useCallback((open: boolean) => {
-    setShowFavoritesPopupInternal(open);
-    onFavoritesPopupChange?.(open);
-  }, [onFavoritesPopupChange]);
+  const setShowFavoritesPopup = useCallback(
+    (open: boolean) => {
+      setShowFavoritesPopupInternal(open);
+      onFavoritesPopupChange?.(open);
+    },
+    [onFavoritesPopupChange]
+  );
 
-  const setShowProjectsPopup = useCallback((open: boolean) => {
-    setShowProjectsPopupInternal(open);
-    onProjectsPopupChange?.(open);
-  }, [onProjectsPopupChange]);
+  const setShowProjectsPopup = useCallback(
+    (open: boolean) => {
+      setShowProjectsPopupInternal(open);
+      onProjectsPopupChange?.(open);
+    },
+    [onProjectsPopupChange]
+  );
 
   // Sync external state changes to internal state
   useEffect(() => {
@@ -367,6 +376,28 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </ShortcutTooltip>
         </div>
 
+        {/* Agents Button */}
+        {onSelectAgents && (
+          <div className="p-2">
+            <ShortcutTooltip
+              label="Claude agents"
+              shortcut={getShortcutString(keyboardShortcuts, 'openAgents')}
+              position="right"
+            >
+              <button
+                onClick={onSelectAgents}
+                className={`p-2 rounded-lg transition-all ${
+                  activeTab === 'agents'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                    : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                }`}
+              >
+                <Bot size={20} />
+              </button>
+            </ShortcutTooltip>
+          </div>
+        )}
+
         {/* Favorites Button */}
         {favorites.length > 0 && (
           <div className="p-2">
@@ -479,7 +510,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
         {/* Daemon State */}
         <div className="p-3 border-t border-gray-800 w-full flex flex-col items-center gap-2">
-          <div className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse" title="Daemon Active"></div>
+          <div
+            className="w-3 h-3 bg-emerald-500 rounded-full animate-pulse"
+            title="Daemon Active"
+          ></div>
           {onOpenSettings && (
             <ShortcutTooltip
               label="Settings"
@@ -603,6 +637,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <LayoutDashboard size={18} />
           Overview
         </button>
+
+        {/* Agents Button */}
+        {onSelectAgents && (
+          <button
+            onClick={onSelectAgents}
+            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${
+              activeTab === 'agents'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+            }`}
+            title={`Claude Code agents (${getShortcutString(keyboardShortcuts, 'openAgents')})`}
+          >
+            <Bot size={18} />
+            Agents
+          </button>
+        )}
 
         {/* Favorites Section */}
         {favorites.length > 0 && (
