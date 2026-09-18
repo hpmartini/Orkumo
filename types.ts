@@ -120,6 +120,7 @@ export interface KeyboardShortcuts {
   toggleDetailsCoding: KeyboardShortcut;
   openFavorites: KeyboardShortcut;
   openProjects: KeyboardShortcut;
+  openAgents: KeyboardShortcut;
   goToTab1: KeyboardShortcut;
   goToTab2: KeyboardShortcut;
   goToTab3: KeyboardShortcut;
@@ -178,6 +179,7 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   toggleDetailsCoding: { key: 'c', description: 'Toggle Details/Coding view' },
   openFavorites: { key: 'f', description: 'Open favorites' },
   openProjects: { key: 'p', description: 'Open projects' },
+  openAgents: { key: 'a', description: 'Open Claude agents view' },
   goToTab1: { key: '1', modifiers: { meta: true }, description: 'Go to tab 1' },
   goToTab2: { key: '2', modifiers: { meta: true }, description: 'Go to tab 2' },
   goToTab3: { key: '3', modifiers: { meta: true }, description: 'Go to tab 3' },
@@ -195,4 +197,233 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
     modifiers: { meta: true, shift: true },
     description: 'Restart selected app',
   },
+};
+
+// ============================================
+// Claude Code Agent View (browser counterpart of `claude agents`)
+// ============================================
+
+/** Raw supervisor state as reported by `claude agents --json` */
+export type AgentSessionState = 'working' | 'blocked' | 'done' | 'failed' | 'stopped';
+
+/** Process status while the worker is alive */
+export type AgentProcessStatus = 'busy' | 'waiting' | 'idle';
+
+/** Display state used for icons and grouping in the agent view */
+export type AgentDisplayState =
+  | 'working'
+  | 'needs-input'
+  | 'idle'
+  | 'completed'
+  | 'failed'
+  | 'stopped'
+  | 'loop'
+  | 'interactive';
+
+export interface AgentPrLink {
+  id: string;
+  href: string;
+  title: string | null;
+  number: number | null;
+  provider: 'github' | 'gitlab';
+  state: string | null;
+}
+
+export interface AgentSession {
+  /** Short id (`claude attach <id>`), or `interactive-<pid>` for foreground sessions */
+  id: string;
+  /** Full session UUID (usable with `claude --resume`) */
+  sessionId: string | null;
+  kind: 'background' | 'interactive';
+  cwd: string;
+  startedAt: number;
+  updatedAt?: number | null;
+  name: string;
+  nameSource?: string | null;
+  state: AgentSessionState | null;
+  status?: AgentProcessStatus | null;
+  waitingFor?: string | null;
+  pid?: number | null;
+  /** One-line activity summary maintained by the CLI */
+  detail?: string | null;
+  tempo?: string | null;
+  /** First prompt / task description */
+  intent?: string | null;
+  template?: string | null;
+  agent?: string | null;
+  result?: string | null;
+  suggestedReply?: string | null;
+  tokens?: number | null;
+  loop?: { routine: string } | null;
+  worktree?: string | null;
+  transcriptPath?: string | null;
+  cliVersion?: string | null;
+  respawnFlags?: string[];
+  pinned: boolean;
+  order: number | null;
+  links: AgentPrLink[];
+  displayState: AgentDisplayState;
+}
+
+export interface AgentDaemonStatus {
+  running: boolean;
+  pid: number | null;
+  version: string | null;
+  workers: number | null;
+  versionMismatch: boolean;
+  raw: string;
+}
+
+export interface ClaudeUserSettings {
+  model: string | null;
+  effortLevel: string | null;
+  permissionMode: string | null;
+  disableAgentView: boolean;
+  leftArrowOpensAgents: boolean;
+  prefersReducedMotion: boolean;
+  bgIsolation: string;
+}
+
+export interface AgentsResponse {
+  sessions: AgentSession[];
+  daemon: AgentDaemonStatus | null;
+  userSettings: ClaudeUserSettings | null;
+  cli: { installed: boolean; path: string | null };
+  capabilities?: AgentCapabilities;
+}
+
+export interface AgentCapabilities {
+  /** Unsafe dispatch flags need DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true on the server */
+  unsafeFlagsAllowed: boolean;
+  /** Configured project directories - the only valid session working directories */
+  allowedDirs: string[];
+}
+
+export type AgentGrouping = 'state' | 'directory';
+export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
+
+export interface AgentDispatchDefaults {
+  model: string | null;
+  effort: string | null;
+  permissionMode: string | null;
+  agent: string | null;
+  fallbackModel: string | null;
+  skipPermissions: boolean;
+  allowSkipPermissions: boolean;
+  restricted: boolean;
+  settings: string | null;
+  addDirs: string[];
+  pluginDirs: string[];
+  mcpConfigs: string[];
+  strictMcpConfig: boolean;
+}
+
+export interface AgentViewSettings {
+  grouping: AgentGrouping;
+  layout: AgentLayout;
+  scopeCwd: string | null;
+  collapsedGroups: string[];
+  notifications: boolean;
+  desktopNotifications: boolean;
+  disabled: boolean;
+  dispatch: AgentDispatchDefaults;
+  version: number;
+}
+
+export interface AgentDispatchRequest extends Partial<AgentDispatchDefaults> {
+  prompt?: string;
+  exec?: string;
+  resume?: string;
+  name?: string | null;
+  cwd: string;
+}
+
+export interface AgentDispatchResult {
+  id: string;
+  name: string | null;
+  alreadyRunning: boolean;
+  output: string;
+}
+
+export interface AgentLogEntry {
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string | null;
+}
+
+export interface AgentLogs {
+  source: 'logs' | 'transcript';
+  text: string;
+  entries: AgentLogEntry[];
+  note?: string | null;
+}
+
+export interface AgentSubagent {
+  name: string;
+  description: string;
+  model: string | null;
+  source: 'project' | 'user';
+}
+
+export interface AgentRepo {
+  name: string;
+  path: string;
+  source: 'repo' | 'worktree' | 'session' | 'configured';
+}
+
+export interface AgentSlashCommand {
+  name: string;
+  description: string;
+  source: 'builtin' | 'project' | 'user';
+}
+
+export interface AgentPastSession {
+  sessionId: string;
+  id: string | null;
+  name: string;
+  firstPrompt: string | null;
+  cwd: string | null;
+  projectSlug: string;
+  lastActivity: number;
+  size: number;
+  state: AgentSessionState | null;
+}
+
+export interface AgentRemoveResult {
+  removed: boolean;
+  message: string;
+  hints?: { discardUnpushed: string | null; forceRemoveWorktree: string | null };
+}
+
+export interface AgentNotification {
+  type: 'agent_needs_input' | 'agent_completed' | 'agent_failed';
+  session: AgentSession;
+}
+
+export const DEFAULT_AGENT_DISPATCH_DEFAULTS: AgentDispatchDefaults = {
+  model: null,
+  effort: null,
+  permissionMode: null,
+  agent: null,
+  fallbackModel: null,
+  skipPermissions: false,
+  allowSkipPermissions: false,
+  restricted: false,
+  settings: null,
+  addDirs: [],
+  pluginDirs: [],
+  mcpConfigs: [],
+  strictMcpConfig: false,
+};
+
+export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
+  grouping: 'state',
+  layout: 'tabs',
+  scopeCwd: null,
+  collapsedGroups: [],
+  notifications: true,
+  desktopNotifications: false,
+  disabled: false,
+  dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
+  version: 1,
 };

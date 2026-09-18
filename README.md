@@ -11,6 +11,7 @@
 - **Integrated Terminal**: Full-featured web-based terminal emulator for interacting with your services.
 - **IDE Integration**: Seamlessly open projects in VS Code, Cursor, WebStorm, and other IDEs.
 - **Docker Support**: Manage Docker containers and compose services directly from the dashboard.
+- **Claude Code Agents**: Browser version of `claude agents` - dispatch, peek, reply, attach (in tabs or tiled), pin, rename, stop and delete background Claude Code sessions.
 
 ## 🛠️ Tech Stack
 
@@ -73,6 +74,27 @@ The project follows a monorepo-like structure with a unified backend and fronten
 - **`services/`**: Core logic for AI analysis, port management, and file system scanning.
 - **`docker/`**: Infrastructure configuration.
 
+## 🤖 Claude Code Agents View
+
+DevOrbit ships a browser counterpart of Claude Code's [agent view](https://code.claude.com/docs/en/agent-view) (`claude agents`). Open it from the sidebar (**Agents**, shortcut `a`) or at `/agents`.
+
+It talks to the Claude Code CLI installed on the machine running the DevOrbit server (`claude --bg`, `claude agents --json`, `claude logs|stop|respawn|rm`, `claude daemon …`) and reads the session state the CLI keeps under `~/.claude/jobs`. Requirements: Claude Code ≥ 2.1.2xx on the host, signed in once (`claude`). The view is not available in the Docker deployment (the CLI runs on the host, the API container has no access to it).
+
+What you get:
+
+- **Session list** grouped by state (Pinned · Ready for review · Needs input · Working · Completed) or by directory (`Ctrl+S`), with state glyphs, activity summary, age and PR/MR labels. Completed sessions fold into `… N more`.
+- **Dispatch input** with the TUI syntax: `<agent> prompt`, `@agent`, `@repo`, `/resume`, `/model`, `/effort`, skills as `/name`, `! shell command` (background job), `#123` / PR URL to select a session, and filters `a:<agent>`, `s:<state>`, `#<n>`, URL. Prompts shorter than 4 characters are rejected as `Too short`.
+- **Peek panel** (`Space`): recent output (`claude logs`, transcript fallback for exited sessions), blocking question, numbered choices, `Tab` for the suggested reply, `!` for a shell command. Replies are delivered through a hidden `claude attach` so permission prompts and questions can be answered without opening the session.
+- **Attach in tabs** (`Enter` / `→` / `Alt+1…9`): each attached session is a real terminal running `claude attach <id>`. Tabs can be **tiled** as columns, rows or a grid. `Ctrl+Z` (or the detach button) leaves the session running.
+- **Manage**: pin (`Ctrl+T`, `Alt+P` in browsers), rename (`Ctrl+R`), reorder (`Shift+↑/↓`), stop / delete (`Ctrl+X`, twice within 2 s), delete a whole group, respawn, force-delete hints from `claude rm` (`--discard-unpushed`, `--force-remove-worktree`).
+- **Dispatch defaults** (gear icon): the flags `claude agents` accepts - `--model`, `--effort`, `--permission-mode`, `--agent`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--restricted`, `--settings`, `--add-dir`, `--plugin-dir`, `--mcp-config`, `--strict-mcp-config`, `--fallback-model` - plus the `--cwd` scope, notifications and the supervisor controls (`claude daemon status|stop`, `claude respawn --all`).
+- **Notifications** when a session needs input, finishes or fails (in-app toasts, optional browser notifications), and the tab title shows `N awaiting input · claude agents`.
+- Press `?` inside the view for the full shortcut list.
+
+Security: sessions can only be dispatched into (and `--add-dir` only point at) the project directories configured in the admin panel; the server resolves symlinks before checking. Flags that widen a session's reach (`--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--settings`, `--mcp-config`, `--plugin-dir`) are refused with `403` unless the server runs with `DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true`.
+
+API: `GET /api/agents`, `GET /api/agents/stream` (SSE), `POST /api/agents/dispatch`, `GET /api/agents/:id/logs`, `POST /api/agents/:id/reply|stop|respawn`, `DELETE /api/agents/:id`, `PUT /api/agents/:id/name|pin`, `PUT /api/agents/order`, `GET /api/agents/daemon`, `POST /api/agents/daemon/stop`, `GET /api/agents/subagents|repos|commands|past`, `GET|PUT /api/settings/agent-view`.
+
 ## 🐳 Docker Deployment
 
 You can run the dashboard entirely within Docker:
@@ -91,16 +113,16 @@ DevOrbit Dashboard includes an integrated web-based IDE powered by **code-server
 
 ### Why Two Editors?
 
-| Feature | Monaco Editor | code-server (VS Code) |
-|---------|---------------|------------------------|
-| **Load Time** | Instant | 2-3 seconds |
-| **Memory Usage** | ~50MB | ~200-500MB |
-| **Extensions** | ❌ No | ✅ Full VS Code marketplace |
-| **Integrated Terminal** | ❌ No | ✅ Yes |
-| **Git Integration** | ❌ Limited | ✅ Full GitLens, etc. |
-| **Debugging** | ❌ No | ✅ Full debugging support |
-| **Settings Sync** | ❌ No | ✅ Yes (with VS Code account) |
-| **Best For** | Quick edits, config files | Full development, debugging |
+| Feature                 | Monaco Editor             | code-server (VS Code)         |
+| ----------------------- | ------------------------- | ----------------------------- |
+| **Load Time**           | Instant                   | 2-3 seconds                   |
+| **Memory Usage**        | ~50MB                     | ~200-500MB                    |
+| **Extensions**          | ❌ No                     | ✅ Full VS Code marketplace   |
+| **Integrated Terminal** | ❌ No                     | ✅ Yes                        |
+| **Git Integration**     | ❌ Limited                | ✅ Full GitLens, etc.         |
+| **Debugging**           | ❌ No                     | ✅ Full debugging support     |
+| **Settings Sync**       | ❌ No                     | ✅ Yes (with VS Code account) |
+| **Best For**            | Quick edits, config files | Full development, debugging   |
 
 **Recommendation:** Use Monaco for quick edits and code-server when you need the full IDE experience.
 
@@ -145,7 +167,6 @@ DevOrbit Dashboard includes an integrated web-based IDE powered by **code-server
    ```
 
 4. **Access from Dashboard**
-
    - Open DevOrbit Dashboard
    - Navigate to any project's detail view
    - Click the editor switcher in the top-right
@@ -179,6 +200,7 @@ Browser → http://localhost:3000/code-server/ → Nginx (frontend container) �
 ```
 
 **Key Points:**
+
 - code-server is accessed through nginx proxy at `/code-server/` path
 - Port 8443 is bound to `127.0.0.1` (localhost only) for security
 - All communication goes through the internal Docker network `devorbit-network`
@@ -189,10 +211,13 @@ Browser → http://localhost:3000/code-server/ → Nginx (frontend container) �
 By default, code-server is **only accessible through the nginx proxy** on localhost. This is secure for local development.
 
 **For Remote Access:**
+
 - ✅ **Use SSH tunnel** (most secure):
+
   ```bash
   ssh -L 8443:localhost:8443 user@your-server
   ```
+
   Then access via `http://localhost:8443` on your local machine
 
 - ✅ **Use VPN** (e.g., Tailscale, WireGuard)
@@ -221,6 +246,7 @@ Running code-server over HTTP means passwords and code are transmitted in plaint
 > **⚠️ IMPORTANT:** When deploying with HTTPS, your reverse proxy MUST properly handle WebSocket upgrades. code-server requires WebSocket support for terminal functionality, file watching, and real-time features. Failure to configure WebSocket support will result in broken terminal and file synchronization.
 
 **Key Requirements for HTTPS Deployment:**
+
 1. **WebSocket Protocol**: Use `wss://` (WebSocket Secure) instead of `ws://`
 2. **Valid SSL Certificates**: Self-signed certificates may cause WebSocket connection failures
 3. **Proper Proxy Headers**: Must forward `Upgrade` and `Connection` headers
@@ -231,6 +257,7 @@ Running code-server over HTTP means passwords and code are transmitted in plaint
 #### Option 1: Caddy (Recommended - Automatic HTTPS)
 
 1. **Install Caddy:**
+
    ```bash
    # macOS
    brew install caddy
@@ -240,6 +267,7 @@ Running code-server over HTTP means passwords and code are transmitted in plaint
    ```
 
 2. **Create Caddyfile:**
+
    ```
    code.yourdomain.com {
        reverse_proxy localhost:8443
@@ -247,6 +275,7 @@ Running code-server over HTTP means passwords and code are transmitted in plaint
    ```
 
 3. **Start Caddy:**
+
    ```bash
    caddy run
    ```
@@ -261,11 +290,13 @@ Running code-server over HTTP means passwords and code are transmitted in plaint
 #### Option 2: Nginx with Certbot
 
 1. **Install Nginx and Certbot:**
+
    ```bash
    sudo apt install nginx certbot python3-certbot-nginx
    ```
 
 2. **Create Nginx config** (`/etc/nginx/sites-available/code-server`):
+
    ```nginx
    # WebSocket upgrade mapping (add at top of nginx.conf, outside server block)
    map $http_upgrade $connection_upgrade {
@@ -302,6 +333,7 @@ Running code-server over HTTP means passwords and code are transmitted in plaint
    ```
 
 3. **Enable site and get SSL:**
+
    ```bash
    sudo ln -s /etc/nginx/sites-available/code-server /etc/nginx/sites-enabled/
    sudo certbot --nginx -d code.yourdomain.com
@@ -361,7 +393,7 @@ Adjust in `docker-compose.yml` if needed:
 deploy:
   resources:
     limits:
-      cpus: '4.0'      # Increase for large projects
+      cpus: '4.0' # Increase for large projects
       memory: 4G
 ```
 
@@ -370,12 +402,14 @@ deploy:
 **⚠️ BREAKING CHANGE:** If you previously used this project with hardcoded paths, volume mounts have been standardized.
 
 **Before (version ≤ v1.x):**
+
 ```yaml
 volumes:
   - /Users/example/Projects:/path/in/container
 ```
 
 **After (version v2.0+):**
+
 ```yaml
 volumes:
   - ${HOME}/Projects:/home/coder/Projects
@@ -383,11 +417,13 @@ volumes:
 ```
 
 **Impact:**
+
 - Both `api` and `code-server` services now use consistent mount paths
 - Environment variable `${HOME}` makes it work across different users
 - If you have custom mount paths, update them in `docker-compose.yml`
 
 **Action Required:**
+
 1. Review your `docker-compose.yml` volume mounts
 2. If you have customizations, update paths to use `${HOME}` or absolute paths
 3. Restart services: `docker compose down && docker compose up -d`
@@ -399,6 +435,7 @@ volumes:
 **Error:** `CODE_SERVER_PASSWORD must be set`
 
 **Fix:** Set `CODE_SERVER_PASSWORD` in `.env` file:
+
 ```bash
 CODE_SERVER_PASSWORD=your_secure_password_here
 ```
@@ -408,12 +445,14 @@ CODE_SERVER_PASSWORD=your_secure_password_here
 **Symptoms:** "Failed to load VS Code (timeout)" after 15 seconds
 
 **Causes & Fixes:**
+
 - code-server container not running
   ```bash
   docker compose ps code-server
   docker compose up code-server -d
   ```
 - Firewall blocking port 8443
+
   ```bash
   # macOS
   sudo /usr/libexec/ApplicationFirewall/socketfilterfw --add code-server
@@ -421,6 +460,7 @@ CODE_SERVER_PASSWORD=your_secure_password_here
   # Linux
   sudo ufw allow 8443
   ```
+
 - Container still starting (wait 30-40 seconds)
   ```bash
   docker compose logs -f code-server
@@ -431,11 +471,13 @@ CODE_SERVER_PASSWORD=your_secure_password_here
 **Symptoms:** Can't see project files, or wrong directory opens
 
 **Fix:** Verify path mapping in browser console (F12):
+
 ```
 [WebIDEPanel] Mapped path: /Users/you/Projects/myapp -> /home/coder/Projects/myapp
 ```
 
 If path doesn't match, your project directory name doesn't match the expected pattern. Update volume mounts in `docker-compose.yml`:
+
 ```yaml
 - /your/custom/path:/home/coder/Projects
 ```
@@ -445,6 +487,7 @@ If path doesn't match, your project directory name doesn't match the expected pa
 **Symptoms:** "Permission denied" when editing files
 
 **Fix:** Ensure host directories have correct permissions:
+
 ```bash
 chmod -R u+rw ~/Projects
 ```
@@ -454,11 +497,13 @@ chmod -R u+rw ~/Projects
 **Error:** `Bind for 0.0.0.0:8443 failed: port is already allocated`
 
 **Fix:** Change port in `docker-compose.yml` and `.env`:
+
 ```yaml
 # docker-compose.yml
 ports:
-  - "8444:8080"  # Changed from 8443
+  - '8444:8080' # Changed from 8443
 ```
+
 ```bash
 # .env
 VITE_CODE_SERVER_URL=http://localhost:8444
@@ -480,6 +525,7 @@ By default, code-server loads in an iframe at `http://localhost:8443` while the 
 You may encounter CORS errors if:
 
 1. **Different domains**: Running dashboard and code-server on different domains
+
    ```
    Dashboard: https://app.example.com
    code-server: https://code.example.com
@@ -517,6 +563,7 @@ server {
 ```
 
 Then update `.env`:
+
 ```bash
 VITE_CODE_SERVER_URL=https://app.example.com/code
 ```
@@ -550,6 +597,7 @@ code-server: http://localhost:8443
 #### Debugging CORS Issues
 
 1. **Check browser console** (F12 → Console tab) for CORS errors:
+
    ```
    Access to iframe at 'http://localhost:8443' from origin 'http://localhost:3000'
    has been blocked by CORS policy
@@ -564,6 +612,7 @@ code-server: http://localhost:8443
    - If it works there but not in the iframe, it's likely a sandbox/CORS issue
 
 4. **Check reverse proxy logs**:
+
    ```bash
    # Nginx
    sudo tail -f /var/log/nginx/error.log

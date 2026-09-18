@@ -20,7 +20,37 @@ const defaultSettings = {
   dismissedRecommendations: [], // Array of dismissed recommendation keys
   snoozedRecommendations: {}, // Map of recommendation key -> snooze expiry timestamp
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides
+  agentView: {}, // Claude Code agent view preferences (grouping, layout, dispatch defaults)
   version: 1, // Settings schema version for future migrations
+};
+
+/**
+ * Default Claude Code agent view preferences
+ */
+export const DEFAULT_AGENT_VIEW_SETTINGS = {
+  grouping: 'state', // 'state' | 'directory'
+  layout: 'tabs', // 'tabs' | 'columns' | 'rows' | 'grid'
+  scopeCwd: null, // Only show sessions started under this path (claude agents --cwd)
+  collapsedGroups: [],
+  notifications: true,
+  desktopNotifications: false,
+  disabled: false, // Mirrors the CLI `disableAgentView` setting
+  dispatch: {
+    model: null,
+    effort: null,
+    permissionMode: null,
+    agent: null,
+    skipPermissions: false,
+    allowSkipPermissions: false,
+    restricted: false,
+    settings: null,
+    addDirs: [],
+    pluginDirs: [],
+    mcpConfigs: [],
+    strictMcpConfig: false,
+    fallbackModel: null,
+  },
+  version: 1,
 };
 
 /**
@@ -76,6 +106,11 @@ function readSettings() {
     // Migrate: Ensure keyboardShortcuts exists (added in v1.6)
     if (!loadedSettings.keyboardShortcuts) {
       loadedSettings.keyboardShortcuts = {};
+    }
+
+    // Migrate: Ensure agentView exists (added in v1.7)
+    if (!loadedSettings.agentView || typeof loadedSettings.agentView !== 'object') {
+      loadedSettings.agentView = {};
     }
 
     return { ...defaultSettings, ...loadedSettings };
@@ -701,6 +736,39 @@ class SettingsService {
     settings.keyboardShortcuts = shortcuts;
     writeSettings(settings);
     return settings;
+  }
+
+  /**
+   * Get Claude Code agent view preferences merged with defaults
+   * @returns {object}
+   */
+  getAgentViewSettings() {
+    const settings = readSettings();
+    const stored =
+      settings.agentView && typeof settings.agentView === 'object' ? settings.agentView : {};
+    return {
+      ...DEFAULT_AGENT_VIEW_SETTINGS,
+      ...stored,
+      dispatch: { ...DEFAULT_AGENT_VIEW_SETTINGS.dispatch, ...(stored.dispatch || {}) },
+    };
+  }
+
+  /**
+   * Update agent view preferences (shallow merge, dispatch defaults merged one level deeper)
+   * @param {object} partial
+   * @returns {object} Updated preferences
+   */
+  updateAgentViewSettings(partial) {
+    const settings = readSettings();
+    const current = this.getAgentViewSettings();
+    const next = {
+      ...current,
+      ...partial,
+      dispatch: { ...current.dispatch, ...(partial?.dispatch || {}) },
+    };
+    settings.agentView = next;
+    writeSettings(settings);
+    return next;
   }
 }
 
