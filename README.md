@@ -34,7 +34,7 @@
 ```bash
 git clone <repository-url>
 cd devorbit-dashboard
-npm install
+bun install
 ```
 
 ### 2. Environment Setup
@@ -52,7 +52,7 @@ GEMINI_API_KEY=your_api_key_here
 To run the entire stack including databases (Postgres, Redis) and the application:
 
 ```bash
-npm run dev:full
+bun run dev:full
 ```
 
 This command starts the Docker infrastructure and the development servers for frontend and backend.
@@ -62,7 +62,7 @@ This command starts the Docker infrastructure and the development servers for fr
 If you already have the databases running:
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 ## 🏗️ Architecture

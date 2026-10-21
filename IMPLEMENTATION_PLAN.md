@@ -4,21 +4,21 @@ This document outlines the planned features, architecture decisions, and impleme
 
 ## Implementation Status
 
-| Feature | Status | Notes |
-|---------|--------|-------|
-| Kebab Menu | ✅ Completed | `components/KebabMenu.tsx` - Full implementation with all menu items |
-| Browser-Style Tabs | ✅ Completed | `components/AppTabs.tsx` - Drag-drop, keyboard nav, auto-open |
-| Port Conflict Auto-Fix | ✅ Completed | `server/services/PortManager.js` + `PortConflictModal.tsx` |
-| Docker Compose Detection | ✅ Completed | `server/services/DockerComposeService.js` - Parse & manage |
-| Docker Deployment | ✅ Completed | `Dockerfile`, `docker-compose.yml`, `docker/init-db.sql` |
-| Open in Finder/Terminal | ✅ Completed | API endpoints in `server/index.js` |
-| Resizable Sidebar | ✅ Completed | Drag to resize, persisted to localStorage |
-| Refresh Buttons | ✅ Completed | Global and per-folder refresh in sidebar |
-| Favorite Button in Detail | ✅ Completed | Star button in AppDetail header |
-| **Backend Persistence** | ✅ Completed | `server/services/settingsService.js` + `hooks/useApps.ts` |
-| **Architecture Refactor** | ✅ Completed | Backend/frontend separation with REST API |
-| Database Integration | 🔲 Pending | Schema ready, needs PostgreSQL connection |
-| Persistent Terminals | 🔲 Pending | Session manager created, needs full integration |
+| Feature                   | Status       | Notes                                                                |
+| ------------------------- | ------------ | -------------------------------------------------------------------- |
+| Kebab Menu                | ✅ Completed | `components/KebabMenu.tsx` - Full implementation with all menu items |
+| Browser-Style Tabs        | ✅ Completed | `components/AppTabs.tsx` - Drag-drop, keyboard nav, auto-open        |
+| Port Conflict Auto-Fix    | ✅ Completed | `server/services/PortManager.js` + `PortConflictModal.tsx`           |
+| Docker Compose Detection  | ✅ Completed | `server/services/DockerComposeService.js` - Parse & manage           |
+| Docker Deployment         | ✅ Completed | `Dockerfile`, `docker-compose.yml`, `docker/init-db.sql`             |
+| Open in Finder/Terminal   | ✅ Completed | API endpoints in `server/index.js`                                   |
+| Resizable Sidebar         | ✅ Completed | Drag to resize, persisted to localStorage                            |
+| Refresh Buttons           | ✅ Completed | Global and per-folder refresh in sidebar                             |
+| Favorite Button in Detail | ✅ Completed | Star button in AppDetail header                                      |
+| **Backend Persistence**   | ✅ Completed | `server/services/settingsService.js` + `hooks/useApps.ts`            |
+| **Architecture Refactor** | ✅ Completed | Backend/frontend separation with REST API                            |
+| Database Integration      | 🔲 Pending   | Schema ready, needs PostgreSQL connection                            |
+| Persistent Terminals      | 🔲 Pending   | Session manager created, needs full integration                      |
 
 ---
 
@@ -82,6 +82,7 @@ PUT  /api/settings/name/:id         - Set custom name
 #### 3. Update Frontend Hook
 
 Modify `hooks/useApps.ts` to:
+
 - Fetch settings from backend on load
 - Save settings via API instead of localStorage
 - Remove all localStorage calls
@@ -154,6 +155,7 @@ DevOrbit Dashboard/
 ### Issue: Docker UI Differs from Dev Server
 
 The Docker container may serve outdated frontend code if:
+
 1. The `dist/` folder wasn't rebuilt before Docker build
 2. Docker cache used old layers
 
@@ -178,7 +180,7 @@ COPY --from=builder /app/dist ./dist
 docker compose build --no-cache
 
 # Or rebuild just the frontend before Docker build
-npm run build && docker compose build
+bun run build && docker compose build
 ```
 
 ### Docker Compose Volumes
@@ -202,11 +204,13 @@ volumes:
 **Status**: Schema ready, connection logic exists, needs activation
 
 **Files**:
+
 - `docker/init-db.sql` - Schema
 - `server/db/index.js` - Connection
 - `server/db/repositories/applicationsRepository.js` - CRUD
 
 **When to Enable**:
+
 - When file-based storage becomes a bottleneck
 - When multi-user support is needed
 - When persistent run history is required
@@ -218,6 +222,7 @@ volumes:
 **Goal**: Terminal sessions persist across browser refreshes
 
 **Implementation**:
+
 1. Store terminal output buffer on server
 2. Allow reconnecting to existing sessions
 3. Clean up stale sessions automatically
@@ -229,6 +234,7 @@ volumes:
 **Goal**: Start/stop/manage Docker Compose services from dashboard
 
 **Implementation**:
+
 1. Parse compose files for services
 2. Add service management UI in AppDetail
 3. Stream logs per service
@@ -237,13 +243,13 @@ volumes:
 
 ## Implementation Priority (Updated)
 
-| Priority | Feature | Status | Impact |
-|----------|---------|--------|--------|
-| 1 | **Backend Settings Persistence** | ✅ Completed | Critical - Data loss prevention |
-| 2 | **Docker Build Verification** | ✅ Completed | Critical - Feature parity |
-| 3 | Database Integration | 🔲 Pending | Medium - Scalability |
-| 4 | Persistent Terminals | 🔲 Pending | Medium - UX improvement |
-| 5 | Docker Compose Management UI | 🔲 Pending | Low - Power user feature |
+| Priority | Feature                          | Status       | Impact                          |
+| -------- | -------------------------------- | ------------ | ------------------------------- |
+| 1        | **Backend Settings Persistence** | ✅ Completed | Critical - Data loss prevention |
+| 2        | **Docker Build Verification**    | ✅ Completed | Critical - Feature parity       |
+| 3        | Database Integration             | 🔲 Pending   | Medium - Scalability            |
+| 4        | Persistent Terminals             | 🔲 Pending   | Medium - UX improvement         |
+| 5        | Docker Compose Management UI     | 🔲 Pending   | Low - Power user feature        |
 
 ---
 
@@ -253,10 +259,10 @@ volumes:
 
 ```bash
 # Install dependencies
-npm install
+bun install
 
 # Start dev server (Vite + Express concurrently)
-npm run dev
+bun run dev
 
 # Frontend: http://localhost:3000
 # Backend:  http://localhost:3099
@@ -300,15 +306,15 @@ These features are defined in CLAUDE.md but have not been implemented yet.
 
 ### Updated Implementation Status
 
-| Feature | Status | Priority | Complexity |
-|---------|--------|----------|------------|
-| Open in External IDE | 🔲 Pending | High | Low |
-| Claude Code Terminal | 🔲 Pending | High | Medium |
-| Coding Sub-View Layout | 🔲 Pending | Medium | Medium |
-| Browser Preview (iframe) | 🔲 Pending | Medium | Low |
-| Monaco Editor Integration | 🔲 Pending | Low | Medium |
-| code-server Integration | 🔲 Pending | Low | High |
-| Browser Debugger (CDP) | 🔲 Pending | Low | Very High |
+| Feature                   | Status     | Priority | Complexity |
+| ------------------------- | ---------- | -------- | ---------- |
+| Open in External IDE      | 🔲 Pending | High     | Low        |
+| Claude Code Terminal      | 🔲 Pending | High     | Medium     |
+| Coding Sub-View Layout    | 🔲 Pending | Medium   | Medium     |
+| Browser Preview (iframe)  | 🔲 Pending | Medium   | Low        |
+| Monaco Editor Integration | 🔲 Pending | Low      | Medium     |
+| code-server Integration   | 🔲 Pending | Low      | High       |
+| Browser Debugger (CDP)    | 🔲 Pending | Low      | Very High  |
 
 ---
 
@@ -317,17 +323,20 @@ These features are defined in CLAUDE.md but have not been implemented yet.
 **Source**: CLAUDE.md line 60
 
 ### Description
+
 Allow users to open a project directly in their preferred IDE (VS Code, Cursor, WebStorm, etc.) from the AppDetail view.
 
 ### Implementation
 
 #### Backend Endpoint
+
 ```
 POST /api/apps/:id/open-ide
 Body: { ide: "vscode" | "cursor" | "webstorm" | "intellij" }
 ```
 
 #### IDE Detection (macOS)
+
 ```javascript
 const IDE_PATHS = {
   vscode: '/Applications/Visual Studio Code.app',
@@ -342,17 +351,19 @@ exec(`open -a "${idePath}" "${projectPath}"`);
 ```
 
 #### UI Changes
+
 - Add IDE dropdown button in `AppDetail.tsx` header (next to "Open in Browser")
 - Show only detected/installed IDEs
 - Remember preferred IDE in settings
 
 #### Files to Modify
-| File | Changes |
-|------|---------|
-| `server/index.js` | Add `POST /api/apps/:id/open-ide` endpoint |
-| `server/services/ideService.js` | NEW: IDE detection and launch logic |
-| `components/AppDetail.tsx` | Add IDE selector dropdown |
-| `server/services/settingsService.js` | Store `preferredIde` setting |
+
+| File                                 | Changes                                    |
+| ------------------------------------ | ------------------------------------------ |
+| `server/index.js`                    | Add `POST /api/apps/:id/open-ide` endpoint |
+| `server/services/ideService.js`      | NEW: IDE detection and launch logic        |
+| `components/AppDetail.tsx`           | Add IDE selector dropdown                  |
+| `server/services/settingsService.js` | Store `preferredIde` setting               |
 
 ---
 
@@ -361,13 +372,16 @@ exec(`open -a "${idePath}" "${projectPath}"`);
 **Source**: CLAUDE.md lines 61-64
 
 ### Description
+
 Open a terminal tab running Claude Code CLI instead of the default shell, with support for:
+
 - `-c` flag: Continue last session
 - `--dangerously-skip-permissions` flag: Skip permission prompts
 
 ### Implementation
 
 #### PTY Service Modification
+
 ```javascript
 // server/services/ptyService.js
 function createPtySession(sessionId, cwd, cols, rows, options = {}) {
@@ -381,6 +395,7 @@ function createPtySession(sessionId, cwd, cols, rows, options = {}) {
 ```
 
 #### WebSocket Protocol Extension
+
 ```javascript
 // New message type for creating Claude terminal
 {
@@ -394,12 +409,15 @@ function createPtySession(sessionId, cwd, cols, rows, options = {}) {
 ```
 
 #### UI Components
+
 1. **Claude Code Button**: Next to "Add Terminal" button
 2. **Options Modal**: Checkboxes for flags with warning for skip-permissions
 3. **Terminal Tab Badge**: Visual indicator that it's a Claude session
 
 #### Security Warning Modal
+
 When `--dangerously-skip-permissions` is selected:
+
 ```
 ⚠️ Warning: Skip Permissions Mode
 
@@ -410,19 +428,21 @@ for confirmation. Use only in trusted environments.
 ```
 
 #### CLI Detection
+
 ```bash
 # Check if claude is installed
 which claude || echo "Claude CLI not found"
 ```
 
 #### Files to Create/Modify
-| File | Changes |
-|------|---------|
-| `server/services/ptyService.js` | Accept custom command and args |
-| `server/index.js` | WebSocket handler for claude terminals |
-| `components/TerminalPanel.tsx` | Add "Claude Code" button |
-| `components/ClaudeTerminalModal.tsx` | NEW: Options selection modal |
-| `hooks/useTerminal.ts` | Support for claude terminal type |
+
+| File                                 | Changes                                |
+| ------------------------------------ | -------------------------------------- |
+| `server/services/ptyService.js`      | Accept custom command and args         |
+| `server/index.js`                    | WebSocket handler for claude terminals |
+| `components/TerminalPanel.tsx`       | Add "Claude Code" button               |
+| `components/ClaudeTerminalModal.tsx` | NEW: Options selection modal           |
+| `hooks/useTerminal.ts`               | Support for claude terminal type       |
 
 ---
 
@@ -431,7 +451,9 @@ which claude || echo "Claude CLI not found"
 **Source**: CLAUDE.md lines 65-68
 
 ### Description
+
 A dedicated "Coding" view in AppDetail with three resizable panels:
+
 1. **Terminals Panel** - Reuses existing terminal tabs
 2. **Web-IDE Panel** - Embedded code editor (Monaco or code-server)
 3. **Browser Preview Panel** - iframe showing the running app with debugging tools
@@ -466,8 +488,9 @@ A dedicated "Coding" view in AppDetail with three resizable panels:
 ### Implementation Phases
 
 #### Phase 3.1: Resizable Panel Layout
+
 ```bash
-npm install react-resizable-panels
+bun add react-resizable-panels
 ```
 
 ```tsx
@@ -486,10 +509,11 @@ import { Panel, PanelGroup, PanelResizeHandle } from 'react-resizable-panels';
   <Panel defaultSize={35} minSize={20}>
     <BrowserPreviewPanel />
   </Panel>
-</PanelGroup>
+</PanelGroup>;
 ```
 
 #### Phase 3.2: View Switcher in AppDetail
+
 ```tsx
 // components/AppDetail.tsx
 const [activeView, setActiveView] = useState<'details' | 'coding'>('details');
@@ -507,18 +531,21 @@ const [activeView, setActiveView] = useState<'details' | 'coding'>('details');
   >
     Coding
   </button>
-</div>
+</div>;
 
-{activeView === 'details' ? <DetailsView /> : <CodingView />}
+{
+  activeView === 'details' ? <DetailsView /> : <CodingView />;
+}
 ```
 
 #### Files to Create
-| File | Purpose |
-|------|---------|
-| `components/CodingView.tsx` | Main coding layout with resizable panels |
-| `components/CodingView/TerminalsPanel.tsx` | Wrapper for terminal tabs |
-| `components/CodingView/WebIDEPanel.tsx` | Monaco or code-server embed |
-| `components/CodingView/BrowserPreviewPanel.tsx` | iframe + console logs |
+
+| File                                            | Purpose                                  |
+| ----------------------------------------------- | ---------------------------------------- |
+| `components/CodingView.tsx`                     | Main coding layout with resizable panels |
+| `components/CodingView/TerminalsPanel.tsx`      | Wrapper for terminal tabs                |
+| `components/CodingView/WebIDEPanel.tsx`         | Monaco or code-server embed              |
+| `components/CodingView/BrowserPreviewPanel.tsx` | iframe + console logs                    |
 
 ---
 
@@ -529,19 +556,24 @@ const [activeView, setActiveView] = useState<'details' | 'coding'>('details');
 ### Implementation Phases
 
 #### Phase 4.1: Basic iframe Preview
+
 ```tsx
 // components/CodingView/BrowserPreviewPanel.tsx
 interface BrowserPreviewProps {
-  url: string;  // e.g., http://localhost:3000
+  url: string; // e.g., http://localhost:3000
   onRefresh: () => void;
 }
 
 <div className="flex flex-col h-full">
   {/* URL Bar */}
   <div className="flex items-center gap-2 p-2 bg-gray-800 border-b">
-    <button onClick={onRefresh}><RefreshCw /></button>
+    <button onClick={onRefresh}>
+      <RefreshCw />
+    </button>
     <input value={url} readOnly className="flex-1 bg-gray-900 px-2 py-1 rounded" />
-    <button onClick={() => window.open(url)}><ExternalLink /></button>
+    <button onClick={() => window.open(url)}>
+      <ExternalLink />
+    </button>
   </div>
 
   {/* Viewport Controls */}
@@ -558,22 +590,26 @@ interface BrowserPreviewProps {
     style={{ width: viewportWidth }}
     sandbox="allow-scripts allow-same-origin allow-forms"
   />
-</div>
+</div>;
 ```
 
 #### Phase 4.2: Console Log Forwarding
+
 Inject a script into the iframe to capture console logs:
 
 ```javascript
 // Injected into iframe via postMessage bridge
 const originalConsole = { ...console };
-['log', 'warn', 'error', 'info'].forEach(method => {
+['log', 'warn', 'error', 'info'].forEach((method) => {
   console[method] = (...args) => {
-    parent.postMessage({
-      type: 'console',
-      method,
-      args: args.map(a => typeof a === 'object' ? JSON.stringify(a) : String(a))
-    }, '*');
+    parent.postMessage(
+      {
+        type: 'console',
+        method,
+        args: args.map((a) => (typeof a === 'object' ? JSON.stringify(a) : String(a))),
+      },
+      '*'
+    );
     originalConsole[method](...args);
   };
 });
@@ -584,7 +620,7 @@ const originalConsole = { ...console };
 useEffect(() => {
   const handler = (e: MessageEvent) => {
     if (e.data.type === 'console') {
-      setConsoleLogs(prev => [...prev, e.data]);
+      setConsoleLogs((prev) => [...prev, e.data]);
     }
   };
   window.addEventListener('message', handler);
@@ -593,9 +629,11 @@ useEffect(() => {
 ```
 
 #### Phase 4.3: Network Request Logging (Advanced)
+
 Use a Service Worker or proxy to intercept network requests.
 
 #### Viewport Presets
+
 ```typescript
 const VIEWPORTS = {
   desktop: { width: '100%', label: 'Desktop' },
@@ -612,16 +650,16 @@ const VIEWPORTS = {
 
 ### Options Evaluated
 
-| Option | Description | Pros | Cons | Recommendation |
-|--------|-------------|------|------|----------------|
-| **Monaco Editor** | VS Code's editor component | Lightweight, easy to embed | No file explorer, no extensions | Phase 1 |
-| **code-server** | Full VS Code in browser | Complete IDE experience | Heavy, requires separate process | Phase 2 |
-| **External VS Code** | Just open in desktop app | Simple, full features | Not embedded | Already implemented |
+| Option               | Description                | Pros                       | Cons                             | Recommendation      |
+| -------------------- | -------------------------- | -------------------------- | -------------------------------- | ------------------- |
+| **Monaco Editor**    | VS Code's editor component | Lightweight, easy to embed | No file explorer, no extensions  | Phase 1             |
+| **code-server**      | Full VS Code in browser    | Complete IDE experience    | Heavy, requires separate process | Phase 2             |
+| **External VS Code** | Just open in desktop app   | Simple, full features      | Not embedded                     | Already implemented |
 
 ### Phase 5.1: Monaco Editor Integration
 
 ```bash
-npm install @monaco-editor/react
+bun add @monaco-editor/react
 ```
 
 ```tsx
@@ -641,7 +679,7 @@ function MonacoPanel({ projectPath, initialFile }: MonacoPanelProps) {
   // Load file tree via API
   useEffect(() => {
     fetch(`/api/apps/${appId}/files`)
-      .then(r => r.json())
+      .then((r) => r.json())
       .then(setFiles);
   }, []);
 
@@ -668,6 +706,7 @@ function MonacoPanel({ projectPath, initialFile }: MonacoPanelProps) {
 ```
 
 #### Backend API for File Operations
+
 ```
 GET  /api/apps/:id/files           - List files (tree structure)
 GET  /api/apps/:id/files/*path     - Read file content
@@ -684,7 +723,7 @@ services:
   code-server:
     image: codercom/code-server:latest
     ports:
-      - "8443:8080"
+      - '8443:8080'
     volumes:
       - ${HOME}/Projects:/home/coder/projects
     environment:
@@ -692,6 +731,7 @@ services:
 ```
 
 Then embed via iframe:
+
 ```tsx
 <iframe src="http://localhost:8443/?folder=/home/coder/projects/${projectName}" />
 ```
@@ -701,27 +741,32 @@ Then embed via iframe:
 ## Implementation Timeline
 
 ### Phase 1: Quick Wins (1-2 days)
+
 - [ ] Open in External IDE endpoint + UI
 - [ ] Basic Browser Preview (iframe + refresh + viewport)
 
 ### Phase 2: Claude Code Integration (2-3 days)
+
 - [ ] PTY service modification for custom commands
 - [ ] Claude terminal button + options modal
 - [ ] CLI detection and error handling
 
 ### Phase 3: Coding Layout (3-5 days)
+
 - [ ] Install react-resizable-panels
 - [ ] Create CodingView with 3-panel layout
 - [ ] Details/Coding view switcher
 - [ ] Panel size persistence
 
 ### Phase 4: Editor & Debugging (5-10 days)
+
 - [ ] Monaco Editor integration
 - [ ] File tree API endpoints
 - [ ] Console log forwarding
 - [ ] Network request logging (optional)
 
 ### Phase 5: Advanced (Future)
+
 - [ ] code-server Docker integration
 - [ ] Chrome DevTools Protocol debugging
 - [ ] Breakpoint support
