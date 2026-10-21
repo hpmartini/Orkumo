@@ -28,7 +28,7 @@
     "docker:down": "docker compose down",
     "docker:start": "npm run pty-host:install && concurrently \"npm run pty-host\" \"docker compose up --build\"",
     "docker:logs": "docker compose logs -f",
-    "electron:dev": "cross-env NODE_ENV=development concurrently \"npm run dev\" \"wait-on http://localhost:3000 && electron .\"",
+    "electron:dev": "cross-env NODE_ENV=development concurrently \"npm run client\" \"npm run code-server\" \"node scripts/wait-for-vite.js && electron .\"",
     "bundle:server": "node scripts/bundle-server.js",
     "electron:rebuild": "electron-rebuild",
     "electron:build": "npm run build && npm run bundle:server && npm run electron:rebuild && electron-builder",

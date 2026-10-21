@@ -3603,6 +3603,21 @@ async function startServer() {
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
 
+  // A failure to bind is fatal and must be reported as such. Without this the
+  // error reaches `uncaughtException` -> cleanup() -> exit code 0, which makes
+  // a hard startup failure look like a clean shutdown to the Electron parent.
+  server.once('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(
+        `[Server] Port ${PORT} is already in use. Set SERVER_PORT in .env.local to a free port ` +
+          `or stop the process using it (lsof -ti:${PORT} | xargs kill -9).`
+      );
+    } else {
+      console.error('[Server] Failed to start:', error);
+    }
+    process.exit(1);
+  });
+
   server.listen(PORT, () => {
     console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
     console.log(`   AI Features: ${getApiKey() ? '✅ Enabled' : '❌ Disabled (no API key)'}`);

@@ -11,6 +11,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { makeExecutable } = require('./node-pty-binaries.cjs');
 
 async function afterPack(context) {
   const appOutDir = context.appOutDir;
@@ -73,20 +74,6 @@ function copyDir(src, dest) {
       copyDir(srcPath, destPath);
     } else {
       fs.copyFileSync(srcPath, destPath);
-    }
-  }
-}
-
-function makeExecutable(dir) {
-  if (!fs.existsSync(dir)) return;
-
-  const entries = fs.readdirSync(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const fullPath = path.join(dir, entry.name);
-    if (entry.isDirectory()) {
-      makeExecutable(fullPath);
-    } else if (entry.name.endsWith('.node') || entry.name === 'spawn-helper') {
-      fs.chmodSync(fullPath, 0o755);
     }
   }
 }

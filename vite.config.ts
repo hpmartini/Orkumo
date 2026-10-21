@@ -15,6 +15,10 @@ export default defineConfig(({ mode }) => {
     base: './',
     server: {
       port: VITE_PORT,
+      // Fail loudly instead of drifting to the next free port: Electron loads
+      // VITE_PORT directly, so a silent fallback makes it load whatever other
+      // project happens to own the configured port.
+      strictPort: true,
       host: '0.0.0.0',
       proxy: {
         // Proxy API requests to backend server

@@ -4,6 +4,7 @@ import path from 'path';
 import { fork, spawn } from 'child_process';
 import * as fs from 'fs';
 import { createServer } from 'net';
+import dotenv from 'dotenv';
 import electronUpdater from 'electron-updater';
 const { autoUpdater } = electronUpdater;
 import { isValidExternalUrl, validateDialogOptions } from './validation.js';
@@ -12,6 +13,11 @@ import { PORTS } from '../config/defaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Load .env.local before any port is resolved. The path must be absolute:
+// when launched from Finder the cwd is `/`, not the project root, so the
+// cwd-relative lookup the server uses would silently find nothing here.
+dotenv.config({ path: path.join(__dirname, '..', '.env.local') });
 
 // Server process reference
 let serverProcess = null;
@@ -23,7 +29,8 @@ let isShuttingDown = false;
 const browserViews = new Map();
 
 const isDev = !app.isPackaged;
-const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || `http://localhost:${PORTS.devhub}`;
+const VITE_PORT = parseInt(process.env.VITE_PORT || String(PORTS.devhub), 10);
+const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || `http://localhost:${VITE_PORT}`;
 const SERVER_PORT = parseInt(process.env.SERVER_PORT || String(PORTS.server), 10);
 
 /**
@@ -45,6 +52,9 @@ function createWindow() {
       contextIsolation: true,
       sandbox: false, // Required for some native modules
       preload: path.join(__dirname, 'preload.js'),
+      // Hand the resolved backend port to the preload script. The renderer needs
+      // it synchronously, so it travels as a launch argument rather than IPC.
+      additionalArguments: [`--devorbit-server-port=${SERVER_PORT}`],
     },
     show: false, // Don't show until ready
   });
@@ -52,6 +62,22 @@ function createWindow() {
   // Show window when ready to avoid flashing
   mainWindow.once('ready-to-show', () => {
     mainWindow.show();
+  });
+
+  // Surface renderer load failures in the main-process log. Without this a
+  // failed loadURL leaves a blank window and no trace of why.
+  mainWindow.webContents.on(
+    'did-fail-load',
+    (_event, errorCode, errorDescription, validatedURL) => {
+      // -3 is ERR_ABORTED, which a normal Vite full-reload triggers.
+      if (errorCode === -3) return;
+      console.error(
+        `[Electron] Failed to load ${validatedURL}: ${errorDescription} (${errorCode})`
+      );
+    }
+  );
+  mainWindow.webContents.on('did-finish-load', () => {
+    console.log('[Electron] Renderer finished loading', mainWindow.webContents.getURL());
   });
 
   // Load the app
@@ -209,7 +235,10 @@ async function isPortAvailable(port) {
       }
     });
 
-    server.listen(port, '127.0.0.1');
+    // Bind the wildcard address, exactly as the backend's `server.listen(PORT)`
+    // does. Probing only 127.0.0.1 succeeds while another process holds the
+    // wildcard socket, so the real listen then fails with EADDRINUSE.
+    server.listen(port);
   });
 }
 
@@ -222,6 +251,14 @@ async function waitForServerReady(maxAttempts = 60, delayMs = 500) {
   console.log(`[Electron] Waiting for server to be ready at ${serverUrl}/api/health...`);
 
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+    // The server process dying is terminal - polling on would only keep hitting
+    // whatever other process happens to own the port.
+    if (serverProcess && serverProcess.exitCode !== null) {
+      throw new Error(
+        `Backend server exited with code ${serverProcess.exitCode} before it became ready.`
+      );
+    }
+
     try {
       const response = await fetch(`${serverUrl}/api/health`);
       if (response && response.ok) {

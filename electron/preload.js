@@ -7,7 +7,16 @@ import { contextBridge, ipcRenderer } from 'electron';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
+// The backend port is resolved by the main process (from SERVER_PORT / .env.local)
+// and handed over as a launch argument. It must be readable synchronously because
+// the renderer builds its API base URL at module-evaluation time.
+const serverPortArg = process.argv.find((arg) => arg.startsWith('--devorbit-server-port='));
+const serverPort = serverPortArg ? parseInt(serverPortArg.split('=')[1], 10) : null;
+
 contextBridge.exposeInMainWorld('electronAPI', {
+  // Port the backend server actually listens on
+  serverPort: Number.isInteger(serverPort) ? serverPort : null,
+
   // Platform information
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),

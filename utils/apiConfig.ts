@@ -10,12 +10,18 @@ import { PORTS } from '../config/defaults';
 // In dev mode: check for electronAPI which is exposed by preload.js
 export const isElectron =
   typeof window !== 'undefined' &&
-  (window.location.protocol === 'file:' ||
-    // @ts-expect-error electronAPI is added by Electron preload script
-    typeof window.electronAPI !== 'undefined');
+  (window.location.protocol === 'file:' || typeof window.electronAPI !== 'undefined');
 
-// Server port from centralized config
-const SERVER_PORT = PORTS.server;
+// Server port: in Electron the main process owns the backend and reports the port
+// it actually bound (SERVER_PORT / .env.local). Falling back to the compiled-in
+// default silently breaks every request whenever the port is customised.
+const SERVER_PORT =
+  (typeof window !== 'undefined' &&
+    // @ts-expect-error the global Window.electronAPI type is shadowed by the
+    // narrower declaration in components/CodingView/ElectronBrowserView.tsx;
+    // the full contract lives in electron/electron.d.ts
+    window.electronAPI?.serverPort) ||
+  PORTS.server;
 
 // Base URL for API requests
 export const API_BASE_URL = isElectron ? `http://localhost:${SERVER_PORT}/api` : '/api';

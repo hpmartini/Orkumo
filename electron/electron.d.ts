@@ -2,6 +2,8 @@
  * Type definitions for Electron API exposed via preload script
  */
 
+import type { MessageBoxOptions, OpenDialogOptions } from 'electron';
+
 export interface PlatformInfo {
   platform: string;
   arch: string;
@@ -51,8 +53,8 @@ export interface ElectronAPI {
   openExternal: (url: string) => Promise<ExternalUrlResult>;
 
   // Native dialogs
-  showMessageBox: (options: Electron.MessageBoxOptions) => Promise<MessageBoxResult>;
-  showOpenDialog: (options: Electron.OpenDialogOptions) => Promise<OpenDialogResult>;
+  showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxResult>;
+  showOpenDialog: (options: OpenDialogOptions) => Promise<OpenDialogResult>;
 
   // Auto-updates
   checkForUpdates: () => Promise<UpdateCheckResult>;
@@ -62,6 +64,9 @@ export interface ElectronAPI {
   // Environment
   isElectron: boolean;
   isDev: boolean;
+
+  /** Port the backend server actually listens on; null if not reported */
+  serverPort: number | null;
 }
 
 declare global {

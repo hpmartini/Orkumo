@@ -12,8 +12,23 @@
 
 const fs = require('fs');
 const path = require('path');
+const { makeExecutable } = require('./node-pty-binaries.cjs');
 
-const targetFile = path.join(__dirname, '..', 'node_modules', 'node-pty', 'lib', 'unixTerminal.js');
+const nodePtyDir = path.join(__dirname, '..', 'node_modules', 'node-pty');
+const targetFile = path.join(nodePtyDir, 'lib', 'unixTerminal.js');
+
+// Restore the executable bit on the prebuilt binaries. This runs before the
+// early exits below, because it is needed even when the source patch does not
+// apply - without it every PTY spawn fails with "posix_spawnp failed."
+if (process.platform !== 'win32') {
+  const fixed = [
+    ...makeExecutable(path.join(nodePtyDir, 'prebuilds')),
+    ...makeExecutable(path.join(nodePtyDir, 'build', 'Release')),
+  ];
+  if (fixed.length > 0) {
+    console.log(`[patch-node-pty] Made ${fixed.length} node-pty binary/binaries executable`);
+  }
+}
 
 if (!fs.existsSync(targetFile)) {
   console.log('[patch-node-pty] node-pty not found, skipping patch');
