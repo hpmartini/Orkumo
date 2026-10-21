@@ -37,7 +37,7 @@ COPY package.json bun.lock ./
 RUN bun install --frozen-lockfile --production
 
 # Rebuild node-pty for the container's architecture
-RUN cd node_modules/node-pty && bunx node-gyp rebuild
+RUN cd node_modules/node-pty && bunx node-gyp@11.2.0 rebuild
 
 # Copy built frontend from builder stage
 COPY --from=builder /app/dist ./dist
