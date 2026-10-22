@@ -7,6 +7,7 @@ import type {
   AgentGrouping,
   AgentPrLink,
   AgentContext,
+  AgentPullRequest,
 } from '../types';
 
 export type GroupKey =
@@ -17,13 +18,16 @@ export type GroupKey =
   | 'completed'
   | 'interactive'
   | 'all'
-  | `dir:${string}`;
+  | `dir:${string}`
+  | `project:${string}`;
 
 export interface SessionGroup {
   key: GroupKey;
   title: string;
   /** Directory path for directory groups (dispatch target) */
   cwd?: string;
+  /** DevOrbit app behind a project group (header opens its detail view) */
+  appId?: string;
   sessions: AgentSession[];
   /** Sessions hidden behind the "… N more" row */
   hidden: AgentSession[];
@@ -96,6 +100,8 @@ export function groupSessions(
     collapsed?: string[];
     sort?: AgentSort;
     lookup?: SessionLookup;
+    /** DevOrbit apps, needed for the 'project' grouping */
+    apps?: ProjectApp[];
   } = {}
 ): SessionGroup[] {
   const order = (list: AgentSession[]) =>
@@ -104,6 +110,7 @@ export function groupSessions(
   if (grouping === 'none') {
     return [{ key: 'all', title: 'All', sessions: order(sessions), hidden: [] }];
   }
+  if (grouping === 'project') return projectGroups(sessions, order, options.apps, options.lookup);
   if (grouping === 'directory') {
     const byDir = new Map<string, AgentSession[]>();
     for (const session of sessions) {
@@ -145,6 +152,53 @@ export function groupSessions(
   });
 }
 
+/** Minimal DevOrbit app shape for the 'project' grouping */
+export interface ProjectApp {
+  id: string;
+  name: string;
+  path: string;
+}
+
+/**
+ * One cluster per DevOrbit app (most specific app path wins); sessions outside every app
+ * cluster by repo/directory name after the apps.
+ */
+function projectGroups(
+  sessions: AgentSession[],
+  order: (list: AgentSession[]) => AgentSession[],
+  apps: ProjectApp[] = [],
+  lookup?: SessionLookup
+): SessionGroup[] {
+  const bySpecificity = [...apps].sort((a, b) => b.path.length - a.path.length);
+  const clusters = new Map<string, SessionGroup & { matched: boolean }>();
+  for (const session of sessions) {
+    const dirs = [session.worktree, session.cwd].filter((d): d is string => !!d);
+    const app = bySpecificity.find((a) => a.path && dirs.some((d) => isUnder(a.path, d)));
+    const name = app ? app.name : repoName(session, lookup);
+    // Keyed by path, not display name: the name changes once contexts load and can collide
+    const key: GroupKey = app
+      ? `project:${app.id}`
+      : `project:dir:${session.worktree || session.cwd}`;
+    let cluster = clusters.get(key);
+    if (!cluster) {
+      cluster = {
+        key,
+        title: name,
+        cwd: app ? app.path : session.worktree || session.cwd,
+        appId: app?.id,
+        sessions: [],
+        hidden: [],
+        matched: !!app,
+      };
+      clusters.set(key, cluster);
+    }
+    cluster.sessions.push(session);
+  }
+  return [...clusters.values()]
+    .sort((a, b) => Number(b.matched) - Number(a.matched) || a.title.localeCompare(b.title))
+    .map(({ matched: _matched, ...group }) => ({ ...group, sessions: order(group.sessions) }));
+}
+
 // ---------------------------------------------------------------------
 // Sorting and quick filters (need per-session context and matched servers)
 // ---------------------------------------------------------------------
@@ -154,6 +208,9 @@ export interface AgentServer {
   port: number;
   running: boolean;
   name: string;
+  /** Only set for really listening processes (AgentContext.servers) */
+  command?: string;
+  pid?: number;
 }
 
 /** Minimal DevOrbit app shape needed to match servers to sessions */
@@ -268,18 +325,26 @@ export function sortSessionsBy(
   });
 }
 
-export type AgentQuickFilter = 'needs-input' | 'working' | 'failed' | 'pr' | 'server' | 'subagents';
+export type AgentQuickFilter =
+  | 'needs-input'
+  | 'working'
+  | 'completed'
+  | 'failed'
+  | 'pr'
+  | 'server'
+  | 'subagents';
 
 export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: string }[] = [
   { key: 'needs-input', label: 'Needs input', title: 'Agents waiting for your input' },
   { key: 'working', label: 'Working', title: 'Agents currently working' },
+  { key: 'completed', label: 'Completed', title: 'Agents that finished without failing' },
   { key: 'failed', label: 'Failed', title: 'Agents that failed' },
   { key: 'pr', label: 'Open PR', title: 'Agents with an open pull request' },
   { key: 'server', label: 'Server', title: 'Agents with a running dev server in their directory' },
   { key: 'subagents', label: 'Sub-agents', title: 'Agents with running sub-agents' },
 ];
 
-const STATE_FILTERS: AgentQuickFilter[] = ['needs-input', 'working', 'failed'];
+const STATE_FILTERS: AgentQuickFilter[] = ['needs-input', 'working', 'completed', 'failed'];
 
 export function matchesQuickFilter(
   key: AgentQuickFilter,
@@ -291,6 +356,8 @@ export function matchesQuickFilter(
       return session.state === 'blocked';
     case 'working':
       return session.state === 'working';
+    case 'completed':
+      return session.state === 'done' || session.state === 'stopped';
     case 'failed':
       return session.state === 'failed';
     case 'pr':
@@ -346,20 +413,83 @@ export function matchServers(session: AgentSession, apps: ServerApp[]): AgentSer
   );
 }
 
+/**
+ * A session's servers: DevOrbit apps in its directory plus really listening
+ * processes (AgentContext.servers), deduped by port. Listening processes win
+ * because they prove the port is live.
+ */
+export function mergeServers(
+  session: AgentSession,
+  apps: ServerApp[],
+  context?: AgentContext
+): AgentServer[] {
+  const byPort = new Map<number, AgentServer>();
+  for (const server of matchServers(session, apps)) byPort.set(server.port, server);
+  for (const live of context?.servers || []) {
+    byPort.set(live.port, {
+      port: live.port,
+      running: true,
+      name: byPort.get(live.port)?.name || live.command,
+      command: live.command,
+      pid: live.pid,
+    });
+  }
+  return [...byPort.values()].sort(
+    (a, b) => Number(b.running) - Number(a.running) || a.port - b.port
+  );
+}
+
+export interface PullRequestRow {
+  pr: AgentPullRequest;
+  /** Sessions whose current branch is the PR's head branch */
+  agents: AgentSession[];
+}
+
+/**
+ * Every open PR across all agent repos, deduped by repo + number, merge-ready
+ * first, then most recently updated.
+ */
+export function collectPullRequests(
+  sessions: AgentSession[],
+  contexts: Record<string, AgentContext | undefined>
+): PullRequestRow[] {
+  const rows = new Map<string, PullRequestRow>();
+  for (const session of sessions) {
+    const ctx = contexts[session.id];
+    for (const pr of ctx?.pulls?.items || []) {
+      const key = `${pr.repoSlug.toLowerCase()}#${pr.number}`;
+      const row = rows.get(key) || { pr, agents: [] };
+      if (ctx?.repo?.branch === pr.headRef) row.agents.push(session);
+      rows.set(key, row);
+    }
+  }
+  return [...rows.values()].sort(
+    (a, b) =>
+      Number(b.pr.mergeReady) - Number(a.pr.mergeReady) ||
+      (Date.parse(b.pr.updatedAt) || 0) - (Date.parse(a.pr.updatedAt) || 0)
+  );
+}
+
 /** Totals across all sessions for the summary bar. */
 export function summarizeContext(
   sessions: AgentSession[],
   lookup?: SessionLookup
-): { openPrs: number; runningServers: number } {
+): { openPrs: number | null; runningServers: number | null } {
   const ports = new Set<number>();
-  let openPrs = 0;
+  const prs = new Set<string>();
+  const contexts = lookup?.contexts || {};
+  // Links carry no live state (merged PRs look open) and servers need lsof, so until
+  // /context has answered the totals are unknown (null), not 0.
+  if (Object.keys(contexts).length === 0 && sessions.length > 0) {
+    return { openPrs: null, runningServers: null };
+  }
   for (const session of sessions) {
-    openPrs += openPrCount(session);
+    for (const pr of contexts[session.id]?.pulls?.items || []) prs.add(pr.url);
     for (const server of lookup?.servers?.get(session.id) || []) {
       if (server.running) ports.add(server.port);
     }
   }
-  return { openPrs, runningServers: ports.size };
+  return { openPrs: prs.size, runningServers: ports.size };
 }
 
 /**
@@ -416,6 +546,7 @@ export function sessionAgeMs(session: AgentSession, now = Date.now()): number {
 }
 
 export function formatAge(ms: number): string {
+  if (!Number.isFinite(ms)) return '?';
   const seconds = Math.floor(ms / 1000);
   if (seconds < 60) return `${seconds}s`;
   const minutes = Math.floor(seconds / 60);

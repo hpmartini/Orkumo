@@ -218,16 +218,61 @@ describe('sorting, quick filters and server matching', () => {
     ]);
   });
 
-  it('totals open PRs and unique running ports', () => {
+  it('totals unique running ports; unknown until contexts load', () => {
     const a = session({ id: 'a', links: [{ state: 'open' }, { state: 'merged' }] as never });
     const b = session({ id: 'b' });
     const server = { port: 3000, running: true, name: 'x' };
     const lookup: SessionLookup = {
+      contexts: { a: undefined, b: undefined } as never,
       servers: new Map([
         ['a', [server]],
         ['b', [server]],
       ]),
     };
-    expect(summarizeContext([a, b], lookup)).toEqual({ openPrs: 1, runningServers: 1 });
+    expect(summarizeContext([a, b], lookup)).toEqual({ openPrs: 0, runningServers: 1 });
+    expect(summarizeContext([a, b], {})).toEqual({ openPrs: null, runningServers: null });
+  });
+});
+
+describe('groupSessions (project)', () => {
+  const apps = [
+    { id: 'web', name: 'web', path: '/code/web' },
+    { id: 'web-admin', name: 'web-admin', path: '/code/web/admin' },
+    { id: 'api', name: 'api', path: '/code/api' },
+  ];
+
+  it('clusters sessions per app, most specific path wins, worktrees count', () => {
+    const sessions = [
+      session({ id: 'a', cwd: '/code/web/src' }),
+      session({ id: 'b', cwd: '/code/web/admin/x' }),
+      session({ id: 'c', cwd: '/elsewhere', worktree: '/code/api/.claude/worktrees/w' }),
+    ];
+    const groups = groupSessions(sessions, 'project', { apps });
+    expect(groups.map((g) => [g.key, g.appId, g.sessions.map((s) => s.id)])).toEqual([
+      ['project:api', 'api', ['c']],
+      ['project:web', 'web', ['a']],
+      ['project:web-admin', 'web-admin', ['b']],
+    ]);
+    expect(groups[0].cwd).toBe('/code/api');
+  });
+
+  it('puts unmatched sessions into trailing clusters named after their directory', () => {
+    const sessions = [
+      session({ id: 'x', cwd: '/tmp/scratch' }),
+      session({ id: 'y', cwd: '/tmp/scratch' }),
+      session({ id: 'z', cwd: '/code/api' }),
+    ];
+    const groups = groupSessions(sessions, 'project', { apps });
+    expect(groups.map((g) => g.key)).toEqual(['project:api', 'project:dir:/tmp/scratch']);
+    expect(groups[1].appId).toBeUndefined();
+    expect(groups[1].sessions).toHaveLength(2);
+    // header rows are navigable items
+    expect(flattenGroups(groups, new Set(), true).map((i) => i.type)).toEqual([
+      'group',
+      'session',
+      'group',
+      'session',
+      'session',
+    ]);
   });
 });

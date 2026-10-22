@@ -2895,7 +2895,7 @@ const agentRemoveSchema = z.object({
 });
 const agentViewSettingsSchema = z
   .object({
-    grouping: z.enum(['state', 'directory', 'none']).optional(),
+    grouping: z.enum(['state', 'directory', 'project', 'none']).optional(),
     layout: z.enum(['tabs', 'columns', 'rows', 'grid']).optional(),
     scopeCwd: z.string().max(500).nullable().optional(),
     collapsedGroups: z.array(z.string().max(500)).max(200).optional(),

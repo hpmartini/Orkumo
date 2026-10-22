@@ -446,6 +446,7 @@ function AppContent() {
           fixed ${isElectron || tabs.length > 0 ? 'top-10' : 'top-0'} bottom-0 left-0 z-40
           transform transition-all duration-300 ease-in-out
           ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${isAgentsRoute ? 'md:hidden' : ''}
         `}
         style={{ width: actualSidebarWidth }}
       >
@@ -511,7 +512,10 @@ function AppContent() {
 
       {/* Main Content - with left margin for fixed sidebar, top margin for titlebar (when present) */}
       <main
-        className={`flex-1 flex flex-col relative ml-0 md:ml-[var(--sidebar-width)] overflow-auto ${
+        className={`flex-1 flex flex-col relative ml-0 ${
+          // The agents view merges the sidebar into its own rail and scrolls internally
+          isAgentsRoute ? 'overflow-hidden' : 'md:ml-[var(--sidebar-width)] overflow-auto'
+        } ${
           // TitleBar is shown in Electron OR when tabs exist in browser mode
           isElectron || tabs.length > 0 ? 'mt-10' : ''
         }`}
@@ -603,7 +607,18 @@ function AppContent() {
             }
             aria-hidden={activeTab !== 'agents'}
           >
-            <AgentsView active={activeTab === 'agents'} apps={apps} onExit={() => navigate('/')} />
+            <AgentsView
+              active={activeTab === 'agents'}
+              apps={apps}
+              onExit={() => navigate('/')}
+              nav={{
+                onOpenDashboard: handleSelectDashboard,
+                onOpenSettings: () => setAdminPanelOpen(true),
+                onOpenProject: handleSelectApp,
+                onStartApp: handleStartApp,
+                onStopApp: handleStopApp,
+              }}
+            />
           </div>
 
           {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.

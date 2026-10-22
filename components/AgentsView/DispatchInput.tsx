@@ -199,7 +199,8 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
           onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
           onKeyDown={handleKeyDown}
           onBlur={() => setSuggestionsOpen(false)}
-          placeholder="describe a task for a new session  ·  @agent @repo /command  ·  ! shell command"
+          placeholder="describe a task for a new session"
+          title="@agent @repo /command · ! shell command"
           className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 resize-none outline-none font-mono leading-6 py-1"
           aria-label="Dispatch input"
           spellCheck={false}
@@ -243,8 +244,8 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
             {hint}
           </span>
         ) : (
-          <span className="hidden sm:inline">
-            enter to open · space to reply · ctrl+x to delete · ? for shortcuts
+          <span className="hidden sm:inline truncate">
+            @agent @repo /command · ! shell · ? for shortcuts
           </span>
         )}
       </div>

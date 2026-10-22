@@ -6,4 +6,6 @@ export interface AgentConfigLike {
   port?: number;
   addresses?: string[];
   status?: string;
+  isFavorite?: boolean;
+  isArchived?: boolean;
 }

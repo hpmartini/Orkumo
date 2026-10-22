@@ -265,6 +265,7 @@ export function extractPrLinks(children) {
       (c) =>
         c &&
         typeof c.href === 'string' &&
+        /^https:\/\//.test(c.href) &&
         (c.kind === 'pr' || /\/(pull|merge_requests)\/\d+/.test(c.href))
     )
     .map((c) => {

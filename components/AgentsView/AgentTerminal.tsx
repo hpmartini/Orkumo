@@ -23,7 +23,10 @@ interface AgentTerminalProps {
   onFocus: () => void;
   onClose: () => void;
   onPeek: () => void;
+  /** Present in multi-pane tabs: pulls this pane out into its own tab */
   onMaximize?: () => void;
+  /** Spread on the header, which doubles as the pane's drag handle */
+  headerProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
 /**
@@ -48,6 +51,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   onClose,
   onPeek,
   onMaximize,
+  headerProps,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
@@ -65,6 +69,21 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     const ws = wsRef.current;
     if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'input', data }));
+    }
+  }, []);
+
+  // Fit, then tell the PTY the real size even if xterm saw no change: the pty is opened
+  // with the size from before layout, and a TUI only redraws after a resize.
+  const syncSize = useCallback(() => {
+    const terminal = terminalRef.current;
+    try {
+      fitRef.current?.fit();
+    } catch {
+      return;
+    }
+    const ws = wsRef.current;
+    if (terminal && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
     }
   }, []);
 
@@ -154,7 +173,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     wsRef.current = ws;
     if (generation > 0) terminal.reset();
 
-    ws.onopen = () => setConnected(true);
+    ws.onopen = () => {
+      setConnected(true);
+      syncSize();
+    };
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
@@ -201,13 +223,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     let timer: ReturnType<typeof setTimeout> | null = null;
     const fit = () => {
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => {
-        try {
-          fitRef.current?.fit();
-        } catch {
-          // ignore
-        }
-      }, 50);
+      timer = setTimeout(syncSize, 50);
     };
     const observer = new ResizeObserver(fit);
     observer.observe(container);
@@ -217,21 +233,17 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
       observer.disconnect();
       window.removeEventListener('resize', fit);
     };
-  }, []);
+  }, [syncSize]);
 
   useEffect(() => {
     if (visible) {
       const id = requestAnimationFrame(() => {
-        try {
-          fitRef.current?.fit();
-        } catch {
-          // ignore
-        }
+        syncSize();
         if (active) terminalRef.current?.focus();
       });
       return () => cancelAnimationFrame(id);
     }
-  }, [visible, active]);
+  }, [visible, active, syncSize]);
 
   const glyph = stateGlyph(session.displayState);
 
@@ -243,22 +255,29 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
       onMouseDown={onFocus}
       data-agent-pane={session.id}
     >
-      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 bg-gray-900 border-b border-gray-800 text-xs shrink-0">
+      <div
+        {...headerProps}
+        className={`flex flex-nowrap items-center gap-x-2 h-9 px-2 bg-gray-900 border-b border-gray-800 text-xs shrink-0 ${headerProps?.draggable ? 'cursor-grab active:cursor-grabbing' : ''} ${headerProps?.className ?? ''}`}
+      >
         <span
-          className={`${glyph.className} ${glyph.animate ? 'animate-pulse' : ''}`}
+          className={`${glyph.className} shrink-0 ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
           title={glyph.label}
         >
           {glyph.glyph}
         </span>
-        <span className="font-medium text-gray-200 truncate">{session.name}</span>
-        <span className="text-gray-600 font-mono truncate hidden md:inline">{session.id}</span>
+        <span className="font-medium text-gray-200 truncate min-w-0">{session.name}</span>
+        <span className="text-gray-600 font-mono truncate min-w-0 hidden md:inline">
+          {session.id}
+        </span>
         <span
-          className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-emerald-500' : 'bg-gray-600'}`}
+          className={`w-1.5 h-1.5 rounded-full shrink-0 ${connected ? 'bg-emerald-500' : 'bg-gray-600'}`}
+          role="img"
+          aria-label={connected ? 'Connected' : 'Disconnected'}
         />
         <div className="flex-1" />
         <button
           onClick={onPeek}
-          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 shrink-0"
           title="Peek (recent output)"
         >
           <Eye size={12} />
@@ -266,7 +285,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         {connected ? (
           <button
             onClick={() => sendInput('\x1a')}
-            className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 shrink-0"
             title="Detach (Ctrl+Z) - the session keeps running"
           >
             <LogOut size={12} />
@@ -274,7 +293,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         ) : (
           <button
             onClick={() => setGeneration((g) => g + 1)}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-gray-300 hover:text-white hover:bg-gray-800"
+            className="flex items-center gap-1 px-1.5 py-1 rounded text-gray-300 hover:text-white hover:bg-gray-800 shrink-0"
             title="Reattach"
           >
             <RefreshCw size={12} />
@@ -283,7 +302,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         )}
         <button
           onClick={openInGhostty}
-          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 shrink-0"
           title="Open in Ghostty"
         >
           <SquareTerminal size={12} />
@@ -291,16 +310,18 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         {onMaximize && (
           <button
             onClick={onMaximize}
-            className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-            title="Show only this pane"
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 shrink-0"
+            title="Move to its own tab"
+            aria-label={`Move ${session.name} to its own tab`}
           >
             <Maximize2 size={12} />
           </button>
         )}
         <button
           onClick={onClose}
-          className="p-1 rounded text-gray-400 hover:text-red-400 hover:bg-gray-800"
-          title="Close tab"
+          className="p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-gray-800 shrink-0"
+          title="Close"
+          aria-label={`Close ${session.name}`}
         >
           <X size={12} />
         </button>

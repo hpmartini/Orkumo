@@ -5,9 +5,6 @@ import {
   Settings2,
   HelpCircle,
   RefreshCw,
-  FolderTree,
-  ListTree,
-  List,
   Braces,
   AlertTriangle,
   Power,
@@ -20,9 +17,9 @@ import type {
   AgentRepo,
   AgentSlashCommand,
   AgentPastSession,
-  AgentLayout,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
+import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
 import { useAgentContexts } from '../../hooks/useAgentContexts';
 import {
   dispatchAgent,
@@ -45,7 +42,8 @@ import {
   documentTitle,
   applyQuickFilters,
   matchesQuickFilter,
-  matchServers,
+  mergeServers,
+  collectPullRequests,
   summarizeContext,
   DEFAULT_SORT,
   QUICK_FILTERS,
@@ -56,7 +54,10 @@ import {
   SessionGroup,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
+import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
+import { PullRequestsPanel } from './PullRequestsPanel';
+import { ServersPanel, type ServerRow } from './ServersPanel';
 import { DispatchInput } from './DispatchInput';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
@@ -71,9 +72,10 @@ interface AgentsViewProps {
   apps: AgentConfigLike[];
   /** Leave the agents view (Ctrl+C twice) */
   onExit: () => void;
+  /** App navigation for the merged left rail (replaces the separate app sidebar) */
+  nav: RailNavProps;
 }
 
-const WORKSPACE_STORAGE_KEY = 'devOrbitAgentWorkspace';
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const DELETE_CONFIRM_WINDOW = 2000;
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
@@ -88,25 +90,6 @@ function loadSort(): AgentSort {
     // unavailable or corrupt storage: use the default
   }
   return DEFAULT_SORT;
-}
-
-interface WorkspaceState {
-  openIds: string[];
-  activeId: string | null;
-}
-
-function loadWorkspace(): WorkspaceState {
-  try {
-    const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.openIds))
-        return { openIds: parsed.openIds, activeId: parsed.activeId ?? null };
-    }
-  } catch {
-    // ignore
-  }
-  return { openIds: [], activeId: null };
 }
 
 function isEditableTarget(target: EventTarget | null): target is HTMLElement {
@@ -124,7 +107,7 @@ function isInsideTerminal(target: EventTarget | null): boolean {
  * Browser counterpart of `claude agents`: session list, dispatch input, peek panel
  * and attached sessions in tabs / tiles.
  */
-export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) => {
+export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, nav }) => {
   const {
     sessions,
     daemon,
@@ -147,7 +130,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [peekId, setPeekId] = useState<string | null>(null);
-  const [workspace, setWorkspace] = useState<WorkspaceState>(loadWorkspace);
+  const {
+    workspace,
+    openIds: openIdSet,
+    attach: attachPane,
+    closePane,
+    prune: pruneMissing,
+    ...workspaceActions
+  } = useAgentWorkspace();
   const [expandedCompleted, setExpandedCompleted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -180,10 +170,28 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
   const contexts = useAgentContexts(active);
   const servers = useMemo(
-    () => new Map(sessions.map((s) => [s.id, matchServers(s, apps)])),
-    [sessions, apps]
+    () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
+    [sessions, apps, contexts]
   );
   const lookup = useMemo(() => ({ contexts, servers }), [contexts, servers]);
+  const [panel, setPanel] = useState<'prs' | 'servers' | null>(null);
+  useEffect(() => {
+    if (!active) setPanel(null);
+  }, [active]);
+  const [prRepo, setPrRepo] = useState<string | null>(null);
+  const pullRows = useMemo(() => collectPullRequests(sessions, contexts), [sessions, contexts]);
+  const serverRows = useMemo(() => {
+    const seen = new Set<number>();
+    const rows: ServerRow[] = [];
+    for (const s of sessions) {
+      for (const server of servers.get(s.id) || []) {
+        if (!server.running || seen.has(server.port)) continue;
+        seen.add(server.port);
+        rows.push({ server, agentId: s.id, agentName: s.name });
+      }
+    }
+    return rows.sort((a, b) => a.server.port - b.server.port);
+  }, [sessions, servers]);
   const [sort, setSortState] = useState<AgentSort>(loadSort);
   const setSort = useCallback((next: AgentSort) => {
     setSortState(next);
@@ -213,13 +221,29 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     return result;
   }, [sessions, lookup]);
   const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
-  const collapsed = useMemo(() => new Set(settings.collapsedGroups), [settings.collapsedGroups]);
-  const groups = useMemo(
-    () => groupSessions(shownSessions, settings.grouping, { expandedCompleted, sort, lookup }),
-    [shownSessions, settings.grouping, expandedCompleted, sort, lookup]
+  // An active quick filter must not hide its matches inside collapsed groups
+  const collapsed = useMemo(
+    () => new Set(quickFilters.size ? [] : settings.collapsedGroups),
+    [settings.collapsedGroups, quickFilters]
   );
+  const groups = useMemo(
+    () =>
+      groupSessions(shownSessions, settings.grouping, {
+        // Filtering for Completed means the user wants all of them, not "… N more"
+        expandedCompleted: expandedCompleted || quickFilters.has('completed'),
+        sort,
+        lookup,
+        apps,
+      }),
+    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps]
+  );
+  const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
   const items = useMemo(() => {
-    const flat = flattenGroups(groups, collapsed, settings.grouping === 'directory');
+    const flat = flattenGroups(
+      groups,
+      collapsed,
+      settings.grouping === 'directory' || settings.grouping === 'project'
+    );
     // The interactive group only shows up when there are interactive sessions
     return flat.filter(
       (item) =>
@@ -247,10 +271,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   const selectedItem: NavItem | null = selectedIndex >= 0 ? items[selectedIndex] : null;
   const selectedSession = selectedItem?.type === 'session' ? selectedItem.session : null;
   const peekSession = peekId ? sessions.find((s) => s.id === peekId) || null : null;
-  const openIdSet = useMemo(() => new Set(workspace.openIds), [workspace.openIds]);
 
   const targetCwd: string | null = useMemo(() => {
-    if (settings.grouping === 'directory' && selectedItem) {
+    if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
       if (selectedItem.type === 'group' && selectedItem.group.cwd) return selectedItem.group.cwd;
       if (selectedItem.type === 'session') return selectedItem.session.cwd;
     }
@@ -276,10 +299,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // ---------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------
-
-  useEffect(() => {
-    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
-  }, [workspace]);
 
   useEffect(() => {
     if (dispatchCwd) localStorage.setItem(DISPATCH_CWD_STORAGE_KEY, dispatchCwd);
@@ -327,16 +346,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // Drop tabs for sessions that no longer exist
   useEffect(() => {
     if (loading || sessions.length === 0) return;
-    const existing = new Set(sessions.map((s) => s.id));
-    setWorkspace((prev) => {
-      const openIds = prev.openIds.filter((id) => existing.has(id));
-      if (openIds.length === prev.openIds.length) return prev;
-      const activeId = openIds.includes(prev.activeId || '')
-        ? prev.activeId
-        : openIds[openIds.length - 1] || null;
-      return { openIds, activeId };
-    });
-  }, [sessions, loading]);
+    pruneMissing(new Set(sessions.map((s) => s.id)));
+  }, [sessions, loading, pruneMissing]);
 
   // Focus the dispatch input when the view becomes active
   useEffect(() => {
@@ -359,34 +370,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // Workspace (tabs)
   // ---------------------------------------------------------------------
 
-  const attach = useCallback((id: string) => {
-    setWorkspace((prev) => ({
-      openIds: prev.openIds.includes(id) ? prev.openIds : [...prev.openIds, id],
-      activeId: id,
-    }));
-    setSelectedKey(id);
-  }, []);
-
-  const closeTab = useCallback((id: string) => {
-    setWorkspace((prev) => {
-      const openIds = prev.openIds.filter((x) => x !== id);
-      const activeId = prev.activeId === id ? openIds[openIds.length - 1] || null : prev.activeId;
-      return { openIds, activeId };
-    });
-  }, []);
-
-  const reorderTabs = useCallback((from: number, to: number) => {
-    setWorkspace((prev) => {
-      const openIds = [...prev.openIds];
-      const [moved] = openIds.splice(from, 1);
-      openIds.splice(to, 0, moved);
-      return { ...prev, openIds };
-    });
-  }, []);
-
-  const setLayout = useCallback(
-    (layout: AgentLayout) => updateSettings({ layout }),
-    [updateSettings]
+  const attach = useCallback(
+    (id: string) => {
+      attachPane(id);
+      setSelectedKey(id);
+    },
+    [attachPane]
   );
 
   // ---------------------------------------------------------------------
@@ -620,14 +609,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           return;
         }
         toast.success(`Deleted ${session.name}`);
-        closeTab(session.id);
+        closePane(session.id);
         if (peekId === session.id) setPeekId(null);
         refresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Delete failed');
       }
     },
-    [closeTab, peekId, refresh]
+    [closePane, peekId, refresh]
   );
 
   const handleStopOrDelete = useCallback(
@@ -698,14 +687,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   );
 
   const toggleGrouping = useCallback(() => {
-    updateSettings({
-      grouping:
-        settings.grouping === 'state'
-          ? 'directory'
-          : settings.grouping === 'directory'
-            ? 'none'
-            : 'state',
-    });
+    const order = ['project', 'state', 'directory', 'none'] as const;
+    updateSettings({ grouping: order[(order.indexOf(settings.grouping) + 1) % order.length] });
   }, [settings.grouping, updateSettings]);
 
   const copyJson = useCallback(async () => {
@@ -721,7 +704,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   const attachNth = useCallback(
     (n: number) => {
       let pool: AgentSession[];
-      if (settings.grouping === 'directory' && selectedItem) {
+      if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
         pool = selectedItem.group.sessions;
       } else {
         pool = items
@@ -753,7 +736,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   useEffect(() => {
     if (!active) return;
     const handler = (e: KeyboardEvent) => {
-      const modalOpen = showSettings || showHelp || resumePicker.open || editorOpen || pickDirOpen;
+      const modalOpen =
+        showSettings ||
+        showHelp ||
+        resumePicker.open ||
+        editorOpen ||
+        pickDirOpen ||
+        panel !== null;
       if (modalOpen) return;
       if (isInsideTerminal(e.target)) return;
       const target = e.target as HTMLElement | null;
@@ -842,6 +831,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         return; // remaining keys are handled by DispatchInput itself
       }
 
+      // Rail, tab strip and popover controls keep their own Enter/Space/arrow behaviour
+      if (
+        target?.closest('button, a, [role="dialog"], [role="tab"], [role="tablist"], [role="menu"]')
+      )
+        return;
+
       // List / body context
       switch (e.key) {
         case 'ArrowUp':
@@ -878,6 +873,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     resumePicker.open,
     editorOpen,
     pickDirOpen,
+    panel,
     input,
     selectedItem,
     selectedSession,
@@ -959,6 +955,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         label: collapsed.has(group.key) ? 'Expand' : 'Collapse',
         onSelect: () => toggleGroup(group),
       },
+      ...(group.appId
+        ? [
+            {
+              id: 'open-project',
+              label: 'Open project',
+              onSelect: () => nav.onOpenProject(group.appId!),
+            },
+          ]
+        : []),
       ...(group.cwd
         ? [
             {
@@ -975,7 +980,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         onSelect: () => handleStopOrDelete({ type: 'group', group }),
       },
     ],
-    [collapsed, toggleGroup, handleStopOrDelete]
+    [collapsed, toggleGroup, handleStopOrDelete, nav]
   );
 
   // ---------------------------------------------------------------------
@@ -1025,12 +1030,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   return (
     <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800 shrink-0">
+      <div className="relative flex items-center gap-3 px-4 py-2 border-b border-gray-800 shrink-0">
         <Bot size={18} className="text-blue-400" />
         <div className="min-w-0">
           <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
-            counts={counts}
+            counts={{ ...counts, completed: chipCounts.completed }}
             openPrs={totals.openPrs}
             runningServers={totals.runningServers}
             daemon={daemon}
@@ -1039,8 +1044,28 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
             }
             active={quickFilters}
             onToggle={toggleQuickFilter}
+            panel={panel}
+            onOpenPrs={() => {
+              setPrRepo(null);
+              setPanel((p) => (p === 'prs' ? null : 'prs'));
+            }}
+            onOpenServers={() => setPanel((p) => (p === 'servers' ? null : 'servers'))}
           />
         </div>
+        {panel === 'prs' && (
+          <PullRequestsPanel
+            rows={pullRows}
+            sessions={sessions}
+            contexts={contexts}
+            repoFilter={prRepo}
+            onClearRepo={() => setPrRepo(null)}
+            onSelectAgent={attach}
+            onClose={() => setPanel(null)}
+          />
+        )}
+        {panel === 'servers' && (
+          <ServersPanel rows={serverRows} onSelectAgent={attach} onClose={() => setPanel(null)} />
+        )}
         <div className="flex-1" />
         <div className="hidden lg:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
           <span title="Dispatch model (/model)">model {defaultModel}</span>
@@ -1054,19 +1079,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           {settings.scopeCwd && <span title="Scope (--cwd)">cwd {settings.scopeCwd}</span>}
           {!connected && <span className="text-yellow-500">reconnecting…</span>}
         </div>
-        <button
-          onClick={toggleGrouping}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title={`Grouped by ${settings.grouping === 'none' ? 'nothing' : settings.grouping}, click for ${settings.grouping === 'state' ? 'directory' : settings.grouping === 'directory' ? 'no grouping' : 'state'} (Ctrl+S)`}
-        >
-          {settings.grouping === 'state' ? (
-            <ListTree size={15} />
-          ) : settings.grouping === 'directory' ? (
-            <FolderTree size={15} />
-          ) : (
-            <List size={15} />
-          )}
-        </button>
         <button
           onClick={copyJson}
           className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
@@ -1107,6 +1119,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       <div className="flex-1 flex min-h-0">
         {/* Session list + dispatch input */}
         <div className="w-full md:w-[340px] xl:w-[440px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40">
+          <RailNav
+            nav={nav}
+            grouping={settings.grouping}
+            onGrouping={(grouping) => updateSettings({ grouping })}
+          />
           <AgentFilterBar
             sort={sort}
             onSort={setSort}
@@ -1139,9 +1156,21 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
               contexts={contexts}
               servers={servers}
               filtered={quickFilters.size > 0 || !!filter}
+              onOpenPrs={(repo) => {
+                setPrRepo(repo);
+                setPanel('prs');
+              }}
               rowActions={rowActions}
               groupActions={groupActions}
               highlightedId={highlightedId}
+              collapsedKeys={collapsed}
+              appsById={appsById}
+              nav={nav}
+              top={
+                settings.grouping === 'state' ? (
+                  <ProjectsSection apps={apps} nav={nav} />
+                ) : undefined
+              }
             />
           )}
           {filter && (
@@ -1187,17 +1216,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         </div>
 
         {/* Workspace */}
-        <div className="flex-1 min-w-0 hidden md:flex">
-          <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 min-h-0 hidden md:flex overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0">
             <AgentWorkspace
               sessions={sessions}
-              openIds={workspace.openIds}
-              activeId={workspace.activeId}
-              layout={settings.layout}
-              onSelect={(id) => setWorkspace((prev) => ({ ...prev, activeId: id }))}
-              onClose={closeTab}
-              onReorder={reorderTabs}
-              onLayoutChange={setLayout}
+              workspace={workspace}
+              onActivateTab={workspaceActions.activateTab}
+              onFocusPane={workspaceActions.focusPane}
+              onClosePane={closePane}
+              onCloseTab={workspaceActions.closeTab}
+              onMoveTab={workspaceActions.moveTab}
+              onSplit={workspaceActions.split}
+              onDetach={workspaceActions.detach}
+              onSetLayout={workspaceActions.setLayout}
               onPeek={(id) => setPeekId(id)}
             />
           </div>

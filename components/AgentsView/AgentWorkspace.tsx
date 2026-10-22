@@ -1,38 +1,53 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import { X, Columns2, Rows2, LayoutGrid, SquareStack, Bot, GripVertical } from 'lucide-react';
-import type { AgentSession, AgentLayout } from '../../types';
+import { X, Columns2, Rows2, LayoutGrid, Bot } from 'lucide-react';
+import type { AgentSession } from '../../types';
 import { stateGlyph } from '../../utils/agentSessions';
 import {
   AGENT_TAB_MIME,
   dropZone,
   insertPosition,
-  layoutForZone,
-  positionForZone,
-  reorderIndices,
   stepIndices,
+  tabTitle,
   type DropZone,
   type InsertPosition,
+  type PaneLayout,
+  type Workspace,
+  type WorkspaceTab,
 } from '../../utils/agentWorkspace';
 import { AgentTerminal } from './AgentTerminal';
 
 interface AgentWorkspaceProps {
   sessions: AgentSession[];
-  openIds: string[];
-  activeId: string | null;
-  layout: AgentLayout;
-  onSelect: (id: string) => void;
-  onClose: (id: string) => void;
-  onReorder: (fromIndex: number, toIndex: number) => void;
-  onLayoutChange: (layout: AgentLayout) => void;
-  onPeek: (id: string) => void;
+  workspace: Workspace;
+  onActivateTab: (tabId: string) => void;
+  onFocusPane: (sessionId: string) => void;
+  onClosePane: (sessionId: string) => void;
+  onCloseTab: (tabId: string) => void;
+  onMoveTab: (tabId: string, targetId: string, position: InsertPosition) => void;
+  onSplit: (sessionId: string, targetId: string, zone: DropZone) => void;
+  onDetach: (sessionId: string) => void;
+  onSetLayout: (tabId: string, layout: PaneLayout) => void;
+  onPeek: (sessionId: string) => void;
 }
 
-const LAYOUTS: { id: AgentLayout; icon: React.ReactNode; label: string }[] = [
-  { id: 'tabs', icon: <SquareStack size={14} />, label: 'Tabs (one at a time)' },
-  { id: 'columns', icon: <Columns2 size={14} />, label: 'Tiled: columns' },
-  { id: 'rows', icon: <Rows2 size={14} />, label: 'Tiled: rows' },
-  { id: 'grid', icon: <LayoutGrid size={14} />, label: 'Tiled: grid' },
+/** What is being dragged: a whole tab (moves its active session on split) or one pane */
+interface DragState {
+  kind: 'tab' | 'pane';
+  /** tab id for tabs, session id for panes */
+  id: string;
+  sessionId: string;
+}
+
+interface ResolvedTab {
+  tab: WorkspaceTab;
+  sessions: AgentSession[];
+}
+
+const LAYOUTS: { id: PaneLayout; icon: React.ReactNode; label: string }[] = [
+  { id: 'columns', icon: <Columns2 size={14} />, label: 'Panes side by side' },
+  { id: 'rows', icon: <Rows2 size={14} />, label: 'Panes stacked' },
+  { id: 'grid', icon: <LayoutGrid size={14} />, label: 'Panes in a grid' },
 ];
 
 const ZONE_HIGHLIGHT: Record<DropZone, string> = {
@@ -47,10 +62,8 @@ const isAgentDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(AGENT_
 const focusRing =
   'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-400 focus-visible:ring-inset';
 
-/** Covers a pane while a tab / pane is dragged; the pointer's nearest edge picks the split side */
-const SplitOverlay: React.FC<{ onDropZone: (draggedId: string, zone: DropZone) => void }> = ({
-  onDropZone,
-}) => {
+/** Covers a pane while something is dragged; the pointer's nearest edge picks the split side */
+const SplitOverlay: React.FC<{ onDropZone: (zone: DropZone) => void }> = ({ onDropZone }) => {
   const [zone, setZone] = useState<DropZone | null>(null);
   const zoneAt = (e: React.DragEvent) =>
     dropZone(e.currentTarget.getBoundingClientRect(), e.clientX, e.clientY);
@@ -65,11 +78,10 @@ const SplitOverlay: React.FC<{ onDropZone: (draggedId: string, zone: DropZone) =
       }}
       onDragLeave={() => setZone(null)}
       onDrop={(e) => {
-        const id = e.dataTransfer.getData(AGENT_TAB_MIME);
-        if (!id) return;
+        if (!isAgentDrag(e)) return;
         e.preventDefault();
         setZone(null);
-        onDropZone(id, zoneAt(e));
+        onDropZone(zoneAt(e));
       }}
     >
       {zone && (
@@ -82,39 +94,53 @@ const SplitOverlay: React.FC<{ onDropZone: (draggedId: string, zone: DropZone) =
 };
 
 /**
- * Attached agent sessions: a tab strip plus either a single visible pane (tabs)
- * or all panes tiled (columns / rows / grid). Tabs and pane headers can be
- * dragged to reorder, or onto a pane edge to split.
+ * Attached agent sessions. Tabs and panes are decoupled: a tab holds one or more
+ * panes (a split), and splitting moves a session into another tab instead of
+ * creating a tab. Drag a tab or pane header onto a pane edge to split; drag a pane
+ * header onto the empty tab strip to give it its own tab again.
  */
 export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   sessions,
-  openIds,
-  activeId,
-  layout,
-  onSelect,
-  onClose,
-  onReorder,
-  onLayoutChange,
+  workspace,
+  onActivateTab,
+  onFocusPane,
+  onClosePane,
+  onCloseTab,
+  onMoveTab,
+  onSplit,
+  onDetach,
+  onSetLayout,
   onPeek,
 }) => {
-  const [dragId, setDragId] = useState<string | null>(null);
+  const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; position: InsertPosition } | null>(
     null
   );
+  const [endHot, setEndHot] = useState(false);
+  const [announcement, setAnnouncement] = useState('');
   const stripRef = useRef<HTMLDivElement>(null);
   const refocusId = useRef<string | null>(null);
-  const open = openIds
-    .map((id) => sessions.find((s) => s.id === id))
-    .filter((s): s is AgentSession => !!s);
-  const order = open.map((s) => s.id);
+
+  // Tabs whose sessions have not loaded yet stay in the stored workspace but are not shown
+  const byId = new Map(sessions.map((s) => [s.id, s]));
+  const tabs: ResolvedTab[] = workspace.tabs
+    .map((tab) => ({
+      tab,
+      sessions: tab.panes.map((id) => byId.get(id)).filter((s): s is AgentSession => !!s),
+    }))
+    .filter((t) => t.sessions.length > 0);
+  const order = tabs.map((t) => t.tab.id);
+  const activeTabId = order.includes(workspace.activeTabId ?? '')
+    ? workspace.activeTabId
+    : (order[0] ?? null);
 
   const findTab = (id: string) =>
     stripRef.current?.querySelector<HTMLElement>(`[data-tab-id="${window.CSS.escape(id)}"]`);
 
   // Keep the active tab visible in an overflowing strip
   useEffect(() => {
-    if (activeId) findTab(activeId)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-  }, [activeId, order.length]);
+    if (activeTabId) findTab(activeTabId)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [activeTabId, order.length]);
 
   // A keyboard move re-parents the DOM node, which drops focus
   useEffect(() => {
@@ -122,45 +148,50 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     refocusId.current = null;
   }, [order.join('|')]);
 
-  const move = (m: { from: number; to: number } | null) => m && onReorder(m.from, m.to);
+  const finishDrag = () => {
+    setDrag(null);
+    setDropTarget(null);
+    setEndHot(false);
+  };
 
-  const dragProps = (id: string) => ({
+  // dragend never fires when the dragged node unmounts mid-drag (session pruned); a stuck
+  // drag leaves the full-size SplitOverlay over every pane.
+  useEffect(() => {
+    if (!drag) return;
+    const stop = () => finishDrag();
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && stop();
+    window.addEventListener('dragend', stop);
+    window.addEventListener('drop', stop);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('dragend', stop);
+      window.removeEventListener('drop', stop);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [drag]);
+  useEffect(() => {
+    if (drag && !byId.has(drag.sessionId)) finishDrag();
+  }, [drag, sessions]);
+
+  const dragProps = (state: DragState) => ({
     draggable: true,
     onDragStart: (e: React.DragEvent) => {
-      e.dataTransfer.setData(AGENT_TAB_MIME, id);
+      e.dataTransfer.setData(AGENT_TAB_MIME, state.id);
       e.dataTransfer.effectAllowed = 'move';
-      setDragId(id);
+      setDrag(state);
     },
-    onDragEnd: () => {
-      setDragId(null);
-      setDropTarget(null);
-    },
+    onDragEnd: finishDrag,
   });
 
-  /** Put `id` beside `anchorId` on the zone's side and switch to the matching split layout */
-  const splitBeside = (id: string, anchorId: string, zone: DropZone) => {
-    if (id === anchorId || !order.includes(id) || !order.includes(anchorId)) return;
-    move(reorderIndices(order, id, anchorId, positionForZone(zone)));
-    onLayoutChange(layoutForZone(zone));
-    onSelect(id);
+  /** Button variant: merge a single-pane tab into its neighbour tab as a split */
+  const splitOut = (tabId: string, zone: 'right' | 'bottom') => {
+    const index = order.indexOf(tabId);
+    const source = tabs[index];
+    const anchor = tabs[index + 1] ?? tabs[index - 1];
+    if (source && anchor) onSplit(source.tab.activeSessionId, anchor.tab.activeSessionId, zone);
   };
 
-  /** Button variant: split `id` off next to the active pane (or its neighbour when it is the active one) */
-  const splitOut = (id: string, zone: 'right' | 'bottom') => {
-    const index = order.indexOf(id);
-    const anchor = activeId && activeId !== id ? activeId : (order[index + 1] ?? order[index - 1]);
-    if (anchor) splitBeside(id, anchor, zone);
-  };
-
-  const dropOnTab = (e: React.DragEvent, targetId: string, position: InsertPosition) => {
-    const id = e.dataTransfer.getData(AGENT_TAB_MIME);
-    if (!id) return;
-    e.preventDefault();
-    move(reorderIndices(order, id, targetId, position));
-    setDropTarget(null);
-  };
-
-  if (open.length === 0) {
+  if (tabs.length === 0) {
     return (
       <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-3 p-8 text-center">
         <Bot size={40} className="text-gray-700" />
@@ -169,127 +200,76 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
           <kbd className="kbd">→</kbd> to open it in a tab.
         </div>
         <div className="text-xs text-gray-600">
-          Open several sessions and switch the layout to tile them side by side.
+          Drag one tab onto another pane to work with several agents side by side.
         </div>
       </div>
     );
   }
 
-  const splitButtons = (session: AgentSession) =>
-    open.length > 1 && (
-      <>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            splitOut(session.id, 'right');
-          }}
-          className={`p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 ${focusRing}`}
-          title="Split right"
-          aria-label={`Split ${session.name} right`}
-        >
-          <Columns2 size={12} />
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            splitOut(session.id, 'bottom');
-          }}
-          className={`p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 ${focusRing}`}
-          title="Split down"
-          aria-label={`Split ${session.name} down`}
-        >
-          <Rows2 size={12} />
-        </button>
-      </>
-    );
-
-  const renderPane = (session: AgentSession, visible: boolean) => {
-    const glyph = stateGlyph(session.displayState);
+  const renderPane = (
+    { tab, sessions: panes }: ResolvedTab,
+    session: AgentSession,
+    visible: boolean
+  ) => {
+    const multi = panes.length > 1;
     return (
-      <div className="relative h-full flex flex-col min-h-0">
-        {layout !== 'tabs' && (
-          <div
-            {...dragProps(session.id)}
-            className={`group flex items-center gap-1.5 px-1.5 h-6 shrink-0 bg-gray-900 border-b border-gray-800 text-xs text-gray-400 cursor-grab active:cursor-grabbing ${
-              dragId === session.id ? 'opacity-50' : ''
-            }`}
-            title="Drag to reorder, or onto another pane to split"
-          >
-            <GripVertical size={12} className="text-gray-600 shrink-0" />
-            <span className={`${glyph.className} ${glyph.animate ? 'animate-pulse' : ''}`}>
-              {glyph.glyph}
-            </span>
-            <span className="truncate flex-1">{session.name}</span>
-            <span className="flex items-center opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
-              {splitButtons(session)}
-            </span>
-          </div>
-        )}
-        <div className="relative flex-1 min-h-0">
-          <AgentTerminal
-            key={session.id}
-            session={session}
-            visible={visible}
-            active={session.id === activeId}
-            onFocus={() => onSelect(session.id)}
-            onClose={() => onClose(session.id)}
-            onPeek={() => onPeek(session.id)}
-            onMaximize={
-              layout !== 'tabs'
-                ? () => {
-                    onSelect(session.id);
-                    onLayoutChange('tabs');
-                  }
-                : undefined
-            }
+      <div className="relative h-full min-h-0">
+        <AgentTerminal
+          session={session}
+          visible={visible}
+          active={session.id === tab.activeSessionId}
+          onFocus={() => onFocusPane(session.id)}
+          onClose={() => onClosePane(session.id)}
+          onPeek={() => onPeek(session.id)}
+          onMaximize={multi ? () => onDetach(session.id) : undefined}
+          headerProps={
+            multi
+              ? {
+                  ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
+                  className: drag?.id === session.id ? 'opacity-50' : '',
+                  title:
+                    'Drag onto a pane edge to rearrange, or onto the tab strip for its own tab',
+                }
+              : undefined
+          }
+        />
+        {drag && drag.sessionId !== session.id && visible && (
+          <SplitOverlay
+            onDropZone={(zone) => (onSplit(drag.sessionId, session.id, zone), finishDrag())}
           />
-          {dragId && dragId !== session.id && visible && (
-            <SplitOverlay onDropZone={(id, zone) => splitBeside(id, session.id, zone)} />
-          )}
-        </div>
+        )}
       </div>
     );
   };
 
-  let content: React.ReactNode;
-  if (layout === 'tabs') {
-    content = (
-      <div className="relative flex-1 min-h-0">
-        {open.map((session) => (
-          <div
-            key={session.id}
-            className={`absolute inset-0 ${session.id === activeId ? 'block' : 'hidden'}`}
-          >
-            {renderPane(session, session.id === activeId)}
-          </div>
-        ))}
-      </div>
-    );
-  } else if (layout === 'grid') {
-    const columns = open.length <= 1 ? 1 : 2;
-    content = (
-      <div
-        className="flex-1 min-h-0 grid gap-1 p-1"
-        style={{
-          gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`,
-          gridAutoRows: 'minmax(0, 1fr)',
-        }}
-      >
-        {open.map((session) => (
-          <div key={session.id} className="min-h-0 min-w-0">
-            {renderPane(session, true)}
-          </div>
-        ))}
-      </div>
-    );
-  } else {
-    content = (
-      <div className="flex-1 min-h-0 p-1">
+  const renderPanes = (resolved: ResolvedTab, visible: boolean) => {
+    const { tab, sessions: panes } = resolved;
+    const layout: PaneLayout = panes.length < 2 ? 'single' : tab.layout;
+    if (layout === 'single') return renderPane(resolved, panes[0], visible);
+    if (layout === 'grid') {
+      return (
+        <div
+          className="h-full grid gap-1 p-1"
+          style={{
+            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+            gridAutoRows: 'minmax(0, 1fr)',
+          }}
+        >
+          {panes.map((session) => (
+            <div key={session.id} className="min-h-0 min-w-0">
+              {renderPane(resolved, session, visible)}
+            </div>
+          ))}
+        </div>
+      );
+    }
+    return (
+      <div className="h-full p-1">
         <Group
           orientation={layout === 'columns' ? 'horizontal' : 'vertical'}
           className="h-full w-full"
         >
-          {open.map((session, index) => (
+          {panes.map((session, index) => (
             <React.Fragment key={session.id}>
               {index > 0 && (
                 <Separator
@@ -297,14 +277,19 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
                 />
               )}
               <Panel id={`agent-pane-${session.id}`} minSize={10} className="min-h-0 min-w-0">
-                {renderPane(session, true)}
+                {renderPane(resolved, session, visible)}
               </Panel>
             </React.Fragment>
           ))}
         </Group>
       </div>
     );
-  }
+  };
+
+  const dropOnTab = (targetId: string, position: InsertPosition) => {
+    if (drag?.kind === 'tab') onMoveTab(drag.id, targetId, position);
+    finishDrag();
+  };
 
   return (
     <div className="h-full flex flex-col min-h-0">
@@ -316,54 +301,43 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
           aria-label="Attached agents"
           className="flex-1 flex items-center overflow-x-auto scrollbar-hide h-full"
         >
-          {open.map((session) => {
-            const glyph = stateGlyph(session.displayState);
-            const isActive = session.id === activeId;
-            const needsInput = session.displayState === 'needs-input';
-            const indicator = dropTarget?.id === session.id ? dropTarget.position : null;
+          {tabs.map(({ tab, sessions: panes }) => {
+            const isActive = tab.id === activeTabId;
+            const lead = panes.find((s) => s.id === tab.activeSessionId) ?? panes[0];
+            const needsInput = panes.some((s) => s.displayState === 'needs-input');
+            const glyph = stateGlyph(needsInput ? 'needs-input' : lead.displayState);
+            const title = tabTitle(panes.map((s) => s.name));
+            const indicator = dropTarget?.id === tab.id ? dropTarget.position : null;
             return (
               <div
-                key={session.id}
-                data-tab-id={session.id}
-                role="tab"
-                aria-selected={isActive}
-                aria-label={`${session.name}, ${glyph.label}`}
-                tabIndex={0}
-                {...dragProps(session.id)}
+                key={tab.id}
+                {...dragProps({ kind: 'tab', id: tab.id, sessionId: tab.activeSessionId })}
                 onDragOver={(e) => {
-                  if (!isAgentDrag(e)) return;
+                  if (!isAgentDrag(e) || drag?.kind !== 'tab') return;
                   e.preventDefault();
                   setDropTarget({
-                    id: session.id,
+                    id: tab.id,
                     position: insertPosition(e.currentTarget.getBoundingClientRect(), e.clientX),
                   });
                 }}
-                onDragLeave={() => setDropTarget((t) => (t?.id === session.id ? null : t))}
-                onDrop={(e) => dropOnTab(e, session.id, indicator ?? 'before')}
-                onClick={() => onSelect(session.id)}
+                onDragLeave={() => setDropTarget((t) => (t?.id === tab.id ? null : t))}
+                onDrop={(e) => {
+                  if (drag?.kind !== 'tab') return;
+                  e.preventDefault();
+                  dropOnTab(tab.id, indicator ?? 'before');
+                }}
                 onMouseDown={(e) => {
                   if (e.button === 1) {
                     e.preventDefault();
-                    onClose(session.id);
+                    onCloseTab(tab.id);
                   }
                 }}
-                onKeyDown={(e) => {
-                  if (e.target !== e.currentTarget) return;
-                  if (e.altKey && e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
-                    e.preventDefault();
-                    refocusId.current = session.id;
-                    move(stepIndices(order, session.id, e.key === 'ArrowLeft' ? -1 : 1));
-                  } else if (e.key === 'Enter' || e.key === ' ') {
-                    e.preventDefault();
-                    onSelect(session.id);
-                  }
-                }}
-                className={`group relative flex items-center gap-2 px-3 h-full min-w-[170px] max-w-[260px] cursor-pointer border-r border-gray-800 shrink-0 text-xs transition-colors ${focusRing} ${
+                className={`group relative flex items-center pl-2.5 pr-1 h-full min-w-[120px] max-w-[220px] border-r border-gray-800 shrink-0 text-xs transition-colors ${
                   isActive
                     ? 'bg-gray-800 text-white'
                     : 'text-gray-400 hover:bg-gray-850 hover:text-gray-200'
-                } ${dragId === session.id ? 'opacity-40' : ''}`}
-                title={`${session.name} · ${session.cwd}`}
+                } ${drag?.kind === 'tab' && drag.id === tab.id ? 'opacity-40' : ''}`}
+                title={panes.map((s) => `${s.name} · ${s.cwd}`).join('\n')}
               >
                 {isActive && <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500" />}
                 {indicator && (
@@ -373,34 +347,114 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
                     }`}
                   />
                 )}
-                <span
-                  className={`${glyph.className} ${glyph.animate ? 'animate-pulse' : ''}`}
-                  aria-hidden="true"
+                <button
+                  type="button"
+                  role="tab"
+                  id={`agent-tab-${tab.id}`}
+                  data-tab-id={tab.id}
+                  aria-selected={isActive}
+                  aria-controls={`agent-tabpanel-${tab.id}`}
+                  aria-keyshortcuts="Alt+Shift+ArrowLeft Alt+Shift+ArrowRight"
+                  aria-label={`${title}, ${glyph.label}${panes.length > 1 ? `, ${panes.length} panes` : ''}${needsInput ? ', needs input' : ''}`}
+                  tabIndex={isActive ? 0 : -1}
+                  onClick={() => onActivateTab(tab.id)}
+                  onKeyDown={(e) => {
+                    if (
+                      e.altKey &&
+                      e.shiftKey &&
+                      (e.key === 'ArrowLeft' || e.key === 'ArrowRight')
+                    ) {
+                      e.preventDefault();
+                      const delta = e.key === 'ArrowLeft' ? -1 : 1;
+                      const step = stepIndices(order, tab.id, delta);
+                      if (step) {
+                        refocusId.current = tab.id;
+                        onMoveTab(tab.id, order[step.to], delta < 0 ? 'before' : 'after');
+                        setAnnouncement(
+                          `${title} moved to position ${step.to + 1} of ${order.length}`
+                        );
+                      }
+                      return;
+                    }
+                    const at = order.indexOf(tab.id);
+                    const next =
+                      e.key === 'ArrowLeft'
+                        ? at - 1
+                        : e.key === 'ArrowRight'
+                          ? at + 1
+                          : e.key === 'Home'
+                            ? 0
+                            : e.key === 'End'
+                              ? order.length - 1
+                              : -1;
+                    if (next >= 0 && next < order.length && !e.altKey) {
+                      e.preventDefault();
+                      onActivateTab(order[next]);
+                      findTab(order[next])?.focus();
+                    }
+                  }}
+                  className={`flex items-center gap-1.5 flex-1 min-w-0 h-full text-left ${focusRing}`}
                 >
-                  {glyph.glyph}
-                </span>
-                <span className="truncate flex-1">{session.name}</span>
-                {needsInput && (
                   <span
-                    className="w-2 h-2 rounded-full bg-yellow-400 shrink-0"
-                    role="img"
-                    aria-label="Needs input"
-                  />
-                )}
-                <span className="text-[10px] text-gray-400 shrink-0">{glyph.label}</span>
+                    className={`${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+                    aria-hidden="true"
+                  >
+                    {glyph.glyph}
+                  </span>
+                  <span className="truncate flex-1">{title}</span>
+                  {panes.length > 1 && (
+                    <span
+                      className="px-1 rounded bg-gray-700 text-[10px] leading-4 text-gray-300 shrink-0"
+                      aria-hidden="true"
+                    >
+                      {panes.length}
+                    </span>
+                  )}
+                  {needsInput && (
+                    <span
+                      className="w-2 h-2 rounded-full bg-yellow-400 shrink-0"
+                      aria-hidden="true"
+                    />
+                  )}
+                </button>
                 <span
-                  className={`flex items-center ${
+                  className={`flex items-center shrink-0 ${
                     isActive ? '' : 'opacity-0'
                   } group-hover:opacity-100 group-focus-within:opacity-100`}
                 >
-                  {splitButtons(session)}
+                  {isActive && panes.length === 1 && tabs.length > 1 && (
+                    <span className="hidden group-hover:flex group-focus-within:flex items-center">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          splitOut(tab.id, 'right');
+                        }}
+                        className={`p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 ${focusRing}`}
+                        title="Split right (into the neighbouring tab)"
+                        aria-label={`Split ${title} right`}
+                      >
+                        <Columns2 size={12} />
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          splitOut(tab.id, 'bottom');
+                        }}
+                        className={`p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 ${focusRing}`}
+                        title="Split down (into the neighbouring tab)"
+                        aria-label={`Split ${title} down`}
+                      >
+                        <Rows2 size={12} />
+                      </button>
+                    </span>
+                  )}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();
-                      onClose(session.id);
+                      onCloseTab(tab.id);
                     }}
-                    className={`p-1 rounded hover:bg-gray-700 text-gray-400 hover:text-white ${focusRing}`}
-                    aria-label={`Close ${session.name}`}
+                    className={`p-1.5 rounded hover:bg-gray-700 text-gray-400 hover:text-white ${focusRing}`}
+                    aria-label={`Close ${title}`}
                     title="Close"
                   >
                     <X size={12} />
@@ -409,39 +463,79 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
               </div>
             );
           })}
-          {/* Drop here to move a tab to the end */}
+          {/* Empty strip: a tab dropped here moves to the end, a pane gets its own tab */}
           <div
-            className="flex-1 min-w-8 h-full relative"
+            className={`flex-1 min-w-8 h-full ${endHot ? 'bg-blue-500/20' : ''}`}
             onDragOver={(e) => {
-              if (!isAgentDrag(e)) return;
+              if (!isAgentDrag(e) || !drag) return;
               e.preventDefault();
-              setDropTarget({ id: order[order.length - 1], position: 'after' });
+              if (drag.kind === 'tab')
+                setDropTarget({ id: order[order.length - 1], position: 'after' });
+              else setEndHot(true);
             }}
-            onDragLeave={() => setDropTarget(null)}
-            onDrop={(e) => dropOnTab(e, order[order.length - 1], 'after')}
+            onDragLeave={() => {
+              setDropTarget(null);
+              setEndHot(false);
+            }}
+            onDrop={(e) => {
+              if (!drag) return;
+              e.preventDefault();
+              if (drag.kind === 'pane') onDetach(drag.sessionId);
+              dropOnTab(order[order.length - 1], 'after');
+            }}
           />
         </div>
-        {/* Layout switcher */}
-        <div className="flex items-center gap-0.5 px-2 border-l border-gray-800 h-full">
-          {LAYOUTS.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => onLayoutChange(item.id)}
-              className={`p-1.5 rounded transition-colors ${focusRing} ${
-                layout === item.id
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-              }`}
-              title={item.label}
-              aria-label={item.label}
-              aria-pressed={layout === item.id}
+        {(() => {
+          const activeTab = tabs.find((t) => t.tab.id === activeTabId);
+          if (!activeTab || activeTab.sessions.length < 2) return null;
+          return (
+            <div
+              className="flex items-center gap-0.5 px-1 shrink-0"
+              role="group"
+              aria-label="Pane layout"
             >
-              {item.icon}
-            </button>
-          ))}
+              {LAYOUTS.map((item) => (
+                <button
+                  key={item.id}
+                  onClick={() => onSetLayout(activeTab.tab.id, item.id)}
+                  className={`p-1.5 rounded transition-colors ${focusRing} ${
+                    activeTab.tab.layout === item.id
+                      ? 'bg-gray-700 text-white'
+                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                  }`}
+                  title={item.label}
+                  aria-label={item.label}
+                  aria-pressed={activeTab.tab.layout === item.id}
+                >
+                  {item.icon}
+                </button>
+              ))}
+            </div>
+          );
+        })()}
+        <div className="sr-only" aria-live="polite">
+          {announcement}
         </div>
       </div>
-      {content}
+
+      {/* Tab contents: every tab stays mounted so terminals keep their WebSockets */}
+      <div className="relative flex-1 min-h-0">
+        {tabs.map((resolved) => {
+          const { tab } = resolved;
+          const visible = tab.id === activeTabId;
+          return (
+            <div
+              key={tab.id}
+              role="tabpanel"
+              id={`agent-tabpanel-${tab.id}`}
+              aria-labelledby={`agent-tab-${tab.id}`}
+              className={`absolute inset-0 flex-col min-h-0 ${visible ? 'flex' : 'hidden'}`}
+            >
+              <div className="flex-1 min-h-0">{renderPanes(resolved, visible)}</div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 };

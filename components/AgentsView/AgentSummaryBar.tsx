@@ -10,13 +10,18 @@ import {
 
 interface AgentSummaryBarProps {
   counts: { awaitingInput: number; working: number; completed: number; failed: number };
-  openPrs: number;
-  runningServers: number;
+  /** null while the context request is still loading */
+  openPrs: number | null;
+  runningServers: number | null;
   daemon: AgentDaemonStatus | null;
   /** Count of sessions that just finished (brief highlight) */
   justCompleted: number;
   active: ReadonlySet<AgentQuickFilter>;
   onToggle: (key: AgentQuickFilter) => void;
+  onOpenPrs: () => void;
+  onOpenServers: () => void;
+  /** Which popover is open (for aria-expanded) */
+  panel: 'prs' | 'servers' | null;
 }
 
 /**
@@ -30,6 +35,9 @@ export const AgentSummaryBar: React.FC<AgentSummaryBarProps> = ({
   justCompleted,
   active,
   onToggle,
+  onOpenPrs,
+  onOpenServers,
+  panel,
 }) => {
   const toggle = (key: AgentQuickFilter, count: number, label: string, tone: string) => (
     <button
@@ -74,19 +82,34 @@ export const AgentSummaryBar: React.FC<AgentSummaryBarProps> = ({
         toggle('needs-input', 0, 'awaiting input', '')
       )}
       {toggle('working', counts.working, 'working', 'text-orange-300')}
-      {counts.failed > 0 && toggle('failed', counts.failed, 'failed', 'text-red-400')}
-      <span className="px-1.5 tabular-nums" title="Completed agents">
-        {counts.completed} completed
-      </span>
+      {toggle('completed', counts.completed, 'completed', 'text-emerald-300')}
+      {(counts.failed > 0 || active.has('failed')) &&
+        toggle('failed', counts.failed, 'failed', 'text-red-400')}
       <span className="text-gray-700 px-1" aria-hidden="true">
         |
       </span>
-      <span className="px-1.5 tabular-nums" title="Open pull requests across all agents">
-        {openPrs} open {openPrs === 1 ? 'PR' : 'PRs'}
-      </span>
-      <span className="px-1.5 tabular-nums" title="Running dev servers across all agents">
-        {runningServers} {runningServers === 1 ? 'server' : 'servers'} running
-      </span>
+      <button
+        onClick={onOpenPrs}
+        disabled={openPrs === null}
+        data-popover-trigger
+        aria-haspopup="dialog"
+        aria-expanded={panel === 'prs'}
+        title="List open pull requests across all agents"
+        className="px-1.5 py-0.5 rounded tabular-nums hover:bg-gray-800 disabled:opacity-50 disabled:hover:bg-transparent"
+      >
+        {openPrs ?? '-'} open {openPrs === 1 ? 'PR' : 'PRs'}
+      </button>
+      <button
+        onClick={onOpenServers}
+        disabled={runningServers === null}
+        data-popover-trigger
+        aria-haspopup="dialog"
+        aria-expanded={panel === 'servers'}
+        title="List servers listening in agent directories"
+        className="px-1.5 py-0.5 rounded tabular-nums hover:bg-gray-800 disabled:opacity-50 disabled:hover:bg-transparent"
+      >
+        {runningServers ?? '-'} {runningServers === 1 ? 'server' : 'servers'} running
+      </button>
       {justCompleted > 0 && <span className="text-emerald-400 px-1.5">+{justCompleted} done</span>}
     </div>
   );
