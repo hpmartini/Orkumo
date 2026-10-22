@@ -53,7 +53,7 @@ class IDEService {
       if (fs.existsSync(settingsPath)) {
         const data = JSON.parse(fs.readFileSync(settingsPath, 'utf-8'));
         if (data.customIDEs && Array.isArray(data.customIDEs)) {
-          data.customIDEs.forEach(ide => {
+          data.customIDEs.forEach((ide) => {
             this.customIDEs.set(ide.id, ide);
           });
         }
@@ -141,21 +141,56 @@ class IDEService {
         nova: process.env.NOVA_PATH || '/Applications/Nova.app',
       },
       linux: {
-        vscode: process.env.VSCODE_PATH ? [process.env.VSCODE_PATH] : ['/usr/bin/code', '/snap/bin/code', '/var/lib/flatpak/exports/bin/com.visualstudio.code'],
-        cursor: process.env.CURSOR_PATH ? [process.env.CURSOR_PATH] : ['/usr/bin/cursor', '/snap/bin/cursor'],
-        webstorm: process.env.WEBSTORM_PATH ? [process.env.WEBSTORM_PATH] : ['/usr/local/bin/webstorm', '/snap/bin/webstorm'],
-        intellij: process.env.INTELLIJ_PATH ? [process.env.INTELLIJ_PATH] : ['/usr/local/bin/idea', '/snap/bin/intellij-idea-community', '/snap/bin/intellij-idea-ultimate'],
-        phpstorm: process.env.PHPSTORM_PATH ? [process.env.PHPSTORM_PATH] : ['/usr/local/bin/phpstorm', '/snap/bin/phpstorm'],
-        pycharm: process.env.PYCHARM_PATH ? [process.env.PYCHARM_PATH] : ['/usr/local/bin/pycharm', '/snap/bin/pycharm-community', '/snap/bin/pycharm-professional'],
-        sublime: process.env.SUBLIME_PATH ? [process.env.SUBLIME_PATH] : ['/usr/bin/subl', '/snap/bin/sublime-text'],
+        vscode: process.env.VSCODE_PATH
+          ? [process.env.VSCODE_PATH]
+          : [
+              '/usr/bin/code',
+              '/snap/bin/code',
+              '/var/lib/flatpak/exports/bin/com.visualstudio.code',
+            ],
+        cursor: process.env.CURSOR_PATH
+          ? [process.env.CURSOR_PATH]
+          : ['/usr/bin/cursor', '/snap/bin/cursor'],
+        webstorm: process.env.WEBSTORM_PATH
+          ? [process.env.WEBSTORM_PATH]
+          : ['/usr/local/bin/webstorm', '/snap/bin/webstorm'],
+        intellij: process.env.INTELLIJ_PATH
+          ? [process.env.INTELLIJ_PATH]
+          : [
+              '/usr/local/bin/idea',
+              '/snap/bin/intellij-idea-community',
+              '/snap/bin/intellij-idea-ultimate',
+            ],
+        phpstorm: process.env.PHPSTORM_PATH
+          ? [process.env.PHPSTORM_PATH]
+          : ['/usr/local/bin/phpstorm', '/snap/bin/phpstorm'],
+        pycharm: process.env.PYCHARM_PATH
+          ? [process.env.PYCHARM_PATH]
+          : [
+              '/usr/local/bin/pycharm',
+              '/snap/bin/pycharm-community',
+              '/snap/bin/pycharm-professional',
+            ],
+        sublime: process.env.SUBLIME_PATH
+          ? [process.env.SUBLIME_PATH]
+          : ['/usr/bin/subl', '/snap/bin/sublime-text'],
       },
       win32: {
         vscode: process.env.VSCODE_PATH || 'C:\\Program Files\\Microsoft VS Code\\Code.exe',
-        cursor: process.env.CURSOR_PATH || path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Cursor', 'Cursor.exe'),
-        webstorm: process.env.WEBSTORM_PATH || 'C:\\Program Files\\JetBrains\\WebStorm\\bin\\webstorm64.exe',
-        intellij: process.env.INTELLIJ_PATH || 'C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe',
-        phpstorm: process.env.PHPSTORM_PATH || 'C:\\Program Files\\JetBrains\\PhpStorm\\bin\\phpstorm64.exe',
-        pycharm: process.env.PYCHARM_PATH || 'C:\\Program Files\\JetBrains\\PyCharm\\bin\\pycharm64.exe',
+        cursor:
+          process.env.CURSOR_PATH ||
+          path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Cursor', 'Cursor.exe'),
+        webstorm:
+          process.env.WEBSTORM_PATH ||
+          'C:\\Program Files\\JetBrains\\WebStorm\\bin\\webstorm64.exe',
+        intellij:
+          process.env.INTELLIJ_PATH ||
+          'C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe',
+        phpstorm:
+          process.env.PHPSTORM_PATH ||
+          'C:\\Program Files\\JetBrains\\PhpStorm\\bin\\phpstorm64.exe',
+        pycharm:
+          process.env.PYCHARM_PATH || 'C:\\Program Files\\JetBrains\\PyCharm\\bin\\pycharm64.exe',
         sublime: process.env.SUBLIME_PATH || 'C:\\Program Files\\Sublime Text\\sublime_text.exe',
       },
     };
@@ -197,8 +232,9 @@ class IDEService {
     const paths = Array.isArray(idePath) ? idePath : [idePath];
 
     // Check all paths in parallel for better performance
-    const checks = paths.map(p =>
-      fs.promises.access(p, fs.constants.F_OK)
+    const checks = paths.map((p) =>
+      fs.promises
+        .access(p, fs.constants.F_OK)
         .then(() => p)
         .catch(() => null)
     );
@@ -216,19 +252,26 @@ class IDEService {
     const now = Date.now();
 
     // Return cached result if valid and not forcing refresh
-    if (!forceRefresh && this.detectionCache && this.cacheTimestamp && (now - this.cacheTimestamp < this.CACHE_TTL)) {
+    if (
+      !forceRefresh &&
+      this.detectionCache &&
+      this.cacheTimestamp &&
+      now - this.cacheTimestamp < this.CACHE_TTL
+    ) {
       return this.detectionCache;
     }
 
     // Parallelize IDE detection for better performance
     const checks = Object.entries(this.idePaths).map(async ([ideId, idePath]) => {
       const installedPath = await this._isInstalled(idePath);
-      return installedPath ? {
-        id: ideId,
-        name: this._getIDEName(ideId),
-        path: installedPath,
-        custom: false,
-      } : null;
+      return installedPath
+        ? {
+            id: ideId,
+            name: this._getIDEName(ideId),
+            path: installedPath,
+            custom: false,
+          }
+        : null;
     });
 
     const results = await Promise.all(checks);
@@ -237,12 +280,14 @@ class IDEService {
     // Check custom IDEs
     const customChecks = Array.from(this.customIDEs.values()).map(async (ide) => {
       const installedPath = await this._isInstalled(ide.path);
-      return installedPath ? {
-        id: ide.id,
-        name: ide.name,
-        path: installedPath,
-        custom: true,
-      } : null;
+      return installedPath
+        ? {
+            id: ide.id,
+            name: ide.name,
+            path: installedPath,
+            custom: true,
+          }
+        : null;
     });
 
     const customResults = await Promise.all(customChecks);
@@ -293,14 +338,10 @@ class IDEService {
     }
 
     // Validate and resolve project path to prevent directory traversal attacks
-    const resolvedPath = path.resolve(projectPath);
     const realPath = await fs.promises.realpath(projectPath).catch(() => null);
 
     if (!realPath) {
-      throw new IDEError(
-        'Project directory does not exist',
-        IDEErrorCodes.INVALID_PROJECT_PATH
-      );
+      throw new IDEError('Project directory does not exist', IDEErrorCodes.INVALID_PROJECT_PATH);
     }
 
     // Verify project path exists and check permissions
@@ -313,10 +354,7 @@ class IDEService {
           IDEErrorCodes.PERMISSION_DENIED
         );
       }
-      throw new IDEError(
-        'Project directory does not exist',
-        IDEErrorCodes.INVALID_PROJECT_PATH
-      );
+      throw new IDEError('Project directory does not exist', IDEErrorCodes.INVALID_PROJECT_PATH);
     }
 
     // Use realPath for launching to ensure we're opening the correct directory
@@ -350,7 +388,8 @@ class IDEService {
       });
 
       child.on('error', (error) => {
-        const errorCode = error.code === 'EACCES' ? IDEErrorCodes.PERMISSION_DENIED : IDEErrorCodes.LAUNCH_FAILED;
+        const errorCode =
+          error.code === 'EACCES' ? IDEErrorCodes.PERMISSION_DENIED : IDEErrorCodes.LAUNCH_FAILED;
         reject(new IDEError(`Failed to launch IDE: ${error.message}`, errorCode));
       });
 
@@ -361,10 +400,12 @@ class IDEService {
       const exitPromise = new Promise((resolveExit, rejectExit) => {
         child.on('exit', (code) => {
           if (code !== 0 && code !== null) {
-            rejectExit(new IDEError(
-              'IDE failed to launch (process exited with error)',
-              IDEErrorCodes.LAUNCH_FAILED
-            ));
+            rejectExit(
+              new IDEError(
+                'IDE failed to launch (process exited with error)',
+                IDEErrorCodes.LAUNCH_FAILED
+              )
+            );
           } else {
             resolveExit();
           }
@@ -383,12 +424,12 @@ class IDEService {
 
       // Race between timeout and exit - if process exits with error before timeout, we reject
       Promise.race([exitPromise, timeoutPromise])
-        .then(result => {
+        .then((result) => {
           if (result) {
             resolve(result);
           }
         })
-        .catch(err => reject(err));
+        .catch((err) => reject(err));
     });
   }
 }

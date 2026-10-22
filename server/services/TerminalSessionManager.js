@@ -176,7 +176,7 @@ class TerminalSessionManager extends EventEmitter {
 
     // Split by lines and add to buffer
     const lines = data.split(/\r?\n/);
-    session.outputBuffer.push(...lines.filter(l => l.length > 0));
+    session.outputBuffer.push(...lines.filter((l) => l.length > 0));
 
     // Trim buffer if too large
     if (session.outputBuffer.length > this.defaultBufferSize) {
@@ -255,12 +255,7 @@ class TerminalSessionManager extends EventEmitter {
       return await db
         .select()
         .from(terminalSessions)
-        .where(
-          and(
-            eq(terminalSessions.appId, appId),
-            eq(terminalSessions.isActive, true)
-          )
-        )
+        .where(and(eq(terminalSessions.appId, appId), eq(terminalSessions.isActive, true)))
         .orderBy(desc(terminalSessions.lastActivity));
     } catch (error) {
       console.error('Failed to get sessions for app:', error);
@@ -294,7 +289,7 @@ class TerminalSessionManager extends EventEmitter {
    * @returns {Promise<void>}
    */
   async saveAllBuffers() {
-    for (const [sessionId, session] of this.activeSessions) {
+    for (const session of this.activeSessions.values()) {
       await this.saveSessionToDb(session);
     }
   }
@@ -312,14 +307,12 @@ class TerminalSessionManager extends EventEmitter {
       const cutoffDate = new Date();
       cutoffDate.setDate(cutoffDate.getDate() - maxAgeDays);
 
-      const result = await db
-        .delete(terminalSessions)
-        .where(
-          and(
-            eq(terminalSessions.isActive, false),
-            // lastActivity < cutoffDate
-          )
-        );
+      const result = await db.delete(terminalSessions).where(
+        and(
+          eq(terminalSessions.isActive, false)
+          // lastActivity < cutoffDate
+        )
+      );
 
       return result.rowCount || 0;
     } catch (error) {

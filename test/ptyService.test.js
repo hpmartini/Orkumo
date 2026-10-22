@@ -1,21 +1,29 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { exec } from 'child_process';
+import fs from 'fs';
 
 // Mock child_process
-vi.mock('child_process', () => ({
-  exec: vi.fn(),
-}));
+vi.mock('child_process', () => {
+  const exec = vi.fn();
+  return { exec, default: { exec } };
+});
 
 // We need to import the service after mocking
 const { detectClaudeCLI } = await import('../server/services/ptyService.js');
 
+// detectClaudeCLI quotes the path it found via 'which'
+const VERSION_CMD = '"/usr/local/bin/claude" --version';
+
 describe('PTY Service - detectClaudeCLI', () => {
   beforeEach(() => {
+    // Keep the 'which' fallback path deterministic: no claude in the common install dirs
+    vi.spyOn(fs, 'existsSync').mockReturnValue(false);
     vi.clearAllMocks();
     vi.useFakeTimers();
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
@@ -25,10 +33,10 @@ describe('PTY Service - detectClaudeCLI', () => {
       vi.mocked(exec).mockImplementation((cmd, options, callback) => {
         if (cmd === 'which claude') {
           setTimeout(() => callback(null, '/usr/local/bin/claude\n', ''), 0);
-        } else if (cmd === 'claude --version') {
+        } else if (cmd === VERSION_CMD) {
           setTimeout(() => callback(null, 'v1.2.3\n', ''), 0);
         }
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI();
@@ -42,13 +50,31 @@ describe('PTY Service - detectClaudeCLI', () => {
       });
     });
 
+    it('should use a claude binary found in a common install path without calling which', async () => {
+      vi.mocked(fs.existsSync).mockImplementation((p) => p === '/usr/local/bin/claude');
+      vi.mocked(exec).mockImplementation((cmd, options, callback) => {
+        setTimeout(() => callback(null, 'v9.9.9\n', ''), 0);
+        return {};
+      });
+
+      const resultPromise = detectClaudeCLI();
+      await vi.runAllTimersAsync();
+
+      expect(await resultPromise).toEqual({
+        installed: true,
+        path: '/usr/local/bin/claude',
+        version: 'v9.9.9',
+      });
+      expect(exec).not.toHaveBeenCalledWith('which claude', expect.anything(), expect.anything());
+    });
+
     it('should return not installed when which command fails', async () => {
       // Mock failed 'which claude' call
       vi.mocked(exec).mockImplementation((cmd, options, callback) => {
         if (cmd === 'which claude') {
           setTimeout(() => callback(new Error('Command not found'), '', 'not found'), 0);
         }
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI();
@@ -65,10 +91,10 @@ describe('PTY Service - detectClaudeCLI', () => {
       vi.mocked(exec).mockImplementation((cmd, options, callback) => {
         if (cmd === 'which claude') {
           setTimeout(() => callback(null, '/usr/local/bin/claude\n', ''), 0);
-        } else if (cmd === 'claude --version') {
+        } else if (cmd === VERSION_CMD) {
           setTimeout(() => callback(new Error('Version failed'), '', ''), 0);
         }
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI();
@@ -86,7 +112,7 @@ describe('PTY Service - detectClaudeCLI', () => {
       // Mock exec that never calls callback
       vi.mocked(exec).mockImplementation(() => {
         // Never call the callback to simulate hanging
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI();
@@ -108,7 +134,7 @@ describe('PTY Service - detectClaudeCLI', () => {
 
       // Mock exec that returns a process object but never calls callback
       vi.mocked(exec).mockImplementation(() => {
-        return mockProcess as any;
+        return mockProcess;
       });
 
       const resultPromise = detectClaudeCLI();
@@ -136,7 +162,7 @@ describe('PTY Service - detectClaudeCLI', () => {
           setTimeout(() => callback(null, '/usr/local/bin/claude\n', ''), 0);
         }
         // claude --version never calls callback (hangs)
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI().then((result) => {
@@ -163,10 +189,10 @@ describe('PTY Service - detectClaudeCLI', () => {
 
         if (cmd === 'which claude') {
           setTimeout(() => callback(null, '/usr/local/bin/claude\n', ''), 0);
-        } else if (cmd === 'claude --version') {
+        } else if (cmd === VERSION_CMD) {
           setTimeout(() => callback(null, 'v1.0.0\n', ''), 0);
         }
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI();
@@ -180,7 +206,7 @@ describe('PTY Service - detectClaudeCLI', () => {
         expect.any(Function)
       );
       expect(exec).toHaveBeenCalledWith(
-        'claude --version',
+        VERSION_CMD,
         expect.objectContaining({ timeout: 5000 }),
         expect.any(Function)
       );
@@ -192,10 +218,10 @@ describe('PTY Service - detectClaudeCLI', () => {
       vi.mocked(exec).mockImplementation((cmd, options, callback) => {
         if (cmd === 'which claude') {
           setTimeout(() => callback(null, '/usr/local/bin/claude\n', ''), 0);
-        } else if (cmd === 'claude --version') {
+        } else if (cmd === VERSION_CMD) {
           setTimeout(() => callback(null, 'v1.0.0\n', ''), 0);
         }
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI();
@@ -210,10 +236,10 @@ describe('PTY Service - detectClaudeCLI', () => {
       vi.mocked(exec).mockImplementation((cmd, options, callback) => {
         if (cmd === 'which claude') {
           setTimeout(() => callback(null, '  /usr/local/bin/claude  \n', ''), 0);
-        } else if (cmd === 'claude --version') {
+        } else if (cmd === VERSION_CMD) {
           setTimeout(() => callback(null, '  v1.2.3  \n', ''), 0);
         }
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI();
@@ -227,7 +253,7 @@ describe('PTY Service - detectClaudeCLI', () => {
 
   describe('Race Condition Prevention', () => {
     it('should not resolve if already resolved by timeout', async () => {
-      const resolveCalls: any[] = [];
+      const resolveCalls = [];
 
       // Mock hanging exec
       vi.mocked(exec).mockImplementation((cmd, options, callback) => {
@@ -237,7 +263,7 @@ describe('PTY Service - detectClaudeCLI', () => {
             callback(null, '/usr/local/bin/claude\n', '');
           }, 6000);
         }
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI().then((result) => {
@@ -262,16 +288,16 @@ describe('PTY Service - detectClaudeCLI', () => {
     });
 
     it('should not resolve if version check arrives after timeout', async () => {
-      const resolveCalls: any[] = [];
+      const resolveCalls = [];
 
       vi.mocked(exec).mockImplementation((cmd, options, callback) => {
         if (cmd === 'which claude') {
           setTimeout(() => callback(null, '/usr/local/bin/claude\n', ''), 100);
-        } else if (cmd === 'claude --version') {
+        } else if (cmd === VERSION_CMD) {
           // Version check arrives after global timeout
           setTimeout(() => callback(null, 'v1.0.0\n', ''), 6000);
         }
-        return {} as any;
+        return {};
       });
 
       const resultPromise = detectClaudeCLI().then((result) => {

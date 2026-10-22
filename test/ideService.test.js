@@ -4,9 +4,26 @@ import fs from 'fs';
 import os from 'os';
 
 // Mock dependencies
-vi.mock('child_process');
-vi.mock('fs');
-vi.mock('os');
+vi.mock('child_process', () => {
+  const cp = { spawn: vi.fn() };
+  return { default: cp, ...cp };
+});
+// Factory mock: automocked fs.promises is getter-only, tests need to replace it
+vi.mock('fs', () => {
+  const fs = {
+    promises: {},
+    constants: { F_OK: 0 },
+    existsSync: vi.fn(() => false),
+    readFileSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    mkdirSync: vi.fn(),
+  };
+  return { default: fs, ...fs };
+});
+vi.mock('os', () => {
+  const os = { platform: vi.fn(), homedir: vi.fn(() => '/home/test') };
+  return { default: os, ...os };
+});
 
 describe('IDEService', () => {
   let IDEService;
@@ -14,6 +31,8 @@ describe('IDEService', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    // Service prefers HOST_PLATFORM over os.platform(); keep the mocked platform authoritative
+    vi.stubEnv('HOST_PLATFORM', '');
 
     // Reset modules to get fresh imports
     vi.resetModules();
@@ -31,6 +50,7 @@ describe('IDEService', () => {
     it('should detect installed IDEs on macOS', async () => {
       // Mock fs.promises.access to simulate VS Code and Cursor installed
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn((path) => {
           if (path.includes('Visual Studio Code') || path.includes('Cursor')) {
             return Promise.resolve();
@@ -59,6 +79,7 @@ describe('IDEService', () => {
 
     it('should return empty array when no IDEs are installed', async () => {
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn(() => Promise.reject(new Error('Not found'))),
       };
 
@@ -74,6 +95,7 @@ describe('IDEService', () => {
       const linuxService = new IDEService();
 
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn((path) => {
           // Only the snap path exists
           if (path === '/snap/bin/code') {
@@ -100,6 +122,7 @@ describe('IDEService', () => {
   describe('openInIDE', () => {
     beforeEach(() => {
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn(() => Promise.resolve()),
       };
     });
@@ -118,18 +141,18 @@ describe('IDEService', () => {
 
       const result = await promise;
 
-      expect(spawn).toHaveBeenCalledWith('open', [
-        '-a',
-        '/Applications/Visual Studio Code.app',
-        '/path/to/project',
-      ], {
-        detached: true,
-        stdio: 'ignore',
-      });
+      expect(spawn).toHaveBeenCalledWith(
+        'open',
+        ['-a', '/Applications/Visual Studio Code.app', '/path/to/project'],
+        {
+          detached: true,
+          stdio: 'ignore',
+        }
+      );
       expect(result).toEqual({
         success: true,
         ide: 'Visual Studio Code',
-        message: 'Successfully opened project in Visual Studio Code',
+        message: 'Launched Visual Studio Code (process started successfully)',
       });
     });
 
@@ -138,6 +161,7 @@ describe('IDEService', () => {
       const linuxService = new IDEService();
 
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn(() => Promise.resolve()),
       };
 
@@ -165,6 +189,7 @@ describe('IDEService', () => {
       const winService = new IDEService();
 
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn(() => Promise.resolve()),
       };
 
@@ -194,6 +219,7 @@ describe('IDEService', () => {
 
     it('should reject when IDE is not installed', async () => {
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn((path) => {
           if (path.includes('Visual Studio Code')) {
             return Promise.reject(new Error('Not found'));
@@ -209,6 +235,7 @@ describe('IDEService', () => {
 
     it('should reject when project path does not exist', async () => {
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn((path) => {
           if (path === '/nonexistent/path') {
             return Promise.reject(new Error('Not found'));
@@ -218,7 +245,7 @@ describe('IDEService', () => {
       };
 
       await expect(ideService.openInIDE('/nonexistent/path', 'vscode')).rejects.toThrow(
-        'Project directory does not exist: /nonexistent/path'
+        'Project directory does not exist'
       );
     });
 
@@ -230,6 +257,7 @@ describe('IDEService', () => {
 
     it('should handle spawn errors', async () => {
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn(() => Promise.resolve()),
       };
 
@@ -252,6 +280,7 @@ describe('IDEService', () => {
   describe('Security', () => {
     it('should not allow command injection through project path', async () => {
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn(() => Promise.resolve()),
       };
 
@@ -269,11 +298,15 @@ describe('IDEService', () => {
       await promise;
 
       // Verify that spawn is called with arguments array (no shell interpretation)
-      expect(spawn).toHaveBeenCalledWith('open', [
-        '-a',
-        '/Applications/Visual Studio Code.app',
-        maliciousPath, // Passed as-is in args array, not interpreted by shell
-      ], expect.any(Object));
+      expect(spawn).toHaveBeenCalledWith(
+        'open',
+        [
+          '-a',
+          '/Applications/Visual Studio Code.app',
+          maliciousPath, // Passed as-is in args array, not interpreted by shell
+        ],
+        expect.any(Object)
+      );
     });
 
     it('should not allow command injection on Windows', async () => {
@@ -281,6 +314,7 @@ describe('IDEService', () => {
       const winService = new IDEService();
 
       fs.promises = {
+        realpath: vi.fn((p) => Promise.resolve(p)),
         access: vi.fn(() => Promise.resolve()),
       };
 

@@ -37,7 +37,7 @@ import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
-import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
+import { initializeDatabase, isDatabaseConnected } from './db/index.js';
 import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
@@ -152,18 +152,8 @@ const startAppSchema = z.object({
   port: z.number().int().min(1).max(65535).optional(),
 });
 
-const configUpdateSchema = z.object({
-  scanDepth: z.number().int().min(1).max(10).optional(),
-  excludePatterns: z.array(z.string().max(50)).max(20).optional(),
-});
-
 const directorySchema = z.object({
   path: pathSchema,
-});
-
-const analyzeSchema = z.object({
-  fileName: z.string().min(1).max(100),
-  fileContent: z.string().min(1).max(50000),
 });
 
 // IDE ID can be built-in or custom (alphanumeric with dashes)
@@ -209,7 +199,7 @@ function validate(schema) {
 function validateParams(schema) {
   return (req, res, next) => {
     try {
-      for (const [key, value] of Object.entries(req.params)) {
+      for (const value of Object.values(req.params)) {
         schema.parse(value);
       }
       next();
@@ -1256,11 +1246,10 @@ app.post('/api/settings/api-keys/:provider/validate', async (req, res) => {
     if (provider === 'gemini') {
       try {
         const ai = new GoogleGenAI({ apiKey: key.trim() });
-        const response = await ai.models.generateContent({
+        await ai.models.generateContent({
           model: 'gemini-2.0-flash',
           contents: 'Respond with exactly: OK',
         });
-        const text = response.text;
         res.json({ valid: true, message: 'API key is valid' });
       } catch (err) {
         const message = err.message || 'Invalid API key';

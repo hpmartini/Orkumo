@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import { getDataFilePath, ensureDataDirectory } from './dataPath.js';
 
 // Settings file path - stored in persistent data directory

@@ -111,9 +111,16 @@ export default [
     },
   },
   {
-    files: ['**/*.js'],
+    files: ['**/*.{js,cjs}'],
+    rules: {
+      // optional catch binding is fine; unused catch params are not worth flagging
+      'no-unused-vars': ['error', { caughtErrors: 'none', argsIgnorePattern: '^_' }],
+    },
     languageOptions: {
       globals: {
+        global: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
         console: 'readonly',
         process: 'readonly',
         __dirname: 'readonly',
@@ -136,11 +143,25 @@ export default [
     },
   },
   {
+    files: ['public/**/*.js'],
+    languageOptions: {
+      globals: {
+        window: 'readonly',
+        HTMLElement: 'readonly',
+        Window: 'readonly',
+        Request: 'readonly',
+        XMLHttpRequest: 'readonly',
+      },
+    },
+  },
+  {
     ignores: [
       'node_modules/**',
       'dist/**',
       'build/**',
       'coverage/**',
+      '.claude/**',
+      'dist-server/**',
       '*.config.js',
       '*.config.ts',
     ],

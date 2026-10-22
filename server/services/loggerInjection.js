@@ -59,21 +59,6 @@ ${END_MARKER}`;
 }
 
 /**
- * Generate the Next.js App Router injection (for layout.tsx)
- */
-function getNextjsAppRouterScript() {
-  return `${JS_START_MARKER}
-const DevOrbitScript = () => (
-  <script
-    dangerouslySetInnerHTML={{
-      __html: \`${INLINE_LOGGER_SCRIPT}\`
-    }}
-  />
-);
-${JS_END_MARKER}`;
-}
-
-/**
  * Injection strategies for different file types/frameworks
  */
 const INJECTION_STRATEGIES = {
@@ -87,9 +72,7 @@ const INJECTION_STRATEGIES = {
       if (headMatch) {
         const insertPos = headMatch.index + headMatch[0].length;
         return (
-          content.slice(0, insertPos) +
-          '\n' + getHtmlScriptTag() + '\n' +
-          content.slice(insertPos)
+          content.slice(0, insertPos) + '\n' + getHtmlScriptTag() + '\n' + content.slice(insertPos)
         );
       }
       // Fallback: inject at the very beginning
@@ -111,10 +94,7 @@ const INJECTION_STRATEGIES = {
     inject: (content) => {
       // SvelteKit uses %sveltekit.head% placeholder
       if (content.includes('%sveltekit.head%')) {
-        return content.replace(
-          '%sveltekit.head%',
-          getHtmlScriptTag() + '\n%sveltekit.head%'
-        );
+        return content.replace('%sveltekit.head%', getHtmlScriptTag() + '\n%sveltekit.head%');
       }
       // Fallback to standard HTML injection
       return INJECTION_STRATEGIES.html.inject(content);
@@ -132,8 +112,8 @@ const INJECTION_STRATEGIES = {
       if (injectionFile.router === 'app') {
         // App Router - need to add Script component
         // Check if Script is already imported
-        const hasScriptImport = content.includes("from 'next/script'") ||
-                               content.includes('from "next/script"');
+        const hasScriptImport =
+          content.includes("from 'next/script'") || content.includes('from "next/script"');
 
         let modifiedContent = content;
 
@@ -180,11 +160,7 @@ ${JS_END_MARKER}`;
 ${JS_START_MARKER}
           <script dangerouslySetInnerHTML={{ __html: \`${INLINE_LOGGER_SCRIPT}\` }} />
 ${JS_END_MARKER}`;
-        return (
-          content.slice(0, insertPos) +
-          scriptComponent +
-          content.slice(insertPos)
-        );
+        return content.slice(0, insertPos) + scriptComponent + content.slice(insertPos);
       }
 
       return content;
@@ -208,7 +184,7 @@ ${JS_END_MARKER}`;
    * Nuxt - uses plugins for proper injection
    */
   nuxt: {
-    inject: (content, injectionFile) => {
+    inject: (content) => {
       // For Nuxt, we create a plugin file instead of modifying app.vue
       // This is handled separately - return content unchanged
       // The API will create the plugin file
@@ -241,23 +217,6 @@ function createBackup(filePath) {
     console.error(`[LoggerInjection] Failed to create backup:`, error);
     return null;
   }
-}
-
-/**
- * Restore a file from backup
- */
-function restoreBackup(filePath) {
-  const backupPath = filePath + '.devorbit-backup';
-  try {
-    if (fs.existsSync(backupPath)) {
-      fs.copyFileSync(backupPath, filePath);
-      fs.unlinkSync(backupPath);
-      return true;
-    }
-  } catch (error) {
-    console.error(`[LoggerInjection] Failed to restore backup:`, error);
-  }
-  return false;
 }
 
 /**

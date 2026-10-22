@@ -1,7 +1,7 @@
 import { app, BrowserWindow, BrowserView, ipcMain, Menu, dialog, shell } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
-import { fork, spawn } from 'child_process';
+import { fork } from 'child_process';
 import * as fs from 'fs';
 import { createServer } from 'net';
 import dotenv from 'dotenv';
