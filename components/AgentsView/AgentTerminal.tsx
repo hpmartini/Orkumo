@@ -49,9 +49,15 @@ interface AgentTerminalProps {
 /**
  * Build the PTY WebSocket URL for `claude attach <id>`.
  */
-export function buildAttachUrl(sessionId: string, cwd: string, cols: number, rows: number): string {
+export function buildAttachUrl(
+  sessionId: string,
+  cwd: string,
+  cols: number,
+  rows: number,
+  cliArgs: string[] = ['attach', sessionId]
+): string {
   const ptySession = `agent-${sessionId}-${Date.now()}`;
-  const args = encodeURIComponent(JSON.stringify(['attach', sessionId]));
+  const args = encodeURIComponent(JSON.stringify(cliArgs));
   return `${getWsUrl('/api/pty')}?sessionId=${ptySession}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}&command=claude&args=${args}`;
 }
 
@@ -190,7 +196,13 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     } catch {
       // ignore
     }
-    const url = buildAttachUrl(session.id, session.cwd, terminal.cols, terminal.rows);
+    const url = buildAttachUrl(
+      session.id,
+      session.cwd,
+      terminal.cols,
+      terminal.rows,
+      session.ptyArgs
+    );
     const ws = new WebSocket(url);
     wsRef.current = ws;
     if (generation > 0) terminal.reset();
@@ -207,7 +219,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
             terminal.write(data.data);
             break;
           case 'connected':
-            terminal.write(`\x1b[2m# claude attach ${session.id} (PID ${data.pid})\x1b[0m\r\n`);
+            terminal.write(
+              `\x1b[2m# claude ${(session.ptyArgs ?? ['attach', session.id]).join(' ')} (PID ${data.pid})\x1b[0m\r\n`
+            );
             break;
           case 'exit':
             terminal.write(`\r\n\x1b[2m# detached (exit code ${data.exitCode})\x1b[0m\r\n`);

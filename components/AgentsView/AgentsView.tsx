@@ -37,6 +37,7 @@ import {
   replyToAgent,
   respawnAgent,
   stopAgent,
+  openCloudSession,
 } from '../../services/agentsApi';
 import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
 import {
@@ -68,6 +69,7 @@ import {
   PALETTE_SHORTCUT,
 } from '../CommandPalette';
 import type { PaletteCommand } from '../../utils/commandPalette';
+import { CloudSessionBar } from './CloudSessionBar';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
 import { ResumePicker } from './ResumePicker';
@@ -172,6 +174,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [repos, setRepos] = useState<AgentRepo[]>([]);
   const [commands, setCommands] = useState<AgentSlashCommand[]>([]);
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
+  // Cloud/remote PTY tabs live client-side only (not in the `claude agents` list)
+  const [cloudSessions, setCloudSessions] = useState<AgentSession[]>([]);
   const [dispatchCwd, setDispatchCwd] = useState<string | null>(() =>
     localStorage.getItem(DISPATCH_CWD_STORAGE_KEY)
   );
@@ -367,8 +371,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Drop tabs for sessions that no longer exist
   useEffect(() => {
     if (loading || sessions.length === 0) return;
-    pruneMissing(new Set(sessions.map((s) => s.id)));
-  }, [sessions, loading, pruneMissing]);
+    pruneMissing(new Set([...sessions, ...cloudSessions].map((s) => s.id)));
+  }, [sessions, cloudSessions, loading, pruneMissing]);
 
   const showHint = useCallback(
     (text: string, tone: 'info' | 'error' | 'success' = 'info', ttl = 4000) => {
@@ -389,6 +393,38 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       setSelectedKey(id);
     },
     [attachPane]
+  );
+
+  const openCloud = useCallback(
+    async (target?: string) => {
+      const { args } = await openCloudSession(target);
+      const id = `cloud-${Date.now()}`;
+      const session: AgentSession = {
+        id,
+        sessionId: null,
+        kind: 'interactive',
+        cwd: targetCwd || '',
+        startedAt: Date.now(),
+        name: target ? `Cloud ${target.slice(-8)}` : 'Cloud-Sessions',
+        state: null,
+        ptyArgs: args,
+        pinned: false,
+        order: null,
+        links: [],
+        displayState: 'idle',
+      };
+      setCloudSessions((prev) => [...prev, session]);
+      attach(id);
+    },
+    [targetCwd, attach]
+  );
+
+  const closeAnyPane = useCallback(
+    (id: string) => {
+      setCloudSessions((prev) => prev.filter((s) => s.id !== id));
+      closePane(id);
+    },
+    [closePane]
   );
 
   // ---------------------------------------------------------------------
@@ -1387,6 +1423,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               </button>
             </div>
           )}
+          <CloudSessionBar onOpen={openCloud} />
           {/* Feedback for actions started outside the composer (the composer shows its own) */}
           <div role="status" aria-live="polite">
             {!composerOpen && (hint || dispatching) && (
@@ -1409,11 +1446,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         <div className="flex-1 min-w-0 min-h-0 hidden md:flex overflow-hidden">
           <div className="flex-1 min-w-0 min-h-0">
             <AgentWorkspace
-              sessions={sessions}
+              sessions={[...sessions, ...cloudSessions]}
               workspace={workspace}
               onActivateTab={workspaceActions.activateTab}
               onFocusPane={workspaceActions.focusPane}
-              onClosePane={closePane}
+              onClosePane={closeAnyPane}
               onCloseTab={workspaceActions.closeTab}
               onMoveTab={workspaceActions.moveTab}
               onSplit={workspaceActions.split}

@@ -279,6 +279,8 @@ export interface AgentSession {
   /** Full session UUID (usable with `claude --resume`) */
   sessionId: string | null;
   kind: 'background' | 'interactive';
+  /** Client-side cloud/remote session: PTY args instead of `attach <id>` */
+  ptyArgs?: string[];
   cwd: string;
   startedAt: number;
   updatedAt?: number | null;

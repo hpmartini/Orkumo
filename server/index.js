@@ -3072,6 +3072,23 @@ app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), as
   }
 });
 
+/**
+ * POST /api/agents/cloud-session - validated CLI args for a cloud/remote session PTY
+ * (`claude --cloud <id|url>` or `claude --teleport`). The client opens the PTY via /api/pty.
+ */
+app.post(
+  '/api/agents/cloud-session',
+  agentLimiter,
+  validate(z.object({ target: z.string().max(500).optional().nullable() })),
+  (req, res) => {
+    try {
+      res.json({ args: agentService.buildCloudArgs(req.body.target) });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
 app.post('/api/agents/respawn-all', agentLimiter, async (req, res) => {
   try {
     res.json(await agentService.respawnSession('--all'));
@@ -3527,6 +3544,17 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'Invalid args format' }));
         ws.close();
         return;
+      }
+      // `--cloud` takes free text as a NEW session description: only validated ids/URLs may pass
+      const cloudAt = parsedArgs.indexOf('--cloud');
+      if (command === 'claude' && cloudAt !== -1) {
+        try {
+          agentService.buildCloudArgs(parsedArgs[cloudAt + 1]);
+        } catch {
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid cloud session target' }));
+          ws.close();
+          return;
+        }
       }
       // Validate args length to prevent DoS
       if (parsedArgs.length > MAX_ARGS_LENGTH) {

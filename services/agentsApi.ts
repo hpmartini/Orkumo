@@ -83,6 +83,13 @@ export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatch
   });
 }
 
+export function openCloudSession(target?: string): Promise<{ args: string[] }> {
+  return request<{ args: string[] }>('/agents/cloud-session', {
+    method: 'POST',
+    body: JSON.stringify({ target: target || null }),
+  });
+}
+
 export function fetchAgentLogs(id: string, lines = 40): Promise<AgentLogs> {
   return request<AgentLogs>(`/agents/${encodeURIComponent(id)}/logs${query({ lines })}`);
 }
