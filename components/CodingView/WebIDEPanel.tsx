@@ -519,27 +519,6 @@ export const WebIDEPanel = ({
     console.log('[WebIDEPanel] Iframe loaded successfully, updated lastCodeServerReadyTime');
   }, [codeServerReady, loadTimeout]);
 
-  // Handle iframe error with debounce to prevent cascade failures
-  const handleIframeError = useCallback(() => {
-    // Debounce: if another error handler fired within 1 second, skip
-    const now = Date.now();
-    if (now - lastErrorTime.current < 1000) {
-      console.log('[WebIDEPanel] Iframe error debounced');
-      return;
-    }
-    lastErrorTime.current = now;
-
-    // Clear timeout since we got an error
-    if (loadTimeout) {
-      clearTimeout(loadTimeout);
-      setLoadTimeout(null);
-    }
-    setCodeServerLoading(false);
-    setCodeServerError(
-      'Failed to load VS Code. Make sure code-server is running (docker compose up code-server)'
-    );
-  }, [loadTimeout]);
-
   // Track retry count for iframe timeout handling
   const iframeRetryCount = useRef(0);
   const maxIframeRetries = 2;
@@ -991,7 +970,6 @@ export const WebIDEPanel = ({
             className="w-full h-full border-0"
             title="VS Code Server"
             onLoad={handleIframeLoad}
-            onError={handleIframeError}
             // Security: allow-same-origin is required for code-server authentication
             // code-server uses cookies for session management which requires same-origin access
             // This is safe because code-server is served through our nginx proxy on the same origin
