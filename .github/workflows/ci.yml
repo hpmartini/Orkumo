@@ -33,7 +33,6 @@ jobs:
 
       - name: TypeScript check
         run: bunx tsc --noEmit
-        continue-on-error: true  # Allow build to continue even with type errors
 
       - name: Lint
         run: bun run lint
