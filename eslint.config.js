@@ -162,6 +162,7 @@ export default [
       'coverage/**',
       '.claude/**',
       'dist-server/**',
+      'dist-electron/**',
       '*.config.js',
       '*.config.ts',
     ],

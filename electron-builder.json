@@ -9,6 +9,7 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
+    "config/**/*",
     "!electron/**/*.md",
     "dist-server/**/*",
     "node_modules/**/*",
