@@ -44,6 +44,18 @@ export interface ExternalUrlResult extends IpcResult {}
 
 export interface InstallUpdateResult extends IpcResult {}
 
+export interface BrowserViewBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface BrowserViewResult {
+  success: boolean;
+  error?: string;
+}
+
 export interface ElectronAPI {
   // Platform information
   getPlatform: () => Promise<PlatformInfo>;
@@ -51,6 +63,21 @@ export interface ElectronAPI {
 
   // External links
   openExternal: (url: string) => Promise<ExternalUrlResult>;
+
+  // Window state
+  onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void;
+  getFullscreenState: () => Promise<boolean>;
+
+  // Embedded browser preview (BrowserView)
+  browserView: {
+    create: (viewId: string, bounds: BrowserViewBounds) => Promise<BrowserViewResult>;
+    navigate: (viewId: string, url: string) => Promise<BrowserViewResult>;
+    resize: (viewId: string, bounds: BrowserViewBounds) => Promise<BrowserViewResult>;
+    destroy: (viewId: string) => Promise<BrowserViewResult>;
+    openDevTools: (viewId: string) => Promise<BrowserViewResult>;
+    closeDevTools: (viewId: string) => Promise<BrowserViewResult>;
+    refresh: (viewId: string) => Promise<BrowserViewResult>;
+  };
 
   // Native dialogs
   showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxResult>;

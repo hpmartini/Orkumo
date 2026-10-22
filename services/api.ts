@@ -457,7 +457,7 @@ export interface AppSettings {
   customNames: Record<string, string>;
   preferredIDEs?: Record<string, string>;
   favoritesSortMode: FavoritesSortMode;
-  keyboardShortcuts?: Record<string, unknown>;
+  keyboardShortcuts?: KeyboardShortcuts;
   version: number;
 }
 
@@ -705,7 +705,7 @@ export async function configureAllPorts(
   const sessionId = onProgress ? crypto.randomUUID() : undefined;
 
   // Connect to SSE endpoint for progress updates if onProgress is provided
-  let eventSource: EventSource | null = null;
+  let eventSource = null as EventSource | null;
   if (sessionId && onProgress) {
     // Wait for SSE connection to be established before making POST request
     await new Promise<void>((resolve, reject) => {

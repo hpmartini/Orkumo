@@ -163,7 +163,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
                 className={`p-1.5 rounded-md flex items-center gap-1 text-xs transition-all ${
                   favoritesSortMode === mode
                     ? 'bg-yellow-600/30 text-yellow-400'
-                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50'
+                    : 'text-gray-500 hover:text-white hover:bg-gray-700/50'
                 }`}
                 title={label}
               >
@@ -197,7 +197,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
               {/* Drag handle - only show in manual mode */}
               {favoritesSortMode === 'manual' && (
                 <div
-                  className="cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-gray-300"
+                  className="cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-white"
                   onMouseDown={(e) => e.stopPropagation()}
                 >
                   <GripVertical size={16} />

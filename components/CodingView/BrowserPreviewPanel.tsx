@@ -480,7 +480,7 @@ const IframeBrowserPreview = ({
                     className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
                       activeTab === 'console'
                         ? 'bg-blue-600 text-white'
-                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
                     }`}
                   >
                     <TerminalIcon className="w-3 h-3" />
@@ -494,7 +494,7 @@ const IframeBrowserPreview = ({
                     className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
                       activeTab === 'network'
                         ? 'bg-blue-600 text-white'
-                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                        : 'text-gray-400 hover:text-white hover:bg-gray-800'
                     }`}
                   >
                     <Globe className="w-3 h-3" />

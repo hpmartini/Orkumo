@@ -16,12 +16,7 @@ export const isElectron =
 // it actually bound (SERVER_PORT / .env.local). Falling back to the compiled-in
 // default silently breaks every request whenever the port is customised.
 const SERVER_PORT =
-  (typeof window !== 'undefined' &&
-    // @ts-expect-error the global Window.electronAPI type is shadowed by the
-    // narrower declaration in components/CodingView/ElectronBrowserView.tsx;
-    // the full contract lives in electron/electron.d.ts
-    window.electronAPI?.serverPort) ||
-  PORTS.server;
+  (typeof window !== 'undefined' && window.electronAPI?.serverPort) || PORTS.server;
 
 // Base URL for API requests
 export const API_BASE_URL = isElectron ? `http://localhost:${SERVER_PORT}/api` : '/api';

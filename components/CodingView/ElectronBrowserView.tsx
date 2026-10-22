@@ -25,35 +25,11 @@ const VIEWPORTS: Record<Viewport, { width: number | null; label: string; icon: L
   mobile: { width: 375, label: 'Mobile', icon: Smartphone },
 };
 
-// Type declaration for Electron API exposed via preload
-interface ElectronAPI {
-  browserView: {
-    create: (viewId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<{ success: boolean; error?: string }>;
-    navigate: (viewId: string, url: string) => Promise<{ success: boolean; error?: string }>;
-    resize: (viewId: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<{ success: boolean; error?: string }>;
-    destroy: (viewId: string) => Promise<{ success: boolean; error?: string }>;
-    openDevTools: (viewId: string) => Promise<{ success: boolean; error?: string }>;
-    closeDevTools: (viewId: string) => Promise<{ success: boolean; error?: string }>;
-    refresh: (viewId: string) => Promise<{ success: boolean; error?: string }>;
-  };
-  isElectron: boolean;
-}
-
-declare global {
-  interface Window {
-    electronAPI?: ElectronAPI;
-  }
-}
-
 /**
  * ElectronBrowserView - Renders an embedded Chromium browser using Electron's BrowserView
  * This provides access to real Chrome DevTools instead of simulated console/network logs.
  */
-export const ElectronBrowserView = ({
-  url,
-  appId,
-  onHide,
-}: ElectronBrowserViewProps) => {
+export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const viewIdRef = useRef<string>(`browser-view-${appId}`);
   const [viewport, setViewport] = useState<Viewport>('desktop');
@@ -321,7 +297,11 @@ export const ElectronBrowserView = ({
       </div>
 
       {/* Viewport Controls */}
-      <div className="flex gap-1 p-2 bg-gray-850 border-b border-gray-700" role="group" aria-label="Viewport size selector">
+      <div
+        className="flex gap-1 p-2 bg-gray-850 border-b border-gray-700"
+        role="group"
+        aria-label="Viewport size selector"
+      >
         {Object.entries(VIEWPORTS).map(([key, { label, icon: Icon }]) => (
           <button
             key={key}
@@ -344,10 +324,12 @@ export const ElectronBrowserView = ({
       <div
         ref={containerRef}
         className="flex-1 bg-white relative"
-        style={{
-          // The BrowserView is positioned absolutely by Electron
-          // This container just marks where it should appear
-        }}
+        style={
+          {
+            // The BrowserView is positioned absolutely by Electron
+            // This container just marks where it should appear
+          }
+        }
       >
         {/* Error overlay */}
         {error && (
