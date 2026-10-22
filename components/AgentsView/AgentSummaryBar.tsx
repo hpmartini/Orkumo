@@ -85,7 +85,7 @@ export const AgentSummaryBar: React.FC<AgentSummaryBarProps> = ({
       {toggle('completed', counts.completed, 'completed', 'text-emerald-300')}
       {(counts.failed > 0 || active.has('failed')) &&
         toggle('failed', counts.failed, 'failed', 'text-red-400')}
-      <span className="text-gray-700 px-1" aria-hidden="true">
+      <span className="text-gray-600 px-1" aria-hidden="true">
         |
       </span>
       <button
@@ -241,7 +241,7 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
                 on
                   ? 'bg-blue-500/20 border-blue-500/50 text-blue-200'
                   : count === 0
-                    ? 'border-gray-800 text-gray-600 hover:bg-gray-800'
+                    ? 'border-gray-800 text-gray-500 hover:bg-gray-800'
                     : 'border-gray-700 text-gray-300 hover:bg-gray-800'
               }`}
             >

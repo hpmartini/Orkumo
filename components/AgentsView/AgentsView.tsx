@@ -8,6 +8,8 @@ import {
   Braces,
   AlertTriangle,
   Power,
+  Plus,
+  Search,
   X,
 } from 'lucide-react';
 import type { AgentConfigLike } from './types';
@@ -21,6 +23,7 @@ import type {
 import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
 import { useAgentContexts } from '../../hooks/useAgentContexts';
+import { FOCUS_CHORD_LABEL, useAgentFocusZone } from '../../hooks/useAgentFocusZone';
 import {
   dispatchAgent,
   fetchAgentsRawJson,
@@ -58,7 +61,13 @@ import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
 import { ServersPanel, type ServerRow } from './ServersPanel';
-import { DispatchInput } from './DispatchInput';
+import {
+  TaskComposerModal,
+  useCommandPalette,
+  useRegisterCommands,
+  PALETTE_SHORTCUT,
+} from '../CommandPalette';
+import type { PaletteCommand } from '../../utils/commandPalette';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
 import { ResumePicker } from './ResumePicker';
@@ -74,6 +83,8 @@ interface AgentsViewProps {
   onExit: () => void;
   /** App navigation for the merged left rail (replaces the separate app sidebar) */
   nav: RailNavProps;
+  /** Make this view the visible route (palette command "New task" from another page) */
+  onOpenView: () => void;
 }
 
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
@@ -107,7 +118,14 @@ function isInsideTerminal(target: EventTarget | null): boolean {
  * Browser counterpart of `claude agents`: session list, dispatch input, peek panel
  * and attached sessions in tabs / tiles.
  */
-export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, nav }) => {
+export const AgentsView: React.FC<AgentsViewProps> = ({
+  active,
+  apps,
+  onExit,
+  nav,
+  onOpenView,
+}) => {
+  const palette = useCommandPalette();
   const {
     sessions,
     daemon,
@@ -145,6 +163,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
     open: false,
     query: '',
   });
+  const [composerOpen, setComposerOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
   const [dispatching, setDispatching] = useState(false);
@@ -168,6 +187,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
 
   const filter = useMemo(() => parseFilter(input), [input]);
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
+  const railRef = useRef<HTMLDivElement>(null);
+  const { zone: focusZone } = useAgentFocusZone(active, railRef);
   const contexts = useAgentContexts(active);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
@@ -349,14 +370,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
     pruneMissing(new Set(sessions.map((s) => s.id)));
   }, [sessions, loading, pruneMissing]);
 
-  // Focus the dispatch input when the view becomes active
-  useEffect(() => {
-    if (active) {
-      const id = requestAnimationFrame(() => inputRef.current?.focus());
-      return () => cancelAnimationFrame(id);
-    }
-  }, [active]);
-
   const showHint = useCallback(
     (text: string, tone: 'info' | 'error' | 'success' = 'info', ttl = 4000) => {
       setHint({ text, tone });
@@ -436,6 +449,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
           cwd,
         });
         setInput('');
+        setComposerOpen(false);
         setHighlightedId(result.id);
         setSelectedKey(result.id);
         showHint(
@@ -471,6 +485,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
           const model = !args || args === 'default' ? null : args;
           await updateSettings({ dispatch: { ...settings.dispatch, model } });
           setInput('');
+          setComposerOpen(false);
           showHint(model ? `Dispatch model: ${model}` : 'Dispatch model: default', 'success');
           return;
         }
@@ -478,6 +493,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
           const effort = !args || args === 'default' ? null : args;
           await updateSettings({ dispatch: { ...settings.dispatch, effort } });
           setInput('');
+          setComposerOpen(false);
           showHint(effort ? `Dispatch effort: ${effort}` : 'Dispatch effort: default', 'success');
           return;
         }
@@ -499,8 +515,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
       const parsed = parseDispatchInput(input, { subagents, repos });
       switch (parsed.kind) {
         case 'empty':
+          showHint('Describe the task first', 'error');
+          return;
         case 'filter':
-          activateItem(selectedItem);
+          // The list filter follows `input`; keep it and let the user see the narrowed list
+          setComposerOpen(false);
           return;
         case 'select-pr': {
           const match = sessions.find((s) =>
@@ -516,6 +535,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
           }
           setSelectedKey(match.id);
           setInput('');
+          setComposerOpen(false);
           if (attachAfter) attach(match.id);
           return;
         }
@@ -540,18 +560,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
           return;
       }
     },
-    [
-      input,
-      subagents,
-      repos,
-      activateItem,
-      selectedItem,
-      sessions,
-      showHint,
-      attach,
-      handleCommand,
-      doDispatch,
-    ]
+    [input, subagents, repos, sessions, showHint, attach, handleCommand, doDispatch]
   );
 
   const handleRename = useCallback(
@@ -742,16 +751,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
         resumePicker.open ||
         editorOpen ||
         pickDirOpen ||
+        composerOpen ||
+        palette.isOpen ||
         panel !== null;
       if (modalOpen) return;
       if (isInsideTerminal(e.target)) return;
       const target = e.target as HTMLElement | null;
-      const inDispatch = target === inputRef.current;
-      const inOtherInput = isEditableTarget(target) && !inDispatch;
+      // Explicit type: an inferred alias would narrow `target` to never below
+      const inOtherInput: boolean = isEditableTarget(target);
       const key = e.key.toLowerCase();
       const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
 
-      // Global (also inside the dispatch input)
+      // Global (also inside text inputs)
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyN') {
+        e.preventDefault();
+        setComposerOpen(true);
+        return;
+      }
       if (ctrl && key === 's' && !e.shiftKey) {
         e.preventDefault();
         toggleGrouping();
@@ -780,26 +796,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
       if (inOtherInput) return; // peek reply / rename inputs handle their own keys
 
       if (ctrl && key === 'x' && !e.shiftKey) {
-        const el = inputRef.current;
-        const hasSelection = inDispatch && el && el.selectionStart !== el.selectionEnd;
-        if (hasSelection) return; // let the browser cut
         e.preventDefault();
         handleStopOrDelete(selectedItem);
         return;
       }
       if (ctrl && key === 'c') {
-        if (
-          inDispatch &&
-          inputRef.current &&
-          inputRef.current.selectionStart !== inputRef.current.selectionEnd
-        )
-          return; // copy
         e.preventDefault();
-        if (input) {
-          setInput('');
-          ctrlCRef.current = 0;
-          return;
-        }
         const nowMs = Date.now();
         if (nowMs - ctrlCRef.current < 1200) {
           ctrlCRef.current = 0;
@@ -815,20 +817,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
         handleReorder(e.key === 'ArrowUp' ? 'up' : 'down');
         return;
       }
-      if (e.key === '?' && !input && !e.ctrlKey && !e.metaKey) {
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setShowHelp(true);
         return;
-      }
-      if (inDispatch) {
-        if (e.key === 'ArrowRight' && !input) {
-          e.preventDefault();
-          if (selectedSession) attach(selectedSession.id);
-        } else if (e.key === 'ArrowLeft' && !input && peekId) {
-          e.preventDefault();
-          setPeekId(null);
-        }
-        return; // remaining keys are handled by DispatchInput itself
       }
 
       // Rail, tab strip and popover controls keep their own Enter/Space/arrow behaviour
@@ -858,7 +850,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
           break;
         case 'Escape':
           if (peekId) setPeekId(null);
-          else inputRef.current?.focus();
+          break;
+        case 'n':
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          e.preventDefault();
+          setComposerOpen(true);
           break;
         default:
           break;
@@ -873,8 +869,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
     resumePicker.open,
     editorOpen,
     pickDirOpen,
+    composerOpen,
+    palette.isOpen,
     panel,
-    input,
     selectedItem,
     selectedSession,
     peekId,
@@ -988,6 +985,149 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
   // ---------------------------------------------------------------------
 
   const disabled = settings.disabled;
+  // ---------------------------------------------------------------------
+  // Command palette entries
+  // ---------------------------------------------------------------------
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const newTask: PaletteCommand = {
+      id: 'agents.new-task',
+      title: 'New agent task',
+      group: 'Agents',
+      scope: 'command',
+      keywords: 'dispatch compose prompt session create',
+      shortcut: 'N',
+      run: () => {
+        onOpenView();
+        setComposerOpen(true);
+      },
+    };
+    // The rest acts on the visible view only; the task composer works from every page
+    if (!active) return [newTask];
+
+    const cmd = (
+      id: string,
+      title: string,
+      group: string,
+      run: () => void,
+      extra: Partial<PaletteCommand> = {}
+    ): PaletteCommand => ({ id: `agents.${id}`, title, group, scope: 'command', run, ...extra });
+
+    const list: PaletteCommand[] = [newTask];
+    if (selectedSession) {
+      for (const action of rowActions(selectedSession)) {
+        if (action.disabled) continue;
+        list.push(
+          cmd(
+            `selected.${action.id}`,
+            `${action.label}: ${selectedSession.name}`,
+            'Selected agent',
+            action.onSelect
+          )
+        );
+      }
+    }
+    for (const mode of ['project', 'state', 'directory', 'none'] as const) {
+      if (mode === settings.grouping) continue;
+      list.push(
+        cmd(`group.${mode}`, `Group agents by ${mode}`, 'Rail', () =>
+          updateSettings({ grouping: mode })
+        )
+      );
+    }
+    for (const option of SORT_OPTIONS) {
+      list.push(
+        cmd(`sort.${option.key}`, `Sort agents by ${option.label.toLowerCase()}`, 'Rail', () =>
+          setSort({ key: option.key, dir: option.dir })
+        )
+      );
+    }
+    for (const filterOption of QUICK_FILTERS) {
+      const on = quickFilters.has(filterOption.key);
+      list.push(
+        cmd(
+          `filter.${filterOption.key}`,
+          `${on ? 'Remove' : 'Add'} filter: ${filterOption.label}`,
+          'Rail',
+          () => toggleQuickFilter(filterOption.key),
+          { keywords: filterOption.title }
+        )
+      );
+    }
+    if (quickFilters.size > 0 || filter) {
+      list.push(
+        cmd('filter.clear', 'Clear all filters', 'Rail', () => {
+          setQuickFilters(new Set());
+          setInput('');
+        })
+      );
+    }
+    const activeTab = workspace.tabs.find((t) => t.id === workspace.activeTabId);
+    if (activeTab && activeTab.panes.length > 1) {
+      for (const layout of ['columns', 'rows', 'grid'] as const) {
+        if (layout === activeTab.layout) continue;
+        list.push(
+          cmd(`layout.${layout}`, `Split layout: ${layout}`, 'Workspace', () =>
+            workspaceActions.setLayout(activeTab.id, layout)
+          )
+        );
+      }
+    }
+    if (activeTab) {
+      list.push(
+        cmd('tab.close', 'Close current tab', 'Workspace', () =>
+          workspaceActions.closeTab(activeTab.id)
+        )
+      );
+    }
+    list.push(
+      cmd('panel.prs', 'Show pull requests', 'Panels', () => {
+        setPrRepo(null);
+        setPanel('prs');
+      }),
+      cmd('panel.servers', 'Show running servers', 'Panels', () => setPanel('servers')),
+      cmd('settings', 'Dispatch defaults and settings', 'Agents', () => setShowSettings(true)),
+      cmd('shortcuts', 'Show keyboard shortcuts', 'Agents', () => setShowHelp(true), {
+        shortcut: '?',
+      }),
+      cmd('refresh', 'Refresh agent list', 'Agents', refresh),
+      cmd('copy-json', 'Copy claude agents --json', 'Agents', copyJson),
+      cmd('exit', 'Leave agents view', 'Agents', onExit)
+    );
+    for (const session of sessions) {
+      list.push({
+        id: `agent.${session.id}`,
+        title: session.name,
+        group: session.cwd.split('/').pop() || 'Agent',
+        scope: 'agent',
+        keywords: session.state ?? undefined,
+        run: () =>
+          session.kind === 'background' ? attach(session.id) : setSelectedKey(session.id),
+      });
+    }
+    return list;
+  }, [
+    active,
+    onOpenView,
+    onExit,
+    selectedSession,
+    rowActions,
+    settings.grouping,
+    updateSettings,
+    setSort,
+    quickFilters,
+    filter,
+    toggleQuickFilter,
+    workspace.tabs,
+    workspace.activeTabId,
+    workspaceActions,
+    refresh,
+    copyJson,
+    sessions,
+    attach,
+  ]);
+  useRegisterCommands('agents', paletteCommands);
+
   const defaultModel = settings.dispatch.model || userSettings?.model || 'default';
 
   if (disabled) {
@@ -1030,9 +1170,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
   return (
     <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
       {/* Header */}
-      <div className="relative flex items-center gap-3 px-4 py-2 border-b border-gray-800 shrink-0">
+      <div className="relative flex items-center gap-3 px-4 py-1.5 border-b border-gray-800 shrink-0">
         <Bot size={18} className="text-blue-400" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex items-center gap-3">
           <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
             counts={{ ...counts, completed: chipCounts.completed }}
@@ -1067,7 +1207,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
           <ServersPanel rows={serverRows} onSelectAgent={attach} onClose={() => setPanel(null)} />
         )}
         <div className="flex-1" />
-        <div className="hidden lg:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
+        <div
+          className="hidden md:flex items-center gap-1.5 text-[11px] text-gray-300"
+          role="status"
+          title="Switch with F6 or Ctrl+Alt+Left / Right"
+        >
+          <span
+            className={`px-1.5 py-0.5 rounded font-medium ${
+              focusZone === 'terminal' ? 'bg-blue-300 text-gray-950' : 'bg-gray-700 text-gray-100'
+            }`}
+          >
+            {focusZone === 'terminal' ? 'Keys: terminal' : 'Keys: agent list'}
+          </span>
+          <kbd className="kbd">{FOCUS_CHORD_LABEL}</kbd>
+          <span className="text-gray-400">switches</span>
+        </div>
+        <div className="hidden xl:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
           <span title="Dispatch model (/model)">model {defaultModel}</span>
           {settings.dispatch.effort && (
             <span title="Dispatch effort (/effort)">effort {settings.dispatch.effort}</span>
@@ -1118,7 +1273,40 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
       {/* Body */}
       <div className="flex-1 flex min-h-0">
         {/* Session list + dispatch input */}
-        <div className="w-full md:w-[340px] xl:w-[440px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40">
+        <div
+          ref={railRef}
+          tabIndex={-1}
+          data-focus-zone="rail"
+          data-rail-focused={focusZone === 'rail'}
+          className={`w-full md:w-[340px] xl:w-[440px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+        >
+          {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
+          {focusZone === 'rail' && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-10 border-2 border-blue-300/80"
+            />
+          )}
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
+            <button
+              type="button"
+              onClick={() => setComposerOpen(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              title="New task (N or Alt+N)"
+            >
+              <Plus size={14} aria-hidden /> New task
+            </button>
+            <button
+              type="button"
+              onClick={palette.open}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
+              title="Command palette"
+              aria-label={`Command palette (${PALETTE_SHORTCUT})`}
+            >
+              <Search size={13} aria-hidden />
+              <kbd className="font-mono">{PALETTE_SHORTCUT}</kbd>
+            </button>
+          </div>
           <RailNav
             nav={nav}
             grouping={settings.grouping}
@@ -1168,7 +1356,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
               nav={nav}
               top={
                 settings.grouping === 'state' ? (
-                  <ProjectsSection apps={apps} nav={nav} />
+                  <ProjectsSection
+                    apps={apps}
+                    nav={nav}
+                    filtered={quickFilters.size > 0 || !!filter}
+                  />
                 ) : undefined
               }
             />
@@ -1185,34 +1377,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
               </button>
             </div>
           )}
-          <DispatchInput
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            onNavigate={moveSelection}
-            onEscape={() => {
-              if (peekId) setPeekId(null);
-              else if (input) setInput('');
-              else inputRef.current?.blur();
-            }}
-            onSpace={() => {
-              if (selectedSession) {
-                togglePeek(selectedSession);
-                return true;
-              }
-              return false;
-            }}
-            onOpenEditor={() => setEditorOpen(true)}
-            onPickDirectory={() => setPickDirOpen(true)}
-            targetCwd={targetCwd}
-            hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
-            hintTone={hint?.tone}
-            disabled={dispatching}
-            subagents={subagents}
-            repos={repos}
-            commands={commands}
-            inputRef={inputRef}
-          />
+          {/* Feedback for actions started outside the composer (the composer shows its own) */}
+          <div role="status" aria-live="polite">
+            {!composerOpen && (hint || dispatching) && (
+              <p
+                className={`px-3 py-2 text-xs border-t border-gray-700 ${
+                  hint?.tone === 'error'
+                    ? 'text-red-300'
+                    : hint?.tone === 'success'
+                      ? 'text-emerald-300'
+                      : 'text-gray-200'
+                }`}
+              >
+                {hint?.text || 'Dispatching…'}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Workspace */}
@@ -1230,6 +1410,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
               onDetach={workspaceActions.detach}
               onSetLayout={workspaceActions.setLayout}
               onPeek={(id) => setPeekId(id)}
+              focusZone={focusZone}
             />
           </div>
           {peekSession && (
@@ -1269,6 +1450,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit, na
         repos={directoryChoices as AgentRepo[]}
         capabilities={capabilities}
         onRefresh={refresh}
+      />
+      <TaskComposerModal
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        value={input}
+        onChange={setInput}
+        onSubmit={handleSubmit}
+        onOpenEditor={() => setEditorOpen(true)}
+        onPickDirectory={() => setPickDirOpen(true)}
+        targetCwd={targetCwd}
+        hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
+        hintTone={hint?.tone}
+        disabled={dispatching}
+        subagents={subagents}
+        repos={repos}
+        commands={commands}
+        inputRef={inputRef}
       />
       <ResumePicker
         open={resumePicker.open}

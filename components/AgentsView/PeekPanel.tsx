@@ -206,7 +206,7 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
       <div
         ref={outputRef}
         className="flex-1 overflow-y-auto min-h-0 p-3 font-mono text-xs leading-5"
-        style={{ backgroundColor: '#0a0a0f' }}
+        style={{ backgroundColor: '#1a274b' }}
       >
         {loading && !logs ? (
           <div className="text-gray-600 italic">Loading recent output…</div>

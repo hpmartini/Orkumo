@@ -32,7 +32,7 @@ export const AppStatusDot: React.FC<{ status?: string }> = ({ status }) => (
           ? 'bg-red-400'
           : status === 'STARTING' || status === 'RESTARTING'
             ? 'bg-yellow-400 motion-safe:animate-pulse'
-            : 'bg-gray-600'
+            : 'bg-gray-500'
     }`}
     title={status ? status.toLowerCase() : 'stopped'}
   />
@@ -50,7 +50,7 @@ export const AppPowerButton: React.FC<{
         e.stopPropagation();
         (running ? nav.onStopApp : nav.onStartApp)(app.id);
       }}
-      className="p-1 rounded text-gray-500 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-500"
+      className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
       title={running ? `Stop ${app.name}` : `Start ${app.name}`}
       aria-label={running ? `Stop ${app.name}` : `Start ${app.name}`}
     >
@@ -65,7 +65,7 @@ export const RailNav: React.FC<{
   grouping: AgentGrouping;
   onGrouping: (grouping: AgentGrouping) => void;
 }> = ({ nav, grouping, onGrouping }) => (
-  <div className="px-3 py-2 border-b border-gray-800 space-y-2 shrink-0">
+  <div className="px-3 py-2 border-b border-gray-700 space-y-2 shrink-0">
     <div className="flex items-center gap-1 text-xs">
       <button
         onClick={nav.onOpenDashboard}
@@ -90,7 +90,7 @@ export const RailNav: React.FC<{
       </button>
     </div>
     <div
-      className="flex rounded border border-gray-800 p-0.5 text-xs"
+      className="flex rounded border border-gray-700 bg-gray-900 p-0.5 text-xs"
       role="group"
       aria-label="Group agents by (Ctrl+S)"
       title="Group agents by (Ctrl+S)"
@@ -101,7 +101,7 @@ export const RailNav: React.FC<{
           onClick={() => onGrouping(mode.key)}
           aria-pressed={grouping === mode.key}
           className={`flex-1 px-2 py-0.5 rounded ${
-            grouping === mode.key ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'
+            grouping === mode.key ? 'bg-sel text-white' : 'text-gray-300 hover:text-white'
           }`}
         >
           {mode.label}
@@ -115,7 +115,9 @@ export const RailNav: React.FC<{
 export const ProjectsSection: React.FC<{
   apps: AgentConfigLike[];
   nav: RailNavProps;
-}> = ({ apps, nav }) => {
+  /** A filter is active: the list is for agents, so keep the project list out of the way */
+  filtered?: boolean;
+}> = ({ apps, nav, filtered }) => {
   const [collapsed, setCollapsed] = useState(() => {
     try {
       // Collapsed by default: 13 expanded projects push the agents below the fold
@@ -139,35 +141,39 @@ export const ProjectsSection: React.FC<{
     );
   if (list.length === 0) return null;
   const running = list.filter(isAppRunning).length;
+  const open = !collapsed && !filtered;
   return (
-    <div className="border-b border-gray-800 pb-1">
+    <div className="mx-2 mt-2 rounded-lg border border-gray-700 bg-gray-850 overflow-hidden">
       <button
         onClick={toggle}
-        aria-expanded={!collapsed}
-        className="w-full flex items-center gap-2 px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider text-gray-500 hover:text-gray-300"
+        aria-expanded={open}
+        className={`w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-300 bg-gray-800 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${open ? 'border-b border-gray-700' : ''}`}
       >
-        {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+        {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         Projects
-        <span className="text-gray-600 normal-case tracking-normal">
+        <span className="font-normal text-gray-400">
           {running}/{list.length} running
         </span>
       </button>
-      {!collapsed &&
-        list.map((app) => (
-          <div key={app.id} className="group flex items-center gap-2 px-3 py-1 hover:bg-gray-900">
-            <AppStatusDot status={app.status} />
-            <button
-              onClick={() => nav.onOpenProject(app.id)}
-              className="flex-1 min-w-0 truncate text-left text-sm text-gray-300 hover:text-white"
-              title={`Open ${app.name}\n${app.path}`}
-            >
-              {app.name}
-            </button>
-            <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100">
-              <AppPowerButton app={app} nav={nav} />
-            </span>
-          </div>
-        ))}
+      {open && (
+        <div className="max-h-44 overflow-y-auto thin-scrollbar">
+          {list.map((app) => (
+            <div key={app.id} className="group flex items-center gap-2 px-3 py-1 hover:bg-gray-800">
+              <AppStatusDot status={app.status} />
+              <button
+                onClick={() => nav.onOpenProject(app.id)}
+                className="flex-1 min-w-0 truncate text-left text-sm text-gray-300 hover:text-white"
+                title={`Open ${app.name}\n${app.path}`}
+              >
+                {app.name}
+              </button>
+              <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                <AppPowerButton app={app} nav={nav} />
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 };

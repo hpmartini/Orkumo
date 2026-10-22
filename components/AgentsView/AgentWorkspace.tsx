@@ -16,6 +16,7 @@ import {
   type WorkspaceTab,
 } from '../../utils/agentWorkspace';
 import { AgentTerminal } from './AgentTerminal';
+import type { FocusZone } from '../../hooks/useAgentFocusZone';
 
 interface AgentWorkspaceProps {
   sessions: AgentSession[];
@@ -29,6 +30,8 @@ interface AgentWorkspaceProps {
   onDetach: (sessionId: string) => void;
   onSetLayout: (tabId: string, layout: PaneLayout) => void;
   onPeek: (sessionId: string) => void;
+  /** Where keyboard focus is; only the active pane of the visible tab can show as focused */
+  focusZone: FocusZone;
 }
 
 /** What is being dragged: a whole tab (moves its active session on split) or one pane */
@@ -56,6 +59,9 @@ const ZONE_HIGHLIGHT: Record<DropZone, string> = {
   top: 'inset-x-0 top-0 h-1/2',
   bottom: 'inset-x-0 bottom-0 h-1/2',
 };
+
+/** Panes narrower than this are unreadable terminals: stack them instead */
+const MIN_PANE_PX = 400;
 
 const isAgentDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(AGENT_TAB_MIME);
 
@@ -111,6 +117,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   onDetach,
   onSetLayout,
   onPeek,
+  focusZone,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; position: InsertPosition } | null>(
@@ -120,6 +127,8 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   const [announcement, setAnnouncement] = useState('');
   const stripRef = useRef<HTMLDivElement>(null);
   const refocusId = useRef<string | null>(null);
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [bodyWidth, setBodyWidth] = useState(Infinity);
 
   // Tabs whose sessions have not loaded yet stay in the stored workspace but are not shown
   const byId = new Map(sessions.map((s) => [s.id, s]));
@@ -133,6 +142,15 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   const activeTabId = order.includes(workspace.activeTabId ?? '')
     ? workspace.activeTabId
     : (order[0] ?? null);
+
+  const noTabs = tabs.length === 0;
+  useEffect(() => {
+    const el = bodyRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => setBodyWidth(el.clientWidth));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [noTabs]);
 
   const findTab = (id: string) =>
     stripRef.current?.querySelector<HTMLElement>(`[data-tab-id="${window.CSS.escape(id)}"]`);
@@ -218,10 +236,12 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
           session={session}
           visible={visible}
           active={session.id === tab.activeSessionId}
+          focused={visible && focusZone === 'terminal' && session.id === tab.activeSessionId}
           onFocus={() => onFocusPane(session.id)}
           onClose={() => onClosePane(session.id)}
           onPeek={() => onPeek(session.id)}
           onMaximize={multi ? () => onDetach(session.id) : undefined}
+          solo={!multi}
           headerProps={
             multi
               ? {
@@ -244,7 +264,10 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
 
   const renderPanes = (resolved: ResolvedTab, visible: boolean) => {
     const { tab, sessions: panes } = resolved;
-    const layout: PaneLayout = panes.length < 2 ? 'single' : tab.layout;
+    let layout: PaneLayout = panes.length < 2 ? 'single' : tab.layout;
+    // The stored layout stays; only the rendering falls back when panes would be too narrow
+    if (layout === 'columns' && bodyWidth / panes.length < MIN_PANE_PX) layout = 'rows';
+    if (layout === 'grid' && bodyWidth / 2 < MIN_PANE_PX) layout = 'rows';
     if (layout === 'single') return renderPane(resolved, panes[0], visible);
     if (layout === 'grid') {
       return (
@@ -519,7 +542,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
       </div>
 
       {/* Tab contents: every tab stays mounted so terminals keep their WebSockets */}
-      <div className="relative flex-1 min-h-0">
+      <div ref={bodyRef} className="relative flex-1 min-h-0">
         {tabs.map((resolved) => {
           const { tab } = resolved;
           const visible = tab.id === activeTabId;

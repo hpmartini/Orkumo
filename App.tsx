@@ -28,6 +28,8 @@ import {
 } from './components';
 import { useApps, usePerAppState } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
+import type { PaletteCommand } from './utils/commandPalette';
 import { generateProjectUrl } from './utils/routing';
 import { KeyboardShortcuts } from './types';
 import { APP_NAME } from './constants';
@@ -380,6 +382,66 @@ function AppContent() {
     enabled: !adminPanelOpen, // Disable when admin panel is open
   });
 
+  // Command palette (Cmd/Ctrl+P). Agent-specific commands are registered by AgentsView.
+  const onAppsPage = !isAgentsRoute && !!selectedAppId && !!projectId;
+  const runOnSelected = (
+    action: (id: string) => Promise<unknown>,
+    messages: { loading: string; success: string; error: string }
+  ) => {
+    if (selectedAppId) toast.promise(action(selectedAppId), messages);
+  };
+  const command = (
+    id: string,
+    title: string,
+    group: string,
+    run: () => void,
+    keywords?: string
+  ): PaletteCommand => ({ id: `app.${id}`, title, group, scope: 'command', keywords, run });
+  const appCommand = (verb: string, past: string, action: (id: string) => Promise<unknown>) => () =>
+    runOnSelected(action, {
+      loading: `${verb}...`,
+      success: `App ${past}`,
+      error: `Failed to ${verb.toLowerCase()}`,
+    });
+  const paletteCommands: PaletteCommand[] = [
+    command('dashboard', 'Go to dashboard', 'Navigate', handleSelectDashboard, 'home overview'),
+    command('agents', 'Open agents view', 'Navigate', () => navigate('/agents'), 'claude sessions'),
+    command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
+    command('sidebar', 'Toggle sidebar', 'View', handleToggleSidebarCollapse),
+    command('favorites', 'Open favorites', 'Navigate', handleToggleFavoritesPopup),
+    command('projects', 'Open project list', 'Navigate', handleToggleProjectsPopup),
+    ...(onAppsPage
+      ? [
+          command('coding', 'Toggle details / coding view', 'View', handleToggleDetailsView),
+          command(
+            'start',
+            'Start selected app',
+            'App',
+            appCommand('Start', 'started', handleStartApp)
+          ),
+          command('stop', 'Stop selected app', 'App', appCommand('Stop', 'stopped', handleStopApp)),
+          command(
+            'restart',
+            'Restart selected app',
+            'App',
+            appCommand('Restart', 'restarted', handleRestartApp)
+          ),
+        ]
+      : []),
+    ...apps
+      .filter((a) => !a.isArchived)
+      .map(
+        (a): PaletteCommand => ({
+          id: `project.${a.id}`,
+          title: a.name,
+          group: 'Project',
+          scope: 'project',
+          run: () => handleSelectApp(a.id),
+        })
+      ),
+  ];
+  useRegisterCommands('app', paletteCommands);
+
   if (loading) {
     return <LoadingSkeleton />;
   }
@@ -611,6 +673,7 @@ function AppContent() {
               active={activeTab === 'agents'}
               apps={apps}
               onExit={() => navigate('/')}
+              onOpenView={() => navigate('/agents')}
               nav={{
                 onOpenDashboard: handleSelectDashboard,
                 onOpenSettings: () => setAdminPanelOpen(true),
@@ -713,7 +776,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Router>
-        <AppRouter />
+        <CommandPaletteProvider>
+          <AppRouter />
+        </CommandPaletteProvider>
       </Router>
     </ErrorBoundary>
   );
