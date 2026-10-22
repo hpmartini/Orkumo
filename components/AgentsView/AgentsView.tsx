@@ -1164,7 +1164,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         </pre>
         <button
           onClick={refresh}
-          className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-sm text-gray-200"
+          className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200"
         >
           Check again
         </button>

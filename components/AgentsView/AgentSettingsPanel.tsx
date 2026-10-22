@@ -371,7 +371,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
               <button
                 disabled={!!busy}
                 onClick={() => runDaemon('respawn --all', respawnAllAgents)}
-                className="flex items-center gap-1 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-sm text-gray-200 disabled:opacity-50"
+                className="flex items-center gap-1 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200 disabled:opacity-50"
               >
                 <RefreshCw size={12} /> claude respawn --all
               </button>
@@ -382,7 +382,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                     stopAgentDaemon({ keepWorkers: true })
                   )
                 }
-                className="flex items-center gap-1 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-sm text-gray-200 disabled:opacity-50"
+                className="flex items-center gap-1 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200 disabled:opacity-50"
               >
                 <Power size={12} /> claude daemon stop --keep-workers
               </button>

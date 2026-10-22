@@ -266,7 +266,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                           setShowNameEditor(false);
                           setNameValue('');
                         }}
-                        className="p-2 text-gray-400 hover:bg-gray-700 rounded-lg transition-colors"
+                        className="p-2 text-gray-400 hover:bg-gray-700 hover:text-white rounded-lg transition-colors"
                         title="Cancel"
                       >
                         <X size={20} />
@@ -281,7 +281,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                             setNameValue(app.name);
                             setShowNameEditor(true);
                           }}
-                          className="p-1.5 text-gray-500 hover:text-gray-300 hover:bg-gray-700 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                          className="p-1.5 text-gray-500 hover:text-white hover:bg-gray-700 rounded-lg transition-all opacity-0 group-hover:opacity-100"
                           title="Rename application"
                         >
                           <Pencil size={16} />
@@ -350,7 +350,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                       </button>
                       <button
                         onClick={() => setShowCommandEditor(false)}
-                        className="p-1 text-gray-400 hover:bg-gray-700 rounded"
+                        className="p-1 text-gray-400 hover:bg-gray-700 hover:text-white rounded"
                         title="Cancel"
                       >
                         <X size={14} />
@@ -405,7 +405,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                         </button>
                         <button
                           onClick={() => setShowPortEditor(false)}
-                          className="p-1 text-gray-400 hover:bg-gray-700 rounded"
+                          className="p-1 text-gray-400 hover:bg-gray-700 hover:text-white rounded"
                         >
                           <X size={14} />
                         </button>
@@ -686,7 +686,7 @@ const MoreActionsMenu: React.FC<MoreActionsMenuProps> = ({
                 onOpenInFinder(appId);
                 setIsOpen(false);
               }}
-              className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+              className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
             >
               <FolderOpen size={16} />
               Open in Finder
@@ -699,7 +699,7 @@ const MoreActionsMenu: React.FC<MoreActionsMenuProps> = ({
                 onOpenInTerminal(appId);
                 setIsOpen(false);
               }}
-              className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+              className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
             >
               <Terminal size={16} />
               Open in Terminal
@@ -710,7 +710,7 @@ const MoreActionsMenu: React.FC<MoreActionsMenuProps> = ({
             onClick={() => {
               setShowIDESelector(!showIDESelector);
             }}
-            className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+            className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
           >
             <Code size={16} />
             Open in IDE
@@ -737,7 +737,7 @@ const MoreActionsMenu: React.FC<MoreActionsMenuProps> = ({
                   onToggleArchive(appId);
                   setIsOpen(false);
                 }}
-                className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 transition-colors"
+                className="w-full px-3 py-2 text-left flex items-center gap-3 text-sm text-gray-300 hover:bg-gray-700 hover:text-white transition-colors"
               >
                 <Archive size={16} />
                 {isArchived ? 'Unarchive' : 'Archive'}

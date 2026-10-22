@@ -14,12 +14,12 @@ export interface GhosttyConfig {
 
 export const DEFAULT_TERMINAL_OPTIONS = {
   theme: {
-    background: '#0a0a0f',
+    background: '#243562',
     foreground: '#e4e4e7',
-    cursor: '#60a5fa',
-    cursorAccent: '#0a0a0f',
-    selectionBackground: '#3b82f680',
-    black: '#18181b',
+    cursor: '#8fd0ff',
+    cursorAccent: '#243562',
+    selectionBackground: '#3f639980',
+    black: '#2c4070',
     red: '#ef4444',
     green: '#22c55e',
     yellow: '#eab308',
@@ -27,7 +27,7 @@ export const DEFAULT_TERMINAL_OPTIONS = {
     magenta: '#a855f7',
     cyan: '#06b6d4',
     white: '#e4e4e7',
-    brightBlack: '#52525b',
+    brightBlack: '#8a9bc4',
     brightRed: '#f87171',
     brightGreen: '#4ade80',
     brightYellow: '#facc15',

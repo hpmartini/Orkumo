@@ -77,27 +77,23 @@ export const BrowserPreviewPanel = ({
 
   // If running in Electron, use the native BrowserView component
   if (isElectron) {
-    return (
-      <ElectronBrowserView
-        url={url}
-        appId={appId}
-        onHide={onHide}
-      />
-    );
+    return <ElectronBrowserView url={url} appId={appId} onHide={onHide} />;
   }
 
   // Otherwise, fall back to iframe-based preview (web mode)
-  return <IframeBrowserPreview
-    url={url}
-    appId={appId}
-    showDevTools={controlledShowDevTools}
-    onShowDevToolsChange={onShowDevToolsChange}
-    activeTab={controlledActiveTab}
-    onActiveTabChange={onActiveTabChange}
-    filter={controlledFilter}
-    onFilterChange={onFilterChange}
-    onHide={onHide}
-  />;
+  return (
+    <IframeBrowserPreview
+      url={url}
+      appId={appId}
+      showDevTools={controlledShowDevTools}
+      onShowDevToolsChange={onShowDevToolsChange}
+      activeTab={controlledActiveTab}
+      onActiveTabChange={onActiveTabChange}
+      filter={controlledFilter}
+      onFilterChange={onFilterChange}
+      onHide={onHide}
+    />
+  );
 };
 
 // Iframe-based browser preview for non-Electron environments
@@ -245,8 +241,13 @@ const IframeBrowserPreview = ({
       // 1. Same origin (proxy serves content from our server)
       // 2. localhost/127.0.0.1 (direct localhost access fallback)
       const isSameOrigin = event.origin === window.location.origin;
-      const allowedOrigins = ['http://localhost', 'http://127.0.0.1', 'https://localhost', 'https://127.0.0.1'];
-      const isAllowedOrigin = allowedOrigins.some(origin => event.origin.startsWith(origin));
+      const allowedOrigins = [
+        'http://localhost',
+        'http://127.0.0.1',
+        'https://localhost',
+        'https://127.0.0.1',
+      ];
+      const isAllowedOrigin = allowedOrigins.some((origin) => event.origin.startsWith(origin));
 
       if (!isSameOrigin && !isAllowedOrigin) {
         return;
@@ -264,9 +265,7 @@ const IframeBrowserPreview = ({
         };
 
         setConsoleLogs((prev) => {
-          const newLogs = prev.length >= MAX_LOGS
-            ? [...prev.slice(1), log]
-            : [...prev, log];
+          const newLogs = prev.length >= MAX_LOGS ? [...prev.slice(1), log] : [...prev, log];
           return newLogs;
         });
       }
@@ -283,9 +282,7 @@ const IframeBrowserPreview = ({
         };
 
         setNetworkLogs((prev) => {
-          const newLogs = prev.length >= MAX_LOGS
-            ? [...prev.slice(1), log]
-            : [...prev, log];
+          const newLogs = prev.length >= MAX_LOGS ? [...prev.slice(1), log] : [...prev, log];
           return newLogs;
         });
       }
@@ -314,9 +311,7 @@ const IframeBrowserPreview = ({
         (log) =>
           (filter === 'all' || log.method === filter) &&
           (searchTerm === '' ||
-            log.args.some((arg) =>
-              String(arg).toLowerCase().includes(searchTerm.toLowerCase())
-            ))
+            log.args.some((arg) => String(arg).toLowerCase().includes(searchTerm.toLowerCase())))
       ),
     [consoleLogs, filter, searchTerm]
   );
@@ -330,7 +325,7 @@ const IframeBrowserPreview = ({
         return;
       }
       setUrlError(null);
-      setIframeKey(prev => prev + 1);
+      setIframeKey((prev) => prev + 1);
     } catch (e) {
       setUrlError('Invalid URL format');
     }
@@ -365,7 +360,7 @@ const IframeBrowserPreview = ({
             className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
               showDevTools
                 ? 'bg-blue-600 text-white'
-                : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                : 'text-gray-400 hover:bg-gray-700 hover:text-white'
             }`}
             title={showDevTools ? 'Hide DevTools' : 'Show DevTools'}
           >
@@ -422,7 +417,11 @@ const IframeBrowserPreview = ({
       </div>
 
       {/* Viewport Controls */}
-      <div className="flex gap-1 p-2 bg-gray-850 border-b border-gray-700" role="group" aria-label="Viewport size selector">
+      <div
+        className="flex gap-1 p-2 bg-gray-850 border-b border-gray-700"
+        role="group"
+        aria-label="Viewport size selector"
+      >
         {Object.entries(VIEWPORTS).map(([key, { label, icon: Icon }]) => (
           <button
             key={key}
@@ -445,10 +444,7 @@ const IframeBrowserPreview = ({
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* iframe Container */}
         <div className="flex-1 overflow-auto bg-white p-4">
-          <div
-            className="w-full h-full"
-            style={{ width: VIEWPORTS[viewport].width }}
-          >
+          <div className="w-full h-full" style={{ width: VIEWPORTS[viewport].width }}>
             <iframe
               ref={iframeRef}
               key={iframeKey}
@@ -476,34 +472,34 @@ const IframeBrowserPreview = ({
             <div className="flex items-center justify-between px-3 py-1.5 bg-gray-900 border-b border-gray-700">
               <div className="flex items-center gap-4">
                 <div className="flex gap-2" role="tablist">
-                <button
-                  role="tab"
-                  aria-selected={activeTab === 'console'}
-                  aria-controls="console-panel"
-                  onClick={() => setActiveTab('console')}
-                  className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
-                    activeTab === 'console'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                  }`}
-                >
-                  <TerminalIcon className="w-3 h-3" />
-                  Console ({consoleLogs.length})
-                </button>
-                <button
-                  role="tab"
-                  aria-selected={activeTab === 'network'}
-                  aria-controls="network-panel"
-                  onClick={() => setActiveTab('network')}
-                  className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
-                    activeTab === 'network'
-                      ? 'bg-blue-600 text-white'
-                      : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
-                  }`}
-                >
-                  <Globe className="w-3 h-3" />
-                  Network ({networkLogs.length})
-                </button>
+                  <button
+                    role="tab"
+                    aria-selected={activeTab === 'console'}
+                    aria-controls="console-panel"
+                    onClick={() => setActiveTab('console')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
+                      activeTab === 'console'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                    }`}
+                  >
+                    <TerminalIcon className="w-3 h-3" />
+                    Console ({consoleLogs.length})
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={activeTab === 'network'}
+                    aria-controls="network-panel"
+                    onClick={() => setActiveTab('network')}
+                    className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors ${
+                      activeTab === 'network'
+                        ? 'bg-blue-600 text-white'
+                        : 'text-gray-400 hover:text-gray-200 hover:bg-gray-800'
+                    }`}
+                  >
+                    <Globe className="w-3 h-3" />
+                    Network ({networkLogs.length})
+                  </button>
                 </div>
 
                 {/* Logger Injection Button */}
@@ -541,7 +537,10 @@ const IframeBrowserPreview = ({
                       <span>Enable Capture</span>
                     </button>
                   ) : (
-                    <div className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500" title="Framework not detected">
+                    <div
+                      className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500"
+                      title="Framework not detected"
+                    >
                       <ZapOff className="w-3 h-3" />
                       <span>No framework</span>
                     </div>
@@ -625,9 +624,7 @@ const IframeBrowserPreview = ({
               {activeTab === 'console' ? (
                 <div id="console-panel" role="tabpanel">
                   {consoleLogs.length === 0 ? (
-                    <div className="text-gray-600 text-center py-4">
-                      No console output yet
-                    </div>
+                    <div className="text-gray-600 text-center py-4">No console output yet</div>
                   ) : filteredConsoleLogs.length === 0 ? (
                     <div className="text-gray-600 text-center py-4">
                       No logs match the current filter
@@ -670,4 +667,4 @@ const IframeBrowserPreview = ({
       </div>
     </div>
   );
-}
+};

@@ -50,7 +50,7 @@ export const TaskComposerModal: React.FC<TaskComposerModalProps> = ({
           <button
             type="button"
             onClick={onClose}
-            className="ml-auto p-1.5 rounded-md text-gray-200 hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-blue-400"
+            className="ml-auto p-1.5 rounded-md text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
             aria-label="Close"
           >
             <X size={15} />

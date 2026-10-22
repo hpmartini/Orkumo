@@ -875,7 +875,7 @@ export const WebIDEPanel = ({
               className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
                 editorType === 'monaco'
                   ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                  : 'text-gray-400 hover:bg-gray-700 hover:text-white'
               }`}
               title="Monaco Editor (Lightweight)"
               aria-label="Switch to Monaco Editor"
@@ -889,7 +889,7 @@ export const WebIDEPanel = ({
               className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
                 editorType === 'code-server'
                   ? 'bg-blue-600 text-white'
-                  : 'text-gray-400 hover:bg-gray-700 hover:text-gray-200'
+                  : 'text-gray-400 hover:bg-gray-700 hover:text-white'
               }`}
               title="VS Code (Full IDE)"
               aria-label="Switch to VS Code Server"

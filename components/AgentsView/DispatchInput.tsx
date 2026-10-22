@@ -209,7 +209,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         <button
           type="button"
           onClick={onPickDirectory}
-          className="flex items-center gap-1.5 min-w-0 px-2 py-1.5 rounded-md text-xs text-gray-200 hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-blue-400"
+          className="flex items-center gap-1.5 min-w-0 px-2 py-1.5 rounded-md text-xs text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
           title="Directory the new session starts in (mention @repo to override)"
         >
           <FolderOpen size={13} aria-hidden />
@@ -221,7 +221,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         <button
           type="button"
           onClick={onOpenEditor}
-          className="p-1.5 rounded-md text-gray-200 hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-blue-400"
+          className="p-1.5 rounded-md text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
           title="Edit in a larger editor (Ctrl+G)"
           aria-label="Edit in a larger editor"
         >

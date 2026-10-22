@@ -191,7 +191,7 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
                     onSort({ key: option.key, dir: option.dir });
                     setOpen(false);
                   }}
-                  className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-gray-200 hover:bg-gray-700"
+                  className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-gray-200 hover:bg-gray-700 hover:text-white"
                 >
                   <span className="w-3">{option.key === sort.key && <Check size={12} />}</span>
                   {option.label}

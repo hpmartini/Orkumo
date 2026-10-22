@@ -36,13 +36,13 @@ interface KebabMenuProps {
   size?: 'sm' | 'md';
 }
 
-export const KebabMenu: React.FC<KebabMenuProps> = ({
-  items,
-  position = 'right',
-  size = 'md',
-}) => {
+export const KebabMenu: React.FC<KebabMenuProps> = ({ items, position = 'right', size = 'md' }) => {
   const [isOpen, setIsOpen] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number; openAbove: boolean }>({
+  const [menuPosition, setMenuPosition] = useState<{
+    top: number;
+    left: number;
+    openAbove: boolean;
+  }>({
     top: 0,
     left: 0,
     openAbove: false,
@@ -65,9 +65,7 @@ export const KebabMenu: React.FC<KebabMenuProps> = ({
     const openAbove = spaceBelow < menuHeight && spaceAbove > spaceBelow;
 
     // Calculate left position based on 'position' prop
-    let left = position === 'left'
-      ? buttonRect.right - menuWidth
-      : buttonRect.left;
+    let left = position === 'left' ? buttonRect.right - menuWidth : buttonRect.left;
 
     // Ensure menu doesn't overflow horizontally
     if (left + menuWidth > window.innerWidth - padding) {
@@ -140,8 +138,8 @@ export const KebabMenu: React.FC<KebabMenuProps> = ({
     }
   };
 
-  const visibleItems = items.filter(
-    (item) => !('divider' in item) || !item.divider ? !('hidden' in item && item.hidden) : true
+  const visibleItems = items.filter((item) =>
+    !('divider' in item) || !item.divider ? !('hidden' in item && item.hidden) : true
   );
 
   const menuContent = isOpen ? (
@@ -157,12 +155,7 @@ export const KebabMenu: React.FC<KebabMenuProps> = ({
     >
       {visibleItems.map((item, index) => {
         if ('divider' in item && item.divider) {
-          return (
-            <div
-              key={`divider-${index}`}
-              className="my-1 border-t border-gray-700"
-            />
-          );
+          return <div key={`divider-${index}`} className="my-1 border-t border-gray-700" />;
         }
 
         const menuItem = item as MenuItem;
@@ -184,14 +177,12 @@ export const KebabMenu: React.FC<KebabMenuProps> = ({
               menuItem.disabled
                 ? 'text-gray-600 cursor-not-allowed'
                 : menuItem.variant === 'danger'
-                ? 'text-red-400 hover:bg-red-500/10'
-                : 'text-gray-300 hover:bg-gray-700'
+                  ? 'text-red-400 hover:bg-red-500/10'
+                  : 'text-gray-300 hover:bg-gray-700 hover:text-white'
             }`}
             role="menuitem"
           >
-            <span className="w-4 h-4 flex items-center justify-center">
-              {menuItem.icon}
-            </span>
+            <span className="w-4 h-4 flex items-center justify-center">{menuItem.icon}</span>
             {menuItem.label}
           </button>
         );
@@ -262,9 +253,7 @@ export const createAppMenuItems = (options: AppMenuOptions): MenuItemOrDivider[]
 
   const isRunning = status === AppStatus.RUNNING;
   const isStopped =
-    status === AppStatus.STOPPED ||
-    status === AppStatus.ERROR ||
-    status === AppStatus.CANCELLED;
+    status === AppStatus.STOPPED || status === AppStatus.ERROR || status === AppStatus.CANCELLED;
   const isLoading =
     status === AppStatus.STARTING ||
     status === AppStatus.ANALYZING ||
