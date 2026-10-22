@@ -173,18 +173,21 @@ function projectGroups(
   const clusters = new Map<string, SessionGroup & { matched: boolean }>();
   for (const session of sessions) {
     const dirs = [session.worktree, session.cwd].filter((d): d is string => !!d);
-    const app = bySpecificity.find((a) => a.path && dirs.some((d) => isUnder(a.path, d)));
+    // Worktrees group with their main checkout, also before contexts have loaded
+    const mains = dirs.map(mainRepoPath);
+    const app = bySpecificity.find(
+      (a) => a.path && [...dirs, ...mains].some((d) => isUnder(a.path, d))
+    );
     const name = app ? app.name : repoName(session, lookup);
+    const mainDir = mains[0];
     // Keyed by path, not display name: the name changes once contexts load and can collide
-    const key: GroupKey = app
-      ? `project:${app.id}`
-      : `project:dir:${session.worktree || session.cwd}`;
+    const key: GroupKey = app ? `project:${app.id}` : `project:dir:${mainDir}`;
     let cluster = clusters.get(key);
     if (!cluster) {
       cluster = {
         key,
         title: name,
-        cwd: app ? app.path : session.worktree || session.cwd,
+        cwd: app ? app.path : mainDir,
         appId: app?.id,
         sessions: [],
         hidden: [],
@@ -264,9 +267,45 @@ export const DEFAULT_SORT: AgentSort = { key: 'attention', dir: 'desc' };
 
 const lastSegment = (path: string) => path.split('/').filter(Boolean).pop() || path;
 
-/** Repository name used for sorting, falling back to the directory name */
+/**
+ * Main checkout of a Claude/git worktree path ("<main>/.claude/worktrees/x" or
+ * "<main>/.worktrees/x"), derived from the path alone so it works before contexts load.
+ * shortcut: worktrees created elsewhere (`git worktree add ../x`) are only resolved by the
+ * server context (repo.name), not grouped with the main checkout; revisit if that gets common.
+ */
+export function mainRepoPath(dir: string): string {
+  const match = dir.match(/^(.+?)\/(?:\.claude\/worktrees|\.worktrees)(?:\/|$)/);
+  return match ? match[1] : dir;
+}
+
+/** Main repository name (never the worktree folder), falling back to the path-derived name */
 export function repoName(session: AgentSession, lookup?: SessionLookup): string {
-  return lookup?.contexts?.[session.id]?.repo?.name || lastSegment(session.worktree || session.cwd);
+  return (
+    lookup?.contexts?.[session.id]?.repo?.name ||
+    lastSegment(mainRepoPath(session.worktree || session.cwd))
+  );
+}
+
+const MODEL_RE = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/;
+const LEGACY_MODEL_RE = /^claude-(\d+)(?:-(\d{1,2}))?-([a-z]+)(?:-\d{8})?$/;
+
+/**
+ * Display name of a model id: "claude-opus-5-5" -> "Opus 5.5", "claude-3-5-sonnet-20241022" ->
+ * "Sonnet 3.5". Unknown ids stay unchanged; empty and "<synthetic>" give null.
+ */
+export function formatModelName(id: string | null | undefined): string | null {
+  const raw = (id || '').trim();
+  if (!raw || raw === '<synthetic>') return null;
+  const key = raw.replace(/\[[^\]]*\]$/, '').toLowerCase();
+  const modern = key.match(MODEL_RE);
+  const legacy = modern ? null : key.match(LEGACY_MODEL_RE);
+  const [family, major, minor] = modern
+    ? [modern[1], modern[2], modern[3]]
+    : legacy
+      ? [legacy[3], legacy[1], legacy[2]]
+      : [];
+  if (!family) return raw;
+  return `${family[0].toUpperCase()}${family.slice(1)} ${major}${minor ? `.${minor}` : ''}`;
 }
 
 function runningServerCount(session: AgentSession, lookup?: SessionLookup): number {

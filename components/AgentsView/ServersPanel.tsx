@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { Check, Copy, ExternalLink, Server, X } from 'lucide-react';
+import type { AgentServerStats } from '../../types';
 import type { AgentServer } from '../../utils/agentSessions';
+import { useServerStats } from '../../hooks/useServerStats';
 import { usePopover } from './PullRequestsPanel';
 
 export interface ServerRow {
@@ -15,9 +17,18 @@ interface ServersPanelProps {
   onClose: () => void;
 }
 
+const formatCpu = (s?: AgentServerStats) => (s ? `${s.cpu.toFixed(1)}%` : '–');
+const formatMem = (s?: AgentServerStats) =>
+  s ? (s.memMb >= 1024 ? `${(s.memMb / 1024).toFixed(1)} GB` : `${s.memMb} MB`) : '–';
+
 export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent, onClose }) => {
   const ref = usePopover(onClose);
   const [copied, setCopied] = useState<number | null>(null);
+  // The panel is only mounted while open, so polling stops when it closes
+  const stats = useServerStats(
+    rows.flatMap(({ server }) => (server.pid ? [server.pid] : [])),
+    true
+  );
 
   const copy = (port: number) => {
     navigator.clipboard
@@ -68,6 +79,18 @@ export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent,
                   title={server.pid ? `pid ${server.pid}` : undefined}
                 >
                   {server.command || server.name}
+                </span>
+                <span
+                  className="w-12 shrink-0 text-right tabular-nums text-gray-300"
+                  title="CPU (share of one core, incl. child processes)"
+                >
+                  {formatCpu(server.pid ? stats[server.pid] : undefined)}
+                </span>
+                <span
+                  className="w-16 shrink-0 text-right tabular-nums text-gray-300"
+                  title="Memory (RSS, incl. child processes)"
+                >
+                  {formatMem(server.pid ? stats[server.pid] : undefined)}
                 </span>
                 <button
                   onClick={() => {
