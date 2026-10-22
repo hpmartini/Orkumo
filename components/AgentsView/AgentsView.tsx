@@ -7,6 +7,7 @@ import {
   RefreshCw,
   FolderTree,
   ListTree,
+  List,
   Braces,
   AlertTriangle,
   Power,
@@ -22,6 +23,7 @@ import type {
   AgentLayout,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
+import { useAgentContexts } from '../../hooks/useAgentContexts';
 import {
   dispatchAgent,
   fetchAgentsRawJson,
@@ -41,10 +43,20 @@ import {
   groupSessions,
   flattenGroups,
   documentTitle,
+  applyQuickFilters,
+  matchesQuickFilter,
+  matchServers,
+  summarizeContext,
+  DEFAULT_SORT,
+  QUICK_FILTERS,
+  SORT_OPTIONS,
+  AgentQuickFilter,
+  AgentSort,
   NavItem,
   SessionGroup,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
+import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { DispatchInput } from './DispatchInput';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
@@ -64,6 +76,19 @@ interface AgentsViewProps {
 const WORKSPACE_STORAGE_KEY = 'devOrbitAgentWorkspace';
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const DELETE_CONFIRM_WINDOW = 2000;
+const SORT_STORAGE_KEY = 'devOrbitAgentSort';
+
+function loadSort(): AgentSort {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) || 'null');
+    if (SORT_OPTIONS.some((o) => o.key === parsed?.key) && /^(asc|desc)$/.test(parsed?.dir)) {
+      return parsed;
+    }
+  } catch {
+    // unavailable or corrupt storage: use the default
+  }
+  return DEFAULT_SORT;
+}
 
 interface WorkspaceState {
   openIds: string[];
@@ -153,10 +178,45 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
 
   const filter = useMemo(() => parseFilter(input), [input]);
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
+  const contexts = useAgentContexts(active);
+  const servers = useMemo(
+    () => new Map(sessions.map((s) => [s.id, matchServers(s, apps)])),
+    [sessions, apps]
+  );
+  const lookup = useMemo(() => ({ contexts, servers }), [contexts, servers]);
+  const [sort, setSortState] = useState<AgentSort>(loadSort);
+  const setSort = useCallback((next: AgentSort) => {
+    setSortState(next);
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // sort stays in memory only
+    }
+  }, []);
+  const [quickFilters, setQuickFilters] = useState<Set<AgentQuickFilter>>(() => new Set());
+  const toggleQuickFilter = useCallback((key: AgentQuickFilter) => {
+    setQuickFilters((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+  const shownSessions = useMemo(
+    () => applyQuickFilters(visibleSessions, quickFilters, lookup),
+    [visibleSessions, quickFilters, lookup]
+  );
+  const chipCounts = useMemo(() => {
+    const result = {} as Record<AgentQuickFilter, number>;
+    for (const { key } of QUICK_FILTERS) {
+      result[key] = sessions.filter((s) => matchesQuickFilter(key, s, lookup)).length;
+    }
+    return result;
+  }, [sessions, lookup]);
+  const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
   const collapsed = useMemo(() => new Set(settings.collapsedGroups), [settings.collapsedGroups]);
   const groups = useMemo(
-    () => groupSessions(visibleSessions, settings.grouping, { expandedCompleted }),
-    [visibleSessions, settings.grouping, expandedCompleted]
+    () => groupSessions(shownSessions, settings.grouping, { expandedCompleted, sort, lookup }),
+    [shownSessions, settings.grouping, expandedCompleted, sort, lookup]
   );
   const items = useMemo(() => {
     const flat = flattenGroups(groups, collapsed, settings.grouping === 'directory');
@@ -638,7 +698,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   );
 
   const toggleGrouping = useCallback(() => {
-    updateSettings({ grouping: settings.grouping === 'state' ? 'directory' : 'state' });
+    updateSettings({
+      grouping:
+        settings.grouping === 'state'
+          ? 'directory'
+          : settings.grouping === 'directory'
+            ? 'none'
+            : 'state',
+    });
   }, [settings.grouping, updateSettings]);
 
   const copyJson = useCallback(async () => {
@@ -962,17 +1029,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         <Bot size={18} className="text-blue-400" />
         <div className="min-w-0">
           <div className="text-sm font-semibold leading-tight">Agents</div>
-          <div className="text-[11px] text-gray-500 font-mono truncate">
-            <span className={counts.awaitingInput > 0 ? 'text-yellow-400' : ''}>
-              {counts.awaitingInput} awaiting input
-            </span>
-            {' · '}
-            {counts.working} working · {counts.completed} completed
-            {counts.failed > 0 && <span className="text-red-400"> · {counts.failed} failed</span>}
-            {lastCompleted && Date.now() - lastCompleted.at < 5000 && (
-              <span className="text-emerald-400"> · ← {lastCompleted.count} done</span>
-            )}
-          </div>
+          <AgentSummaryBar
+            counts={counts}
+            openPrs={totals.openPrs}
+            runningServers={totals.runningServers}
+            daemon={daemon}
+            justCompleted={
+              lastCompleted && Date.now() - lastCompleted.at < 5000 ? lastCompleted.count : 0
+            }
+            active={quickFilters}
+            onToggle={toggleQuickFilter}
+          />
         </div>
         <div className="flex-1" />
         <div className="hidden lg:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
@@ -985,24 +1052,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
             <span className="text-orange-400">bypass permissions</span>
           )}
           {settings.scopeCwd && <span title="Scope (--cwd)">cwd {settings.scopeCwd}</span>}
-          <span
-            className={`flex items-center gap-1 ${daemon?.running ? 'text-emerald-400' : 'text-gray-500'}`}
-            title={daemon?.raw || 'supervisor status unknown'}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${daemon?.running ? 'bg-emerald-500' : 'bg-gray-600'}`}
-            />
-            supervisor {daemon?.running ? 'running' : 'idle'}
-            {daemon?.versionMismatch && <AlertTriangle size={11} className="text-yellow-400" />}
-          </span>
           {!connected && <span className="text-yellow-500">reconnecting…</span>}
         </div>
         <button
           onClick={toggleGrouping}
           className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title={`Group by ${settings.grouping === 'state' ? 'directory' : 'state'} (Ctrl+S)`}
+          title={`Grouped by ${settings.grouping === 'none' ? 'nothing' : settings.grouping}, click for ${settings.grouping === 'state' ? 'directory' : settings.grouping === 'directory' ? 'no grouping' : 'state'} (Ctrl+S)`}
         >
-          {settings.grouping === 'state' ? <FolderTree size={15} /> : <ListTree size={15} />}
+          {settings.grouping === 'state' ? (
+            <ListTree size={15} />
+          ) : settings.grouping === 'directory' ? (
+            <FolderTree size={15} />
+          ) : (
+            <List size={15} />
+          )}
         </button>
         <button
           onClick={copyJson}
@@ -1043,7 +1106,21 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       {/* Body */}
       <div className="flex-1 flex min-h-0">
         {/* Session list + dispatch input */}
-        <div className="w-full md:w-[380px] lg:w-[420px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40">
+        <div className="w-full md:w-[340px] xl:w-[440px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40">
+          <AgentFilterBar
+            sort={sort}
+            onSort={setSort}
+            active={quickFilters}
+            onToggle={toggleQuickFilter}
+            chipCounts={chipCounts}
+            shown={shownSessions.length}
+            total={sessions.length}
+            filtered={quickFilters.size > 0 || !!filter}
+            onClear={() => {
+              setQuickFilters(new Set());
+              if (filter) setInput('');
+            }}
+          />
           {loading && sessions.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
               <RefreshCw size={14} className="animate-spin mr-2" /> Loading sessions…
@@ -1059,6 +1136,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
               openIds={openIdSet}
               now={now}
               grouping={settings.grouping}
+              contexts={contexts}
+              servers={servers}
+              filtered={quickFilters.size > 0 || !!filter}
               rowActions={rowActions}
               groupActions={groupActions}
               highlightedId={highlightedId}

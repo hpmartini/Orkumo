@@ -16,6 +16,7 @@ import type {
   AgentViewSettings,
   AgentSession,
   AgentNotification,
+  AgentContext,
 } from '../types';
 
 const API_BASE = API_BASE_URL;
@@ -68,6 +69,11 @@ export async function fetchAgentsRawJson(
   );
   if (!response.ok) throw new Error('Failed to fetch agents JSON');
   return response.text();
+}
+
+export async function fetchAgentContexts(): Promise<Record<string, AgentContext>> {
+  const { contexts } = await request<{ contexts: Record<string, AgentContext> }>('/agents/context');
+  return contexts;
 }
 
 export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatchResult> {

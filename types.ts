@@ -229,6 +229,22 @@ export interface AgentPrLink {
   state: string | null;
 }
 
+export interface AgentContext {
+  /** slug = "owner/repo" from the origin remote (github) */
+  repo: {
+    name: string;
+    slug: string | null;
+    branch: string | null;
+    dirty: boolean;
+    ahead: number;
+    behind: number;
+  } | null;
+  /** null when gh is unavailable/unauthenticated or not a github repo */
+  issues: { open: number; url: string | null } | null;
+  pulls: { open: number; url: string | null } | null;
+  subagents: { running: number; total: number; names: string[] };
+}
+
 export interface AgentSession {
   /** Short id (`claude attach <id>`), or `interactive-<pid>` for foreground sessions */
   id: string;
@@ -299,7 +315,7 @@ export interface AgentCapabilities {
   allowedDirs: string[];
 }
 
-export type AgentGrouping = 'state' | 'directory';
+export type AgentGrouping = 'state' | 'directory' | 'none';
 export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
 
 export interface AgentDispatchDefaults {

@@ -3,8 +3,14 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
-import { RefreshCw, LogOut, Eye, X, Maximize2 } from 'lucide-react';
-import { getWsUrl } from '../../utils/apiConfig';
+import { RefreshCw, LogOut, Eye, X, Maximize2, SquareTerminal } from 'lucide-react';
+import toast from 'react-hot-toast';
+import { API_BASE_URL, getWsUrl } from '../../utils/apiConfig';
+import {
+  DEFAULT_TERMINAL_OPTIONS,
+  useGhosttyTheme,
+  withGhostty,
+} from '../../hooks/useGhosttyTheme';
 import type { AgentSession } from '../../types';
 import { stateGlyph } from '../../utils/agentSessions';
 
@@ -19,30 +25,6 @@ interface AgentTerminalProps {
   onPeek: () => void;
   onMaximize?: () => void;
 }
-
-const TERMINAL_THEME = {
-  background: '#0a0a0f',
-  foreground: '#e4e4e7',
-  cursor: '#60a5fa',
-  cursorAccent: '#0a0a0f',
-  selectionBackground: '#3b82f680',
-  black: '#18181b',
-  red: '#ef4444',
-  green: '#22c55e',
-  yellow: '#eab308',
-  blue: '#3b82f6',
-  magenta: '#a855f7',
-  cyan: '#06b6d4',
-  white: '#e4e4e7',
-  brightBlack: '#52525b',
-  brightRed: '#f87171',
-  brightGreen: '#4ade80',
-  brightYellow: '#facc15',
-  brightBlue: '#60a5fa',
-  brightMagenta: '#c084fc',
-  brightCyan: '#22d3ee',
-  brightWhite: '#fafafa',
-};
 
 /**
  * Build the PTY WebSocket URL for `claude attach <id>`.
@@ -74,6 +56,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   const [connected, setConnected] = useState(false);
   const [exited, setExited] = useState(false);
   const [generation, setGeneration] = useState(0);
+  const ghostty = useGhosttyTheme();
+  const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
+  const optionsRef = useRef(options);
+  optionsRef.current = options;
 
   const sendInput = useCallback((data: string) => {
     const ws = wsRef.current;
@@ -87,12 +73,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     const container = containerRef.current;
     if (!container || terminalRef.current) return;
     const terminal = new XTerm({
-      cursorBlink: true,
-      cursorStyle: 'bar',
-      fontSize: 13,
-      fontFamily: 'JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
+      ...optionsRef.current,
       scrollback: 5000,
-      theme: TERMINAL_THEME,
       allowProposedApi: true,
     });
     const fitAddon = new FitAddon();
@@ -129,6 +111,31 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
       fitRef.current = null;
     };
   }, [sendInput]);
+
+  // The Ghostty config may arrive after the terminal was created
+  useEffect(() => {
+    const terminal = terminalRef.current;
+    if (!terminal || !ghostty) return;
+    Object.assign(terminal.options, optionsRef.current);
+    try {
+      fitRef.current?.fit();
+    } catch {
+      // ignore
+    }
+  }, [ghostty]);
+
+  const openInGhostty = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/terminal/ghostty/open`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cwd: session.cwd, command: 'claude', args: ['attach', session.id] }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error || res.statusText);
+    } catch (err) {
+      toast.error(`Open in Ghostty failed: ${err instanceof Error ? err.message : err}`);
+    }
+  }, [session.cwd, session.id]);
 
   // (Re)connect the PTY whenever generation changes
   useEffect(() => {
@@ -173,6 +180,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
       }
     };
     ws.onclose = () => {
+      // a superseded socket (StrictMode remount, Reattach) must not flag the live one as detached
+      if (wsRef.current !== ws) return;
       setConnected(false);
       setExited(true);
     };
@@ -234,7 +243,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
       onMouseDown={onFocus}
       data-agent-pane={session.id}
     >
-      <div className="flex items-center gap-2 px-2 py-1 bg-gray-900 border-b border-gray-800 text-xs shrink-0">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 px-2 py-1 bg-gray-900 border-b border-gray-800 text-xs shrink-0">
         <span
           className={`${glyph.className} ${glyph.animate ? 'animate-pulse' : ''}`}
           title={glyph.label}
@@ -272,6 +281,13 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
             <span>Reattach</span>
           </button>
         )}
+        <button
+          onClick={openInGhostty}
+          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+          title="Open in Ghostty"
+        >
+          <SquareTerminal size={12} />
+        </button>
         {onMaximize && (
           <button
             onClick={onMaximize}
@@ -293,14 +309,14 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         <div
           ref={containerRef}
           className="absolute inset-0 p-1"
-          style={{ backgroundColor: '#0a0a0f' }}
+          style={{ backgroundColor: options.theme.background }}
         />
         {exited && (
           <div className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 px-3 py-1.5 bg-gray-900/95 border-t border-gray-800 text-xs text-gray-400">
             <span>Detached. The session keeps running in the background.</span>
             <button
               onClick={() => setGeneration((g) => g + 1)}
-              className="flex items-center gap-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white"
+              className="flex items-center gap-1 px-2 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white shrink-0"
             >
               <RefreshCw size={12} /> Reattach
             </button>

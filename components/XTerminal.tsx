@@ -7,6 +7,7 @@ import '@xterm/xterm/css/xterm.css';
 import { ClaudeTerminalModal } from './ClaudeTerminalModal';
 import { parseAnsiToReact } from '../utils/ansiParser';
 import { getWsUrl as getApiWsUrl, API_BASE_URL } from '../utils/apiConfig';
+import { DEFAULT_TERMINAL_OPTIONS, useGhosttyTheme, withGhostty } from '../hooks/useGhosttyTheme';
 import type { ClaudeTerminalOptions, ClaudeCLIInfo, TerminalType } from '../types';
 
 interface TerminalTab {
@@ -122,10 +123,20 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const ghostty = useGhosttyTheme();
+  const ghosttyRef = useRef(ghostty);
+  ghosttyRef.current = ghostty;
   const tabsRef = useRef<TerminalTab[]>([]);
   const activeTabIdRef = useRef<string | null>(null);
 
   // Keep refs in sync for ResizeObserver and cleanup
+  // The Ghostty config may arrive after terminals were created
+  useEffect(() => {
+    if (!ghostty) return;
+    const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
+    tabsRef.current.forEach((t) => t.terminal && Object.assign(t.terminal.options, options));
+  }, [ghostty]);
+
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
@@ -274,34 +285,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
       // Create xterm instance with proper configuration for reflow support
       const terminal = new XTerm({
-        cursorBlink: true,
-        cursorStyle: 'bar',
-        fontSize: 13,
-        fontFamily: 'JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
+        ...withGhostty(DEFAULT_TERMINAL_OPTIONS, ghosttyRef.current),
         scrollback: 5000, // Enable scrollback buffer for reflow to work properly
-        theme: {
-          background: '#0a0a0f',
-          foreground: '#e4e4e7',
-          cursor: '#60a5fa',
-          cursorAccent: '#0a0a0f',
-          selectionBackground: '#3b82f680',
-          black: '#18181b',
-          red: '#ef4444',
-          green: '#22c55e',
-          yellow: '#eab308',
-          blue: '#3b82f6',
-          magenta: '#a855f7',
-          cyan: '#06b6d4',
-          white: '#e4e4e7',
-          brightBlack: '#52525b',
-          brightRed: '#f87171',
-          brightGreen: '#4ade80',
-          brightYellow: '#facc15',
-          brightBlue: '#60a5fa',
-          brightMagenta: '#c084fc',
-          brightCyan: '#22d3ee',
-          brightWhite: '#fafafa',
-        },
         allowProposedApi: true,
       });
 
@@ -753,7 +738,7 @@ export const XTerminal: React.FC<XTerminalProps> = ({
             key={tab.id}
             data-terminal-id={tab.id}
             className={`absolute inset-0 p-1 ${activeTabId === tab.id ? 'block' : 'hidden'}`}
-            style={{ backgroundColor: '#0a0a0f' }}
+            style={{ backgroundColor: ghostty?.theme.background ?? '#0a0a0f' }}
           />
         ))}
       </div>

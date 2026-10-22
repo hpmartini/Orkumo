@@ -8,6 +8,12 @@ import {
   prLabel,
   documentTitle,
   COMPLETED_VISIBLE_LIMIT,
+  DEFAULT_SORT,
+  sortSessionsBy,
+  applyQuickFilters,
+  matchServers,
+  summarizeContext,
+  type SessionLookup,
 } from '../utils/agentSessions';
 import type { AgentSession } from '../types';
 
@@ -152,5 +158,76 @@ describe('summaries and formatting', () => {
   it('builds the document title', () => {
     expect(documentTitle(0)).toBe('claude agents');
     expect(documentTitle(2)).toBe('2 awaiting input · claude agents');
+  });
+});
+
+describe('sorting, quick filters and server matching', () => {
+  const blocked = session({ id: 'b', name: 'beta', state: 'blocked', startedAt: 1 });
+  const working = session({ id: 'w', name: 'alpha', state: 'working', startedAt: 3 });
+  const failed = session({ id: 'f', name: 'gamma', state: 'failed', startedAt: 2 });
+  const done = session({ id: 'd', name: 'delta', state: 'done', startedAt: 4 });
+  const all = [done, failed, working, blocked];
+  const ids = (list: AgentSession[]) => list.map((s) => s.id).join('');
+
+  it('sorts by attention by default', () => {
+    expect(ids(sortSessionsBy(all, DEFAULT_SORT))).toBe('bwfd');
+  });
+
+  it('sorts by name, newest and oldest', () => {
+    expect(ids(sortSessionsBy(all, { key: 'name', dir: 'asc' }))).toBe('wbdf');
+    expect(ids(sortSessionsBy(all, { key: 'name', dir: 'desc' }))).toBe('fdbw');
+    expect(ids(sortSessionsBy(all, { key: 'newest', dir: 'desc' }))).toBe('dwfb');
+    expect(ids(sortSessionsBy(all, { key: 'oldest', dir: 'asc' }))).toBe('bfwd');
+  });
+
+  it('sorts by repository and running servers using the lookup', () => {
+    const lookup: SessionLookup = {
+      contexts: { w: { repo: { name: 'zeta' } }, b: { repo: { name: 'eta' } } } as never,
+      servers: new Map([['f', [{ port: 3000, running: true, name: 'app' }]]]),
+    };
+    expect(ids(sortSessionsBy([working, blocked], { key: 'repo', dir: 'asc' }, lookup))).toBe('bw');
+    expect(ids(sortSessionsBy(all, { key: 'servers', dir: 'desc' }, lookup))[0]).toBe('f');
+  });
+
+  it('applies the sort inside a flat list', () => {
+    const groups = groupSessions(all, 'none', { sort: { key: 'name', dir: 'asc' } });
+    expect(groups).toHaveLength(1);
+    expect(ids(groups[0].sessions)).toBe('wbdf');
+    expect(flattenGroups(groups, new Set()).every((i) => i.type === 'session')).toBe(true);
+  });
+
+  it('combines state chips with OR and attribute chips with AND', () => {
+    const lookup: SessionLookup = {
+      servers: new Map([['w', [{ port: 1, running: true, name: 'a' }]]]),
+    };
+    expect(ids(applyQuickFilters(all, new Set(['needs-input', 'working']), lookup))).toBe('wb');
+    expect(ids(applyQuickFilters(all, new Set(['working', 'server']), lookup))).toBe('w');
+    expect(ids(applyQuickFilters(all, new Set(['server', 'needs-input']), lookup))).toBe('');
+  });
+
+  it('matches apps by directory in both directions and parses ports from addresses', () => {
+    const s = session({ cwd: '/work/repo/sub', worktree: '/work/repo/.wt/x' });
+    const apps = [
+      { name: 'root', path: '/work/repo', port: 3000, status: 'RUNNING' },
+      { name: 'inner', path: '/work/repo/sub/web', addresses: ['http://localhost:5173/'] },
+      { name: 'other', path: '/work/repo2', port: 9999, status: 'RUNNING' },
+    ];
+    expect(matchServers(s, apps)).toEqual([
+      { port: 3000, running: true, name: 'root' },
+      { port: 5173, running: false, name: 'inner' },
+    ]);
+  });
+
+  it('totals open PRs and unique running ports', () => {
+    const a = session({ id: 'a', links: [{ state: 'open' }, { state: 'merged' }] as never });
+    const b = session({ id: 'b' });
+    const server = { port: 3000, running: true, name: 'x' };
+    const lookup: SessionLookup = {
+      servers: new Map([
+        ['a', [server]],
+        ['b', [server]],
+      ]),
+    };
+    expect(summarizeContext([a, b], lookup)).toEqual({ openPrs: 1, runningServers: 1 });
   });
 });

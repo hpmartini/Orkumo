@@ -1,7 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Pin, MoreHorizontal, ExternalLink } from 'lucide-react';
-import type { AgentSession } from '../../types';
 import {
+  ChevronDown,
+  ChevronRight,
+  Pin,
+  MoreHorizontal,
+  ExternalLink,
+  GitBranch,
+  ArrowUp,
+  ArrowDown,
+  CircleDot,
+  Bot,
+} from 'lucide-react';
+import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
+import {
+  AgentServer,
   NavItem,
   SessionGroup,
   stateGlyph,
@@ -28,7 +40,13 @@ interface AgentListProps {
   peekId: string | null;
   openIds: Set<string>;
   now: number;
-  grouping: 'state' | 'directory';
+  grouping: AgentGrouping;
+  /** Repo / issue / sub-agent data per session id (may be empty while loading) */
+  contexts: Record<string, AgentContext | undefined>;
+  /** Matched DevOrbit dev servers per session id */
+  servers: Map<string, AgentServer[]>;
+  /** Filters hide everything: show a different empty state */
+  filtered?: boolean;
   rowActions: (session: AgentSession) => AgentRowAction[];
   groupActions: (group: SessionGroup) => AgentRowAction[];
   /** Session that was just backgrounded/dispatched (rendered bold) */
@@ -48,6 +66,9 @@ export const AgentList: React.FC<AgentListProps> = ({
   openIds,
   now,
   grouping,
+  contexts,
+  servers,
+  filtered,
   rowActions,
   groupActions,
   highlightedId,
@@ -96,8 +117,14 @@ export const AgentList: React.FC<AgentListProps> = ({
     >
       {items.length === 0 && (
         <div className="px-4 py-8 text-sm text-gray-500 text-center">
-          No sessions yet. Describe a task below and press <kbd className="kbd">Enter</kbd> to start
-          one.
+          {filtered ? (
+            'No agents match the current filters.'
+          ) : (
+            <>
+              No sessions yet. Describe a task below and press <kbd className="kbd">Enter</kbd> to
+              start one.
+            </>
+          )}
         </div>
       )}
       {items.map((item, index) => {
@@ -157,6 +184,14 @@ export const AgentList: React.FC<AgentListProps> = ({
         const age = formatAge(sessionAgeMs(session, now));
         const isPeeking = peekId === session.id;
         const isOpen = openIds.has(session.id);
+        const ctx = contexts[session.id];
+        const sessionServers = servers.get(session.id) || [];
+        const extra =
+          session.state === 'blocked' && session.waitingFor
+            ? `waiting: ${session.waitingFor}`
+            : session.state === 'working'
+              ? session.detail
+              : null;
         return (
           <div
             key={session.id}
@@ -167,21 +202,23 @@ export const AgentList: React.FC<AgentListProps> = ({
             onClick={() => onSelectIndex(index)}
             onDoubleClick={() => onActivate(item)}
             onContextMenu={(e) => openMenu(index, e)}
-            className={`group flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer border-l-2 ${
+            className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer ${
               selected
-                ? 'bg-gray-800 border-blue-500 text-white'
-                : 'border-transparent text-gray-300 hover:bg-gray-900'
-            } ${isPeeking ? 'ring-1 ring-inset ring-blue-500/40' : ''}`}
+                ? 'bg-gray-800 text-white ring-1 ring-inset ring-blue-500/60'
+                : `text-gray-300 hover:bg-gray-900 ${isPeeking ? 'ring-1 ring-inset ring-blue-500/30' : ''}`
+            }`}
             title={`${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
           >
             <span
-              className={`w-4 text-center shrink-0 ${glyph.className} ${glyph.animate ? 'animate-pulse' : ''}`}
-              aria-label={glyph.label}
+              className={`w-4 text-center shrink-0 leading-5 ${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+              aria-hidden="true"
+              title={glyph.label}
             >
               {glyph.glyph}
             </span>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5 min-w-0">
+              <div className="flex items-center gap-1.5 min-w-0 leading-5">
+                <span className="sr-only">{glyph.label}: </span>
                 <span
                   className={`truncate ${highlightedId === session.id ? 'font-bold' : 'font-medium'}`}
                 >
@@ -195,35 +232,133 @@ export const AgentList: React.FC<AgentListProps> = ({
                   />
                 )}
                 {session.loop && <span className="text-[10px] text-blue-400">loop</span>}
+                <span className="flex-1" />
+                <span className="text-xs text-gray-600 font-mono shrink-0" title="Age">
+                  {age}
+                </span>
               </div>
-              <div className="text-xs text-gray-500 truncate">
-                {session.state === 'blocked' && session.waitingFor
-                  ? `waiting: ${session.waitingFor}`
-                  : session.detail ||
-                    session.intent ||
-                    (session.kind === 'interactive' ? 'interactive session' : '')}
+              <div className="flex items-center gap-1.5 mt-0.5 h-5 text-[11px] text-gray-400 min-w-0">
+                {/* Repository + branch */}
+                <span className="flex-1 min-w-0 flex items-center gap-1">
+                  {ctx?.repo && (
+                    <span
+                      className="flex items-center gap-1 min-w-0"
+                      title={[
+                        ctx.repo.slug || ctx.repo.name,
+                        ctx.repo.branch ? `branch ${ctx.repo.branch}` : 'detached HEAD',
+                        ctx.repo.dirty ? 'uncommitted changes' : null,
+                        ctx.repo.ahead ? `${ctx.repo.ahead} ahead of upstream` : null,
+                        ctx.repo.behind ? `${ctx.repo.behind} behind upstream` : null,
+                      ]
+                        .filter(Boolean)
+                        .join('\n')}
+                    >
+                      <GitBranch size={10} className="shrink-0 text-gray-500" />
+                      <span className="truncate text-gray-300">{ctx.repo.name}</span>
+                      {ctx.repo.branch && (
+                        <span className="truncate text-gray-500 min-w-0">{ctx.repo.branch}</span>
+                      )}
+                      {ctx.repo.dirty && (
+                        <span
+                          className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                          aria-label="Uncommitted changes"
+                        />
+                      )}
+                      {ctx.repo.ahead > 0 && (
+                        <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
+                          <ArrowUp size={9} />
+                          {ctx.repo.ahead}
+                        </span>
+                      )}
+                      {ctx.repo.behind > 0 && (
+                        <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
+                          <ArrowDown size={9} />
+                          {ctx.repo.behind}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </span>
+                {/* Pull request */}
+                <span className="w-[3.25rem] shrink-0 flex justify-end">
+                  {label && (
+                    <a
+                      href={label.href || undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className={`font-mono px-1 rounded border ${label.className} flex items-center gap-0.5`}
+                      title={`Open pull request${session.links.length > 1 ? 's' : ''}\n${session.links.map((l) => l.href).join('\n')}`}
+                    >
+                      {label.text}
+                      {label.href && <ExternalLink size={9} />}
+                    </a>
+                  )}
+                </span>
+                {/* Open issues */}
+                <span className="w-9 shrink-0 flex justify-end">
+                  {ctx?.issues && ctx.issues.open > 0 && (
+                    <a
+                      href={ctx.issues.url || undefined}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className="flex items-center gap-0.5 text-gray-400 hover:text-white tabular-nums"
+                      title={`${ctx.issues.open} open issue${ctx.issues.open === 1 ? '' : 's'} in the repository`}
+                    >
+                      <CircleDot size={10} />
+                      {ctx.issues.open}
+                    </a>
+                  )}
+                </span>
+                {/* Dev servers */}
+                <span className="w-[5.5rem] shrink-0 flex justify-end gap-1">
+                  {sessionServers.slice(0, 2).map((server) => (
+                    <a
+                      key={server.port}
+                      href={`http://localhost:${server.port}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      onClick={(e) => e.stopPropagation()}
+                      className={`font-mono hover:underline ${server.running ? 'text-emerald-400' : 'text-gray-600'}`}
+                      title={`${server.name}: port ${server.port} (${server.running ? 'running' : 'not running'}), click to open`}
+                    >
+                      :{server.port}
+                    </a>
+                  ))}
+                  {sessionServers.length > 2 && (
+                    <span
+                      className="text-gray-500"
+                      title={sessionServers
+                        .slice(2)
+                        .map((s) => `:${s.port} ${s.name}`)
+                        .join('\n')}
+                    >
+                      +{sessionServers.length - 2}
+                    </span>
+                  )}
+                </span>
+                {/* Running sub-agents */}
+                <span className="w-8 shrink-0 flex justify-end">
+                  {ctx && ctx.subagents.running > 0 && (
+                    <span
+                      className="flex items-center gap-0.5 text-sky-300 tabular-nums motion-safe:animate-pulse"
+                      title={`${ctx.subagents.running} running sub-agent${ctx.subagents.running === 1 ? '' : 's'}${ctx.subagents.names.length ? `\n${ctx.subagents.names.join('\n')}` : ''}`}
+                    >
+                      <Bot size={10} />
+                      {ctx.subagents.running}
+                    </span>
+                  )}
+                </span>
               </div>
+              {extra && <div className="text-xs text-gray-500 truncate mt-0.5">{extra}</div>}
             </div>
-            {label && (
-              <a
-                href={label.href || undefined}
-                target="_blank"
-                rel="noreferrer"
-                onClick={(e) => e.stopPropagation()}
-                className={`text-[11px] font-mono px-1.5 py-0.5 rounded border ${label.className} shrink-0 flex items-center gap-1`}
-                title={session.links.map((l) => l.href).join('\n')}
-              >
-                {label.text}
-                {label.href && <ExternalLink size={9} />}
-              </a>
-            )}
-            <span className="text-xs text-gray-600 font-mono w-8 text-right shrink-0">{age}</span>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onTogglePeek(session);
               }}
-              className="opacity-0 group-hover:opacity-100 p-1 rounded text-gray-500 hover:text-white hover:bg-gray-700"
+              className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded text-gray-500 hover:text-white hover:bg-gray-700"
               title="Peek (Space)"
               aria-label="Peek"
             >

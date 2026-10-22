@@ -3,4 +3,7 @@ export interface AgentConfigLike {
   id: string;
   name: string;
   path: string;
+  port?: number;
+  addresses?: string[];
+  status?: string;
 }
