@@ -17,21 +17,47 @@
               mono: ['JetBrains Mono', 'monospace'],
             },
             colors: {
+              // Blue-tinted scale derived from the Ghostty theme (#304370). Text steps
+              // 100-500 keep >= 4.5:1 on 900/850; 600 is text-safe on 900 only, prefer 500 for text.
               gray: {
-                750: '#2d3748',
-                850: '#1a202c',
-                950: '#0d1117',
-              }
+                50: '#f6f8fd',
+                100: '#eaeff9',
+                200: '#d6dff1',
+                300: '#c4d0ea',
+                400: '#b8c7e6',
+                500: '#adbde0',
+                600: '#94a8d6',
+                700: '#4f67a0',
+                750: '#3b5081',
+                800: '#344a7b',
+                850: '#2c4070',
+                900: '#243562',
+                950: '#1a274b',
+              },
+              // Ghostty selection (#4b72a8) darkened so white text keeps 6:1, and its cursor.
+              // sel = selected row while the rail has focus, cursor = outline while it does not
+              sel: '#3f6399',
+              cursor: '#8fd0ff',
             }
           }
         }
       }
     </script>
     <style>
-      body { background-color: #0f172a; color: #e2e8f0; }
+      :root {
+        --bg-app: #243562;
+        --bg-card: #2c4070;
+        --border: #4f67a0;
+        --text: #d6dff1;
+        --scrollbar: #5c73a8;
+      }
+      html { color-scheme: dark; scrollbar-color: var(--scrollbar) var(--bg-app); }
+      body { background-color: var(--bg-app); color: var(--text); }
+      :focus-visible { outline: 2px solid #8fd0ff; outline-offset: 2px; }
       /* Custom scrollbar for terminals */
       .scrollbar-hide::-webkit-scrollbar { display: none; }
       .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+      .thin-scrollbar { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
 
       /* Tooltip fade-in animation */
       @keyframes fadeIn {
@@ -45,11 +71,11 @@
       .kbd {
         display: inline-block;
         padding: 0 0.35rem;
-        border: 1px solid #374151;
+        border: 1px solid var(--border);
         border-bottom-width: 2px;
         border-radius: 0.25rem;
-        background: #111827;
-        color: #93c5fd;
+        background: #1a274b;
+        color: #b9d6ff;
         font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
         font-size: 0.7rem;
         line-height: 1.2rem;

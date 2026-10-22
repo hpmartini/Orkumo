@@ -229,6 +229,50 @@ export interface AgentPrLink {
   state: string | null;
 }
 
+export interface AgentPullRequest {
+  number: number;
+  title: string;
+  url: string;
+  author: string | null;
+  isDraft: boolean;
+  headRef: string;
+  baseRef: string;
+  updatedAt: string;
+  reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
+  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+  ci: 'success' | 'failure' | 'pending' | 'none';
+  ciPassed: number;
+  ciFailed: number;
+  ciPending: number;
+  mergeReady: boolean;
+  repoSlug: string;
+}
+
+/** Real listening TCP port whose process cwd is inside the session's directory */
+export interface AgentListeningServer {
+  port: number;
+  pid: number;
+  command: string;
+  url: string;
+}
+
+export interface AgentContext {
+  /** slug = "owner/repo" from the origin remote (github) */
+  repo: {
+    name: string;
+    slug: string | null;
+    branch: string | null;
+    dirty: boolean;
+    ahead: number;
+    behind: number;
+  } | null;
+  /** null when gh is unavailable/unauthenticated or not a github repo */
+  issues: { open: number; url: string | null } | null;
+  pulls: { open: number; url: string | null; items: AgentPullRequest[] } | null;
+  servers: AgentListeningServer[];
+  subagents: { running: number; total: number; names: string[] };
+}
+
 export interface AgentSession {
   /** Short id (`claude attach <id>`), or `interactive-<pid>` for foreground sessions */
   id: string;
@@ -299,7 +343,7 @@ export interface AgentCapabilities {
   allowedDirs: string[];
 }
 
-export type AgentGrouping = 'state' | 'directory';
+export type AgentGrouping = 'state' | 'directory' | 'project' | 'none';
 export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
 
 export interface AgentDispatchDefaults {

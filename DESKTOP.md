@@ -311,6 +311,12 @@ None - the app works out of the box!
 ⚠️ Platform-specific builds required
 ⚠️ Memory usage slightly higher than web version
 
+## API origin policy (CORS)
+
+The backend only answers browser requests from loopback origins (`localhost`, `127.0.0.1`, `[::1]`, any port). Add more with `CORS_ORIGINS=https://a.example,https://b.example`.
+
+The packaged app loads the UI via `file://`, which sends `Origin: null`. That origin is accepted only when the server runs with `ELECTRON_MODE=true`. Known residual risk: a sandboxed iframe inside the desktop app (e.g. the Web IDE) also sends `null` and can reach the API. Closing it needs a per-launch token between the Electron main process and the server, or serving the UI over `http://localhost` instead of `file://`; both are tracked as follow-up work.
+
 ## Contributing
 
 Contributions to the desktop application are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.

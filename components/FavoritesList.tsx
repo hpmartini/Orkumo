@@ -1,5 +1,16 @@
 import React, { useState, useCallback, useMemo } from 'react';
-import { Star, Play, Square, RefreshCw, Globe, Archive, GripVertical, ArrowUpAZ, ArrowDownZA, Hand } from 'lucide-react';
+import {
+  Star,
+  Play,
+  Square,
+  RefreshCw,
+  Globe,
+  Archive,
+  GripVertical,
+  ArrowUpAZ,
+  ArrowDownZA,
+  Hand,
+} from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { FavoritesSortMode } from '../services/api';
@@ -40,7 +51,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
 
   // Get favorites from apps and sort them according to the current sort mode
   const favorites = useMemo(() => {
-    const favoriteApps = apps.filter(app => app.isFavorite && !app.isArchived);
+    const favoriteApps = apps.filter((app) => app.isFavorite && !app.isArchived);
 
     if (favoritesSortMode === 'alpha-asc') {
       return [...favoriteApps].sort((a, b) => a.name.localeCompare(b.name));
@@ -58,17 +69,20 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
   }, [apps, favoritesOrder, favoritesSortMode]);
 
   // Drag and drop handlers
-  const handleDragStart = useCallback((e: React.DragEvent, appId: string) => {
-    if (favoritesSortMode !== 'manual') return;
-    setDraggedId(appId);
-    e.dataTransfer.effectAllowed = 'move';
-    e.dataTransfer.setData('text/plain', appId);
-    // Add dragging class after a short delay to prevent visual glitch
-    requestAnimationFrame(() => {
-      const element = e.currentTarget as HTMLElement;
-      element.style.opacity = '0.5';
-    });
-  }, [favoritesSortMode]);
+  const handleDragStart = useCallback(
+    (e: React.DragEvent, appId: string) => {
+      if (favoritesSortMode !== 'manual') return;
+      setDraggedId(appId);
+      e.dataTransfer.effectAllowed = 'move';
+      e.dataTransfer.setData('text/plain', appId);
+      // Add dragging class after a short delay to prevent visual glitch
+      requestAnimationFrame(() => {
+        const element = e.currentTarget as HTMLElement;
+        element.style.opacity = '0.5';
+      });
+    },
+    [favoritesSortMode]
+  );
 
   const handleDragEnd = useCallback((e: React.DragEvent) => {
     setDraggedId(null);
@@ -76,38 +90,44 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
     (e.currentTarget as HTMLElement).style.opacity = '1';
   }, []);
 
-  const handleDragOver = useCallback((e: React.DragEvent, appId: string) => {
-    if (favoritesSortMode !== 'manual') return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    if (draggedId && appId !== draggedId) {
-      setDragOverId(appId);
-    }
-  }, [draggedId, favoritesSortMode]);
+  const handleDragOver = useCallback(
+    (e: React.DragEvent, appId: string) => {
+      if (favoritesSortMode !== 'manual') return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+      if (draggedId && appId !== draggedId) {
+        setDragOverId(appId);
+      }
+    },
+    [draggedId, favoritesSortMode]
+  );
 
   const handleDragLeave = useCallback(() => {
     setDragOverId(null);
   }, []);
 
-  const handleDrop = useCallback((e: React.DragEvent, targetId: string) => {
-    e.preventDefault();
-    if (!draggedId || draggedId === targetId || favoritesSortMode !== 'manual') return;
+  const handleDrop = useCallback(
+    (e: React.DragEvent, targetId: string) => {
+      e.preventDefault();
+      if (!draggedId || draggedId === targetId || favoritesSortMode !== 'manual') return;
 
-    const currentOrder = favorites.map(app => app.id);
-    const draggedIndex = currentOrder.indexOf(draggedId);
-    const targetIndex = currentOrder.indexOf(targetId);
+      const currentOrder = favorites.map((app) => app.id);
+      const draggedIndex = currentOrder.indexOf(draggedId);
+      const targetIndex = currentOrder.indexOf(targetId);
 
-    if (draggedIndex === -1 || targetIndex === -1) return;
+      if (draggedIndex === -1 || targetIndex === -1) return;
 
-    // Remove dragged item and insert at new position
-    const newOrder = [...currentOrder];
-    newOrder.splice(draggedIndex, 1);
-    newOrder.splice(targetIndex, 0, draggedId);
+      // Remove dragged item and insert at new position
+      const newOrder = [...currentOrder];
+      newOrder.splice(draggedIndex, 1);
+      newOrder.splice(targetIndex, 0, draggedId);
 
-    onReorderFavorites?.(newOrder);
-    setDraggedId(null);
-    setDragOverId(null);
-  }, [draggedId, favorites, favoritesSortMode, onReorderFavorites]);
+      onReorderFavorites?.(newOrder);
+      setDraggedId(null);
+      setDragOverId(null);
+    },
+    [draggedId, favorites, favoritesSortMode, onReorderFavorites]
+  );
 
   if (favorites.length === 0) {
     return null;
@@ -119,9 +139,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
     status === AppStatus.RESTARTING;
 
   const canStart = (status: AppStatus) =>
-    status === AppStatus.STOPPED ||
-    status === AppStatus.ERROR ||
-    status === AppStatus.CANCELLED;
+    status === AppStatus.STOPPED || status === AppStatus.ERROR || status === AppStatus.CANCELLED;
 
   const sortModes: { mode: FavoritesSortMode; icon: React.ReactNode; label: string }[] = [
     { mode: 'manual', icon: <Hand size={14} />, label: 'Manual' },
@@ -145,7 +163,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
                 className={`p-1.5 rounded-md flex items-center gap-1 text-xs transition-all ${
                   favoritesSortMode === mode
                     ? 'bg-yellow-600/30 text-yellow-400'
-                    : 'text-gray-500 hover:text-gray-300 hover:bg-gray-700/50'
+                    : 'text-gray-500 hover:text-white hover:bg-gray-700/50'
                 }`}
                 title={label}
               >
@@ -179,7 +197,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
               {/* Drag handle - only show in manual mode */}
               {favoritesSortMode === 'manual' && (
                 <div
-                  className="cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-gray-300"
+                  className="cursor-grab active:cursor-grabbing opacity-0 group-hover:opacity-100 transition-opacity text-gray-500 hover:text-white"
                   onMouseDown={(e) => e.stopPropagation()}
                 >
                   <GripVertical size={16} />
@@ -190,10 +208,10 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
                   app.status === AppStatus.RUNNING
                     ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
                     : app.status === AppStatus.STARTING || app.status === AppStatus.RESTARTING
-                    ? 'bg-yellow-500 animate-pulse'
-                    : app.status === AppStatus.ERROR
-                    ? 'bg-red-500'
-                    : 'bg-gray-600'
+                      ? 'bg-yellow-500 animate-pulse'
+                      : app.status === AppStatus.ERROR
+                        ? 'bg-red-500'
+                        : 'bg-gray-600'
                 }`}
               ></div>
               <div>
@@ -204,8 +222,12 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
                   )}
                 </h3>
                 <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
-                  <span className="px-1.5 py-0.5 rounded bg-gray-700/50">{app.detectedFramework}</span>
-                  <span className="truncate max-w-[200px]" title={app.path}>{app.path}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-gray-700/50">
+                    {app.detectedFramework}
+                  </span>
+                  <span className="truncate max-w-[200px]" title={app.path}>
+                    {app.path}
+                  </span>
                 </div>
               </div>
             </div>
@@ -233,7 +255,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
                           e.stopPropagation();
                           onRestart(app.id);
                         }}
-                        className="p-1.5 rounded hover:bg-gray-700 text-gray-400"
+                        className="p-1.5 rounded hover:bg-gray-700 hover:text-white text-gray-400"
                         title="Restart"
                       >
                         <RefreshCw size={14} />
@@ -253,7 +275,8 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
                     )}
                   </>
                 ) : (
-                  onStart && canStart(app.status) && (
+                  onStart &&
+                  canStart(app.status) && (
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -289,7 +312,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
                       e.stopPropagation();
                       onToggleArchive(app.id);
                     }}
-                    className="p-1.5 rounded hover:bg-gray-700 text-gray-500"
+                    className="p-1.5 rounded hover:bg-gray-700 hover:text-white text-gray-500"
                     title="Archive"
                   >
                     <Archive size={14} />

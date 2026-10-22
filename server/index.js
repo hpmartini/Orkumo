@@ -46,6 +46,8 @@ import { injectLogger, removeLogger, checkLoggerStatus } from './services/logger
 import * as dockerService from './services/dockerService.js';
 import * as healthService from './services/healthService.js';
 import * as agentService from './services/agentService.js';
+import ghosttyRoutes from './services/ghosttyRoutes.js';
+import { getAgentContexts } from './services/agentContextService.js';
 import { PORTS, TERMINAL, RATE_LIMIT, TIMEOUTS } from '../config/defaults.js';
 
 // Load environment variables from .env.local
@@ -134,9 +136,27 @@ const fileSystemLimiter = rateLimit({
   message: { error: 'Too many file system requests, please slow down' },
 });
 
-app.use(cors());
+// Browser origins allowed to call the API: loopback on any port (dashboard, Vite, Electron dev),
+// extra origins via CORS_ORIGINS (comma-separated), and file:// ("null") only inside Electron.
+// Requests without an Origin header (curl, server-to-server) are not browser-driven and pass.
+const extraCorsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (origin === 'null') return process.env.ELECTRON_MODE === 'true';
+  if (extraCorsOrigins.includes(origin)) return true;
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+};
+app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
+app.use('/api/terminal/ghostty', ghosttyRoutes);
 
 // ============================================
 // Input Validation Schemas (Zod)
@@ -2892,7 +2912,7 @@ const agentRemoveSchema = z.object({
 });
 const agentViewSettingsSchema = z
   .object({
-    grouping: z.enum(['state', 'directory']).optional(),
+    grouping: z.enum(['state', 'directory', 'project', 'none']).optional(),
     layout: z.enum(['tabs', 'columns', 'rows', 'grid']).optional(),
     scopeCwd: z.string().max(500).nullable().optional(),
     collapsedGroups: z.array(z.string().max(500)).max(200).optional(),
@@ -3092,6 +3112,14 @@ app.post(
     }
   }
 );
+
+app.get('/api/agents/context', agentLimiter, async (req, res) => {
+  try {
+    res.json({ contexts: await getAgentContexts() });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
 
 app.get('/api/agents/subagents', async (req, res) => {
   try {

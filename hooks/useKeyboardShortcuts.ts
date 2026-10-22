@@ -16,7 +16,8 @@ interface UseKeyboardShortcutsOptions {
  * Format a shortcut for display (e.g., "⌘1" or "Ctrl+1")
  */
 export function formatShortcut(shortcut: KeyboardShortcut): string {
-  const isMac = typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const isMac =
+    typeof navigator !== 'undefined' && navigator.platform.toUpperCase().indexOf('MAC') >= 0;
   const parts: string[] = [];
 
   if (shortcut.modifiers?.ctrl) {
@@ -102,7 +103,9 @@ export function useKeyboardShortcuts({
       if (
         target.tagName === 'INPUT' ||
         target.tagName === 'TEXTAREA' ||
-        target.isContentEditable
+        target.isContentEditable ||
+        // Plain-key shortcuts must not fire from buttons inside an open dialog (palette, composer)
+        target.closest?.('[role="dialog"][aria-modal="true"]')
       ) {
         return;
       }

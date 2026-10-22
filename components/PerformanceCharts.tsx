@@ -42,7 +42,7 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
   );
 
   const tooltipStyle = {
-    backgroundColor: '#1f2937',
+    backgroundColor: '#344a7b',
     border: '1px solid #374151',
     borderRadius: '8px',
   };
@@ -59,24 +59,24 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
         {isReady && (
           <ResponsiveContainer width="100%" height={chartHeight}>
             <AreaChart data={chartData}>
-            <defs>
-              <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <Tooltip
-              contentStyle={tooltipStyle}
-              itemStyle={{ color: '#e5e7eb' }}
-              formatter={(value) => [`${(value as number).toFixed(1)}%`, 'CPU']}
-            />
-            <Area
-              type="monotone"
-              dataKey="cpu"
-              stroke="#8b5cf6"
-              fillOpacity={1}
-              fill="url(#colorCpu)"
-            />
+              <defs>
+                <linearGradient id="colorCpu" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#8b5cf6" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#8b5cf6" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Tooltip
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: '#e5e7eb' }}
+                formatter={(value) => [`${(value as number).toFixed(1)}%`, 'CPU']}
+              />
+              <Area
+                type="monotone"
+                dataKey="cpu"
+                stroke="#8b5cf6"
+                fillOpacity={1}
+                fill="url(#colorCpu)"
+              />
             </AreaChart>
           </ResponsiveContainer>
         )}
@@ -89,24 +89,24 @@ export const PerformanceCharts: React.FC<PerformanceChartsProps> = ({
         {isReady && (
           <ResponsiveContainer width="100%" height={chartHeight}>
             <AreaChart data={chartData}>
-            <defs>
-              <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <Tooltip
-              contentStyle={tooltipStyle}
-              itemStyle={{ color: '#e5e7eb' }}
-              formatter={(value) => [`${(value as number).toFixed(1)} MB`, 'Memory']}
-            />
-            <Area
-              type="monotone"
-              dataKey="memory"
-              stroke="#10b981"
-              fillOpacity={1}
-              fill="url(#colorMem)"
-            />
+              <defs>
+                <linearGradient id="colorMem" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#10b981" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <Tooltip
+                contentStyle={tooltipStyle}
+                itemStyle={{ color: '#e5e7eb' }}
+                formatter={(value) => [`${(value as number).toFixed(1)} MB`, 'Memory']}
+              />
+              <Area
+                type="monotone"
+                dataKey="memory"
+                stroke="#10b981"
+                fillOpacity={1}
+                fill="url(#colorMem)"
+              />
             </AreaChart>
           </ResponsiveContainer>
         )}

@@ -28,6 +28,8 @@ import {
 } from './components';
 import { useApps, usePerAppState } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
+import type { PaletteCommand } from './utils/commandPalette';
 import { generateProjectUrl } from './utils/routing';
 import { KeyboardShortcuts } from './types';
 import { APP_NAME } from './constants';
@@ -380,6 +382,66 @@ function AppContent() {
     enabled: !adminPanelOpen, // Disable when admin panel is open
   });
 
+  // Command palette (Cmd/Ctrl+P). Agent-specific commands are registered by AgentsView.
+  const onAppsPage = !isAgentsRoute && !!selectedAppId && !!projectId;
+  const runOnSelected = (
+    action: (id: string) => Promise<unknown>,
+    messages: { loading: string; success: string; error: string }
+  ) => {
+    if (selectedAppId) toast.promise(action(selectedAppId), messages);
+  };
+  const command = (
+    id: string,
+    title: string,
+    group: string,
+    run: () => void,
+    keywords?: string
+  ): PaletteCommand => ({ id: `app.${id}`, title, group, scope: 'command', keywords, run });
+  const appCommand = (verb: string, past: string, action: (id: string) => Promise<unknown>) => () =>
+    runOnSelected(action, {
+      loading: `${verb}...`,
+      success: `App ${past}`,
+      error: `Failed to ${verb.toLowerCase()}`,
+    });
+  const paletteCommands: PaletteCommand[] = [
+    command('dashboard', 'Go to dashboard', 'Navigate', handleSelectDashboard, 'home overview'),
+    command('agents', 'Open agents view', 'Navigate', () => navigate('/agents'), 'claude sessions'),
+    command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
+    command('sidebar', 'Toggle sidebar', 'View', handleToggleSidebarCollapse),
+    command('favorites', 'Open favorites', 'Navigate', handleToggleFavoritesPopup),
+    command('projects', 'Open project list', 'Navigate', handleToggleProjectsPopup),
+    ...(onAppsPage
+      ? [
+          command('coding', 'Toggle details / coding view', 'View', handleToggleDetailsView),
+          command(
+            'start',
+            'Start selected app',
+            'App',
+            appCommand('Start', 'started', handleStartApp)
+          ),
+          command('stop', 'Stop selected app', 'App', appCommand('Stop', 'stopped', handleStopApp)),
+          command(
+            'restart',
+            'Restart selected app',
+            'App',
+            appCommand('Restart', 'restarted', handleRestartApp)
+          ),
+        ]
+      : []),
+    ...apps
+      .filter((a) => !a.isArchived)
+      .map(
+        (a): PaletteCommand => ({
+          id: `project.${a.id}`,
+          title: a.name,
+          group: 'Project',
+          scope: 'project',
+          run: () => handleSelectApp(a.id),
+        })
+      ),
+  ];
+  useRegisterCommands('app', paletteCommands);
+
   if (loading) {
     return <LoadingSkeleton />;
   }
@@ -395,7 +457,7 @@ function AppContent() {
         toastOptions={{
           duration: 4000,
           style: {
-            background: '#1f2937',
+            background: '#344a7b',
             color: '#f3f4f6',
             border: '1px solid #374151',
           },
@@ -446,6 +508,7 @@ function AppContent() {
           fixed ${isElectron || tabs.length > 0 ? 'top-10' : 'top-0'} bottom-0 left-0 z-40
           transform transition-all duration-300 ease-in-out
           ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${isAgentsRoute ? 'md:hidden' : ''}
         `}
         style={{ width: actualSidebarWidth }}
       >
@@ -511,7 +574,10 @@ function AppContent() {
 
       {/* Main Content - with left margin for fixed sidebar, top margin for titlebar (when present) */}
       <main
-        className={`flex-1 flex flex-col relative ml-0 md:ml-[var(--sidebar-width)] overflow-auto ${
+        className={`flex-1 flex flex-col relative ml-0 ${
+          // The agents view merges the sidebar into its own rail and scrolls internally
+          isAgentsRoute ? 'overflow-hidden' : 'md:ml-[var(--sidebar-width)] overflow-auto'
+        } ${
           // TitleBar is shown in Electron OR when tabs exist in browser mode
           isElectron || tabs.length > 0 ? 'mt-10' : ''
         }`}
@@ -603,7 +669,19 @@ function AppContent() {
             }
             aria-hidden={activeTab !== 'agents'}
           >
-            <AgentsView active={activeTab === 'agents'} apps={apps} onExit={() => navigate('/')} />
+            <AgentsView
+              active={activeTab === 'agents'}
+              apps={apps}
+              onExit={() => navigate('/')}
+              onOpenView={() => navigate('/agents')}
+              nav={{
+                onOpenDashboard: handleSelectDashboard,
+                onOpenSettings: () => setAdminPanelOpen(true),
+                onOpenProject: handleSelectApp,
+                onStartApp: handleStartApp,
+                onStopApp: handleStopApp,
+              }}
+            />
           </div>
 
           {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.
@@ -698,7 +776,9 @@ export default function App() {
   return (
     <ErrorBoundary>
       <Router>
-        <AppRouter />
+        <CommandPaletteProvider>
+          <AppRouter />
+        </CommandPaletteProvider>
       </Router>
     </ErrorBoundary>
   );

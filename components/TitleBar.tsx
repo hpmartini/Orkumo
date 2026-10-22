@@ -44,7 +44,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
 
   useEffect(() => {
     // Use Electron IPC for fullscreen detection (works with native macOS fullscreen)
-    // @ts-expect-error electronAPI is added by Electron preload script
     const electronAPI = window.electronAPI;
 
     if (electronAPI?.onFullscreenChange) {

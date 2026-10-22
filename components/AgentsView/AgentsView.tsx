@@ -5,11 +5,11 @@ import {
   Settings2,
   HelpCircle,
   RefreshCw,
-  FolderTree,
-  ListTree,
   Braces,
   AlertTriangle,
   Power,
+  Plus,
+  Search,
   X,
 } from 'lucide-react';
 import type { AgentConfigLike } from './types';
@@ -19,9 +19,11 @@ import type {
   AgentRepo,
   AgentSlashCommand,
   AgentPastSession,
-  AgentLayout,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
+import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
+import { useAgentContexts } from '../../hooks/useAgentContexts';
+import { FOCUS_CHORD_LABEL, useAgentFocusZone } from '../../hooks/useAgentFocusZone';
 import {
   dispatchAgent,
   fetchAgentsRawJson,
@@ -41,11 +43,31 @@ import {
   groupSessions,
   flattenGroups,
   documentTitle,
+  applyQuickFilters,
+  matchesQuickFilter,
+  mergeServers,
+  collectPullRequests,
+  summarizeContext,
+  DEFAULT_SORT,
+  QUICK_FILTERS,
+  SORT_OPTIONS,
+  AgentQuickFilter,
+  AgentSort,
   NavItem,
   SessionGroup,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
-import { DispatchInput } from './DispatchInput';
+import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
+import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
+import { PullRequestsPanel } from './PullRequestsPanel';
+import { ServersPanel, type ServerRow } from './ServersPanel';
+import {
+  TaskComposerModal,
+  useCommandPalette,
+  useRegisterCommands,
+  PALETTE_SHORTCUT,
+} from '../CommandPalette';
+import type { PaletteCommand } from '../../utils/commandPalette';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
 import { ResumePicker } from './ResumePicker';
@@ -59,29 +81,26 @@ interface AgentsViewProps {
   apps: AgentConfigLike[];
   /** Leave the agents view (Ctrl+C twice) */
   onExit: () => void;
+  /** App navigation for the merged left rail (replaces the separate app sidebar) */
+  nav: RailNavProps;
+  /** Make this view the visible route (palette command "New task" from another page) */
+  onOpenView: () => void;
 }
 
-const WORKSPACE_STORAGE_KEY = 'devOrbitAgentWorkspace';
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const DELETE_CONFIRM_WINDOW = 2000;
+const SORT_STORAGE_KEY = 'devOrbitAgentSort';
 
-interface WorkspaceState {
-  openIds: string[];
-  activeId: string | null;
-}
-
-function loadWorkspace(): WorkspaceState {
+function loadSort(): AgentSort {
   try {
-    const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.openIds))
-        return { openIds: parsed.openIds, activeId: parsed.activeId ?? null };
+    const parsed = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) || 'null');
+    if (SORT_OPTIONS.some((o) => o.key === parsed?.key) && /^(asc|desc)$/.test(parsed?.dir)) {
+      return parsed;
     }
   } catch {
-    // ignore
+    // unavailable or corrupt storage: use the default
   }
-  return { openIds: [], activeId: null };
+  return DEFAULT_SORT;
 }
 
 function isEditableTarget(target: EventTarget | null): target is HTMLElement {
@@ -99,7 +118,14 @@ function isInsideTerminal(target: EventTarget | null): boolean {
  * Browser counterpart of `claude agents`: session list, dispatch input, peek panel
  * and attached sessions in tabs / tiles.
  */
-export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) => {
+export const AgentsView: React.FC<AgentsViewProps> = ({
+  active,
+  apps,
+  onExit,
+  nav,
+  onOpenView,
+}) => {
+  const palette = useCommandPalette();
   const {
     sessions,
     daemon,
@@ -122,7 +148,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [peekId, setPeekId] = useState<string | null>(null);
-  const [workspace, setWorkspace] = useState<WorkspaceState>(loadWorkspace);
+  const {
+    workspace,
+    openIds: openIdSet,
+    attach: attachPane,
+    closePane,
+    prune: pruneMissing,
+    ...workspaceActions
+  } = useAgentWorkspace();
   const [expandedCompleted, setExpandedCompleted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -130,6 +163,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     open: false,
     query: '',
   });
+  const [composerOpen, setComposerOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
   const [dispatching, setDispatching] = useState(false);
@@ -153,13 +187,84 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
 
   const filter = useMemo(() => parseFilter(input), [input]);
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
-  const collapsed = useMemo(() => new Set(settings.collapsedGroups), [settings.collapsedGroups]);
-  const groups = useMemo(
-    () => groupSessions(visibleSessions, settings.grouping, { expandedCompleted }),
-    [visibleSessions, settings.grouping, expandedCompleted]
+  const railRef = useRef<HTMLDivElement>(null);
+  const { zone: focusZone } = useAgentFocusZone(active, railRef);
+  const contexts = useAgentContexts(active);
+  const servers = useMemo(
+    () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
+    [sessions, apps, contexts]
   );
+  const lookup = useMemo(() => ({ contexts, servers }), [contexts, servers]);
+  const [panel, setPanel] = useState<'prs' | 'servers' | null>(null);
+  useEffect(() => {
+    if (!active) setPanel(null);
+  }, [active]);
+  const [prRepo, setPrRepo] = useState<string | null>(null);
+  const pullRows = useMemo(() => collectPullRequests(sessions, contexts), [sessions, contexts]);
+  const serverRows = useMemo(() => {
+    const seen = new Set<number>();
+    const rows: ServerRow[] = [];
+    for (const s of sessions) {
+      for (const server of servers.get(s.id) || []) {
+        if (!server.running || seen.has(server.port)) continue;
+        seen.add(server.port);
+        rows.push({ server, agentId: s.id, agentName: s.name });
+      }
+    }
+    return rows.sort((a, b) => a.server.port - b.server.port);
+  }, [sessions, servers]);
+  const [sort, setSortState] = useState<AgentSort>(loadSort);
+  const setSort = useCallback((next: AgentSort) => {
+    setSortState(next);
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // sort stays in memory only
+    }
+  }, []);
+  const [quickFilters, setQuickFilters] = useState<Set<AgentQuickFilter>>(() => new Set());
+  const toggleQuickFilter = useCallback((key: AgentQuickFilter) => {
+    setQuickFilters((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+  const shownSessions = useMemo(
+    () => applyQuickFilters(visibleSessions, quickFilters, lookup),
+    [visibleSessions, quickFilters, lookup]
+  );
+  const chipCounts = useMemo(() => {
+    const result = {} as Record<AgentQuickFilter, number>;
+    for (const { key } of QUICK_FILTERS) {
+      result[key] = sessions.filter((s) => matchesQuickFilter(key, s, lookup)).length;
+    }
+    return result;
+  }, [sessions, lookup]);
+  const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
+  // An active quick filter must not hide its matches inside collapsed groups
+  const collapsed = useMemo(
+    () => new Set(quickFilters.size ? [] : settings.collapsedGroups),
+    [settings.collapsedGroups, quickFilters]
+  );
+  const groups = useMemo(
+    () =>
+      groupSessions(shownSessions, settings.grouping, {
+        // Filtering for Completed means the user wants all of them, not "… N more"
+        expandedCompleted: expandedCompleted || quickFilters.has('completed'),
+        sort,
+        lookup,
+        apps,
+      }),
+    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps]
+  );
+  const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
   const items = useMemo(() => {
-    const flat = flattenGroups(groups, collapsed, settings.grouping === 'directory');
+    const flat = flattenGroups(
+      groups,
+      collapsed,
+      settings.grouping === 'directory' || settings.grouping === 'project'
+    );
     // The interactive group only shows up when there are interactive sessions
     return flat.filter(
       (item) =>
@@ -187,10 +292,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   const selectedItem: NavItem | null = selectedIndex >= 0 ? items[selectedIndex] : null;
   const selectedSession = selectedItem?.type === 'session' ? selectedItem.session : null;
   const peekSession = peekId ? sessions.find((s) => s.id === peekId) || null : null;
-  const openIdSet = useMemo(() => new Set(workspace.openIds), [workspace.openIds]);
 
   const targetCwd: string | null = useMemo(() => {
-    if (settings.grouping === 'directory' && selectedItem) {
+    if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
       if (selectedItem.type === 'group' && selectedItem.group.cwd) return selectedItem.group.cwd;
       if (selectedItem.type === 'session') return selectedItem.session.cwd;
     }
@@ -216,10 +320,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // ---------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------
-
-  useEffect(() => {
-    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
-  }, [workspace]);
 
   useEffect(() => {
     if (dispatchCwd) localStorage.setItem(DISPATCH_CWD_STORAGE_KEY, dispatchCwd);
@@ -267,24 +367,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // Drop tabs for sessions that no longer exist
   useEffect(() => {
     if (loading || sessions.length === 0) return;
-    const existing = new Set(sessions.map((s) => s.id));
-    setWorkspace((prev) => {
-      const openIds = prev.openIds.filter((id) => existing.has(id));
-      if (openIds.length === prev.openIds.length) return prev;
-      const activeId = openIds.includes(prev.activeId || '')
-        ? prev.activeId
-        : openIds[openIds.length - 1] || null;
-      return { openIds, activeId };
-    });
-  }, [sessions, loading]);
-
-  // Focus the dispatch input when the view becomes active
-  useEffect(() => {
-    if (active) {
-      const id = requestAnimationFrame(() => inputRef.current?.focus());
-      return () => cancelAnimationFrame(id);
-    }
-  }, [active]);
+    pruneMissing(new Set(sessions.map((s) => s.id)));
+  }, [sessions, loading, pruneMissing]);
 
   const showHint = useCallback(
     (text: string, tone: 'info' | 'error' | 'success' = 'info', ttl = 4000) => {
@@ -299,34 +383,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // Workspace (tabs)
   // ---------------------------------------------------------------------
 
-  const attach = useCallback((id: string) => {
-    setWorkspace((prev) => ({
-      openIds: prev.openIds.includes(id) ? prev.openIds : [...prev.openIds, id],
-      activeId: id,
-    }));
-    setSelectedKey(id);
-  }, []);
-
-  const closeTab = useCallback((id: string) => {
-    setWorkspace((prev) => {
-      const openIds = prev.openIds.filter((x) => x !== id);
-      const activeId = prev.activeId === id ? openIds[openIds.length - 1] || null : prev.activeId;
-      return { openIds, activeId };
-    });
-  }, []);
-
-  const reorderTabs = useCallback((from: number, to: number) => {
-    setWorkspace((prev) => {
-      const openIds = [...prev.openIds];
-      const [moved] = openIds.splice(from, 1);
-      openIds.splice(to, 0, moved);
-      return { ...prev, openIds };
-    });
-  }, []);
-
-  const setLayout = useCallback(
-    (layout: AgentLayout) => updateSettings({ layout }),
-    [updateSettings]
+  const attach = useCallback(
+    (id: string) => {
+      attachPane(id);
+      setSelectedKey(id);
+    },
+    [attachPane]
   );
 
   // ---------------------------------------------------------------------
@@ -387,6 +449,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           cwd,
         });
         setInput('');
+        setComposerOpen(false);
         setHighlightedId(result.id);
         setSelectedKey(result.id);
         showHint(
@@ -422,6 +485,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           const model = !args || args === 'default' ? null : args;
           await updateSettings({ dispatch: { ...settings.dispatch, model } });
           setInput('');
+          setComposerOpen(false);
           showHint(model ? `Dispatch model: ${model}` : 'Dispatch model: default', 'success');
           return;
         }
@@ -429,6 +493,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           const effort = !args || args === 'default' ? null : args;
           await updateSettings({ dispatch: { ...settings.dispatch, effort } });
           setInput('');
+          setComposerOpen(false);
           showHint(effort ? `Dispatch effort: ${effort}` : 'Dispatch effort: default', 'success');
           return;
         }
@@ -450,8 +515,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       const parsed = parseDispatchInput(input, { subagents, repos });
       switch (parsed.kind) {
         case 'empty':
+          showHint('Describe the task first', 'error');
+          return;
         case 'filter':
-          activateItem(selectedItem);
+          // The list filter follows `input`; keep it and let the user see the narrowed list
+          setComposerOpen(false);
           return;
         case 'select-pr': {
           const match = sessions.find((s) =>
@@ -467,6 +535,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           }
           setSelectedKey(match.id);
           setInput('');
+          setComposerOpen(false);
           if (attachAfter) attach(match.id);
           return;
         }
@@ -491,18 +560,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           return;
       }
     },
-    [
-      input,
-      subagents,
-      repos,
-      activateItem,
-      selectedItem,
-      sessions,
-      showHint,
-      attach,
-      handleCommand,
-      doDispatch,
-    ]
+    [input, subagents, repos, sessions, showHint, attach, handleCommand, doDispatch]
   );
 
   const handleRename = useCallback(
@@ -560,14 +618,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           return;
         }
         toast.success(`Deleted ${session.name}`);
-        closeTab(session.id);
+        closePane(session.id);
         if (peekId === session.id) setPeekId(null);
         refresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Delete failed');
       }
     },
-    [closeTab, peekId, refresh]
+    [closePane, peekId, refresh]
   );
 
   const handleStopOrDelete = useCallback(
@@ -638,7 +696,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   );
 
   const toggleGrouping = useCallback(() => {
-    updateSettings({ grouping: settings.grouping === 'state' ? 'directory' : 'state' });
+    const order = ['project', 'state', 'directory', 'none'] as const;
+    updateSettings({ grouping: order[(order.indexOf(settings.grouping) + 1) % order.length] });
   }, [settings.grouping, updateSettings]);
 
   const copyJson = useCallback(async () => {
@@ -654,7 +713,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   const attachNth = useCallback(
     (n: number) => {
       let pool: AgentSession[];
-      if (settings.grouping === 'directory' && selectedItem) {
+      if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
         pool = selectedItem.group.sessions;
       } else {
         pool = items
@@ -686,16 +745,29 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   useEffect(() => {
     if (!active) return;
     const handler = (e: KeyboardEvent) => {
-      const modalOpen = showSettings || showHelp || resumePicker.open || editorOpen || pickDirOpen;
+      const modalOpen =
+        showSettings ||
+        showHelp ||
+        resumePicker.open ||
+        editorOpen ||
+        pickDirOpen ||
+        composerOpen ||
+        palette.isOpen ||
+        panel !== null;
       if (modalOpen) return;
       if (isInsideTerminal(e.target)) return;
       const target = e.target as HTMLElement | null;
-      const inDispatch = target === inputRef.current;
-      const inOtherInput = isEditableTarget(target) && !inDispatch;
+      // Explicit type: an inferred alias would narrow `target` to never below
+      const inOtherInput: boolean = isEditableTarget(target);
       const key = e.key.toLowerCase();
       const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
 
-      // Global (also inside the dispatch input)
+      // Global (also inside text inputs)
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyN') {
+        e.preventDefault();
+        setComposerOpen(true);
+        return;
+      }
       if (ctrl && key === 's' && !e.shiftKey) {
         e.preventDefault();
         toggleGrouping();
@@ -724,26 +796,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       if (inOtherInput) return; // peek reply / rename inputs handle their own keys
 
       if (ctrl && key === 'x' && !e.shiftKey) {
-        const el = inputRef.current;
-        const hasSelection = inDispatch && el && el.selectionStart !== el.selectionEnd;
-        if (hasSelection) return; // let the browser cut
         e.preventDefault();
         handleStopOrDelete(selectedItem);
         return;
       }
       if (ctrl && key === 'c') {
-        if (
-          inDispatch &&
-          inputRef.current &&
-          inputRef.current.selectionStart !== inputRef.current.selectionEnd
-        )
-          return; // copy
         e.preventDefault();
-        if (input) {
-          setInput('');
-          ctrlCRef.current = 0;
-          return;
-        }
         const nowMs = Date.now();
         if (nowMs - ctrlCRef.current < 1200) {
           ctrlCRef.current = 0;
@@ -759,21 +817,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         handleReorder(e.key === 'ArrowUp' ? 'up' : 'down');
         return;
       }
-      if (e.key === '?' && !input && !e.ctrlKey && !e.metaKey) {
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setShowHelp(true);
         return;
       }
-      if (inDispatch) {
-        if (e.key === 'ArrowRight' && !input) {
-          e.preventDefault();
-          if (selectedSession) attach(selectedSession.id);
-        } else if (e.key === 'ArrowLeft' && !input && peekId) {
-          e.preventDefault();
-          setPeekId(null);
-        }
-        return; // remaining keys are handled by DispatchInput itself
-      }
+
+      // Rail, tab strip and popover controls keep their own Enter/Space/arrow behaviour
+      if (
+        target?.closest('button, a, [role="dialog"], [role="tab"], [role="tablist"], [role="menu"]')
+      )
+        return;
 
       // List / body context
       switch (e.key) {
@@ -796,7 +850,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           break;
         case 'Escape':
           if (peekId) setPeekId(null);
-          else inputRef.current?.focus();
+          break;
+        case 'n':
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          e.preventDefault();
+          setComposerOpen(true);
           break;
         default:
           break;
@@ -811,7 +869,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     resumePicker.open,
     editorOpen,
     pickDirOpen,
-    input,
+    composerOpen,
+    palette.isOpen,
+    panel,
     selectedItem,
     selectedSession,
     peekId,
@@ -892,6 +952,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         label: collapsed.has(group.key) ? 'Expand' : 'Collapse',
         onSelect: () => toggleGroup(group),
       },
+      ...(group.appId
+        ? [
+            {
+              id: 'open-project',
+              label: 'Open project',
+              onSelect: () => nav.onOpenProject(group.appId!),
+            },
+          ]
+        : []),
       ...(group.cwd
         ? [
             {
@@ -908,7 +977,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         onSelect: () => handleStopOrDelete({ type: 'group', group }),
       },
     ],
-    [collapsed, toggleGroup, handleStopOrDelete]
+    [collapsed, toggleGroup, handleStopOrDelete, nav]
   );
 
   // ---------------------------------------------------------------------
@@ -916,12 +985,160 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // ---------------------------------------------------------------------
 
   const disabled = settings.disabled;
+  // ---------------------------------------------------------------------
+  // Command palette entries
+  // ---------------------------------------------------------------------
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const newTask: PaletteCommand = {
+      id: 'agents.new-task',
+      title: 'New agent task',
+      group: 'Agents',
+      scope: 'command',
+      keywords: 'dispatch compose prompt session create',
+      shortcut: 'N',
+      run: () => {
+        onOpenView();
+        setComposerOpen(true);
+      },
+      runWithText: (text) => {
+        onOpenView();
+        setInput(text);
+        setComposerOpen(true);
+      },
+    };
+    // The rest acts on the visible view only; the task composer works from every page
+    if (!active) return [newTask];
+
+    const cmd = (
+      id: string,
+      title: string,
+      group: string,
+      run: () => void,
+      extra: Partial<PaletteCommand> = {}
+    ): PaletteCommand => ({ id: `agents.${id}`, title, group, scope: 'command', run, ...extra });
+
+    const list: PaletteCommand[] = [newTask];
+    if (selectedSession) {
+      for (const action of rowActions(selectedSession)) {
+        if (action.disabled) continue;
+        list.push(
+          cmd(
+            `selected.${action.id}`,
+            `${action.label}: ${selectedSession.name}`,
+            'Selected agent',
+            action.onSelect
+          )
+        );
+      }
+    }
+    for (const mode of ['project', 'state', 'directory', 'none'] as const) {
+      if (mode === settings.grouping) continue;
+      list.push(
+        cmd(`group.${mode}`, `Group agents by ${mode === 'state' ? 'status' : mode}`, 'Rail', () =>
+          updateSettings({ grouping: mode })
+        )
+      );
+    }
+    for (const option of SORT_OPTIONS) {
+      list.push(
+        cmd(`sort.${option.key}`, `Sort agents by ${option.label.toLowerCase()}`, 'Rail', () =>
+          setSort({ key: option.key, dir: option.dir })
+        )
+      );
+    }
+    for (const filterOption of QUICK_FILTERS) {
+      const on = quickFilters.has(filterOption.key);
+      list.push(
+        cmd(
+          `filter.${filterOption.key}`,
+          `${on ? 'Remove' : 'Add'} filter: ${filterOption.label}`,
+          'Rail',
+          () => toggleQuickFilter(filterOption.key),
+          { keywords: filterOption.title }
+        )
+      );
+    }
+    if (quickFilters.size > 0 || filter) {
+      list.push(
+        cmd('filter.clear', 'Clear all filters', 'Rail', () => {
+          setQuickFilters(new Set());
+          setInput('');
+        })
+      );
+    }
+    const activeTab = workspace.tabs.find((t) => t.id === workspace.activeTabId);
+    if (activeTab && activeTab.panes.length > 1) {
+      for (const layout of ['columns', 'rows', 'grid'] as const) {
+        if (layout === activeTab.layout) continue;
+        list.push(
+          cmd(`layout.${layout}`, `Split layout: ${layout}`, 'Workspace', () =>
+            workspaceActions.setLayout(activeTab.id, layout)
+          )
+        );
+      }
+    }
+    if (activeTab) {
+      list.push(
+        cmd('tab.close', 'Close current tab', 'Workspace', () =>
+          workspaceActions.closeTab(activeTab.id)
+        )
+      );
+    }
+    list.push(
+      cmd('panel.prs', 'Show pull requests', 'Panels', () => {
+        setPrRepo(null);
+        setPanel('prs');
+      }),
+      cmd('panel.servers', 'Show running servers', 'Panels', () => setPanel('servers')),
+      cmd('settings', 'Dispatch defaults and settings', 'Agents', () => setShowSettings(true)),
+      cmd('shortcuts', 'Show keyboard shortcuts', 'Agents', () => setShowHelp(true), {
+        shortcut: '?',
+      }),
+      cmd('refresh', 'Refresh agent list', 'Agents', refresh),
+      cmd('copy-json', 'Copy claude agents --json', 'Agents', copyJson),
+      cmd('exit', 'Leave agents view', 'Agents', onExit)
+    );
+    for (const session of sessions) {
+      list.push({
+        id: `agent.${session.id}`,
+        title: session.name,
+        group: session.cwd.split('/').pop() || 'Agent',
+        scope: 'agent',
+        keywords: session.state ?? undefined,
+        run: () =>
+          session.kind === 'background' ? attach(session.id) : setSelectedKey(session.id),
+      });
+    }
+    return list;
+  }, [
+    active,
+    onOpenView,
+    onExit,
+    selectedSession,
+    rowActions,
+    settings.grouping,
+    updateSettings,
+    setSort,
+    quickFilters,
+    filter,
+    toggleQuickFilter,
+    workspace.tabs,
+    workspace.activeTabId,
+    workspaceActions,
+    refresh,
+    copyJson,
+    sessions,
+    attach,
+  ]);
+  useRegisterCommands('agents', paletteCommands);
+
   const defaultModel = settings.dispatch.model || userSettings?.model || 'default';
 
   if (disabled) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 text-gray-400">
-        <Power size={32} className="text-gray-600" />
+        <Power size={32} className="text-gray-500" />
         <div>The agent view is turned off.</div>
         <button
           onClick={() => updateSettings({ disabled: false })}
@@ -947,7 +1164,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         </pre>
         <button
           onClick={refresh}
-          className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-sm text-gray-200"
+          className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200"
         >
           Check again
         </button>
@@ -958,24 +1175,63 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   return (
     <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800 shrink-0">
-        <Bot size={18} className="text-blue-400" />
-        <div className="min-w-0">
+      <div className="relative flex items-center gap-3 px-4 py-1.5 border-b border-gray-800 shrink-0">
+        <Bot size={18} className="text-blue-300" />
+        <div className="min-w-0 flex items-center gap-3">
           <div className="text-sm font-semibold leading-tight">Agents</div>
-          <div className="text-[11px] text-gray-500 font-mono truncate">
-            <span className={counts.awaitingInput > 0 ? 'text-yellow-400' : ''}>
-              {counts.awaitingInput} awaiting input
-            </span>
-            {' · '}
-            {counts.working} working · {counts.completed} completed
-            {counts.failed > 0 && <span className="text-red-400"> · {counts.failed} failed</span>}
-            {lastCompleted && Date.now() - lastCompleted.at < 5000 && (
-              <span className="text-emerald-400"> · ← {lastCompleted.count} done</span>
-            )}
-          </div>
+          <AgentSummaryBar
+            counts={{ ...counts, completed: chipCounts.completed }}
+            openPrs={totals.openPrs}
+            runningServers={totals.runningServers}
+            daemon={daemon}
+            justCompleted={
+              lastCompleted && Date.now() - lastCompleted.at < 5000 ? lastCompleted.count : 0
+            }
+            active={quickFilters}
+            onToggle={toggleQuickFilter}
+            panel={panel}
+            onOpenPrs={() => {
+              setPrRepo(null);
+              setPanel((p) => (p === 'prs' ? null : 'prs'));
+            }}
+            onOpenServers={() => setPanel((p) => (p === 'servers' ? null : 'servers'))}
+          />
         </div>
+        {panel === 'prs' && (
+          <PullRequestsPanel
+            rows={pullRows}
+            sessions={sessions}
+            contexts={contexts}
+            repoFilter={prRepo}
+            onClearRepo={() => setPrRepo(null)}
+            onSelectAgent={attach}
+            onClose={() => setPanel(null)}
+          />
+        )}
+        {panel === 'servers' && (
+          <ServersPanel rows={serverRows} onSelectAgent={attach} onClose={() => setPanel(null)} />
+        )}
         <div className="flex-1" />
-        <div className="hidden lg:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
+        <div
+          className="hidden md:flex items-center gap-1.5 text-[11px] text-gray-300"
+          role="status"
+          title="Switch with F6 or Ctrl+Alt+Left / Right"
+        >
+          <span
+            className={`px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
+              focusZone === 'terminal' ? 'bg-blue-300 text-gray-950' : 'bg-gray-700 text-gray-100'
+            }`}
+          >
+            {focusZone === 'terminal'
+              ? 'Keys: terminal'
+              : focusZone === 'rail'
+                ? 'Keys: agent list'
+                : 'Keys: page'}
+          </span>
+          <kbd className="kbd">{FOCUS_CHORD_LABEL}</kbd>
+          <span className="text-gray-400 hidden xl:inline">switches</span>
+        </div>
+        <div className="hidden xl:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
           <span title="Dispatch model (/model)">model {defaultModel}</span>
           {settings.dispatch.effort && (
             <span title="Dispatch effort (/effort)">effort {settings.dispatch.effort}</span>
@@ -985,25 +1241,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
             <span className="text-orange-400">bypass permissions</span>
           )}
           {settings.scopeCwd && <span title="Scope (--cwd)">cwd {settings.scopeCwd}</span>}
-          <span
-            className={`flex items-center gap-1 ${daemon?.running ? 'text-emerald-400' : 'text-gray-500'}`}
-            title={daemon?.raw || 'supervisor status unknown'}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${daemon?.running ? 'bg-emerald-500' : 'bg-gray-600'}`}
-            />
-            supervisor {daemon?.running ? 'running' : 'idle'}
-            {daemon?.versionMismatch && <AlertTriangle size={11} className="text-yellow-400" />}
-          </span>
           {!connected && <span className="text-yellow-500">reconnecting…</span>}
         </div>
-        <button
-          onClick={toggleGrouping}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title={`Group by ${settings.grouping === 'state' ? 'directory' : 'state'} (Ctrl+S)`}
-        >
-          {settings.grouping === 'state' ? <FolderTree size={15} /> : <ListTree size={15} />}
-        </button>
         <button
           onClick={copyJson}
           className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
@@ -1043,13 +1282,66 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       {/* Body */}
       <div className="flex-1 flex min-h-0">
         {/* Session list + dispatch input */}
-        <div className="w-full md:w-[380px] lg:w-[420px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40">
+        <div
+          ref={railRef}
+          tabIndex={-1}
+          data-focus-zone="rail"
+          data-rail-focused={focusZone === 'rail'}
+          className={`w-full md:w-[340px] xl:w-[440px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+        >
+          {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
+          {focusZone === 'rail' && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-10 border-2 border-blue-300/80"
+            />
+          )}
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
+            <button
+              type="button"
+              onClick={() => setComposerOpen(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              title="New task (N or Alt+N)"
+            >
+              <Plus size={14} aria-hidden /> New task
+            </button>
+            <button
+              type="button"
+              onClick={palette.open}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
+              title="Command palette"
+              aria-label={`Command palette (${PALETTE_SHORTCUT})`}
+            >
+              <Search size={13} aria-hidden />
+              <kbd className="font-mono">{PALETTE_SHORTCUT}</kbd>
+            </button>
+          </div>
+          <RailNav
+            nav={nav}
+            grouping={settings.grouping}
+            onGrouping={(grouping) => updateSettings({ grouping })}
+          />
+          <AgentFilterBar
+            sort={sort}
+            onSort={setSort}
+            active={quickFilters}
+            onToggle={toggleQuickFilter}
+            chipCounts={chipCounts}
+            shown={shownSessions.length}
+            total={sessions.length}
+            filtered={quickFilters.size > 0 || !!filter}
+            onClear={() => {
+              setQuickFilters(new Set());
+              if (filter) setInput('');
+            }}
+          />
           {loading && sessions.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
               <RefreshCw size={14} className="animate-spin mr-2" /> Loading sessions…
             </div>
           ) : (
             <AgentList
+              railFocused={focusZone === 'rail'}
               items={items}
               selectedIndex={selectedIndex}
               onSelectIndex={(index) => setSelectedKey(itemKey(items[index]))}
@@ -1059,9 +1351,28 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
               openIds={openIdSet}
               now={now}
               grouping={settings.grouping}
+              contexts={contexts}
+              servers={servers}
+              filtered={quickFilters.size > 0 || !!filter}
+              onOpenPrs={(repo) => {
+                setPrRepo(repo);
+                setPanel('prs');
+              }}
               rowActions={rowActions}
               groupActions={groupActions}
               highlightedId={highlightedId}
+              collapsedKeys={collapsed}
+              appsById={appsById}
+              nav={nav}
+              top={
+                settings.grouping === 'state' ? (
+                  <ProjectsSection
+                    apps={apps}
+                    nav={nav}
+                    filtered={quickFilters.size > 0 || !!filter}
+                  />
+                ) : undefined
+              }
             />
           )}
           {filter && (
@@ -1076,49 +1387,40 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
               </button>
             </div>
           )}
-          <DispatchInput
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            onNavigate={moveSelection}
-            onEscape={() => {
-              if (peekId) setPeekId(null);
-              else if (input) setInput('');
-              else inputRef.current?.blur();
-            }}
-            onSpace={() => {
-              if (selectedSession) {
-                togglePeek(selectedSession);
-                return true;
-              }
-              return false;
-            }}
-            onOpenEditor={() => setEditorOpen(true)}
-            onPickDirectory={() => setPickDirOpen(true)}
-            targetCwd={targetCwd}
-            hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
-            hintTone={hint?.tone}
-            disabled={dispatching}
-            subagents={subagents}
-            repos={repos}
-            commands={commands}
-            inputRef={inputRef}
-          />
+          {/* Feedback for actions started outside the composer (the composer shows its own) */}
+          <div role="status" aria-live="polite">
+            {!composerOpen && (hint || dispatching) && (
+              <p
+                className={`px-3 py-2 text-xs border-t border-gray-700 ${
+                  hint?.tone === 'error'
+                    ? 'text-red-300'
+                    : hint?.tone === 'success'
+                      ? 'text-emerald-300'
+                      : 'text-gray-200'
+                }`}
+              >
+                {hint?.text || 'Dispatching…'}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Workspace */}
-        <div className="flex-1 min-w-0 hidden md:flex">
-          <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 min-h-0 hidden md:flex overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0">
             <AgentWorkspace
               sessions={sessions}
-              openIds={workspace.openIds}
-              activeId={workspace.activeId}
-              layout={settings.layout}
-              onSelect={(id) => setWorkspace((prev) => ({ ...prev, activeId: id }))}
-              onClose={closeTab}
-              onReorder={reorderTabs}
-              onLayoutChange={setLayout}
+              workspace={workspace}
+              onActivateTab={workspaceActions.activateTab}
+              onFocusPane={workspaceActions.focusPane}
+              onClosePane={closePane}
+              onCloseTab={workspaceActions.closeTab}
+              onMoveTab={workspaceActions.moveTab}
+              onSplit={workspaceActions.split}
+              onDetach={workspaceActions.detach}
+              onSetLayout={workspaceActions.setLayout}
               onPeek={(id) => setPeekId(id)}
+              focusZone={focusZone}
             />
           </div>
           {peekSession && (
@@ -1158,6 +1460,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         repos={directoryChoices as AgentRepo[]}
         capabilities={capabilities}
         onRefresh={refresh}
+      />
+      <TaskComposerModal
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        value={input}
+        onChange={setInput}
+        onSubmit={handleSubmit}
+        onOpenEditor={() => setEditorOpen(true)}
+        onPickDirectory={() => setPickDirOpen(true)}
+        targetCwd={targetCwd}
+        hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
+        hintTone={hint?.tone}
+        disabled={dispatching}
+        subagents={subagents}
+        repos={repos}
+        commands={commands}
+        inputRef={inputRef}
       />
       <ResumePicker
         open={resumePicker.open}
@@ -1293,7 +1612,7 @@ const DirectoryPicker: React.FC<{
             >
               <span className="text-sm text-gray-100">{choice.name}</span>
               <span className="text-xs text-gray-500 font-mono truncate">{choice.path}</span>
-              <span className="ml-auto text-[10px] uppercase text-gray-600">{choice.source}</span>
+              <span className="ml-auto text-[10px] text-gray-500">{choice.source}</span>
             </button>
           ))}
           {filtered.length === 0 && (

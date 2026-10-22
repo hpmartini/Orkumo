@@ -96,7 +96,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-800 sticky top-0 bg-gray-900 z-10">
-          <Settings2 size={16} className="text-blue-400" />
+          <Settings2 size={16} className="text-blue-300" />
           <h3 className="text-sm font-semibold text-gray-100">Agent view settings</h3>
           <button
             onClick={onClose}
@@ -110,7 +110,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
         <div className="p-5 space-y-6">
           {/* View */}
           <section className="space-y-3">
-            <h4 className="text-xs uppercase tracking-wider text-gray-500">View</h4>
+            <h4 className="text-xs text-gray-500">View</h4>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
               <div>
                 <label className={label}>Scope (claude agents --cwd)</label>
@@ -178,9 +178,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
 
           {/* Dispatch defaults */}
           <section className="space-y-3">
-            <h4 className="text-xs uppercase tracking-wider text-gray-500">
-              Dispatch defaults (flags of `claude agents`)
-            </h4>
+            <h4 className="text-xs text-gray-500">Dispatch defaults (flags of `claude agents`)</h4>
             {unsafeLocked && (
               <div className="flex items-start gap-2 text-xs text-gray-300 bg-gray-800 border border-gray-700 rounded p-2">
                 <AlertTriangle size={14} className="shrink-0 mt-0.5 text-yellow-400" />
@@ -359,9 +357,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
 
           {/* Supervisor */}
           <section className="space-y-3">
-            <h4 className="text-xs uppercase tracking-wider text-gray-500">
-              Background service (supervisor)
-            </h4>
+            <h4 className="text-xs text-gray-500">Background service (supervisor)</h4>
             <pre className="text-[11px] text-gray-400 bg-gray-950 border border-gray-800 rounded p-2 whitespace-pre-wrap max-h-40 overflow-y-auto">
               {daemon?.raw || 'status unavailable'}
             </pre>
@@ -375,7 +371,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
               <button
                 disabled={!!busy}
                 onClick={() => runDaemon('respawn --all', respawnAllAgents)}
-                className="flex items-center gap-1 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-sm text-gray-200 disabled:opacity-50"
+                className="flex items-center gap-1 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200 disabled:opacity-50"
               >
                 <RefreshCw size={12} /> claude respawn --all
               </button>
@@ -386,7 +382,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                     stopAgentDaemon({ keepWorkers: true })
                   )
                 }
-                className="flex items-center gap-1 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-sm text-gray-200 disabled:opacity-50"
+                className="flex items-center gap-1 px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200 disabled:opacity-50"
               >
                 <Power size={12} /> claude daemon stop --keep-workers
               </button>
@@ -406,7 +402,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
 
           {/* Turn off */}
           <section className="space-y-2">
-            <h4 className="text-xs uppercase tracking-wider text-gray-500">Turn off</h4>
+            <h4 className="text-xs text-gray-500">Turn off</h4>
             <label className="flex items-center gap-2 text-sm text-gray-300 cursor-pointer">
               <input
                 type="checkbox"

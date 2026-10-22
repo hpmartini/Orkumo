@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useLayoutEffect, useMemo, useState, useCallback } from 'react';
 import { Send, FolderOpen, PenSquare } from 'lucide-react';
 import type { AgentSubagent, AgentRepo, AgentSlashCommand } from '../../types';
 import { computeSuggestions, Suggestion } from '../../utils/agentInput';
@@ -7,9 +7,7 @@ interface DispatchInputProps {
   value: string;
   onChange: (value: string) => void;
   onSubmit: (options: { attach: boolean }) => void;
-  onNavigate: (direction: 'up' | 'down') => void;
   onEscape: () => void;
-  onSpace?: () => boolean;
   onOpenEditor: () => void;
   onPickDirectory: () => void;
   targetCwd: string | null;
@@ -22,19 +20,20 @@ interface DispatchInputProps {
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
+const MIN_HEIGHT = 96;
+const MAX_HEIGHT = 288;
+
 /**
- * The dispatch input at the bottom of the agent view.
+ * The task composer body, rendered inside TaskComposerModal.
  *
  * Enter dispatches, Shift+Enter / Ctrl+J insert a newline, Ctrl+Enter dispatches and attaches,
- * Tab browses subagents (empty input) or applies the highlighted suggestion.
+ * Tab applies the highlighted suggestion, Ctrl+G opens the larger editor.
  */
 export const DispatchInput: React.FC<DispatchInputProps> = ({
   value,
   onChange,
   onSubmit,
-  onNavigate,
   onEscape,
-  onSpace,
   onOpenEditor,
   onPickDirectory,
   targetCwd,
@@ -56,6 +55,16 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   );
   const suggestions = suggestionState.suggestions;
   const showSuggestions = suggestionsOpen && suggestions.length > 0;
+
+  // Grow with the content; the scrollbar only exists once the maximum height is reached
+  useLayoutEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, el.scrollHeight));
+    el.style.height = `${height}px`;
+    el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden';
+  }, [value, inputRef]);
 
   // Open the popover automatically when typing @ or /
   useEffect(() => {
@@ -90,11 +99,13 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
-    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey) {
-      e.preventDefault();
+    if (e.key === 'Tab' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+      // Tab only completes while there is something to complete; otherwise it moves focus on
       if (showSuggestions) {
+        e.preventDefault();
         applySuggestion(suggestions[highlighted]);
       } else if (suggestions.length > 0) {
+        e.preventDefault();
         setSuggestionsOpen(true);
       }
       return;
@@ -109,10 +120,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
       return;
     }
     if (e.key === 'Enter') {
-      if (e.shiftKey) {
-        // Shift+Enter inserts a newline - default behaviour
-        return;
-      }
+      if (e.shiftKey) return; // newline
       e.preventDefault();
       if (showSuggestions && suggestions[highlighted]?.type !== 'command') {
         applySuggestion(suggestions[highlighted]);
@@ -126,125 +134,134 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
       const el = e.currentTarget;
       const start = el.selectionStart;
       const end = el.selectionEnd;
-      const next = `${value.slice(0, start)}\n${value.slice(end)}`;
-      onChange(next);
+      onChange(`${value.slice(0, start)}\n${value.slice(end)}`);
       requestAnimationFrame(() => {
         el.setSelectionRange(start + 1, start + 1);
         setCaret(start + 1);
       });
       return;
     }
+    if (e.key === 'g' && e.ctrlKey && !e.shiftKey) {
+      e.preventDefault();
+      onOpenEditor();
+      return;
+    }
     if (e.key === 'Escape') {
-      if (showSuggestions) {
-        e.preventDefault();
-        setSuggestionsOpen(false);
-        return;
-      }
-      onEscape();
-      return;
-    }
-    if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && !e.shiftKey && !e.altKey) {
-      // Single-line input: arrows move the list selection
-      if (!value.includes('\n')) {
-        e.preventDefault();
-        onNavigate(e.key === 'ArrowUp' ? 'up' : 'down');
-      }
-      return;
-    }
-    if (e.key === ' ' && !value && onSpace) {
-      if (onSpace()) e.preventDefault();
-      return;
-    }
-    if (e.key === '?' && !value) {
-      // Let the global handler show the shortcuts overlay
-      return;
+      e.preventDefault();
+      if (showSuggestions) setSuggestionsOpen(false);
+      else onEscape();
     }
   };
 
+  const listId = 'task-composer-suggestions';
+
   return (
-    <div className="relative border-t border-gray-800 bg-gray-900 shrink-0">
+    <div className="relative">
       {showSuggestions && (
-        <div className="absolute bottom-full left-0 right-0 mb-1 mx-2 max-h-64 overflow-y-auto bg-gray-800 border border-gray-700 rounded-lg shadow-xl z-30">
+        <ul
+          id={listId}
+          role="listbox"
+          aria-label="Suggestions"
+          className="absolute top-full left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-30"
+        >
           {suggestions.map((s, index) => (
-            <button
+            <li
               key={`${s.type}-${s.label}`}
+              id={`${listId}-${index}`}
+              role="option"
+              aria-selected={index === highlighted}
               onMouseDown={(e) => {
                 e.preventDefault();
                 applySuggestion(s);
               }}
-              className={`w-full text-left px-3 py-1.5 text-sm flex items-center gap-3 ${
-                index === highlighted
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-300 hover:bg-gray-700/60'
+              className={`px-3 py-1.5 text-sm flex items-center gap-3 cursor-pointer ${
+                index === highlighted ? 'bg-blue-500/30 text-white' : 'text-gray-100'
               }`}
             >
               <span className="font-mono text-blue-300">{s.label}</span>
-              <span className="text-xs text-gray-500 truncate">{s.description}</span>
-              <span className="ml-auto text-[10px] uppercase text-gray-600">{s.type}</span>
-            </button>
+              <span className="text-xs text-gray-300 truncate">{s.description}</span>
+              <span className="ml-auto text-[10px] text-gray-300">{s.type}</span>
+            </li>
           ))}
-        </div>
+        </ul>
       )}
-      <div className="flex items-end gap-2 px-3 py-2">
-        <span className="text-blue-400 font-mono pb-2">❯</span>
-        <textarea
-          ref={inputRef}
-          value={value}
-          disabled={disabled}
-          rows={Math.min(6, Math.max(1, value.split('\n').length))}
-          onChange={(e) => {
-            onChange(e.target.value);
-            setCaret(e.target.selectionStart);
-          }}
-          onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
-          onKeyDown={handleKeyDown}
-          onBlur={() => setSuggestionsOpen(false)}
-          placeholder="describe a task for a new session  ·  @agent @repo /command  ·  ! shell command"
-          className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 resize-none outline-none font-mono leading-6 py-1"
-          aria-label="Dispatch input"
-          spellCheck={false}
-        />
+      <textarea
+        ref={inputRef}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setCaret(e.target.selectionStart);
+        }}
+        onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => setSuggestionsOpen(false)}
+        placeholder="Describe the task for a new session"
+        aria-label="Task description"
+        aria-autocomplete="list"
+        aria-controls={showSuggestions ? listId : undefined}
+        aria-activedescendant={showSuggestions ? `${listId}-${highlighted}` : undefined}
+        style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT, overflowY: 'hidden' }}
+        className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-50 placeholder-gray-400 resize-none outline-none font-mono leading-6 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/40"
+        spellCheck={false}
+      />
+      <div className="flex items-center gap-2 mt-3">
         <button
-          onClick={onOpenEditor}
-          className="p-1.5 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-800 shrink-0"
-          title="Edit prompt in a larger editor (Ctrl+G)"
-        >
-          <PenSquare size={14} />
-        </button>
-        <button
-          onClick={() => onSubmit({ attach: false })}
-          disabled={disabled}
-          className="p-1.5 rounded text-gray-300 hover:text-white hover:bg-blue-600/30 shrink-0 disabled:opacity-40"
-          title="Dispatch (Enter) · Dispatch and attach (Ctrl+Enter)"
-        >
-          <Send size={14} />
-        </button>
-      </div>
-      <div className="flex items-center gap-3 px-3 pb-2 text-[11px] text-gray-500">
-        <button
+          type="button"
           onClick={onPickDirectory}
-          className="flex items-center gap-1 hover:text-gray-300 min-w-0"
-          title="Directory new sessions start in (mention @repo to override)"
+          className="flex items-center gap-1.5 min-w-0 px-2 py-1.5 rounded-md text-xs text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
+          title="Directory the new session starts in (mention @repo to override)"
         >
-          <FolderOpen size={11} />
-          <span className="truncate max-w-[260px] font-mono">{targetCwd || 'no directory'}</span>
+          <FolderOpen size={13} aria-hidden />
+          <span className="truncate max-w-[280px] font-mono">
+            {targetCwd || 'Pick a directory'}
+          </span>
         </button>
         <span className="flex-1" />
+        <button
+          type="button"
+          onClick={onOpenEditor}
+          className="p-1.5 rounded-md text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
+          title="Edit in a larger editor (Ctrl+G)"
+          aria-label="Edit in a larger editor"
+        >
+          <PenSquare size={15} />
+        </button>
+        <button
+          type="button"
+          onClick={() => onSubmit({ attach: true })}
+          disabled={disabled}
+          className="px-3 py-1.5 rounded-md text-sm text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50"
+          title="Dispatch and open the session (Ctrl+Enter)"
+        >
+          Dispatch and attach
+        </button>
+        <button
+          type="button"
+          onClick={() => onSubmit({ attach: false })}
+          disabled={disabled}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
+          title="Dispatch (Enter)"
+        >
+          <Send size={13} aria-hidden /> Dispatch
+        </button>
+      </div>
+      <div className="mt-2 min-h-[1.25rem] text-xs" role="status" aria-live="polite">
         {hint ? (
           <span
             className={
               hintTone === 'error'
-                ? 'text-red-400'
+                ? 'text-red-300'
                 : hintTone === 'success'
-                  ? 'text-emerald-400'
-                  : 'text-gray-400'
+                  ? 'text-emerald-300'
+                  : 'text-gray-200'
             }
           >
             {hint}
           </span>
         ) : (
-          <span className="hidden sm:inline">
-            enter to open · space to reply · ctrl+x to delete · ? for shortcuts
+          <span className="text-gray-300">
+            @agent · @repo · /command · ! shell command · Shift+Enter for a new line
           </span>
         )}
       </div>

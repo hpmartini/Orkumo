@@ -20,6 +20,8 @@ export default defineConfig(({ mode }) => {
       // project happens to own the configured port.
       strictPort: true,
       host: '0.0.0.0',
+      // UI preference writes (data/settings.json) must not full-reload the dev page
+      watch: { ignored: ['**/data/**', '**/.playwright-mcp/**'] },
       proxy: {
         // Proxy API requests to backend server
         '/api': {

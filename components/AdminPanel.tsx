@@ -774,7 +774,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                   ) : (
                     <button
                       onClick={() => setApiKeyEditing(true)}
-                      className="w-full px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-400 border border-dashed border-gray-600 rounded transition-colors"
+                      className="w-full px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-400 border border-dashed border-gray-600 rounded transition-colors"
                     >
                       + Add API Key
                     </button>
@@ -853,7 +853,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                       ) : (
                         <button
                           onClick={() => setEditingShortcut(shortcutId)}
-                          className="px-3 py-1 text-xs font-mono bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-600 transition-colors min-w-[80px]"
+                          className="px-3 py-1 text-xs font-mono bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-300 rounded border border-gray-600 transition-colors min-w-[80px]"
                         >
                           {formatShortcut(shortcut)}
                         </button>

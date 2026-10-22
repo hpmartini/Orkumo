@@ -666,7 +666,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* Grouped Apps by Directory */}
-        <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-600 uppercase tracking-wider flex items-center justify-between">
+        <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
           <span>Projects</span>
           {onRefresh && (
             <button
@@ -702,7 +702,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                   <span className="text-sm truncate">{dir}</span>
                   <span
-                    className={`ml-auto text-xs ${isMainDir ? 'text-blue-500' : 'text-gray-600'}`}
+                    className={`ml-auto text-xs ${isMainDir ? 'text-blue-500' : 'text-gray-500'}`}
                   >
                     {dirApps.length}
                   </span>
@@ -740,7 +740,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center gap-2">
               <Archive size={16} />
               <span className="text-sm">Archive</span>
-              <span className="text-xs text-gray-600">({archived.length})</span>
+              <span className="text-xs text-gray-500">({archived.length})</span>
             </div>
             {showArchive ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>
