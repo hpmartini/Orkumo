@@ -166,7 +166,7 @@ The Dockerfile already uses multi-stage builds:
 ```dockerfile
 # Build stage - always builds fresh frontend
 FROM node:20-alpine AS builder
-RUN npm run build  # Creates dist/
+RUN bun run build  # Creates dist/
 
 # Production stage - uses fresh build
 FROM node:20-alpine AS production

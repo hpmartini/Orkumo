@@ -206,12 +206,12 @@ export function createPtySession(
     let errorMessage = error.message;
     if (errorMessage.includes('posix_spawnp') || errorMessage.includes('spawn')) {
       // posix_spawnp also fails when node-pty's own `spawn-helper` lost its
-      // executable bit during npm install - in that case *every* terminal
+      // executable bit during bun install - in that case *every* terminal
       // fails, not just this command, so point at the repair step.
       errorMessage =
         `Failed to start shell (${command}). ` +
         `The command may not exist on PATH, or node-pty's spawn-helper is not executable. ` +
-        `If no terminal works at all, run "npm run postinstall" to repair it.`;
+        `If no terminal works at all, run "bun run postinstall" to repair it.`;
     }
 
     return {
