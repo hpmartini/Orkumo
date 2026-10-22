@@ -19,7 +19,7 @@ export const DEFAULT_TERMINAL_OPTIONS = {
     cursor: '#8fd0ff',
     cursorAccent: '#243562',
     selectionBackground: '#3f639980',
-    black: '#2c4070',
+    black: '#6580b8',
     red: '#ef4444',
     green: '#22c55e',
     yellow: '#eab308',

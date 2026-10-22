@@ -694,7 +694,9 @@ export const XTerminal: React.FC<XTerminalProps> = ({
           className={`absolute inset-0 overflow-y-auto scrollbar-hide font-mono text-xs md:text-sm p-2 ${
             showLogsTab && !activeTabId ? 'block' : 'hidden'
           }`}
-          style={{ backgroundColor: ghostty?.theme.background ?? '#243562' }}
+          style={{
+            backgroundColor: ghostty?.theme.background ?? DEFAULT_TERMINAL_OPTIONS.theme.background,
+          }}
         >
           {logs.length === 0 ? (
             <div className="p-2 text-gray-600 italic">
@@ -738,7 +740,10 @@ export const XTerminal: React.FC<XTerminalProps> = ({
             key={tab.id}
             data-terminal-id={tab.id}
             className={`absolute inset-0 p-1 ${activeTabId === tab.id ? 'block' : 'hidden'}`}
-            style={{ backgroundColor: ghostty?.theme.background ?? '#243562' }}
+            style={{
+              backgroundColor:
+                ghostty?.theme.background ?? DEFAULT_TERMINAL_OPTIONS.theme.background,
+            }}
           />
         ))}
       </div>
