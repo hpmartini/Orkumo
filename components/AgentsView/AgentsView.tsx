@@ -194,7 +194,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const filter = useMemo(() => parseFilter(input), [input]);
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
   const railRef = useRef<HTMLDivElement>(null);
-  const { zone: focusZone } = useAgentFocusZone(active, railRef);
+  const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
   const contexts = useAgentContexts(active);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
@@ -422,6 +422,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setPeekId((current) => (current === session.id ? null : session.id));
     setSelectedKey(session.id);
   }, []);
+
+  // Single click on an already attached agent: switch to its tab/pane and put the cursor in the terminal
+  const focusOpen = useCallback(
+    (id: string) => {
+      attach(id);
+      requestAnimationFrame(() => moveFocus('terminal'));
+    },
+    [attach, moveFocus]
+  );
 
   const toggleGroup = useCallback(
     (group: SessionGroup) => {
@@ -1411,6 +1420,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               onTogglePeek={togglePeek}
               peekId={peekId}
               openIds={openIdSet}
+              onFocusOpen={focusOpen}
               now={now}
               grouping={settings.grouping}
               contexts={contexts}

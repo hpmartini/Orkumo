@@ -12,6 +12,7 @@ import {
   ArrowDown,
   CircleDot,
   Bot,
+  SquareTerminal,
 } from 'lucide-react';
 import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
 import {
@@ -47,6 +48,8 @@ interface AgentListProps {
   onTogglePeek: (session: AgentSession) => void;
   peekId: string | null;
   openIds: Set<string>;
+  /** Single click on a session that is already attached: jump into its terminal */
+  onFocusOpen?: (id: string) => void;
   now: number;
   grouping: AgentGrouping;
   /** Repo / issue / sub-agent data per session id (may be empty while loading) */
@@ -137,6 +140,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   onTogglePeek,
   peekId,
   openIds,
+  onFocusOpen,
   now,
   grouping,
   contexts,
@@ -467,7 +471,10 @@ export const AgentList: React.FC<AgentListProps> = ({
                   role="option"
                   aria-selected={selected}
                   aria-current={isActive || undefined}
-                  onClick={() => onSelectIndex(index)}
+                  onClick={() => {
+                    onSelectIndex(index);
+                    if (isOpen) onFocusOpen?.(session.id);
+                  }}
                   onDoubleClick={() => onActivate(item)}
                   onContextMenu={(e) => openMenu(index, e)}
                   className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
@@ -493,17 +500,16 @@ export const AgentList: React.FC<AgentListProps> = ({
                         {session.name}
                       </span>
                       {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
-                      {isActive ? (
-                        <span title="Open in workspace">
-                          <ActivePill />
+                      {isOpen && (
+                        <span
+                          className="shrink-0 inline-flex items-center gap-0.5 rounded border border-blue-300/50 px-1 text-[10px] font-normal leading-4 text-blue-200"
+                          title={
+                            isActive ? 'Attached, shown in the workspace' : 'Attached in a tab'
+                          }
+                        >
+                          <SquareTerminal size={10} aria-hidden="true" />
+                          {isActive ? 'active' : 'attached'}
                         </span>
-                      ) : (
-                        isOpen && (
-                          <span
-                            className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"
-                            title="Open in a tab"
-                          />
-                        )
                       )}
                       {session.loop && <span className="text-[10px] text-blue-300">loop</span>}
                       <span className="flex-1" />
