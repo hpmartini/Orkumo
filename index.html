@@ -18,15 +18,15 @@
             },
             colors: {
               // Blue-tinted scale derived from the Ghostty theme (#304370). Text steps
-              // 100-500 keep >= 4.5:1 on 900/850; 600 is for borders and fills only.
+              // 100-500 keep >= 4.5:1 on 900/850; 600 is text-safe on 900 only, prefer 500 for text.
               gray: {
                 50: '#f6f8fd',
                 100: '#eaeff9',
                 200: '#d6dff1',
-                300: '#b9c7e3',
-                400: '#adbde0',
-                500: '#a0b2d8',
-                600: '#6a80b3',
+                300: '#c4d0ea',
+                400: '#b8c7e6',
+                500: '#adbde0',
+                600: '#94a8d6',
                 700: '#4f67a0',
                 750: '#3b5081',
                 800: '#344a7b',
@@ -51,7 +51,9 @@
         --text: #d6dff1;
         --scrollbar: #5c73a8;
       }
+      html { color-scheme: dark; scrollbar-color: var(--scrollbar) var(--bg-app); }
       body { background-color: var(--bg-app); color: var(--text); }
+      :focus-visible { outline: 2px solid #8fd0ff; outline-offset: 2px; }
       /* Custom scrollbar for terminals */
       .scrollbar-hide::-webkit-scrollbar { display: none; }
       .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }

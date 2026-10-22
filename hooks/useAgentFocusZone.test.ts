@@ -17,6 +17,8 @@ describe('zoneOf', () => {
     expect(zoneOf(el('role="dialog"'))).toBe('palette');
     expect(zoneOf(el('nothing'))).toBe('rail');
     expect(zoneOf(null)).toBe('rail');
+    expect(zoneOf(el('nothing'), { contains: () => false })).toBe('other');
+    expect(zoneOf(el('nothing'), { contains: () => true })).toBe('rail');
   });
 });
 

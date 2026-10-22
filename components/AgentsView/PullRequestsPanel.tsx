@@ -42,13 +42,13 @@ export function usePopover(onClose: () => void) {
 
 const CI: Record<AgentPullRequest['ci'], { label: string; icon: React.ReactNode; tone: string }> = {
   success: { label: 'Passing', icon: <CheckCircle2 size={12} />, tone: 'text-emerald-400' },
-  failure: { label: 'Failing', icon: <XCircle size={12} />, tone: 'text-red-400' },
+  failure: { label: 'Failing', icon: <XCircle size={12} />, tone: 'text-red-300' },
   pending: { label: 'Running', icon: <CircleDashed size={12} />, tone: 'text-yellow-400' },
   none: { label: 'No checks', icon: <CircleDashed size={12} />, tone: 'text-gray-500' },
 };
 
 function mergeState(pr: AgentPullRequest): { label: string; tone: string } {
-  if (pr.mergeable === 'CONFLICTING') return { label: 'Conflicts', tone: 'text-red-400' };
+  if (pr.mergeable === 'CONFLICTING') return { label: 'Conflicts', tone: 'text-red-300' };
   if (pr.mergeReady) return { label: 'Ready to merge', tone: 'text-emerald-400' };
   if (pr.mergeable === 'UNKNOWN') return { label: 'Checking', tone: 'text-gray-400' };
   return { label: 'Blocked', tone: 'text-yellow-400' };

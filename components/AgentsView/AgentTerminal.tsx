@@ -262,7 +262,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     if (visible) {
       const id = requestAnimationFrame(() => {
         syncSize();
-        if (active) terminalRef.current?.focus();
+        if (active && !document.querySelector('[aria-modal="true"]')) terminalRef.current?.focus();
       });
       return () => cancelAnimationFrame(id);
     }
@@ -338,7 +338,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
               {glyph.glyph}
             </span>
             <span className="font-medium text-gray-200 truncate min-w-0">{session.name}</span>
-            <span className="text-gray-600 font-mono truncate min-w-0 hidden xl:inline">
+            <span className="text-gray-500 font-mono truncate min-w-0 hidden xl:inline">
               {session.id}
             </span>
           </>
@@ -416,7 +416,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         )}
         <button
           onClick={onClose}
-          className={`p-1.5 rounded text-gray-400 hover:text-red-400 hover:bg-gray-800 shrink-0 ${paneBtnFocus}`}
+          className={`p-1.5 rounded text-gray-400 hover:text-red-300 hover:bg-gray-800 shrink-0 ${paneBtnFocus}`}
           title="Close"
           aria-label={`Close ${session.name}`}
         >

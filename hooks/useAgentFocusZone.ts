@@ -1,14 +1,19 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react';
 
 /** Where keystrokes currently go: the agent list, an attached terminal, or a modal (palette, dialogs) */
-export type FocusZone = 'rail' | 'terminal' | 'palette';
+export type FocusZone = 'rail' | 'terminal' | 'palette' | 'other';
 
 type Closest = { closest(selector: string): unknown } | null | undefined;
 
-/** Anything outside a terminal or dialog counts as the rail: the list is driven by document-level keys */
-export function zoneOf(el: Closest): FocusZone {
+/**
+ * Without `rail` anything outside a terminal or dialog counts as the rail (document-level keys
+ * drive the list). With it, focus on other controls (tabs, toolbar, peek reply) is 'other'.
+ */
+export function zoneOf(el: Closest, rail?: { contains(n: unknown): boolean } | null): FocusZone {
   if (el?.closest('.xterm')) return 'terminal';
   if (el?.closest('[role="dialog"], [data-focus-zone="palette"]')) return 'palette';
+  if (rail && el && (el as { tagName?: string }).tagName !== 'BODY' && !rail.contains(el))
+    return 'other';
   return 'rail';
 }
 
@@ -45,7 +50,7 @@ export function useAgentFocusZone(enabled: boolean, railRef: RefObject<HTMLEleme
 
   useEffect(() => {
     if (!enabled) return;
-    const sync = (el: Closest) => setZone(zoneOf(el));
+    const sync = (el: Closest) => setZone(zoneOf(el, railRef.current));
     const onIn = (e: Event) => sync(e.target as Closest);
     // relatedTarget is null when focus leaves the page or goes to body: that is the rail
     const onOut = (e: Event) => sync((e as Event & { relatedTarget: Closest }).relatedTarget);
@@ -56,7 +61,7 @@ export function useAgentFocusZone(enabled: boolean, railRef: RefObject<HTMLEleme
       document.removeEventListener('focusin', onIn);
       document.removeEventListener('focusout', onOut);
     };
-  }, [enabled]);
+  }, [enabled, railRef]);
 
   const focusZone = useCallback(
     (target: 'rail' | 'terminal') => {

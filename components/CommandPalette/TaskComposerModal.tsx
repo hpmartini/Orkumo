@@ -22,7 +22,7 @@ export const TaskComposerModal: React.FC<TaskComposerModalProps> = ({
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-[90] bg-black/60 flex items-start justify-center px-4 pt-[12vh]"
+      className="fixed inset-0 z-[90] bg-gray-950/70 flex items-start justify-center px-4 pt-[12vh]"
       onMouseDown={onClose}
     >
       <div
@@ -31,7 +31,15 @@ export const TaskComposerModal: React.FC<TaskComposerModalProps> = ({
         aria-modal="true"
         aria-labelledby="task-composer-title"
         tabIndex={-1}
-        onKeyDown={trapTab}
+        onKeyDown={(e) => {
+          trapTab(e);
+          // The textarea closes its own suggestions first and marks the event handled
+          if (e.key === 'Escape' && !e.defaultPrevented) {
+            e.preventDefault();
+            e.stopPropagation();
+            onClose();
+          }
+        }}
         onMouseDown={(e) => e.stopPropagation()}
         className="w-full max-w-[680px] bg-gray-800 border border-gray-600 rounded-xl shadow-2xl p-4"
       >

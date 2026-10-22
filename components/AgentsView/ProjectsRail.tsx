@@ -156,7 +156,7 @@ export const ProjectsSection: React.FC<{
         </span>
       </button>
       {open && (
-        <div className="max-h-44 overflow-y-auto thin-scrollbar">
+        <div>
           {list.map((app) => (
             <div key={app.id} className="group flex items-center gap-2 px-3 py-1 hover:bg-gray-800">
               <AppStatusDot status={app.status} />

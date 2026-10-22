@@ -84,8 +84,8 @@ export const AgentSummaryBar: React.FC<AgentSummaryBarProps> = ({
       {toggle('working', counts.working, 'working', 'text-orange-300')}
       {toggle('completed', counts.completed, 'completed', 'text-emerald-300')}
       {(counts.failed > 0 || active.has('failed')) &&
-        toggle('failed', counts.failed, 'failed', 'text-red-400')}
-      <span className="text-gray-600 px-1" aria-hidden="true">
+        toggle('failed', counts.failed, 'failed', 'text-red-300')}
+      <span className="text-gray-500 px-1" aria-hidden="true">
         |
       </span>
       <button

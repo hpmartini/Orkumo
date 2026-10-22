@@ -217,7 +217,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
           No agent attached. Select a session and press <kbd className="kbd">Enter</kbd> or{' '}
           <kbd className="kbd">→</kbd> to open it in a tab.
         </div>
-        <div className="text-xs text-gray-600">
+        <div className="text-xs text-gray-500">
           Drag one tab onto another pane to work with several agents side by side.
         </div>
       </div>

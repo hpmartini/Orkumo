@@ -69,7 +69,7 @@ interface AgentListProps {
 /** Selected row/header: filled while the rail has focus, outline only while it does not */
 const selectedClass = (focused: boolean) =>
   focused
-    ? 'bg-sel text-white [&_.text-gray-300]:text-gray-100 [&_.text-gray-400]:text-gray-200 [&_.text-gray-500]:text-gray-200 [&_.text-gray-600]:text-gray-200'
+    ? 'bg-sel text-white [&_.text-gray-300]:text-gray-100 [&_.text-gray-400]:text-gray-200 [&_.text-gray-500]:text-gray-200 [&_.text-gray-500]:text-gray-200 [&_.text-emerald-400]:text-emerald-200 [&_.text-yellow-400]:text-yellow-200 [&_.text-blue-300]:text-blue-100 [&_.text-sky-300]:text-sky-100'
     : 'bg-transparent text-white ring-2 ring-inset ring-cursor';
 
 /**
@@ -287,14 +287,14 @@ export const AgentList: React.FC<AgentListProps> = ({
                       >
                         {session.name}
                       </span>
-                      {session.pinned && <Pin size={10} className="text-blue-400 shrink-0" />}
+                      {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
                       {isOpen && (
                         <span
                           className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"
                           title="Open in a tab"
                         />
                       )}
-                      {session.loop && <span className="text-[10px] text-blue-400">loop</span>}
+                      {session.loop && <span className="text-[10px] text-blue-300">loop</span>}
                       <span className="flex-1" />
                       <span className="text-xs text-gray-500 font-mono shrink-0" title="Age">
                         {age}
@@ -347,7 +347,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         )}
                       </span>
                       {/* Pull request */}
-                      <span className="w-[3.25rem] shrink-0 flex justify-end">
+                      <span className="shrink-0 flex justify-end">
                         {label && onOpenPrs ? (
                           <button
                             onClick={(e) => {
@@ -377,7 +377,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         )}
                       </span>
                       {/* Open issues */}
-                      <span className="w-9 shrink-0 flex justify-end">
+                      <span className="shrink-0 flex justify-end">
                         {ctx?.issues && ctx.issues.open > 0 && (
                           <a
                             href={ctx.issues.url || undefined}
@@ -393,7 +393,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         )}
                       </span>
                       {/* Dev servers */}
-                      <span className="w-[5.5rem] shrink-0 flex justify-end gap-1">
+                      <span className="shrink-0 flex justify-end gap-1">
                         {sessionServers.slice(0, 2).map((server) => (
                           <a
                             key={server.port}
@@ -420,7 +420,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         )}
                       </span>
                       {/* Running sub-agents */}
-                      <span className="w-8 shrink-0 flex justify-end">
+                      <span className="shrink-0 flex justify-end">
                         {ctx && ctx.subagents.running > 0 && (
                           <span
                             className="flex items-center gap-0.5 text-sky-300 tabular-nums motion-safe:animate-pulse"
@@ -470,7 +470,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                 action.onSelect();
               }}
               className={`w-full text-left px-3 py-1.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed ${
-                action.danger ? 'text-red-400' : 'text-gray-200'
+                action.danger ? 'text-red-300' : 'text-gray-200'
               }`}
             >
               {action.label}

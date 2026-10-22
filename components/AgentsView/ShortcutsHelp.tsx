@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X, Keyboard } from 'lucide-react';
+import { useDialogA11y } from '../CommandPalette/useDialogA11y';
 
 interface ShortcutsHelpProps {
   open: boolean;
@@ -62,6 +63,8 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
 ];
 
 export const ShortcutsHelp: React.FC<ShortcutsHelpProps> = ({ open, onClose }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const trapTab = useDialogA11y(open, dialogRef, () => dialogRef.current);
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -77,18 +80,24 @@ export const ShortcutsHelp: React.FC<ShortcutsHelpProps> = ({ open, onClose }) =
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-gray-950/70 flex items-center justify-center p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
+      aria-labelledby="shortcuts-title"
+      ref={dialogRef}
+      tabIndex={-1}
+      onKeyDown={trapTab}
     >
       <div
         className="w-full max-w-3xl max-h-[85vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-800 sticky top-0 bg-gray-900">
-          <Keyboard size={16} className="text-blue-400" />
-          <h3 className="text-sm font-semibold text-gray-100">Agent view shortcuts</h3>
+          <Keyboard size={16} className="text-blue-300" />
+          <h3 id="shortcuts-title" className="text-sm font-semibold text-gray-100">
+            Agent view shortcuts
+          </h3>
           <span className="text-xs text-gray-500">
             Ctrl+T is reserved by most browsers - use Alt+P there (Ctrl+T works in the desktop app).
           </span>
@@ -103,9 +112,7 @@ export const ShortcutsHelp: React.FC<ShortcutsHelpProps> = ({ open, onClose }) =
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 p-5">
           {SECTIONS.map((section) => (
             <div key={section.title}>
-              <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-2">
-                {section.title}
-              </div>
+              <div className="text-xs font-semibold text-gray-300 mb-2">{section.title}</div>
               <table className="w-full text-sm">
                 <tbody>
                   {section.rows.map(([keys, desc]) => (

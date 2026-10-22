@@ -1001,6 +1001,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onOpenView();
         setComposerOpen(true);
       },
+      runWithText: (text) => {
+        onOpenView();
+        setInput(text);
+        setComposerOpen(true);
+      },
     };
     // The rest acts on the visible view only; the task composer works from every page
     if (!active) return [newTask];
@@ -1030,7 +1035,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     for (const mode of ['project', 'state', 'directory', 'none'] as const) {
       if (mode === settings.grouping) continue;
       list.push(
-        cmd(`group.${mode}`, `Group agents by ${mode}`, 'Rail', () =>
+        cmd(`group.${mode}`, `Group agents by ${mode === 'state' ? 'status' : mode}`, 'Rail', () =>
           updateSettings({ grouping: mode })
         )
       );
@@ -1133,7 +1138,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   if (disabled) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 text-gray-400">
-        <Power size={32} className="text-gray-600" />
+        <Power size={32} className="text-gray-500" />
         <div>The agent view is turned off.</div>
         <button
           onClick={() => updateSettings({ disabled: false })}
@@ -1171,7 +1176,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
       {/* Header */}
       <div className="relative flex items-center gap-3 px-4 py-1.5 border-b border-gray-800 shrink-0">
-        <Bot size={18} className="text-blue-400" />
+        <Bot size={18} className="text-blue-300" />
         <div className="min-w-0 flex items-center gap-3">
           <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
@@ -1213,14 +1218,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           title="Switch with F6 or Ctrl+Alt+Left / Right"
         >
           <span
-            className={`px-1.5 py-0.5 rounded font-medium ${
+            className={`px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
               focusZone === 'terminal' ? 'bg-blue-300 text-gray-950' : 'bg-gray-700 text-gray-100'
             }`}
           >
-            {focusZone === 'terminal' ? 'Keys: terminal' : 'Keys: agent list'}
+            {focusZone === 'terminal'
+              ? 'Keys: terminal'
+              : focusZone === 'rail'
+                ? 'Keys: agent list'
+                : 'Keys: page'}
           </span>
           <kbd className="kbd">{FOCUS_CHORD_LABEL}</kbd>
-          <span className="text-gray-400">switches</span>
+          <span className="text-gray-400 hidden xl:inline">switches</span>
         </div>
         <div className="hidden xl:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
           <span title="Dispatch model (/model)">model {defaultModel}</span>
@@ -1332,6 +1341,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             </div>
           ) : (
             <AgentList
+              railFocused={focusZone === 'rail'}
               items={items}
               selectedIndex={selectedIndex}
               onSelectIndex={(index) => setSelectedKey(itemKey(items[index]))}
@@ -1602,7 +1612,7 @@ const DirectoryPicker: React.FC<{
             >
               <span className="text-sm text-gray-100">{choice.name}</span>
               <span className="text-xs text-gray-500 font-mono truncate">{choice.path}</span>
-              <span className="ml-auto text-[10px] uppercase text-gray-600">{choice.source}</span>
+              <span className="ml-auto text-[10px] text-gray-500">{choice.source}</span>
             </button>
           ))}
           {filtered.length === 0 && (

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
-import { rankCommands, type PaletteCommand } from '../../utils/commandPalette';
+import { parsePaletteInput, rankCommands, type PaletteCommand } from '../../utils/commandPalette';
 import { useDialogA11y } from './useDialogA11y';
 
 interface CommandPaletteProps {
@@ -36,7 +36,21 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose, g
 
   // Snapshot per open: sources register by effect and rarely change while the palette is up
   const commands = useMemo(() => (open ? getCommands() : []), [open, getCommands]);
-  const results = useMemo(() => rankCommands(commands, query), [commands, query]);
+  const results = useMemo(() => {
+    const ranked = rankCommands(commands, query);
+    // Free text can always become a task: last row, so command matches keep priority
+    const { mode, query: text } = parsePaletteInput(query);
+    const task = commands.find((c) => c.runWithText);
+    if (mode !== 'all' || !text || !task) return ranked;
+    const row: PaletteCommand = {
+      ...task,
+      id: `${task.id}.text`,
+      title: `New task: ${text}`,
+      shortcut: undefined,
+      run: () => task.runWithText?.(text),
+    };
+    return [...ranked, { command: row, indices: [] }];
+  }, [commands, query]);
   const active = Math.min(activeIndex, Math.max(0, results.length - 1));
 
   useEffect(() => {
@@ -73,10 +87,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose, g
       if (results.length === 0) return;
       const step = e.key === 'ArrowDown' ? 1 : -1;
       setActiveIndex((active + step + results.length) % results.length);
-    } else if (e.key === 'Home' || e.key === 'End') {
-      e.preventDefault();
-      setActiveIndex(e.key === 'Home' ? 0 : Math.max(0, results.length - 1));
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
       e.preventDefault();
       runAt(active);
     }
@@ -84,7 +95,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose, g
 
   return (
     <div
-      className="fixed inset-0 z-[100] bg-black/60 flex items-start justify-center px-4 pt-[12vh]"
+      className="fixed inset-0 z-[100] bg-gray-950/70 flex items-start justify-center px-4 pt-[12vh]"
       onMouseDown={onClose}
     >
       <div
@@ -107,7 +118,7 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose, g
               setActiveIndex(0);
             }}
             role="combobox"
-            aria-expanded="true"
+            aria-expanded={results.length > 0}
             aria-controls="command-palette-list"
             aria-autocomplete="list"
             aria-activedescendant={results.length ? `command-palette-opt-${active}` : undefined}
@@ -140,7 +151,9 @@ export const CommandPalette: React.FC<CommandPaletteProps> = ({ open, onClose, g
                 <HighlightedTitle title={command.title} indices={indices} />
               </span>
               <span className="ml-auto flex items-center gap-2 shrink-0">
-                <span className="text-xs text-gray-300">{command.group}</span>
+                <span className={`text-xs ${i === active ? 'text-gray-50' : 'text-gray-300'}`}>
+                  {command.group}
+                </span>
                 {command.shortcut && (
                   <kbd className="px-1.5 py-0.5 rounded bg-gray-700 text-[11px] font-mono text-gray-100">
                     {command.shortcut}

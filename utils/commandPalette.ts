@@ -18,6 +18,8 @@ export interface PaletteCommand {
   /** Display string for an existing shortcut, e.g. "⌘P" */
   shortcut?: string;
   run: () => void;
+  /** Offered as a trailing "<title>: <text>" row for free text that is not a prefix query */
+  runWithText?: (text: string) => void;
 }
 
 export type PaletteMode = 'all' | PaletteScope;

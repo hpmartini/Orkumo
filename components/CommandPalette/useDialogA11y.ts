@@ -21,9 +21,19 @@ export function useDialogA11y(
     if (!open) return;
     const previous = document.activeElement as HTMLElement | null;
     const id = requestAnimationFrame(() => {
-      (initialFocusRef.current() ?? dialogRef.current)?.focus();
+      (initialFocusRef.current() ?? dialogRef.current)?.focus({ preventScroll: true });
     });
+    // Late focus grabs (terminal auto-focus, palette focus restore) must not leave the dialog
+    const pullBack = (e: Event) => {
+      const dialog = dialogRef.current;
+      const target = e.target as HTMLElement | null;
+      if (!dialog || !target || dialog.contains(target) || target.closest('[aria-modal="true"]'))
+        return;
+      (initialFocusRef.current() ?? dialog).focus({ preventScroll: true });
+    };
+    document.addEventListener('focusin', pullBack);
     return () => {
+      document.removeEventListener('focusin', pullBack);
       cancelAnimationFrame(id);
       if (previous && previous.isConnected) previous.focus({ preventScroll: true });
     };

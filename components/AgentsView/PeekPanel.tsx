@@ -164,19 +164,19 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
       {/* Meta */}
       <div className="px-3 py-2 border-b border-gray-800 text-xs space-y-1 shrink-0">
         <div className="text-gray-400">
-          <span className="text-gray-600">state </span>
+          <span className="text-gray-500">state </span>
           {glyph.label.toLowerCase()}
           {session.waitingFor && (
             <span className="text-yellow-400"> · waiting for {session.waitingFor}</span>
           )}
           {session.tokens != null && (
-            <span className="text-gray-600"> · {session.tokens} tokens</span>
+            <span className="text-gray-500"> · {session.tokens} tokens</span>
           )}
         </div>
         {session.detail && <div className="text-gray-300">{session.detail}</div>}
         {session.intent && (
           <div className="text-gray-500 line-clamp-3" title={session.intent}>
-            <span className="text-gray-600">task </span>
+            <span className="text-gray-500">task </span>
             {session.intent}
           </div>
         )}
@@ -209,17 +209,17 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
         style={{ backgroundColor: '#1a274b' }}
       >
         {loading && !logs ? (
-          <div className="text-gray-600 italic">Loading recent output…</div>
+          <div className="text-gray-500 italic">Loading recent output…</div>
         ) : logs?.source === 'transcript' ? (
           logs.entries.length === 0 ? (
-            <div className="text-gray-600 italic">{logs.note || 'No output yet.'}</div>
+            <div className="text-gray-500 italic">{logs.note || 'No output yet.'}</div>
           ) : (
             logs.entries.map((entry, idx) => (
               <div
                 key={idx}
                 className={`mb-3 whitespace-pre-wrap break-words ${entry.role === 'user' ? 'text-blue-300' : 'text-gray-200'}`}
               >
-                <span className="text-gray-600 select-none">
+                <span className="text-gray-500 select-none">
                   {entry.role === 'user' ? '❯ ' : '● '}
                 </span>
                 {entry.text}
@@ -227,7 +227,7 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
             ))
           )
         ) : outputLines.length === 0 ? (
-          <div className="text-gray-600 italic">{logs?.note || 'No output yet.'}</div>
+          <div className="text-gray-500 italic">{logs?.note || 'No output yet.'}</div>
         ) : (
           outputLines.map((line, idx) => (
             <div key={idx} className="whitespace-pre-wrap break-words text-gray-300">
@@ -266,7 +266,7 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
           </div>
         )}
         <div className="flex items-center gap-2">
-          <span className="text-blue-400 font-mono">❯</span>
+          <span className="text-blue-300 font-mono">❯</span>
           <input
             ref={replyRef}
             value={reply}

@@ -180,7 +180,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
             >
               <span className="font-mono text-blue-300">{s.label}</span>
               <span className="text-xs text-gray-300 truncate">{s.description}</span>
-              <span className="ml-auto text-[10px] uppercase text-gray-300">{s.type}</span>
+              <span className="ml-auto text-[10px] text-gray-300">{s.type}</span>
             </li>
           ))}
         </ul>
