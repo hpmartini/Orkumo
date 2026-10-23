@@ -59,6 +59,8 @@ interface AgentListProps {
   collapsedKeys: Set<string>;
   /** Scrolls together with the list (the rail has a single scroller) */
   top?: React.ReactNode;
+  /** Rendered after the session cards, inside the same scroller (remote devices) */
+  bottom?: React.ReactNode;
   /** Project grouping: app lookup and navigation for the cluster headers */
   appsById?: Map<string, AgentConfigLike>;
   nav?: RailNavProps;
@@ -94,6 +96,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   highlightedId,
   collapsedKeys,
   top,
+  bottom,
   appsById,
   nav,
   railFocused = true,
@@ -451,6 +454,7 @@ export const AgentList: React.FC<AgentListProps> = ({
           </div>
         ))}
       </div>
+      {bottom}
 
       {menu && menuActions.length > 0 && (
         <div

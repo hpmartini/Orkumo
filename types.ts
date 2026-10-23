@@ -281,6 +281,10 @@ export interface AgentSession {
   kind: 'background' | 'interactive';
   /** Client-side cloud/remote session: PTY args instead of `attach <id>` */
   ptyArgs?: string[];
+  /** PTY command for ptyArgs (default `claude`; `ssh` for remote attach) */
+  ptyCommand?: 'claude' | 'ssh';
+  /** Tailscale device the session runs on (remote sessions only) */
+  host?: string;
   cwd: string;
   startedAt: number;
   updatedAt?: number | null;
@@ -336,6 +340,24 @@ export interface AgentsResponse {
   userSettings: ClaudeUserSettings | null;
   cli: { installed: boolean; path: string | null };
   capabilities?: AgentCapabilities;
+}
+
+export type RemoteDeviceState = 'ok' | 'offline' | 'ssh-denied' | 'claude-missing' | 'error';
+
+export interface RemoteDevice {
+  host: string;
+  name: string;
+  os: 'macOS' | 'linux';
+  state: RemoteDeviceState;
+  reason?: string;
+  sessions: AgentSession[];
+}
+
+export interface RemoteAgentsResponse {
+  /** false: neither `tailscale` in PATH nor the macOS app binary */
+  tailscale: boolean;
+  error?: string;
+  devices: RemoteDevice[];
 }
 
 export interface AgentCapabilities {
