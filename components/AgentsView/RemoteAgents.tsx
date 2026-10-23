@@ -1,7 +1,8 @@
-import React from 'react';
+import React, { useEffect, useRef } from 'react';
 import { MoreHorizontal, Monitor, RefreshCw, SquareTerminal } from 'lucide-react';
 import type { AgentSession, RemoteAgentsResponse, RemoteDevice } from '../../types';
 import { stateGlyph, sessionAgeMs, formatAge } from '../../utils/agentSessions';
+import { selectedClass } from './AgentList';
 
 interface RemoteAgentsProps {
   data: RemoteAgentsResponse | null;
@@ -9,6 +10,10 @@ interface RemoteAgentsProps {
   loading: boolean;
   now: number;
   peekId: string | null;
+  /** `host:id` of the keyboard-selected remote row */
+  selectedKey: string | null;
+  railFocused: boolean;
+  onSelect: (session: AgentSession) => void;
   onAttach: (session: AgentSession) => void;
   onPeek: (session: AgentSession) => void;
 }
@@ -41,9 +46,22 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
   loading,
   now,
   peekId,
+  selectedKey,
+  railFocused,
+  onSelect,
   onAttach,
   onPeek,
 }) => {
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  // Keep the selected row in view, like the local list
+  useEffect(() => {
+    if (!selectedKey) return;
+    Array.from(rootRef.current?.querySelectorAll<HTMLElement>('[data-remote-key]') ?? [])
+      .find((el) => el.dataset.remoteKey === selectedKey)
+      ?.scrollIntoView({ block: 'nearest' });
+  }, [selectedKey]);
+
   const notice = loading ? (
     <span className="flex items-center gap-2">
       <RefreshCw size={12} className="animate-spin motion-reduce:animate-none" /> Querying devices…
@@ -59,7 +77,12 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
   ) : null;
 
   return (
-    <div className="px-2 pb-2 space-y-2" aria-label="Remote agents">
+    <div
+      ref={rootRef}
+      className="px-2 pb-2 space-y-2"
+      role="listbox"
+      aria-label="Remote agents"
+    >
       <div className="px-1 pt-1 text-[11px] uppercase tracking-wide text-gray-500">
         Remote-Agents
       </div>
@@ -105,12 +128,20 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
             {device.sessions.map((session) => {
               const glyph = stateGlyph(session.displayState);
               const attachable = session.kind === 'background';
+              const key = `${session.host}:${session.id}`;
+              const selected = selectedKey === key;
               return (
                 <div
                   key={session.id}
+                  data-remote-key={key}
+                  role="option"
+                  aria-selected={selected}
+                  onClick={() => onSelect(session)}
                   onDoubleClick={() => attachable && onAttach(session)}
-                  className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 text-gray-300 hover:bg-gray-800 ${
-                    peekId === `${session.host}:${session.id}`
+                  className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
+                    selected ? selectedClass(railFocused) : 'text-gray-300 hover:bg-gray-800'
+                  } ${
+                    peekId === key
                       ? 'ring-1 ring-inset ring-blue-300/50'
                       : ''
                   }`}

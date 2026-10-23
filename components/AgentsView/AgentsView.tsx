@@ -214,6 +214,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     () => remote.data?.devices.flatMap((d) => d.sessions) ?? [],
     [remote.data]
   );
+  // Remote rows follow the local list in keyboard navigation
+  const remoteKeys = useMemo(
+    () => (remoteEnabled ? remoteSessions.map(remoteKey) : []),
+    [remoteEnabled, remoteSessions]
+  );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingDeleteRef = useRef<{ key: string; at: number } | null>(null);
   const ctrlCRef = useRef<number>(0);
@@ -337,12 +342,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         ? `more:${item.group.key}`
         : item.session.id;
 
+  const selectedRemote = remoteKeys.includes(selectedKey ?? '')
+    ? (remoteSessions.find((s) => remoteKey(s) === selectedKey) ?? null)
+    : null;
   const selectedIndex = useMemo(() => {
+    // A selected remote row leaves no local selection, so local shortcuts never hit a stand-in
+    if (selectedRemote) return -1;
     const index = items.findIndex((item) => itemKey(item) === selectedKey);
     if (index >= 0) return index;
     const firstSession = items.findIndex((item) => item.type === 'session');
     return firstSession >= 0 ? firstSession : items.length > 0 ? 0 : -1;
-  }, [items, selectedKey]);
+  }, [items, selectedKey, selectedRemote]);
   const selectedItem: NavItem | null = selectedIndex >= 0 ? items[selectedIndex] : null;
   const selectedSession = selectedItem?.type === 'session' ? selectedItem.session : null;
   const peekSession = peekId
@@ -545,6 +555,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       else attach(item.session.id);
     },
     [toggleGroup, attach, showHint]
+  );
+
+  const activateRemote = useCallback(
+    (session: AgentSession) => {
+      if (session.kind === 'interactive')
+        showHint('Interactive sessions run in their own terminal', 'info');
+      else attachRemote(session);
+    },
+    [attachRemote, showHint]
   );
 
   const doDispatch = useCallback(
@@ -866,14 +885,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   const moveSelection = useCallback(
     (direction: 'up' | 'down') => {
-      if (items.length === 0) return;
-      const next =
-        direction === 'up'
-          ? Math.max(0, selectedIndex - 1)
-          : Math.min(items.length - 1, selectedIndex + 1);
-      setSelectedKey(itemKey(items[next]));
+      const keys = [...items.map(itemKey), ...remoteKeys];
+      if (keys.length === 0) return;
+      const at = selectedRemote ? keys.indexOf(remoteKey(selectedRemote)) : selectedIndex;
+      const next = direction === 'up' ? Math.max(0, at - 1) : Math.min(keys.length - 1, at + 1);
+      setSelectedKey(keys[next]);
     },
-    [items, selectedIndex]
+    [items, selectedIndex, remoteKeys, selectedRemote]
   );
 
   // ---------------------------------------------------------------------
@@ -980,11 +998,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         case 'Enter':
         case 'ArrowRight':
           e.preventDefault();
-          activateItem(selectedItem);
+          if (selectedRemote) activateRemote(selectedRemote);
+          else activateItem(selectedItem);
           break;
         case ' ':
           e.preventDefault();
-          if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
+          if (selectedRemote) togglePeek({ ...selectedRemote, id: remoteKey(selectedRemote) });
+          else if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
           else togglePeek(selectedSession);
           break;
         case 'Escape':
@@ -1023,6 +1043,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     panel,
     selectedItem,
     selectedSession,
+    selectedRemote,
     peekId,
     toggleGrouping,
     handlePin,
@@ -1034,6 +1055,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     toggleFavoriteSession,
     moveSelection,
     activateItem,
+    activateRemote,
     toggleGroup,
     togglePeek,
     attach,
@@ -1548,6 +1570,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     loading={remote.loading}
                     now={now}
                     peekId={peekId}
+                    selectedKey={selectedRemote ? remoteKey(selectedRemote) : null}
+                    railFocused={focusZone === 'rail'}
+                    onSelect={(s) => setSelectedKey(remoteKey(s))}
                     onAttach={attachRemote}
                     onPeek={(s) => togglePeek({ ...s, id: remoteKey(s) })}
                   />
