@@ -17,10 +17,17 @@ interface RailPrefs {
   modes: Record<string, ModePrefs>;
   favoriteGroups: string[];
   favoriteSessions: string[];
+  /** Agent rows whose details are open */
+  expandedSessions: string[];
 }
 
 const EMPTY_MODE: ModePrefs = { collapsed: [], order: [] };
-const EMPTY: RailPrefs = { modes: {}, favoriteGroups: [], favoriteSessions: [] };
+const EMPTY: RailPrefs = {
+  modes: {},
+  favoriteGroups: [],
+  favoriteSessions: [],
+  expandedSessions: [],
+};
 
 // ---------------------------------------------------------------------
 // Pure reducers
@@ -32,6 +39,7 @@ const toggleIn = (list: string[], key: string): string[] =>
 export const toggleCollapsed = toggleIn;
 export const toggleFavoriteGroup = toggleIn;
 export const toggleFavoriteSession = toggleIn;
+export const toggleExpandedSession = toggleIn;
 
 /**
  * Adjacent group in `keys` (display order) within the same favorite/other block, as favorites
@@ -150,6 +158,7 @@ function load(): RailPrefs {
       modes,
       favoriteGroups: strings(raw.favoriteGroups),
       favoriteSessions: strings(raw.favoriteSessions),
+      expandedSessions: strings(raw.expandedSessions),
     };
   } catch {
     return EMPTY;
@@ -195,11 +204,13 @@ export function useRailPreferences(groupBy: AgentGrouping) {
   const collapsed = useMemo(() => new Set(mode.collapsed), [mode.collapsed]);
   const favoriteGroups = useMemo(() => new Set(prefs.favoriteGroups), [prefs.favoriteGroups]);
   const favoriteSessions = useMemo(() => new Set(prefs.favoriteSessions), [prefs.favoriteSessions]);
+  const expandedSessions = useMemo(() => new Set(prefs.expandedSessions), [prefs.expandedSessions]);
 
   return {
     collapsed,
     favoriteGroups,
     favoriteSessions,
+    expandedSessions,
     toggleCollapsed: useCallback(
       (key: string) => updateMode((m) => ({ ...m, collapsed: toggleCollapsed(m.collapsed, key) })),
       [updateMode]
@@ -239,6 +250,14 @@ export function useRailPreferences(groupBy: AgentGrouping) {
     toggleFavoriteSession: useCallback(
       (id: string) =>
         update((p) => ({ ...p, favoriteSessions: toggleFavoriteSession(p.favoriteSessions, id) })),
+      [update]
+    ),
+    toggleExpandedSession: useCallback(
+      (id: string) =>
+        update((p) => ({
+          ...p,
+          expandedSessions: toggleExpandedSession(p.expandedSessions, id),
+        })),
       [update]
     ),
     /** Favorite sessions section + manual order + favorite groups first, for the current mode */

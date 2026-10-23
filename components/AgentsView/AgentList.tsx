@@ -83,6 +83,9 @@ interface AgentListProps {
   onToggleGroup?: (key: string) => void;
   favoriteGroupKeys?: Set<string>;
   favoriteSessionIds?: Set<string>;
+  /** Rows whose details (PRs, issues, servers) are open */
+  expandedSessionIds?: Set<string>;
+  onToggleExpanded?: (id: string) => void;
   onToggleFavoriteGroup?: (key: string) => void;
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
@@ -159,6 +162,8 @@ export const AgentList: React.FC<AgentListProps> = ({
   onToggleGroup,
   favoriteGroupKeys,
   favoriteSessionIds,
+  expandedSessionIds,
+  onToggleExpanded,
   onToggleFavoriteGroup,
   onToggleFavoriteSession,
   onMoveGroup,
@@ -173,13 +178,6 @@ export const AgentList: React.FC<AgentListProps> = ({
   }, []);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ index: number; x: number; y: number } | null>(null);
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
-  const toggleExpanded = (id: string) =>
-    setExpandedIds((prev) => {
-      const next = new Set(prev);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
 
   // Keep the selected row in view
   useEffect(() => {
@@ -632,7 +630,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                     issueKeys.length > 0 ||
                     sessionServers.length > 0 ||
                     runningSubagents > 0;
-                  const expanded = hasDetails && expandedIds.has(session.id);
+                  const expanded = hasDetails && !!expandedSessionIds?.has(session.id);
                   const extra =
                     session.state === 'blocked' && session.waitingFor
                       ? `waiting: ${session.waitingFor}`
@@ -675,7 +673,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              toggleExpanded(session.id);
+                              onToggleExpanded?.(session.id);
                             }}
                             aria-expanded={expanded}
                             aria-label={`${expanded ? 'Hide' : 'Show'} details of ${session.name}`}
