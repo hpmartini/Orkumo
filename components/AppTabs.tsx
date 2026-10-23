@@ -69,7 +69,9 @@ export const AppTabs: React.FC<AppTabsProps> = ({
       const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
       const modifierKey = isMac ? e.metaKey : e.ctrlKey;
 
-      if (modifierKey && e.key.toLowerCase() === 'w' && !e.shiftKey && !e.altKey) {
+      // A focused terminal closes its own terminal tab instead
+      const inTerminal = (e.target as HTMLElement | null)?.closest?.('.xterm');
+      if (modifierKey && !inTerminal && e.key.toLowerCase() === 'w' && !e.shiftKey && !e.altKey) {
         // Only prevent default if we have an active tab to close
         if (activeTabId && tabs.length > 0) {
           e.preventDefault();
