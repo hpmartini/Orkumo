@@ -4,14 +4,13 @@ import {
   ChevronRight,
   Pin,
   MoreHorizontal,
-  ExternalLink,
   GitBranch,
   GitBranchPlus,
+  GitPullRequest,
   Star,
   ArrowUp,
   ArrowDown,
   CircleDot,
-  Bot,
   SquareTerminal,
 } from 'lucide-react';
 import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
@@ -28,6 +27,7 @@ import {
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
 import { AppPowerButton, AppStatusDot, RailNavProps } from './ProjectsRail';
+import { SessionLinks } from './SessionLinks';
 
 /** Drag payload of a group header (separate from the workspace tab drag) */
 export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
@@ -92,8 +92,6 @@ interface AgentListProps {
   onOpenIssue?: (issueKey: string) => void;
 }
 
-const MAX_ISSUE_CHIPS = 3;
-
 /** Selected row/header: filled while the rail has focus, outline only while it does not */
 export const selectedClass = (focused: boolean) =>
   focused
@@ -103,13 +101,6 @@ export const selectedClass = (focused: boolean) =>
 /** Name and path of a linked worktree for tooltips */
 const worktreeTitle = (repo: NonNullable<AgentContext['repo']>) =>
   `worktree${repo.worktreeName ? ` ${repo.worktreeName}` : ''}${repo.worktreePath ? `\n${repo.worktreePath}` : ''}`;
-
-/** Text cue (not only colour) for the session open in the workspace */
-const ActivePill: React.FC = () => (
-  <span className="shrink-0 rounded border border-blue-300/50 px-1 text-[11px] font-normal leading-4 text-blue-200">
-    active
-  </span>
-);
 
 /** Star toggle: hidden until the parent `group` is hovered or focused (always on touch), always visible when set */
 const FavoriteButton: React.FC<{
@@ -182,6 +173,13 @@ export const AgentList: React.FC<AgentListProps> = ({
   }, []);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ index: number; x: number; y: number } | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const toggleExpanded = (id: string) =>
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
 
   // Keep the selected row in view
   useEffect(() => {
@@ -419,10 +417,18 @@ export const AgentList: React.FC<AgentListProps> = ({
             )}
           </div>
         )}
-        {clusters.map((cluster) => {
+        {clusters.map((cluster, clusterIndex) => {
           // Drop indicator: a line in the gap where the dragged group lands (it takes the target's slot)
           const head = items[cluster[0]];
           const headKey = head?.type === 'group' ? (head.group.key as string) : null;
+          const prevHead = clusterIndex > 0 ? items[clusters[clusterIndex - 1][0]] : null;
+          const isFavCluster = (key: string | null) =>
+            key !== null && (key === FAVORITES_GROUP_KEY || isFavGroup(key));
+          // Favourites sort first; a rule marks where the rest begins
+          const afterFavorites =
+            prevHead?.type === 'group' &&
+            isFavCluster(prevHead.group.key as string) &&
+            !isFavCluster(headKey);
           const dropLine =
             drag && headKey !== null && dropKey === headKey
               ? reorderableKeys.indexOf(drag) < reorderableKeys.indexOf(headKey)
@@ -430,7 +436,17 @@ export const AgentList: React.FC<AgentListProps> = ({
                 : 'top'
               : null;
           return (
-            <div key={`card-${cluster[0]}`} role="presentation" className="relative">
+            <div
+              key={`card-${cluster[0]}`}
+              role="presentation"
+              className={`relative ${afterFavorites ? 'pt-5' : ''}`}
+            >
+              {afterFavorites && (
+                <div
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1.5 inset-x-10 h-px bg-gradient-to-r from-transparent via-gray-500/50 to-transparent"
+                />
+              )}
               {dropLine && (
                 <div
                   aria-hidden="true"
@@ -448,7 +464,18 @@ export const AgentList: React.FC<AgentListProps> = ({
                     const collapsed = collapsedKeys.has(item.group.key);
                     const groupKey: string = item.group.key;
                     const isFavSection = groupKey === FAVORITES_GROUP_KEY;
+                    // Same for every agent of a project, so shown once here
+                    const groupIssues =
+                      (grouping === 'project' || grouping === 'directory') && !isFavSection
+                        ? item.group.sessions
+                            .map((s) => contexts[s.id]?.issues)
+                            .find((i) => i && i.open > 0) || null
+                        : null;
                     const groupFav = isFavGroup(groupKey);
+                    const groupSessions = [...item.group.sessions, ...item.group.hidden];
+                    const attachedCount = groupSessions.filter((s) => openIds.has(s.id)).length;
+                    const groupHasActive =
+                      !!activeSessionId && groupSessions.some((s) => s.id === activeSessionId);
                     const app = item.group.appId ? appsById?.get(item.group.appId) : undefined;
                     return (
                       <div
@@ -526,12 +553,29 @@ export const AgentList: React.FC<AgentListProps> = ({
                         <span className="shrink-0 rounded-full bg-gray-900/60 px-1.5 text-[11px] font-normal tabular-nums text-gray-300">
                           {count}
                         </span>
-                        {collapsed &&
-                          activeSessionId &&
-                          [...item.group.sessions, ...item.group.hidden].some(
-                            (s) => s.id === activeSessionId
-                          ) && <ActivePill />}
+                        {attachedCount > 0 && (
+                          <span
+                            className={`shrink-0 ${groupHasActive ? 'text-blue-300' : 'text-blue-300/60'}`}
+                            title={`${attachedCount} agent${attachedCount === 1 ? '' : 's'} attached${groupHasActive ? ', one shown in the workspace' : ''}`}
+                          >
+                            <SquareTerminal size={12} aria-hidden="true" />
+                            <span className="sr-only">{attachedCount} attached</span>
+                          </span>
+                        )}
                         <span className="flex-1" />
+                        {groupIssues && (
+                          <a
+                            href={groupIssues.url || undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                            className="shrink-0 flex items-center gap-1 text-[11px] font-normal text-gray-400 hover:text-white tabular-nums"
+                            title={`${groupIssues.open} open issue${groupIssues.open === 1 ? '' : 's'} in the repository`}
+                          >
+                            <CircleDot size={11} />
+                            {groupIssues.open}
+                          </a>
+                        )}
                         {isFavSection ? (
                           <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
                         ) : (
@@ -575,8 +619,20 @@ export const AgentList: React.FC<AgentListProps> = ({
                   const isActive = activeSessionId === session.id;
                   const isFav = !!favoriteSessionIds?.has(session.id);
                   const ctx = contexts[session.id];
-                  const sessionServers = servers.get(session.id) || [];
+                  // Stopped DevOrbit apps only carry their configured port: not worth a row entry
+                  const sessionServers = (servers.get(session.id) || []).filter((s) => s.running);
                   const issueKeys = (onOpenIssue && issuesByAgent?.get(session.id)) || [];
+                  // Project/directory groups already name the repo in their header
+                  const showRepoName =
+                    (grouping !== 'project' && grouping !== 'directory') ||
+                    (item.group.key as string) === FAVORITES_GROUP_KEY;
+                  const runningSubagents = ctx?.subagents.running || 0;
+                  const hasDetails =
+                    !!label ||
+                    issueKeys.length > 0 ||
+                    sessionServers.length > 0 ||
+                    runningSubagents > 0;
+                  const expanded = hasDetails && expandedIds.has(session.id);
                   const extra =
                     session.state === 'blocked' && session.waitingFor
                       ? `waiting: ${session.waitingFor}`
@@ -598,19 +654,55 @@ export const AgentList: React.FC<AgentListProps> = ({
                       onDoubleClick={() => onActivate(item)}
                       onContextMenu={(e) => openMenu(index, e)}
                       className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
+                        // Outline, not ring: stays visible on top of the selection ring
+                        isActive ? 'outline outline-2 -outline-offset-2 outline-blue-400' : ''
+                      } ${
                         selected
                           ? selectedClass(railFocused)
                           : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : ''}`
                       }`}
                       title={`${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
                     >
-                      <span
-                        className={`w-4 text-center shrink-0 leading-5 ${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
-                        aria-hidden="true"
-                        title={glyph.label}
-                      >
-                        {glyph.glyph}
-                      </span>
+                      <div className="w-4 shrink-0 flex flex-col items-center">
+                        <span
+                          className={`leading-5 ${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+                          aria-hidden="true"
+                          title={glyph.label}
+                        >
+                          {glyph.glyph}
+                        </span>
+                        {hasDetails && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toggleExpanded(session.id);
+                            }}
+                            aria-expanded={expanded}
+                            aria-label={`${expanded ? 'Hide' : 'Show'} details of ${session.name}`}
+                            title={
+                              expanded
+                                ? 'Hide details'
+                                : label
+                                  ? `${label.text}: show pull requests, issues, servers`
+                                  : 'Show issues, servers, sub-agents'
+                            }
+                            className={`mt-0.5 h-5 w-5 flex items-center justify-center rounded hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
+                              label && !expanded
+                                ? label.className.split(' ')[0]
+                                : 'text-gray-500 hover:text-white'
+                            }`}
+                          >
+                            {label && !expanded ? (
+                              <GitPullRequest size={12} />
+                            ) : (
+                              <ChevronDown
+                                size={12}
+                                className={`transition-transform duration-150 motion-reduce:transition-none ${expanded ? '' : '-rotate-90'}`}
+                              />
+                            )}
+                          </button>
+                        )}
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0 leading-5">
                           <span className="sr-only">{glyph.label}: </span>
@@ -622,13 +714,13 @@ export const AgentList: React.FC<AgentListProps> = ({
                           {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
                           {isOpen && (
                             <span
-                              className="shrink-0 inline-flex items-center gap-0.5 rounded border border-blue-300/50 px-1 text-[11px] font-normal leading-4 text-blue-200"
+                              className="shrink-0 text-blue-300"
                               title={
                                 isActive ? 'Attached, shown in the workspace' : 'Attached in a tab'
                               }
                             >
-                              <SquareTerminal size={10} aria-hidden="true" />
-                              {isActive ? 'active' : 'attached'}
+                              <SquareTerminal size={11} aria-hidden="true" />
+                              <span className="sr-only">{isActive ? 'active' : 'attached'}</span>
                             </span>
                           )}
                           {session.loop && <span className="text-[11px] text-blue-300">loop</span>}
@@ -659,11 +751,15 @@ export const AgentList: React.FC<AgentListProps> = ({
                                 ) : (
                                   <GitBranch size={10} className="shrink-0 text-gray-500" />
                                 )}
-                                <span className="truncate text-gray-300 min-w-[3.5rem] shrink-0 max-w-[60%]">
-                                  {ctx.repo.name}
-                                </span>
+                                {showRepoName && (
+                                  <span className="truncate text-gray-300 min-w-[3.5rem] shrink-0 max-w-[60%]">
+                                    {ctx.repo.name}
+                                  </span>
+                                )}
                                 {ctx.repo.branch && (
-                                  <span className="truncate text-gray-500 min-w-0 shrink-[2]">
+                                  <span
+                                    className={`truncate min-w-0 shrink-[2] ${showRepoName ? 'text-gray-500' : 'text-gray-300'}`}
+                                  >
                                     {ctx.repo.branch}
                                   </span>
                                 )}
@@ -696,119 +792,21 @@ export const AgentList: React.FC<AgentListProps> = ({
                               </span>
                             )}
                           </span>
-                          {/* Pull request */}
-                          <span className="shrink-0 flex justify-end">
-                            {label && onOpenPrs ? (
-                              <button
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenPrs(ctx?.repo?.slug || null);
-                                }}
-                                data-popover-trigger
-                                className={`font-mono px-1 rounded border ${label.className} flex items-center gap-0.5 hover:bg-gray-800`}
-                                title={`List pull requests${ctx?.repo?.slug ? ` of ${ctx.repo.slug}` : ''}`}
-                              >
-                                {label.text}
-                              </button>
-                            ) : (
-                              label && (
-                                <a
-                                  href={label.href || undefined}
-                                  target="_blank"
-                                  rel="noreferrer"
-                                  onClick={(e) => e.stopPropagation()}
-                                  className={`font-mono px-1 rounded border ${label.className} flex items-center gap-0.5`}
-                                  title={`Open pull request${session.links.length > 1 ? 's' : ''}\n${session.links.map((l) => l.href).join('\n')}`}
-                                >
-                                  {label.text}
-                                  {label.href && <ExternalLink size={9} />}
-                                </a>
-                              )
-                            )}
-                          </span>
-                          {/* Open issues */}
-                          <span className="shrink-0 flex justify-end">
-                            {ctx?.issues && ctx.issues.open > 0 && (
-                              <a
-                                href={ctx.issues.url || undefined}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className="flex items-center gap-0.5 text-gray-400 hover:text-white tabular-nums"
-                                title={`${ctx.issues.open} open issue${ctx.issues.open === 1 ? '' : 's'} in the repository`}
-                              >
-                                <CircleDot size={10} />
-                                {ctx.issues.open}
-                              </a>
-                            )}
-                          </span>
-                          {/* Dev servers */}
-                          <span className="shrink-0 flex justify-end gap-1">
-                            {sessionServers.slice(0, 2).map((server) => (
-                              <a
-                                key={server.port}
-                                href={`http://localhost:${server.port}`}
-                                target="_blank"
-                                rel="noreferrer"
-                                onClick={(e) => e.stopPropagation()}
-                                className={`font-mono hover:underline ${server.running ? 'text-emerald-400' : 'text-gray-500'}`}
-                                title={`${server.command || server.name}: port ${server.port} (${server.running ? 'running' : 'not running'})${server.pid ? `, pid ${server.pid}` : ''}\n${session.worktree || session.cwd}\nClick to open`}
-                              >
-                                :{server.port}
-                              </a>
-                            ))}
-                            {sessionServers.length > 2 && (
-                              <span
-                                className="text-gray-500"
-                                title={sessionServers
-                                  .slice(2)
-                                  .map((s) => `:${s.port} ${s.name}`)
-                                  .join('\n')}
-                              >
-                                +{sessionServers.length - 2}
-                              </span>
-                            )}
-                          </span>
-                          {/* Running sub-agents */}
-                          <span className="shrink-0 flex justify-end">
-                            {ctx && ctx.subagents.running > 0 && (
-                              <span
-                                className="flex items-center gap-0.5 text-sky-300 tabular-nums motion-safe:animate-pulse"
-                                title={`${ctx.subagents.running} running sub-agent${ctx.subagents.running === 1 ? '' : 's'}${ctx.subagents.names.length ? `\n${ctx.subagents.names.join('\n')}` : ''}`}
-                              >
-                                <Bot size={10} />
-                                {ctx.subagents.running}
-                              </span>
-                            )}
-                          </span>
                         </div>
+                        {expanded && (
+                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
+                            <SessionLinks
+                              session={session}
+                              ctx={ctx}
+                              servers={sessionServers}
+                              issueKeys={issueKeys}
+                              onOpenIssue={onOpenIssue}
+                              onOpenPrs={onOpenPrs}
+                            />
+                          </div>
+                        )}
                         {extra && (
                           <div className="text-xs text-gray-500 truncate mt-0.5">{extra}</div>
-                        )}
-                        {issueKeys.length > 0 && (
-                          <div className="flex items-center gap-1 mt-1 text-[11px] min-w-0">
-                            {issueKeys.slice(0, MAX_ISSUE_CHIPS).map((key) => (
-                              <button
-                                key={key}
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  onOpenIssue?.(key);
-                                }}
-                                className="font-mono px-1 rounded border border-gray-600 text-gray-300 hover:text-white hover:bg-gray-800 truncate max-w-[10rem] focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                                title={`Open ${key} on the board`}
-                              >
-                                {key.slice(key.indexOf('/') + 1)}
-                              </button>
-                            ))}
-                            {issueKeys.length > MAX_ISSUE_CHIPS && (
-                              <span
-                                className="text-gray-500"
-                                title={issueKeys.slice(MAX_ISSUE_CHIPS).join('\n')}
-                              >
-                                +{issueKeys.length - MAX_ISSUE_CHIPS}
-                              </span>
-                            )}
-                          </div>
                         )}
                       </div>
                       <div className="flex flex-col items-center shrink-0">
