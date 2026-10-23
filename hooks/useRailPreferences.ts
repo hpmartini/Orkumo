@@ -41,6 +41,10 @@ export const toggleFavoriteGroup = toggleIn;
 export const toggleFavoriteSession = toggleIn;
 export const toggleExpandedSession = toggleIn;
 
+/** Drops ids not in `known`; returns the same array when nothing is dropped */
+export const keepKnown = (list: string[], known: Set<string>): string[] =>
+  list.every((id) => known.has(id)) ? list : list.filter((id) => known.has(id));
+
 /**
  * Adjacent group in `keys` (display order) within the same favorite/other block, as favorites
  * always sort first; undefined at a block edge or for an unknown key.
@@ -258,6 +262,15 @@ export function useRailPreferences(groupBy: AgentGrouping) {
           ...p,
           expandedSessions: toggleExpandedSession(p.expandedSessions, id),
         })),
+      [update]
+    ),
+    /** Forgets open details of sessions that no longer exist; call only with a complete session list */
+    pruneExpandedSessions: useCallback(
+      (knownIds: string[]) =>
+        update((p) => {
+          const expandedSessions = keepKnown(p.expandedSessions, new Set(knownIds));
+          return expandedSessions === p.expandedSessions ? p : { ...p, expandedSessions };
+        }),
       [update]
     ),
     /** Favorite sessions section + manual order + favorite groups first, for the current mode */

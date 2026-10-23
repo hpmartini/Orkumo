@@ -446,6 +446,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     pruneMissing(new Set([...sessions, ...cloudSessions].map((s) => s.id)));
   }, [sessions, cloudSessions, loading, pruneMissing]);
 
+  // Forget open row details of removed sessions; a scoped (--cwd) or failed list is incomplete
+  const { pruneExpandedSessions } = rail;
+  useEffect(() => {
+    if (loading || error || settings.scopeCwd || sessions.length === 0) return;
+    pruneExpandedSessions([...sessions, ...cloudSessions].map((s) => s.id));
+  }, [sessions, cloudSessions, loading, error, settings.scopeCwd, pruneExpandedSessions]);
+
   const showHint = useCallback(
     (text: string, tone: 'info' | 'error' | 'success' = 'info', ttl = 4000) => {
       setHint({ text, tone });

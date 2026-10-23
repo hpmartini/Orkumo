@@ -13,6 +13,7 @@ import {
   findGroupKeyOf,
   FAVORITES_GROUP_KEY,
   useRailPreferences,
+  keepKnown,
 } from '../hooks/useRailPreferences';
 import type { SessionGroup } from '../utils/agentSessions';
 import type { AgentSession } from '../types';
@@ -115,5 +116,24 @@ describe('useRailPreferences expanded rows', () => {
     expect(second.result.current.expandedSessions.has('a1')).toBe(true);
     act(() => second.result.current.toggleExpandedSession('a1'));
     expect(second.result.current.expandedSessions.has('a1')).toBe(false);
+  });
+
+  it('prunes open details of sessions that no longer exist', () => {
+    localStorage.removeItem('devOrbitAgentRail.v1');
+    const { result, unmount } = renderHook(() => useRailPreferences('project'));
+    act(() => result.current.toggleExpandedSession('gone'));
+    act(() => result.current.toggleExpandedSession('alive'));
+    act(() => result.current.pruneExpandedSessions(['alive', 'other']));
+    expect([...result.current.expandedSessions]).toEqual(['alive']);
+    unmount();
+    expect(JSON.parse(localStorage.getItem('devOrbitAgentRail.v1')!).expandedSessions).toEqual([
+      'alive',
+    ]);
+  });
+
+  it('keepKnown returns the same array when nothing is dropped', () => {
+    const list = ['a', 'b'];
+    expect(keepKnown(list, new Set(['a', 'b', 'c']))).toBe(list);
+    expect(keepKnown(list, new Set(['b']))).toEqual(['b']);
   });
 });
