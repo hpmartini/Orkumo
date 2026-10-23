@@ -49,7 +49,10 @@ jobs:
       - name: Upload to release
         shell: bash
         run: |
-          files=$(find dist-electron -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \))
-          gh release upload "${{ github.event.release.tag_name }}" $files --clobber
+          # Schleife statt Wortsplitting: NSIS-Dateinamen enthalten Leerzeichen.
+          find dist-electron -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -print0 |
+            while IFS= read -r -d '' f; do
+              gh release upload "${{ github.event.release.tag_name }}" "$f" --clobber
+            done
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
