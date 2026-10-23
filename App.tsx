@@ -34,7 +34,9 @@ import { generateProjectUrl } from './utils/routing';
 import { KeyboardShortcuts } from './types';
 import { APP_NAME } from './constants';
 
-type ActiveTab = 'dashboard' | 'apps' | 'agents';
+import { BoardView } from './components/BoardView';
+
+type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board';
 
 function AppContent() {
   const navigate = useNavigate();
@@ -42,6 +44,9 @@ function AppContent() {
   const location = useLocation();
   const projectId = params.projectId;
   const isAgentsRoute = location.pathname === '/agents';
+  const isBoardRoute = location.pathname === '/board';
+  // Agents and board bring their own left rail instead of the app sidebar
+  const hasOwnRail = isAgentsRoute || isBoardRoute;
 
   const {
     apps,
@@ -144,9 +149,9 @@ function AppContent() {
         navigateRef.current('/', { replace: true });
       }
     } else {
-      setActiveTab(isAgentsRoute ? 'agents' : 'dashboard');
+      setActiveTab(isAgentsRoute ? 'agents' : isBoardRoute ? 'board' : 'dashboard');
     }
-  }, [projectId, apps, loading, isAgentsRoute]);
+  }, [projectId, apps, loading, isAgentsRoute, isBoardRoute]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
@@ -383,7 +388,7 @@ function AppContent() {
   });
 
   // Command palette (Cmd/Ctrl+P). Agent-specific commands are registered by AgentsView.
-  const onAppsPage = !isAgentsRoute && !!selectedAppId && !!projectId;
+  const onAppsPage = !hasOwnRail && !!selectedAppId && !!projectId;
   const runOnSelected = (
     action: (id: string) => Promise<unknown>,
     messages: { loading: string; success: string; error: string }
@@ -406,6 +411,13 @@ function AppContent() {
   const paletteCommands: PaletteCommand[] = [
     command('dashboard', 'Go to dashboard', 'Navigate', handleSelectDashboard, 'home overview'),
     command('agents', 'Open agents view', 'Navigate', () => navigate('/agents'), 'claude sessions'),
+    command(
+      'board',
+      'Open board',
+      'Navigate',
+      () => navigate('/board'),
+      'issues kanban github project'
+    ),
     command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
     command('sidebar', 'Toggle sidebar', 'View', handleToggleSidebarCollapse),
     command('favorites', 'Open favorites', 'Navigate', handleToggleFavoritesPopup),
@@ -508,7 +520,7 @@ function AppContent() {
           fixed ${isElectron || tabs.length > 0 ? 'top-10' : 'top-0'} bottom-0 left-0 z-40
           transform transition-all duration-300 ease-in-out
           ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-          ${isAgentsRoute ? 'md:hidden' : ''}
+          ${hasOwnRail ? 'md:hidden' : ''}
         `}
         style={{ width: actualSidebarWidth }}
       >
@@ -521,6 +533,10 @@ function AppContent() {
           onSelectDashboard={handleSelectDashboard}
           onSelectAgents={() => {
             navigate('/agents');
+            setMobileMenuOpen(false);
+          }}
+          onSelectBoard={() => {
+            navigate('/board');
             setMobileMenuOpen(false);
           }}
           onSelectApp={handleSelectApp}
@@ -575,8 +591,8 @@ function AppContent() {
       {/* Main Content - with left margin for fixed sidebar, top margin for titlebar (when present) */}
       <main
         className={`flex-1 flex flex-col relative ml-0 ${
-          // The agents view merges the sidebar into its own rail and scrolls internally
-          isAgentsRoute ? 'overflow-hidden' : 'md:ml-[var(--sidebar-width)] overflow-auto'
+          // The agents and board views merge the sidebar into their own rail and scroll internally
+          hasOwnRail ? 'overflow-hidden' : 'md:ml-[var(--sidebar-width)] overflow-auto'
         } ${
           // TitleBar is shown in Electron OR when tabs exist in browser mode
           isElectron || tabs.length > 0 ? 'mt-10' : ''
@@ -676,12 +692,23 @@ function AppContent() {
               onOpenView={() => navigate('/agents')}
               nav={{
                 onOpenDashboard: handleSelectDashboard,
+                onOpenBoard: () => navigate('/board'),
                 onOpenSettings: () => setAdminPanelOpen(true),
                 onOpenProject: handleSelectApp,
                 onStartApp: handleStartApp,
                 onStopApp: handleStopApp,
               }}
             />
+          </div>
+
+          {/* Agent task board - kept mounted like the agents view, polls only while active */}
+          <div
+            className={
+              activeTab === 'board' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+            }
+            aria-hidden={activeTab !== 'board'}
+          >
+            <BoardView active={activeTab === 'board'} onOpenView={() => navigate('/board')} />
           </div>
 
           {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.
@@ -764,6 +791,7 @@ function AppRouter() {
     <Routes>
       <Route path="/" element={<AppContent />} />
       <Route path="/agents" element={<AppContent />} />
+      <Route path="/board" element={<AppContent />} />
       <Route path="/:projectName/:projectId" element={<AppContent />} />
     </Routes>
   );

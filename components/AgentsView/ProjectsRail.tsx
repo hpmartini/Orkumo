@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import {
+  Bot,
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Kanban,
   LayoutDashboard,
   Play,
   Settings,
@@ -15,6 +17,7 @@ import type { AgentConfigLike } from './types';
 /** App-level navigation and actions the merged rail needs from App.tsx */
 export interface RailNavProps {
   onOpenDashboard: () => void;
+  onOpenBoard?: () => void;
   onOpenSettings: () => void;
   onOpenProject: (appId: string) => void;
   onStartApp: (appId: string) => void;
@@ -87,11 +90,19 @@ export const RailNav: React.FC<{
       >
         <LayoutDashboard size={13} /> Dashboard
       </button>
+      {nav.onOpenBoard && (
+        <button
+          onClick={nav.onOpenBoard}
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+        >
+          <Kanban size={13} /> Board
+        </button>
+      )}
       <span
         className="flex items-center gap-1.5 px-2 py-1 rounded bg-gray-800 text-white"
         aria-current="page"
       >
-        Agents
+        <Bot size={13} /> Agents
       </span>
       <div className="flex-1" />
       <button

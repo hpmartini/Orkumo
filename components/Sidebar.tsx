@@ -18,6 +18,7 @@ import {
   Code,
   ChevronUp,
   Bot,
+  Kanban,
 } from 'lucide-react';
 import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -29,9 +30,10 @@ import { APP_NAME } from '../constants';
 interface SidebarProps {
   apps: AppConfig[];
   selectedAppId: string | null;
-  activeTab: 'dashboard' | 'apps' | 'agents';
+  activeTab: 'dashboard' | 'apps' | 'agents' | 'board';
   isCollapsed?: boolean;
   onSelectAgents?: () => void;
+  onSelectBoard?: () => void;
   onToggleCollapse?: () => void;
   onSelectDashboard: () => void;
   onSelectApp: (id: string) => void;
@@ -73,6 +75,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   onSelectDashboard,
   onSelectAgents,
+  onSelectBoard,
   onSelectApp,
   onToggleFavorite,
   onToggleArchive,
@@ -376,6 +379,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </ShortcutTooltip>
         </div>
 
+        {/* Board Button */}
+        {onSelectBoard && (
+          <div className="p-2">
+            <ShortcutTooltip label="Agent task board" position="right">
+              <button
+                onClick={onSelectBoard}
+                aria-label="Board"
+                className={`p-2 rounded-lg transition-all ${
+                  activeTab === 'board'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                    : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                }`}
+              >
+                <Kanban size={20} />
+              </button>
+            </ShortcutTooltip>
+          </div>
+        )}
+
         {/* Agents Button */}
         {onSelectAgents && (
           <div className="p-2">
@@ -637,6 +659,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           <LayoutDashboard size={18} />
           Overview
         </button>
+
+        {/* Board Button */}
+        {onSelectBoard && (
+          <button
+            onClick={onSelectBoard}
+            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${
+              activeTab === 'board'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+            }`}
+            title="Agent task board"
+          >
+            <Kanban size={18} />
+            Board
+          </button>
+        )}
 
         {/* Agents Button */}
         {onSelectAgents && (

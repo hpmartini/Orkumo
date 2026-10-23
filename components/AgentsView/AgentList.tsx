@@ -87,7 +87,12 @@ interface AgentListProps {
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
   onMoveGroup?: (key: string, targetKey: string, visibleKeys: string[]) => void;
+  /** Board issue keys ("owner/name#12") per session id, derived from the GitHub project */
+  issuesByAgent?: Map<string, string[]>;
+  onOpenIssue?: (issueKey: string) => void;
 }
+
+const MAX_ISSUE_CHIPS = 3;
 
 /** Selected row/header: filled while the rail has focus, outline only while it does not */
 export const selectedClass = (focused: boolean) =>
@@ -166,6 +171,8 @@ export const AgentList: React.FC<AgentListProps> = ({
   onToggleFavoriteGroup,
   onToggleFavoriteSession,
   onMoveGroup,
+  issuesByAgent,
+  onOpenIssue,
 }) => {
   // One card per group (its header plus rows); ungrouped items form a single card
   const clusters = items.reduce<number[][]>((acc, item, i) => {
@@ -569,6 +576,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                   const isFav = !!favoriteSessionIds?.has(session.id);
                   const ctx = contexts[session.id];
                   const sessionServers = servers.get(session.id) || [];
+                  const issueKeys = (onOpenIssue && issuesByAgent?.get(session.id)) || [];
                   const extra =
                     session.state === 'blocked' && session.waitingFor
                       ? `waiting: ${session.waitingFor}`
@@ -776,6 +784,31 @@ export const AgentList: React.FC<AgentListProps> = ({
                         </div>
                         {extra && (
                           <div className="text-xs text-gray-500 truncate mt-0.5">{extra}</div>
+                        )}
+                        {issueKeys.length > 0 && (
+                          <div className="flex items-center gap-1 mt-1 text-[11px] min-w-0">
+                            {issueKeys.slice(0, MAX_ISSUE_CHIPS).map((key) => (
+                              <button
+                                key={key}
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenIssue?.(key);
+                                }}
+                                className="font-mono px-1 rounded border border-gray-600 text-gray-300 hover:text-white hover:bg-gray-800 truncate max-w-[10rem] focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                                title={`Open ${key} on the board`}
+                              >
+                                {key.slice(key.indexOf('/') + 1)}
+                              </button>
+                            ))}
+                            {issueKeys.length > MAX_ISSUE_CHIPS && (
+                              <span
+                                className="text-gray-500"
+                                title={issueKeys.slice(MAX_ISSUE_CHIPS).join('\n')}
+                              >
+                                +{issueKeys.length - MAX_ISSUE_CHIPS}
+                              </span>
+                            )}
+                          </div>
                         )}
                       </div>
                       <div className="flex flex-col items-center shrink-0">

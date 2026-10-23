@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>DevOrbit Board</title>
+<script src="https://cdn.tailwindcss.com/3.4.16"></script>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://unpkg.com/lucide@0.469.0/dist/umd/lucide.min.js"></script>
+<script>
+  // Same tokens as DevOrbit's index.html (Ghostty blue scale)
+  tailwind.config = { theme: { extend: {
+    fontFamily: { sans: ['Inter', 'sans-serif'], mono: ['JetBrains Mono', 'monospace'] },
+    colors: {
+      gray: { 50:'#f6f8fd',100:'#eaeff9',200:'#d6dff1',300:'#c4d0ea',400:'#b8c7e6',500:'#adbde0',600:'#94a8d6',700:'#4f67a0',750:'#3b5081',800:'#344a7b',850:'#2c4070',900:'#243562',950:'#1a274b' },
+      sel: '#3f6399', cursor: '#8fd0ff',
+    } } } };
+</script>
+<style>
+  :root { --bg-app:#243562; --bg-card:#2c4070; --border:#4f67a0; --text:#d6dff1; --scrollbar:#5c73a8; }
+  html { color-scheme: dark; scrollbar-color: var(--scrollbar) var(--bg-app); }
+  body { background: var(--bg-app); color: var(--text); font-feature-settings: 'tnum'; }
+  ::selection { background: #3f6399; color: #fff; }
+  :focus-visible { outline: 2px solid #8fd0ff; outline-offset: 2px; }
+  .thin-scrollbar { scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent; }
+  .card[draggable="true"] { cursor: grab; }
+  .card.dragging { opacity: .4; }
+  .drop-target { background: rgba(143,208,255,.08); box-shadow: inset 0 0 0 1px rgba(143,208,255,.45); }
+  .lane-cell { min-height: 3.25rem; }
+  .flash { animation: flash 1.2s cubic-bezier(.16,1,.3,1); }
+  @keyframes flash { from { box-shadow: 0 0 0 2px #8fd0ff, 0 6px 18px -6px rgba(0,0,0,.6); } to { box-shadow: 0 1px 2px rgba(0,0,0,.25); } }
+  .drawer { transition: transform .28s cubic-bezier(.16,1,.3,1); }
+  @media (prefers-reduced-motion: reduce) { .drawer, .flash { transition: none; animation: none; } }
+  .kbd { display:inline-block; padding:0 .35rem; border:1px solid var(--border); border-bottom-width:2px; border-radius:.25rem; background:#1a274b; color:#b9d6ff; font-family:ui-monospace,Menlo,monospace; font-size:.7rem; }
+  .note { position: relative; }
+</style>
+</head>
+<body class="font-sans text-sm h-screen overflow-hidden">
+<div class="flex h-full">
+
+  <!-- Rail: same shell as /agents (RailNav + sections) -->
+  <aside class="w-80 shrink-0 flex flex-col border-r border-gray-700 bg-gray-900" aria-label="Board navigation">
+    <div class="px-3 py-2 border-b border-gray-700 space-y-2 shrink-0">
+      <nav class="flex items-center gap-1 text-xs" aria-label="Modus">
+        <a href="#" class="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"><i data-lucide="layout-dashboard" class="w-[13px] h-[13px]"></i> Dashboard</a>
+        <span class="flex items-center gap-1.5 px-2 py-1 rounded bg-gray-800 text-white" aria-current="page"><i data-lucide="kanban" class="w-[13px] h-[13px]"></i> Board</span>
+        <a href="#" class="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"><i data-lucide="bot" class="w-[13px] h-[13px]"></i> Agents</a>
+        <div class="flex-1"></div>
+        <button class="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800" title="Board-Einstellungen (Quelle: MACC)" aria-label="Settings"><i data-lucide="settings" class="w-[13px] h-[13px]"></i></button>
+      </nav>
+      <div class="flex rounded border border-gray-700 bg-gray-900 p-0.5 text-xs" role="group" aria-label="Slice nach">
+        <!-- filled by JS -->
+      </div>
+    </div>
+
+    <div class="flex-1 overflow-y-auto thin-scrollbar pb-3">
+      <section class="mx-2 mt-2 rounded-lg border border-gray-700 bg-gray-850 overflow-hidden">
+        <h2 class="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-300 bg-gray-800 border-b border-gray-700">
+          <i data-lucide="layers" class="w-3 h-3"></i><span id="sliceTitle">Projekte</span>
+          <span class="font-normal text-gray-400" id="sliceMeta"></span>
+        </h2>
+        <ul id="sliceList" class="py-1"></ul>
+      </section>
+
+      <section class="mx-2 mt-2 rounded-lg border border-gray-700 bg-gray-850 overflow-hidden">
+        <h2 class="flex items-center gap-2 px-3 py-2 text-xs font-semibold text-gray-300 bg-gray-800 border-b border-gray-700">
+          <i data-lucide="bot" class="w-3 h-3"></i>Agents
+          <span class="font-normal text-gray-400" id="agentMeta"></span>
+        </h2>
+        <ul id="agentList" class="py-1"></ul>
+        <p class="px-3 py-2 text-[11px] leading-snug text-gray-400 border-t border-gray-700">Klick auf einen Agent filtert das Board auf seine Issues. Nochmal klicken hebt den Filter auf.</p>
+      </section>
+    </div>
+  </aside>
+
+  <!-- Board -->
+  <main class="flex-1 min-w-0 flex flex-col">
+    <header class="flex items-center gap-3 px-4 h-12 border-b border-gray-700 bg-gray-900 shrink-0">
+      <h1 class="text-[15px] font-semibold text-white flex items-center gap-2">
+        <span id="boardTitle">DevHub</span>
+        <span class="text-xs font-normal text-gray-400" id="boardCount"></span>
+      </h1>
+      <div id="filterChips" class="flex items-center gap-1.5"></div>
+      <div class="flex-1"></div>
+      <label class="flex items-center gap-1.5 text-xs text-gray-400">Swimlanes
+        <select id="laneMode" class="bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs">
+          <option value="parent">Parent issue</option>
+          <option value="repo">Repository</option>
+          <option value="none">Keine</option>
+        </select>
+      </label>
+      <div class="relative">
+        <i data-lucide="search" class="w-3.5 h-3.5 absolute left-2 top-1/2 -translate-y-1/2 text-gray-400"></i>
+        <input id="q" type="search" placeholder="Filtern: Titel, #Nr, label:ui" class="w-56 bg-gray-850 border border-gray-700 rounded pl-7 pr-2 py-1 text-xs text-gray-100 placeholder:text-gray-400" />
+      </div>
+      <span class="text-[11px] text-gray-400 flex items-center gap-1" title="Quelle: GitHub Project MACC (users/hpmartini/projects/4), Status-Feld aller Items"><i data-lucide="refresh-cw" class="w-3 h-3"></i>MACC · vor 12 s</span>
+    </header>
+
+    <div id="board" class="flex-1 overflow-auto thin-scrollbar"></div>
+  </main>
+
+  <!-- Detail drawer -->
+  <aside id="drawer" class="drawer fixed top-0 right-0 h-full w-[420px] max-w-full bg-gray-900 border-l border-gray-700 shadow-[0_0_40px_-8px_rgba(0,0,0,.6)] translate-x-full flex flex-col" aria-label="Issue-Details" aria-hidden="true"></aside>
+</div>
+
+<div id="toast" class="fixed bottom-4 left-1/2 -translate-x-1/2 px-3 py-2 rounded-md bg-gray-950 border border-gray-700 text-xs text-gray-100 shadow-lg opacity-0 pointer-events-none transition-opacity" role="status"></div>
+
+<script>
+const ITEMS = [{"k":"is","r":"project-a","n":318,"t":"Example task 318","s":"Done","st":"CLOSED","u":"2026-10-21","l":[["area: frontend","7dd87d"],["prio: high","f97316"],["type: feature","a2eeef"],["design: impeccable","5319e7"]],"p":315,"pt":"Onboarding Issues","sub":null},{"k":"is","r":"project-b","n":18,"t":"Example task 18","s":"Backlog","st":"OPEN","u":"2025-08-21","l":[["WebApp","fb86f1"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-b","n":19,"t":"Example task 19","s":"Backlog","st":"OPEN","u":"2025-08-21","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-b","n":31,"t":"Example task 31","s":"Backlog","st":"OPEN","u":"2025-08-25","l":[["LandingPage","7135f8"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-b","n":54,"t":"Example task 54","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[["LandingPage","7135f8"],["structure","aaaaaa"]],"p":null,"pt":null,"sub":[0,12]},{"k":"is","r":"project-b","n":55,"t":"Example task 55","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":56,"t":"Example task 56","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":57,"t":"Example task 57","s":"Backlog","st":"OPEN","u":"2025-08-28","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":58,"t":"Example task 58","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":59,"t":"Example task 59","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":60,"t":"Example task 60","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":61,"t":"Example task 61","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":62,"t":"Example task 62","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":63,"t":"Example task 63","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":64,"t":"Example task 64","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":65,"t":"Example task 65","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-b","n":66,"t":"Example task 66","s":"Backlog","st":"OPEN","u":"2025-08-27","l":[],"p":54,"pt":"LandingPage Structure","sub":null},{"k":"is","r":"project-a","n":83,"t":"Example task 83","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["type: chore","e4e669"]],"p":null,"pt":null,"sub":[5,9]},{"k":"is","r":"project-a","n":94,"t":"Example task 94","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["area: devops","bfdadc"],["type: chore","e4e669"],["prio: high","f97316"]],"p":83,"pt":"Make the app production ready","sub":null},{"k":"is","r":"project-a","n":95,"t":"Example task 95","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["area: devops","bfdadc"],["type: chore","e4e669"],["prio: high","f97316"]],"p":83,"pt":"Make the app production ready","sub":null},{"k":"is","r":"project-a","n":96,"t":"Example task 96","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["area: devops","bfdadc"],["type: chore","e4e669"],["prio: high","f97316"]],"p":83,"pt":"Make the app production ready","sub":null},{"k":"is","r":"project-a","n":97,"t":"Example task 97","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["area: devops","bfdadc"],["type: chore","e4e669"],["prio: high","f97316"]],"p":83,"pt":"Make the app production ready","sub":null},{"k":"is","r":"project-a","n":126,"t":"Example task 126","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["prio: high","f97316"],["area: email","c5def5"],["type: feature","a2eeef"]],"p":null,"pt":null,"sub":[26,28]},{"k":"is","r":"project-a","n":145,"t":"Example task 145","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["area: devops","bfdadc"],["type: chore","e4e669"],["area: email","c5def5"]],"p":126,"pt":"Email/Newsletter subscription","sub":null},{"k":"is","r":"project-a","n":147,"t":"Example task 147","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["area: devops","bfdadc"],["type: chore","e4e669"],["prio: high","f97316"],["area: security","b60205"]],"p":126,"pt":"Email/Newsletter subscription","sub":null},{"k":"is","r":"DevHub","n":8,"t":"persistant build/run logs in terminal","s":"Backlog","st":"OPEN","u":"2026-01-08","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":12,"t":"# Code Review: Coding Sub-View Implementation","s":"Backlog","st":"OPEN","u":"2026-01-06","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":20,"t":"Persist run/build logs between browser refresh","s":"Backlog","st":"OPEN","u":"2026-01-07","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":22,"t":"# Pull Request Review: Phase 2 Web-IDE Integration with code-server","s":"Backlog","st":"OPEN","u":"2026-01-08","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":23,"t":"# Pull Request Review: Phase 2 Web-IDE Integration with code-server","s":"Backlog","st":"OPEN","u":"2026-01-08","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":30,"t":"## Pull Request Review","s":"Backlog","st":"OPEN","u":"2026-01-08","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":31,"t":"# Pull Request Review: Electron Desktop Application Support","s":"Backlog","st":"OPEN","u":"2026-01-08","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":35,"t":"Release","s":"In Progress","st":"OPEN","u":"2026-01-10","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":37,"t":"Landingpage","s":"In Progress","st":"OPEN","u":"2026-01-10","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":40,"t":"Collapse/expand all apps","s":"Backlog","st":"OPEN","u":"2026-01-13","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":181,"t":"Example task 181","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["type: chore","e4e669"],["prio: high","f97316"],["area: marketing","f9d0c4"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-c","n":2,"t":"Example task 2","s":"Backlog","st":"OPEN","u":"2026-03-14","l":[["documentation","0075ca"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-d","n":21,"t":"Example task 21","s":"Backlog","st":"OPEN","u":"2026-04-12","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":25,"t":"Example task 25","s":"Backlog","st":"OPEN","u":"2026-05-27","l":[["tech-debt","d4c5f9"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":41,"t":"Example task 41","s":"Backlog","st":"OPEN","u":"2026-05-28","l":[["tech-debt","d4c5f9"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":55,"t":"Example task 55","s":"Backlog","st":"OPEN","u":"2026-05-28","l":[["tech-debt","d4c5f9"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":56,"t":"Example task 56","s":"Backlog","st":"OPEN","u":"2026-05-28","l":[["task","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":65,"t":"Example task 65","s":"Backlog","st":"OPEN","u":"2026-05-29","l":[["tech-debt","d4c5f9"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":124,"t":"Example task 124","s":"Backlog","st":"OPEN","u":"2026-06-03","l":[["tech-debt","d4c5f9"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":133,"t":"Example task 133","s":"Backlog","st":"OPEN","u":"2026-06-04","l":[["tech-debt","d4c5f9"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":3,"t":"Example task 3","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["epic","5319e7"],["bank-api","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":4,"t":"Example task 4","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["story","1d76db"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":5,"t":"Example task 5","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["story","1d76db"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":6,"t":"Example task 6","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["story","1d76db"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":7,"t":"Example task 7","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["story","1d76db"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":8,"t":"Example task 8","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["story","1d76db"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":9,"t":"Example task 9","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["story","1d76db"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":10,"t":"Example task 10","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["story","1d76db"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":16,"t":"Example task 16","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["task","0e8a16"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":18,"t":"Example task 18","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["task","0e8a16"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":19,"t":"Example task 19","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["task","0e8a16"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":20,"t":"Example task 20","s":"Backlog","st":"OPEN","u":"2026-06-07","l":[["task","0e8a16"],["bank-api","fbca04"],["phase-1","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":28,"t":"Example task 28","s":"Backlog","st":"OPEN","u":"2026-06-08","l":[["bank-api","fbca04"],["tech-debt","e99695"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":153,"t":"Example task 153","s":"Backlog","st":"OPEN","u":"2026-06-10","l":[["task","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":178,"t":"Example task 178","s":"Backlog","st":"OPEN","u":"2026-06-16","l":[["epic","5319e7"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":183,"t":"Example task 183","s":"Backlog","st":"OPEN","u":"2026-06-16","l":[["story","0e8a16"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":241,"t":"Example task 241","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["area: devops","bfdadc"],["type: chore","e4e669"],["prio: high","f97316"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":262,"t":"Example task 262","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["type: chore","e4e669"],["prio: low","94a3b8"],["area: email","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":263,"t":"Example task 263","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["type: chore","e4e669"],["prio: low","94a3b8"],["area: email","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":264,"t":"Example task 264","s":"Backlog","st":"OPEN","u":"2026-06-18","l":[["type: chore","e4e669"],["prio: low","94a3b8"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":265,"t":"Example task 265","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["area: devops","bfdadc"],["type: chore","e4e669"],["prio: low","94a3b8"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":267,"t":"Example task 267","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[["type: chore","e4e669"],["prio: low","94a3b8"],["area: email","c5def5"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":228,"t":"Example task 228","s":"Backlog","st":"OPEN","u":"2026-06-25","l":[["tech-debt","d4c5f9"],["needs HP","d4a72c"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":230,"t":"Example task 230","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["epic","5319e7"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":231,"t":"Example task 231","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["story","0e8a16"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":232,"t":"Example task 232","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["story","0e8a16"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":233,"t":"Example task 233","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["story","0e8a16"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":234,"t":"Example task 234","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["story","0e8a16"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":235,"t":"Example task 235","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["story","0e8a16"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":236,"t":"Example task 236","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["story","0e8a16"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":238,"t":"Example task 238","s":"Backlog","st":"OPEN","u":"2026-06-25","l":[["decision","fbca04"],["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":239,"t":"Example task 239","s":"Backlog","st":"OPEN","u":"2026-06-25","l":[["decision","fbca04"],["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":240,"t":"Example task 240","s":"Backlog","st":"OPEN","u":"2026-06-25","l":[["decision","fbca04"],["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":241,"t":"Example task 241","s":"Backlog","st":"OPEN","u":"2026-06-25","l":[["decision","fbca04"],["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":242,"t":"Example task 242","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":243,"t":"Example task 243","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":244,"t":"Example task 244","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":245,"t":"Example task 245","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":246,"t":"Example task 246","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["blocked: needs HP","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":255,"t":"Example task 255","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["task","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":256,"t":"Example task 256","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["task","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":257,"t":"Example task 257","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["task","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":258,"t":"Example task 258","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["task","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":260,"t":"Example task 260","s":"Backlog","st":"OPEN","u":"2026-06-23","l":[["task","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":281,"t":"Example task 281","s":"Backlog","st":"OPEN","u":"2026-06-25","l":[["task","1d76db"],["needs HP","d4a72c"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":299,"t":"Example task 299","s":"Backlog","st":"OPEN","u":"2026-06-29","l":[["bug","d73a4a"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":53,"t":"Example task 53","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["task","bfdadc"],["infra","24292e"],["prio:low","c2e0c6"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":55,"t":"Example task 55","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["enhancement","a2eeef"],["task","bfdadc"],["infra","24292e"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":69,"t":"Example task 69","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["epic","5319e7"],["infra","24292e"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":70,"t":"Example task 70","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["epic","5319e7"],["arch","b60205"],["infra","24292e"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":75,"t":"Example task 75","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["infra","24292e"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":77,"t":"Example task 77","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["infra","24292e"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":85,"t":"Example task 85","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["arch","b60205"],["infra","24292e"],["prio:high","e11d21"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":143,"t":"Example task 143","s":"Backlog","st":"OPEN","u":"2026-08-28","l":[["docs","0075ca"],["prio:high","e11d21"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":146,"t":"Example task 146","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["epic","5319e7"],["arch","b60205"],["prio:high","e11d21"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":149,"t":"Example task 149","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["enhancement","a2eeef"],["frontend","43c5b0"],["infra","24292e"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":155,"t":"Example task 155","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["infra","24292e"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":160,"t":"Example task 160","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["infra","24292e"],["prio:low","c2e0c6"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":162,"t":"Example task 162","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["frontend","43c5b0"],["database","0052cc"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":175,"t":"Example task 175","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["frontend","43c5b0"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":176,"t":"Example task 176","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["frontend","43c5b0"],["database","0052cc"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":180,"t":"Example task 180","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["frontend","43c5b0"],["database","0052cc"],["prio:low","c2e0c6"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":302,"t":"Example task 302","s":"Backlog","st":"OPEN","u":"2026-07-14","l":[["task","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":181,"t":"Example task 181","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["arch","b60205"],["docs","0075ca"],["prio:high","e11d21"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":182,"t":"Example task 182","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["frontend","43c5b0"],["database","0052cc"],["prio:high","e11d21"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":183,"t":"Example task 183","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["arch","b60205"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":184,"t":"Example task 184","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":225,"t":"Example task 225","s":"Backlog","st":"OPEN","u":"2026-08-14","l":[["story","1d76db"],["backend","0e8a16"],["frontend","43c5b0"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":250,"t":"Example task 250","s":"Backlog","st":"OPEN","u":"2026-08-19","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":258,"t":"Example task 258","s":"Backlog","st":"OPEN","u":"2026-08-19","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":259,"t":"Example task 259","s":"Backlog","st":"OPEN","u":"2026-08-19","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":262,"t":"Example task 262","s":"Backlog","st":"OPEN","u":"2026-08-19","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":263,"t":"Example task 263","s":"Backlog","st":"OPEN","u":"2026-08-19","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":282,"t":"Example task 282","s":"Backlog","st":"OPEN","u":"2026-08-21","l":[["infra","24292e"],["prio:low","c2e0c6"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":308,"t":"Example task 308","s":"Backlog","st":"OPEN","u":"2026-08-26","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":309,"t":"Example task 309","s":"Backlog","st":"OPEN","u":"2026-09-10","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":334,"t":"Example task 334","s":"Backlog","st":"OPEN","u":"2026-08-28","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":335,"t":"Example task 335","s":"Backlog","st":"OPEN","u":"2026-08-28","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":336,"t":"Example task 336","s":"Backlog","st":"OPEN","u":"2026-08-28","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":342,"t":"Example task 342","s":"Backlog","st":"OPEN","u":"2026-09-01","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":360,"t":"Example task 360","s":"Backlog","st":"OPEN","u":"2026-09-03","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":361,"t":"Example task 361","s":"Backlog","st":"OPEN","u":"2026-09-03","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":362,"t":"Example task 362","s":"Backlog","st":"OPEN","u":"2026-09-03","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":363,"t":"Example task 363","s":"Backlog","st":"OPEN","u":"2026-09-03","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-h","n":2,"t":"Example task 2","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":null,"pt":null,"sub":[2,13]},{"k":"is","r":"project-i","n":14,"t":"Example task 14","s":"Backlog","st":"OPEN","u":"2026-10-07","l":[["finding","d93f0b"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-i","n":18,"t":"Example task 18","s":"Backlog","st":"OPEN","u":"2026-10-07","l":[["finding","d93f0b"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-i","n":20,"t":"Example task 20","s":"Backlog","st":"OPEN","u":"2026-10-07","l":[["tracking","5319e7"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":425,"t":"Example task 425","s":"Backlog","st":"OPEN","u":"2026-10-07","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-h","n":5,"t":"Example task 5","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":6,"t":"Example task 6","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":7,"t":"Example task 7","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":8,"t":"Example task 8","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":9,"t":"Example task 9","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":10,"t":"Example task 10","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":11,"t":"Example task 11","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":12,"t":"Example task 12","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":13,"t":"Example task 13","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":14,"t":"Example task 14","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-h","n":15,"t":"Example task 15","s":"Backlog","st":"OPEN","u":"2026-10-08","l":[],"p":2,"pt":"Umsetzung von docs/MASTERPROMPT.md im Modus SPEC_ONLY: vollständige PRDs, techn…","sub":null},{"k":"is","r":"project-g","n":435,"t":"Example task 435","s":"Backlog","st":"OPEN","u":"2026-10-11","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":310,"t":"Example task 310","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-j","n":1,"t":"Example task 1","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-k","n":6,"t":"Example task 6","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-l","n":2,"t":"Example task 2","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-m","n":6,"t":"Example task 6","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-f","n":32,"t":"Example task 32","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-e","n":323,"t":"Example task 323","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-c","n":11,"t":"Example task 11","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-n","n":1,"t":"Example task 1","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-o","n":47,"t":"Example task 47","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":440,"t":"Example task 440","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-i","n":31,"t":"Example task 31","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":312,"t":"Example task 312","s":"Done","st":"CLOSED","u":"2026-10-22","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":42,"t":"Paketmanager auf Bun umstellen","s":"Backlog","st":"OPEN","u":"2026-10-16","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-p","n":1,"t":"Example task 1","s":"In Progress","st":"OPEN","u":"2026-10-20","l":[["type:feature","1D76DB"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":315,"t":"Example task 315","s":"In Progress","st":"OPEN","u":"2026-10-21","l":[["area: frontend","7dd87d"],["area: onboarding","7dd87d"],["design: impeccable","5319e7"],["epic","3e4b9e"]],"p":null,"pt":null,"sub":[8,8]},{"k":"is","r":"project-q","n":164,"t":"Example task 164","s":"Done","st":"CLOSED","u":"2026-10-22","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-a","n":316,"t":"Example task 316","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["area: frontend","7dd87d"],["prio: high","f97316"],["type: feature","a2eeef"],["area: onboarding","7dd87d"],["design: impeccable","5319e7"]],"p":315,"pt":"Onboarding Issues","sub":null},{"k":"is","r":"project-a","n":317,"t":"Example task 317","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["area: frontend","7dd87d"],["prio: high","f97316"],["type: feature","a2eeef"],["area: onboarding","7dd87d"],["design: impeccable","5319e7"]],"p":315,"pt":"Onboarding Issues","sub":null},{"k":"is","r":"project-a","n":319,"t":"Example task 319","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["area: frontend","7dd87d"],["prio: high","f97316"],["type: feature","a2eeef"],["design: impeccable","5319e7"]],"p":315,"pt":"Onboarding Issues","sub":null},{"k":"is","r":"project-a","n":320,"t":"Example task 320","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["area: frontend","7dd87d"],["prio: high","f97316"],["type: feature","a2eeef"],["area: companion","c5def5"],["design: impeccable","5319e7"]],"p":315,"pt":"Onboarding Issues","sub":null},{"k":"is","r":"project-a","n":321,"t":"Example task 321","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["area: frontend","7dd87d"],["prio: high","f97316"],["type: feature","a2eeef"],["area: companion","c5def5"],["design: impeccable","5319e7"]],"p":315,"pt":"Onboarding Issues","sub":null},{"k":"is","r":"project-a","n":322,"t":"Example task 322","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["area: frontend","7dd87d"],["prio: low","94a3b8"],["type: feature","a2eeef"],["area: companion","c5def5"]],"p":315,"pt":"Onboarding Issues","sub":null},{"k":"is","r":"project-a","n":323,"t":"Example task 323","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["area: frontend","7dd87d"],["prio: low","94a3b8"],["type: feature","a2eeef"],["design: impeccable","5319e7"]],"p":315,"pt":"Onboarding Issues","sub":null},{"k":"is","r":"project-q","n":165,"t":"Example task 165","s":"Done","st":"CLOSED","u":"2026-10-21","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-r","n":1,"t":"Example task 1","s":"Todo","st":"OPEN","u":"2026-10-21","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-q","n":166,"t":"Example task 166","s":"Done","st":"CLOSED","u":"2026-10-21","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-q","n":169,"t":"Example task 169","s":"Done","st":"CLOSED","u":"2026-10-21","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-q","n":171,"t":"Example task 171","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["mw:go","aaaaaa"],["mw:dynamic","aaaaaa"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-s","n":1,"t":"Example task 1","s":"Todo","st":"OPEN","u":"2026-10-22","l":[["enhancement","a2eeef"],["mw:go","aaaaaa"],["mw:dynamic","aaaaaa"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":454,"t":"Example task 454","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["bug","d73a4a"],["frontend","43c5b0"],["prio:medium","fbca04"],["mail","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":455,"t":"Example task 455","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["enhancement","a2eeef"],["frontend","43c5b0"],["ui","f9d0c4"],["prio:medium","fbca04"],["mail","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":456,"t":"Example task 456","s":"Backlog","st":"OPEN","u":"2026-10-22","l":[["question","d876e3"],["backend","0e8a16"],["prio:high","e11d21"],["mail","1d76db"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":457,"t":"Example task 457","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["enhancement","a2eeef"],["frontend","43c5b0"],["ui","f9d0c4"],["prio:low","c2e0c6"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":458,"t":"Example task 458","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["enhancement","a2eeef"],["frontend","43c5b0"],["ui","f9d0c4"],["prio:medium","fbca04"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":459,"t":"Example task 459","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["enhancement","a2eeef"],["frontend","43c5b0"],["ui","f9d0c4"],["prio:high","e11d21"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-n","n":2,"t":"Example task 2","s":"Backlog","st":"OPEN","u":"2026-10-22","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-n","n":3,"t":"Example task 3","s":"Backlog","st":"OPEN","u":"2026-10-22","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-n","n":4,"t":"Example task 4","s":"Backlog","st":"OPEN","u":"2026-10-22","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-n","n":5,"t":"Example task 5","s":"Backlog","st":"OPEN","u":"2026-10-22","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-n","n":6,"t":"Example task 6","s":"Backlog","st":"OPEN","u":"2026-10-22","l":[],"p":null,"pt":null,"sub":null},{"k":"is","r":"project-g","n":461,"t":"Example task 461","s":"Backlog","st":"OPEN","u":"2026-10-22","l":[["enhancement","a2eeef"],["backend","0e8a16"],["prio:low","c2e0c6"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":44,"t":"Agent Task Board","s":"In Progress","st":"OPEN","u":"2026-10-23","l":[["mw:go","aaaaaa"],["mw:dynamic","aaaaaa"],["need-input","d93f0b"]],"p":59,"pt":"Epic: Board","sub":null},{"k":"is","r":"project-g","n":464,"t":"Example task 464","s":"Done","st":"CLOSED","u":"2026-10-22","l":[["bug","d73a4a"],["frontend","43c5b0"],["ui","f9d0c4"],["prio:low","c2e0c6"]],"p":null,"pt":null,"sub":null},{"k":"is","r":"DevHub","n":57,"t":"Mesh-Net","s":"In Progress","st":"OPEN","u":"2026-10-23","l":[["mw:go","aaaaaa"],["mw:dynamic","aaaaaa"]],"p":60,"pt":"Epic: Agents und Mesh","sub":null}];
+;
+const STATUSES = ['Backlog', 'Todo', 'In Progress', 'to Review', 'to Deploy', 'Done'];
+// One hue per column, carried by header bar and every lane cell so columns read at a glance
+const COL_TINT = { Backlog:'#94a8d6', Todo:'#7dd3fc', 'In Progress':'#fde047', 'to Review':'#c4b5fd', 'to Deploy':'#fdba74', Done:'#6ee7b7' };
+const DONE_DAYS = 14, TODAY = new Date('2026-10-23');
+
+// Agent <-> issue links as they would be derived: mw-board comment (session id), PR links in state.json, "Closes #n"
+const AGENTS = [
+  { id:'6259550d', name:'MACC DevHub#44 Agent Task Board', state:'needs-input', issues:[['DevHub',44]], prs:[], via:'mw-board-Kommentar' },
+  { id:'c0fdf0a2', name:'MACC DevHub#57 Mesh-Net', state:'working', issues:[['DevHub',57]], prs:[], via:'mw-board-Kommentar' },
+  { id:'2320cf14', name:'agents-view-ui-redesign', state:'done', issues:[['DevHub',40]], prs:[['DevHub',43,'success']], via:'Closes #40 in PR #43' },
+  { id:'4431847c', name:'mail-view-parity', state:'done', issues:[['project-g',454],['project-g',455],['project-g',457]], prs:[['project-g',462,'success'],['project-g',468,'success']], via:'PR-Links in state.json' },
+  { id:'f7bd9a96', name:'feature-complete', state:'done', issues:[['project-a',315],['project-a',316],['project-a',317],['project-a',318],['project-a',319]], prs:[['project-a',330,'success']], via:'PR-Links in state.json' },
+  { id:'4672e2b7', name:'implement-advisor', state:'needs-input', issues:[['project-h',5],['project-h',6]], prs:[['project-h',27,'failure']], via:'PR-Links in state.json' },
+  { id:'7a76af3d', name:'accounting-view', state:'working', issues:[['project-g',459]], prs:[['project-g',448,'pending']], via:'PR-Links in state.json' },
+];
+const AGENT_STATE = {
+  'working':     { dot:'bg-emerald-400 motion-safe:animate-pulse', label:'arbeitet' },
+  'needs-input': { dot:'bg-yellow-400', label:'wartet auf Input' },
+  'done':        { dot:'bg-gray-500', label:'fertig' },
+};
+const SLICES = [
+  { key:'repo', label:'Repo' }, { key:'label', label:'Label' }, { key:'milestone', label:'Milestone' }, { key:'assignee', label:'Assignee' },
+];
+
+const keyOf = (r, n) => `${r}#${n}`;
+const agentsFor = (it) => AGENTS.filter(a => a.issues.some(([r, n]) => r === it.r && n === it.n));
+const prsFor = (it) => agentsFor(it).flatMap(a => a.prs).filter(([r]) => r === it.r);
+
+const state = { sliceMode:'repo', slice:'DevHub', agent:null, lane:'parent', q:'', open:null, collapsed:new Set(), doneOpen:false, allSlices:false, showHidden:false };
+
+const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;' }[c]));
+// Label chip in GitHub's own colour, text picked for contrast
+function labelChip([name, color]) {
+  const c = color || '8b949e', r = parseInt(c.slice(0,2),16), g = parseInt(c.slice(2,4),16), b = parseInt(c.slice(4,6),16);
+  const light = (0.299*r + 0.587*g + 0.114*b) > 150;
+  return `<span class="inline-flex items-center px-1.5 rounded-full text-[10.5px] leading-[18px] font-medium border" style="background:#${c}33;border-color:#${c}88;color:${light ? '#'+c : '#eaeff9'}">${esc(name)}</span>`;
+}
+
+function visibleItems() {
+  let items = ITEMS;
+  if (state.sliceMode === 'repo' && state.slice) items = items.filter(i => i.r === state.slice);
+  if (!state.slice || state.sliceMode !== 'repo') items = items.filter(i => !prefs.hidden.includes(i.r));
+  if (state.sliceMode === 'label' && state.slice) items = items.filter(i => i.l.some(l => l[0] === state.slice));
+  if (state.agent) { const a = AGENTS.find(x => x.id === state.agent); items = items.filter(i => a.issues.some(([r, n]) => r === i.r && n === i.n)); }
+  const q = state.q.trim().toLowerCase();
+  if (q) items = items.filter(i => q.startsWith('label:') ? i.l.some(l => l[0].toLowerCase().includes(q.slice(6))) : (`#${i.n} ${i.t}`).toLowerCase().includes(q));
+  return items;
+}
+
+function renderSliceModes() {
+  const g = document.querySelector('[aria-label="Slice nach"]');
+  g.innerHTML = SLICES.map(s => `<button data-mode="${s.key}" aria-pressed="${state.sliceMode === s.key}" class="flex-1 px-2 py-0.5 rounded ${state.sliceMode === s.key ? 'bg-sel text-white' : 'text-gray-300 hover:text-white'}">${s.label}</button>`).join('');
+  g.querySelectorAll('button').forEach(b => b.onclick = () => {
+    state.sliceMode = b.dataset.mode; state.slice = b.dataset.mode === 'repo' ? 'DevHub' : null; render();
+    if (!['repo','label'].includes(b.dataset.mode)) toast('Mockup: Milestone/Assignee sind auf MACC kaum gepflegt, Liste bleibt hier leer');
+  });
+}
+
+// Per-user project prefs (favourites, hidden, manual order); the real app persists these server-side like favourites today
+const PREFS_KEY = 'devOrbitBoardProjects';
+const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || null; } catch { return null; } })()
+  || { pinned: ['DevHub', 'project-g'], hidden: ['project-p', 'project-d', 'project-m'], order: [] };
+const savePrefs = () => { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch { /* memory only */ } };
+const toggleIn = (arr, k) => { const i = arr.indexOf(k); i < 0 ? arr.push(k) : arr.splice(i, 1); };
+
+function renderSlices() {
+  const counts = new Map();
+  const add = (k) => counts.set(k, (counts.get(k) || 0) + 1);
+  if (state.sliceMode === 'repo') ITEMS.forEach(i => add(i.r));
+  if (state.sliceMode === 'label') ITEMS.forEach(i => i.l.forEach(l => add(l[0])));
+  const active = (k) => ITEMS.filter(i => i.r === k && ['In Progress','to Review','to Deploy'].includes(i.s)).length;
+  const byDefault = (a, b) => (state.sliceMode === 'repo' ? active(b[0]) - active(a[0]) : 0) || b[1] - a[1];
+  // Manual order wins; projects never dragged keep the default ranking below the ordered ones
+  const pos = (k) => { const i = prefs.order.indexOf(k); return i < 0 ? Infinity : i; };
+  const rows = [...counts].sort((a, b) => (state.sliceMode === 'repo' ? (pos(a[0]) - pos(b[0]) || 0) : 0) || byDefault(a, b));
+  document.getElementById('sliceTitle').textContent = state.sliceMode === 'repo' ? 'Projekte' : SLICES.find(s => s.key === state.sliceMode).label + 's';
+  const repoMode = state.sliceMode === 'repo';
+  const fav = repoMode ? rows.filter(([k]) => prefs.pinned.includes(k)) : [];
+  const hidden = repoMode ? rows.filter(([k]) => prefs.hidden.includes(k) && !prefs.pinned.includes(k)) : [];
+  const rest = rows.filter(r => !fav.includes(r) && !hidden.includes(r));
+  document.getElementById('sliceMeta').textContent = `${rows.length - hidden.length}`;
+
+  const row = ([key, n], kind) => {
+    const on = state.slice === key, pinned = prefs.pinned.includes(key);
+    const act = repoMode && active(key) ? `<span class="text-[10.5px] text-emerald-300 tabular-nums" title="aktiv (In Progress bis to Deploy)">${active(key)} aktiv</span>` : '';
+    return `<li data-row="${esc(key)}" ${repoMode && kind !== 'hidden' ? 'draggable="true"' : ''} class="slice-row group relative flex items-center gap-1 pl-1 pr-2 ${on ? 'bg-sel text-white' : 'text-gray-300 hover:bg-gray-800'} ${kind === 'hidden' ? 'opacity-70' : ''}">
+      ${repoMode && kind !== 'hidden' ? `<span class="p-0.5 text-gray-500 opacity-0 group-hover:opacity-100 cursor-grab" title="Ziehen zum Umsortieren" aria-hidden="true"><i data-lucide="grip-vertical" class="w-3 h-3"></i></span>` : '<span class="w-4"></span>'}
+      <button data-slice="${esc(key)}" aria-pressed="${on}" class="flex-1 min-w-0 flex items-center gap-2 py-1 text-left ${on ? '' : 'hover:text-white'}">
+        <span class="flex-1 min-w-0 truncate">${esc(key)}</span>${act}
+        <span class="text-[11px] tabular-nums ${on ? 'text-gray-100' : 'text-gray-400'} group-hover:hidden group-focus-within:hidden">${n}</span>
+      </button>
+      ${repoMode ? `<span class="hidden group-hover:flex group-focus-within:flex items-center">
+        ${kind === 'hidden'
+          ? `<button data-unhide="${esc(key)}" class="p-1 rounded text-gray-300 hover:text-white hover:bg-gray-700" title="Wieder einblenden" aria-label="${esc(key)} einblenden"><i data-lucide="eye" class="w-3 h-3"></i></button>`
+          : `<button data-pin="${esc(key)}" class="p-1 rounded ${pinned ? 'text-yellow-300' : 'text-gray-300'} hover:text-white hover:bg-gray-700" title="${pinned ? 'Favorit entfernen' : 'Als Favorit anpinnen'}" aria-label="${esc(key)} ${pinned ? 'lösen' : 'anpinnen'}" aria-pressed="${pinned}"><i data-lucide="star" class="w-3 h-3"></i></button>
+             <button data-hide="${esc(key)}" class="p-1 rounded text-gray-300 hover:text-white hover:bg-gray-700" title="Ausblenden" aria-label="${esc(key)} ausblenden"><i data-lucide="eye-off" class="w-3 h-3"></i></button>`}
+      </span>` : ''}
+      ${pinned && kind === 'fav' ? `<i data-lucide="star" class="w-3 h-3 text-yellow-300 fill-yellow-300 shrink-0 group-hover:hidden group-focus-within:hidden"></i>` : ''}
+    </li>`;
+  };
+  const head = (t) => `<li class="px-3 pt-2 pb-0.5 text-[10.5px] font-semibold uppercase tracking-wide text-gray-400">${t}</li>`;
+  const allOn = !state.slice;
+  const restShown = state.allSlices ? rest : rest.slice(0, 8);
+  document.getElementById('sliceList').innerHTML =
+    `<li><button data-slice="" aria-pressed="${allOn}" class="w-full flex items-center gap-2 pl-5 pr-2 py-1 text-left ${allOn ? 'bg-sel text-white' : 'text-gray-300 hover:bg-gray-800 hover:text-white'}"><span class="flex-1">Alle</span><span class="text-[11px] tabular-nums text-gray-400">${ITEMS.filter(i => !prefs.hidden.includes(i.r)).length}</span></button></li>` +
+    (fav.length ? head('Favoriten') + fav.map(r => row(r, 'fav')).join('') : '') +
+    (repoMode ? head('Projekte') : '') + restShown.map(r => row(r, 'rest')).join('') +
+    (rest.length > 8 ? `<li><button id="moreSlices" class="w-full pl-5 pr-2 py-1 text-left text-xs text-gray-400 hover:text-white">${state.allSlices ? 'Weniger anzeigen' : `+ ${rest.length - 8} weitere`}</button></li>` : '') +
+    (hidden.length ? `<li><button id="hiddenToggle" aria-expanded="${state.showHidden}" class="w-full flex items-center gap-1.5 px-3 pt-2 pb-1 text-left text-[10.5px] font-semibold uppercase tracking-wide text-gray-400 hover:text-white"><i data-lucide="${state.showHidden ? 'chevron-down' : 'chevron-right'}" class="w-3 h-3"></i>Ausgeblendet <span class="font-normal tabular-nums">${hidden.length}</span></button></li>` + (state.showHidden ? hidden.map(r => row(r, 'hidden')).join('') : '') : '');
+
+  const list = document.getElementById('sliceList');
+  list.querySelectorAll('[data-slice]').forEach(b => b.onclick = () => { state.slice = b.dataset.slice || null; render(); });
+  list.querySelectorAll('[data-pin]').forEach(b => b.onclick = () => { toggleIn(prefs.pinned, b.dataset.pin); savePrefs(); renderSlices(); lucide.createIcons(); });
+  list.querySelectorAll('[data-hide]').forEach(b => b.onclick = () => {
+    const k = b.dataset.hide; toggleIn(prefs.hidden, k); prefs.pinned = prefs.pinned.filter(x => x !== k); savePrefs();
+    if (state.slice === k) state.slice = null;
+    render(); toast(`${k} ausgeblendet`, () => { toggleIn(prefs.hidden, k); savePrefs(); render(); });
+  });
+  list.querySelectorAll('[data-unhide]').forEach(b => b.onclick = () => { toggleIn(prefs.hidden, b.dataset.unhide); savePrefs(); render(); });
+  document.getElementById('moreSlices')?.addEventListener('click', () => { state.allSlices = !state.allSlices; renderSlices(); lucide.createIcons(); });
+  document.getElementById('hiddenToggle')?.addEventListener('click', () => { state.showHidden = !state.showHidden; renderSlices(); lucide.createIcons(); });
+
+  // Drag to reorder; dropping on a favourite pins, dropping on a normal row unpins
+  list.querySelectorAll('[data-row][draggable]').forEach(el => {
+    el.ondragstart = (e) => { e.dataTransfer.setData('application/x-slice', el.dataset.row); el.classList.add('opacity-40'); };
+    el.ondragend = () => el.classList.remove('opacity-40');
+    el.ondragover = (e) => { if (!e.dataTransfer.types.includes('application/x-slice')) return; e.preventDefault(); el.classList.add('shadow-[inset_0_2px_0_#8fd0ff]'); };
+    el.ondragleave = () => el.classList.remove('shadow-[inset_0_2px_0_#8fd0ff]');
+    el.ondrop = (e) => {
+      e.preventDefault(); el.classList.remove('shadow-[inset_0_2px_0_#8fd0ff]');
+      const from = e.dataTransfer.getData('application/x-slice'), to = el.dataset.row;
+      if (!from || from === to) return;
+      const order = rows.map(r => r[0]).filter(k => k !== from);
+      order.splice(order.indexOf(to), 0, from);
+      prefs.order = order;
+      const toFav = prefs.pinned.includes(to);
+      if (toFav !== prefs.pinned.includes(from)) toggleIn(prefs.pinned, from);
+      savePrefs(); renderSlices(); lucide.createIcons();
+    };
+  });
+}
+
+function renderAgents() {
+  const scoped = AGENTS.filter(a => !state.slice || state.sliceMode !== 'repo' || a.issues.some(([r]) => r === state.slice));
+  document.getElementById('agentMeta').textContent = `${scoped.filter(a => a.state !== 'done').length} aktiv`;
+  document.getElementById('agentList').innerHTML = scoped.map(a => {
+    const st = AGENT_STATE[a.state], on = state.agent === a.id;
+    const chips = a.issues.slice(0, 3).map(([r, n]) => `<span data-jump="${r}#${n}" class="font-mono text-[10.5px] px-1 rounded bg-gray-950/60 border border-gray-700 text-gray-200 hover:border-cursor hover:text-white">${r === state.slice ? '' : r}#${n}</span>`).join('') + (a.issues.length > 3 ? `<span class="text-[10.5px] text-gray-400">+${a.issues.length - 3}</span>` : '');
+    return `<li><div role="button" tabindex="0" data-agent="${a.id}" aria-pressed="${on}" class="px-3 py-1.5 cursor-pointer ${on ? 'bg-sel' : 'hover:bg-gray-800'}">
+      <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full shrink-0 ${st.dot}" title="${st.label}"></span>
+        <span class="flex-1 min-w-0 truncate ${on ? 'text-white' : 'text-gray-200'}">${esc(a.name)}</span>
+        <span class="font-mono text-[10.5px] text-gray-400">${a.id}</span></div>
+      <div class="flex flex-wrap items-center gap-1 mt-1 pl-4">${chips}</div></div></li>`;
+  }).join('') || `<li class="px-3 py-2 text-xs text-gray-400">Kein Agent an diesem Projekt.</li>`;
+  document.querySelectorAll('[data-agent]').forEach(el => {
+    const go = (e) => {
+      const j = e.target.closest('[data-jump]');
+      if (j) { e.stopPropagation(); const [r, n] = j.dataset.jump.split('#'); openIssue(r, +n); return; }
+      state.agent = state.agent === el.dataset.agent ? null : el.dataset.agent; render();
+    };
+    el.onclick = go; el.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(e); } };
+  });
+}
+
+function renderChips() {
+  const chips = [];
+  if (state.agent) { const a = AGENTS.find(x => x.id === state.agent); chips.push(['agent', `Agent: ${a.name}`]); }
+  if (state.q) chips.push(['q', `„${state.q}“`]);
+  document.getElementById('filterChips').innerHTML = chips.map(([k, t]) => `<button data-clear="${k}" class="flex items-center gap-1 px-2 py-0.5 rounded-full bg-sel text-white text-xs hover:bg-gray-750" aria-label="Filter ${esc(t)} entfernen">${esc(t)}<i data-lucide="x" class="w-3 h-3"></i></button>`).join('');
+  document.querySelectorAll('[data-clear]').forEach(b => b.onclick = () => { if (b.dataset.clear === 'agent') state.agent = null; else { state.q = ''; document.getElementById('q').value = ''; } render(); });
+}
+
+function card(it) {
+  const ags = agentsFor(it), prs = prsFor(it);
+  const ci = { success:['check-circle-2','text-emerald-400','CI grün'], failure:['x-circle','text-red-300','CI rot'], pending:['circle-dashed','text-yellow-400','CI läuft'] };
+  return `<article draggable="true" data-key="${keyOf(it.r, it.n)}" tabindex="0" class="card group rounded-md border border-gray-700 bg-gray-850 hover:border-gray-600 hover:bg-gray-800 px-2.5 py-2 shadow-[0_1px_2px_rgba(0,0,0,.25)] ${state.open === keyOf(it.r, it.n) ? 'ring-1 ring-cursor' : ''}">
+    <div class="flex items-center gap-1.5 text-[11px] text-gray-400">
+      <i data-lucide="${it.k === 'pr' ? 'git-pull-request' : it.st === 'CLOSED' ? 'circle-check' : 'circle-dot'}" class="w-3 h-3 ${it.st === 'CLOSED' ? 'text-violet-300' : 'text-emerald-300'}"></i>
+      <span class="font-mono">${state.slice === it.r && state.sliceMode === 'repo' ? '' : esc(it.r)}#${it.n}</span>
+      ${it.sub ? `<span class="ml-auto flex items-center gap-1 tabular-nums" title="Sub-Issues erledigt"><i data-lucide="list-checks" class="w-3 h-3"></i>${it.sub[0]}/${it.sub[1]}</span>` : ''}
+    </div>
+    <h3 class="mt-1 text-[13px] leading-snug text-gray-100 line-clamp-2">${esc(it.t)}</h3>
+    ${it.l.length ? `<div class="mt-1.5 flex flex-wrap gap-1">${it.l.slice(0, 3).map(labelChip).join('')}</div>` : ''}
+    ${ags.length || prs.length ? `<div class="mt-2 pt-1.5 border-t border-gray-700/70 flex flex-wrap items-center gap-1.5">
+      ${ags.map(a => `<button data-agent-chip="${a.id}" class="flex items-center gap-1 text-[11px] px-1.5 py-px rounded bg-gray-950/50 border border-gray-700 text-gray-200 hover:border-cursor hover:text-white" title="${esc(a.name)} · ${AGENT_STATE[a.state].label}"><span class="w-1.5 h-1.5 rounded-full ${AGENT_STATE[a.state].dot}"></span><i data-lucide="bot" class="w-3 h-3"></i><span class="font-mono">${a.id}</span></button>`).join('')}
+      ${prs.map(([r, n, c]) => `<span class="flex items-center gap-1 text-[11px] text-gray-300" title="${ci[c][2]}"><i data-lucide="git-pull-request" class="w-3 h-3"></i>#${n}<i data-lucide="${ci[c][0]}" class="w-3 h-3 ${ci[c][1]}"></i></span>`).join('')}
+    </div>` : ''}
+  </article>`;
+}
+
+function laneKey(it) {
+  if (state.lane === 'parent') return it.p ? [`p:${it.r}#${it.p}`, `${it.r}#${it.p} ${it.pt}`] : ['p:none', 'Ohne Parent issue'];
+  if (state.lane === 'repo') return [`r:${it.r}`, it.r];
+  return ['all', ''];
+}
+
+function renderBoard() {
+  const items = visibleItems();
+  document.getElementById('boardTitle').textContent = state.sliceMode === 'repo' && state.slice ? state.slice : state.slice || 'Alle Projekte';
+  document.getElementById('boardCount').textContent = `${items.length} Items`;
+  const lanes = new Map();
+  items.forEach(it => { const [k, t] = laneKey(it); if (!lanes.has(k)) lanes.set(k, { t, items: [] }); lanes.get(k).items.push(it); });
+  // Lanes with parents first, "no parent" last, like GitHub's board view
+  const order = [...lanes].sort((a, b) => (a[0] === 'p:none') - (b[0] === 'p:none') || b[1].items.length - a[1].items.length);
+  const recentDone = (it) => (TODAY - new Date(it.u)) / 864e5 <= DONE_DAYS;
+  const cols = STATUSES.map(s => ({ s, n: items.filter(i => i.s === s && (s !== 'Done' || recentDone(i))).length }));
+  const grid = `grid-template-columns: repeat(5, minmax(208px, 1fr)) ${state.doneOpen ? 'minmax(208px, 1fr)' : '44px'};`;
+
+  let html = `<div style="min-width: ${state.doneOpen ? 1420 : 1200}px">
+    <div class="sticky top-0 z-10 grid gap-2 px-[25px] pt-3 pb-2 bg-gray-900/95 backdrop-blur-sm border-b border-gray-700" style="${grid}">
+      ${cols.map(c => c.s === 'Done' && !state.doneOpen
+        ? `<button id="doneToggle" class="flex items-center justify-center rounded text-gray-400 hover:text-white hover:bg-gray-800" title="Done (letzte ${DONE_DAYS} Tage, ${c.n}) einblenden" aria-expanded="false"><i data-lucide="chevrons-left" class="w-4 h-4"></i></button>`
+        : `<div class="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-semibold text-gray-100" style="background:${COL_TINT[c.s]}24; box-shadow: inset 0 -2px 0 ${COL_TINT[c.s]}">
+            <span class="w-2 h-2 rounded-full ${{ Backlog:'bg-gray-500', Todo:'bg-sky-300', 'In Progress':'bg-yellow-300', 'to Review':'bg-violet-300', 'to Deploy':'bg-orange-300', Done:'bg-emerald-300' }[c.s]}"></span>${c.s}
+            <span class="font-normal text-gray-400 tabular-nums">${c.n}</span>
+            ${c.s === 'Done' ? `<span class="font-normal text-[11px] text-gray-400">· ${DONE_DAYS} Tage</span><button id="doneToggle" class="ml-auto p-0.5 rounded text-gray-400 hover:text-white hover:bg-gray-800" aria-expanded="true" title="Done einklappen"><i data-lucide="chevrons-right" class="w-3.5 h-3.5"></i></button>` : ''}
+          </div>`).join('')}
+    </div>`;
+
+  if (!items.length) html += `<div class="px-4 py-16 text-center text-gray-400">Keine Items in dieser Auswahl. <button id="resetAll" class="text-cursor hover:underline underline-offset-2">Filter zurücksetzen</button></div>`;
+
+  for (const [k, lane] of order) {
+    const collapsed = state.collapsed.has(k);
+    const isParent = k.startsWith('p:') && k !== 'p:none';
+    const done = lane.items.filter(i => i.s === 'Done').length;
+    // Each lane is its own band: tinted surface, header bar, gap to the next lane
+    if (state.lane !== 'none') html += `<section class="mx-3 mt-3 rounded-lg border border-gray-700 ${k === 'p:none' ? 'bg-gray-900' : 'bg-gray-950/45'} shadow-[0_2px_6px_-2px_rgba(0,0,0,.35)]">
+      <button data-lane="${esc(k)}" aria-expanded="${!collapsed}" class="flex items-center gap-2 w-full px-3 py-2 text-[13px] font-semibold text-gray-100 hover:text-white ${collapsed ? '' : 'border-b border-gray-700/70'}">
+        <i data-lucide="${collapsed ? 'chevron-right' : 'chevron-down'}" class="w-3.5 h-3.5 text-gray-400"></i>
+        ${isParent ? `<i data-lucide="git-merge" class="w-3.5 h-3.5 text-cursor"></i><span class="font-mono text-xs text-gray-400">${esc(lane.t.split(' ')[0])}</span><span class="truncate">${esc(lane.t.split(' ').slice(1).join(' '))}</span>` : `<span class="text-gray-300">${esc(lane.t)}</span>`}
+        <span class="ml-1 px-1.5 rounded-full bg-gray-800 text-[11px] font-normal text-gray-300 tabular-nums">${lane.items.length}</span>
+        ${isParent ? `<span class="flex items-center gap-1.5 text-[11px] font-normal text-gray-400 tabular-nums"><span class="w-16 h-1 rounded-full bg-gray-800 overflow-hidden"><span class="block h-full bg-emerald-400" style="width:${Math.round(done / lane.items.length * 100)}%"></span></span>${done}/${lane.items.length} erledigt</span>` : ''}
+      </button>`;
+    if (collapsed) { if (state.lane !== 'none') html += `</section>`; continue; }
+    html += `<div class="grid gap-2 px-3 py-2.5" style="${grid}">`;
+    for (const s of STATUSES) {
+      if (s === 'Done' && !state.doneOpen) { html += `<div data-drop="${esc(k)}|Done" class="lane-cell rounded border border-dashed border-gray-700/60" title="Auf Done ziehen"></div>`; continue; }
+      const cell = lane.items.filter(i => i.s === s && (s !== 'Done' || recentDone(i)));
+      const MAX = 6, shown = cell.slice(0, MAX);
+      html += `<div data-drop="${esc(k)}|${s}" class="lane-cell rounded-md p-1.5 space-y-2" style="background:${COL_TINT[s]}14; box-shadow: inset 0 0 0 1px ${COL_TINT[s]}26">${shown.map(card).join('')}${cell.length > MAX ? `<button class="w-full text-[11px] text-gray-400 hover:text-white py-1">+ ${cell.length - MAX} weitere</button>` : ''}</div>`;
+    }
+    html += `</div>`;
+    if (state.lane !== 'none') html += `</section>`;
+  }
+  html += `<div class="h-6"></div></div>`;
+  const board = document.getElementById('board');
+  board.innerHTML = html;
+
+  board.querySelectorAll('[data-lane]').forEach(b => b.onclick = () => { state.collapsed.has(b.dataset.lane) ? state.collapsed.delete(b.dataset.lane) : state.collapsed.add(b.dataset.lane); renderBoard(); });
+  board.querySelectorAll('#doneToggle').forEach(b => b.onclick = () => { state.doneOpen = !state.doneOpen; renderBoard(); });
+  board.querySelector('#resetAll')?.addEventListener('click', () => { state.agent = null; state.q = ''; state.slice = null; render(); });
+  board.querySelectorAll('.card').forEach(el => {
+    const [r, n] = el.dataset.key.split('#');
+    el.onclick = (e) => {
+      const chip = e.target.closest('[data-agent-chip]');
+      if (chip) { e.stopPropagation(); state.agent = chip.dataset.agentChip; render(); return; }
+      openIssue(r, +n);
+    };
+    el.onkeydown = (e) => { if (e.key === 'Enter') openIssue(r, +n); };
+    el.ondragstart = (e) => { e.dataTransfer.setData('text/plain', el.dataset.key); el.classList.add('dragging'); };
+    el.ondragend = () => el.classList.remove('dragging');
+  });
+  board.querySelectorAll('[data-drop]').forEach(cell => {
+    cell.ondragover = (e) => { e.preventDefault(); cell.classList.add('drop-target'); };
+    cell.ondragleave = () => cell.classList.remove('drop-target');
+    cell.ondrop = (e) => {
+      e.preventDefault(); cell.classList.remove('drop-target');
+      const key = e.dataTransfer.getData('text/plain'), to = cell.dataset.drop.split('|')[1];
+      const it = ITEMS.find(i => keyOf(i.r, i.n) === key);
+      if (!it || it.s === to) return;
+      const from = it.s; it.s = to; if (to === 'Done') it.u = '2026-10-23';
+      renderBoard();
+      document.querySelector(`[data-key="${CSS.escape(key)}"]`)?.classList.add('flash');
+      toast(`${key}: ${from} → ${to} · auf GitHub gesetzt`, () => { it.s = from; renderBoard(); });
+    };
+  });
+  lucide.createIcons();
+}
+
+function openIssue(r, n) {
+  const it = ITEMS.find(i => i.r === r && i.n === n);
+  if (!it) { toast(`${r}#${n} ist nicht auf dem Board`); return; }
+  if (state.sliceMode === 'repo' && state.slice && state.slice !== r) { state.slice = r; render(); }
+  state.open = keyOf(r, n);
+  const ags = agentsFor(it), prs = prsFor(it);
+  const subs = ITEMS.filter(i => i.r === r && i.p === n);
+  const d = document.getElementById('drawer');
+  d.innerHTML = `
+    <div class="flex items-center gap-2 px-4 h-12 border-b border-gray-700 shrink-0">
+      <i data-lucide="${it.k === 'pr' ? 'git-pull-request' : 'circle-dot'}" class="w-4 h-4 text-emerald-300"></i>
+      <span class="font-mono text-xs text-gray-400">${esc(r)}#${n}</span>
+      <div class="flex-1"></div>
+      <a href="https://github.com/hpmartini/${encodeURIComponent(r)}/issues/${n}" target="_blank" rel="noopener" class="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800"><i data-lucide="external-link" class="w-3.5 h-3.5"></i>GitHub</a>
+      <button id="closeDrawer" class="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800" aria-label="Schließen (Esc)"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+    <div class="flex-1 overflow-y-auto thin-scrollbar px-4 py-4 space-y-5">
+      <h2 class="text-base font-semibold text-white leading-snug text-balance">${esc(it.t)}</h2>
+      <dl class="grid grid-cols-[96px_1fr] gap-y-2 text-xs items-center">
+        <dt class="text-gray-400">Status</dt>
+        <dd><select id="statusSel" class="bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-100">${STATUSES.map(s => `<option ${s === it.s ? 'selected' : ''}>${s}</option>`).join('')}</select></dd>
+        <dt class="text-gray-400">Projekt</dt><dd class="text-gray-200">${esc(r)}</dd>
+        <dt class="text-gray-400">Labels</dt><dd class="flex flex-wrap gap-1">${it.l.map(labelChip).join('') || '<span class="text-gray-400">keine</span>'}</dd>
+        <dt class="text-gray-400">Parent</dt><dd class="text-gray-200">${it.p ? `<span class="font-mono text-gray-400">#${it.p}</span> ${esc(it.pt)}` : '<span class="text-gray-400">keiner</span>'}</dd>
+        <dt class="text-gray-400">Aktualisiert</dt><dd class="text-gray-200 tabular-nums">${it.u}</dd>
+      </dl>
+
+      <section>
+        <h3 class="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5"><i data-lucide="bot" class="w-3.5 h-3.5"></i>Agents an diesem Issue <span class="font-normal text-gray-400">${ags.length}</span></h3>
+        ${ags.length ? `<ul class="space-y-1.5">${ags.map(a => `<li class="rounded-md border border-gray-700 bg-gray-850 px-3 py-2">
+            <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full ${AGENT_STATE[a.state].dot}"></span><span class="flex-1 min-w-0 truncate text-gray-100">${esc(a.name)}</span><span class="text-[11px] text-gray-400">${AGENT_STATE[a.state].label}</span></div>
+            <div class="mt-1 text-[11px] text-gray-400">verknüpft über ${esc(a.via)}</div>
+            <div class="mt-2 flex gap-1.5">
+              <button class="flex items-center gap-1 px-2 py-1 rounded bg-sel text-white text-xs hover:bg-gray-750" onclick="toast('Mockup: springt nach /agents, Session ${a.id} angehängt')"><i data-lucide="terminal" class="w-3.5 h-3.5"></i>Im Agents-Modus öffnen</button>
+              <button class="flex items-center gap-1 px-2 py-1 rounded text-gray-300 text-xs hover:text-white hover:bg-gray-800" onclick="state.agent='${a.id}';closeDrawer();render()"><i data-lucide="filter" class="w-3.5 h-3.5"></i>Seine Issues</button>
+            </div></li>`).join('')}</ul>`
+          : `<div class="rounded-md border border-dashed border-gray-700 px-3 py-3 text-xs text-gray-400 flex items-center gap-2">Kein Agent verknüpft.<button class="ml-auto flex items-center gap-1 px-2 py-1 rounded text-gray-200 hover:text-white hover:bg-gray-800" onclick="toast('Mockup: öffnet Dispatch mit ${esc(r)}#${n} vorbelegt')"><i data-lucide="play" class="w-3.5 h-3.5"></i>Agent starten</button></div>`}
+      </section>
+
+      <section>
+        <h3 class="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5"><i data-lucide="git-pull-request" class="w-3.5 h-3.5"></i>Pull Requests <span class="font-normal text-gray-400">${prs.length}</span></h3>
+        ${prs.length ? `<ul class="space-y-1 text-xs">${prs.map(([pr, pn, c]) => `<li class="flex items-center gap-2 text-gray-200"><span class="font-mono text-gray-400">#${pn}</span><span class="flex-1">${c === 'success' ? 'CI grün, mergebar' : c === 'failure' ? 'CI rot' : 'CI läuft'}</span><button class="text-cursor hover:underline underline-offset-2" onclick="toast('Mockup: öffnet Diff im Code-Modus')">Diff</button></li>`).join('')}</ul>` : `<p class="text-xs text-gray-400">Noch kein PR.</p>`}
+      </section>
+
+      ${subs.length ? `<section>
+        <h3 class="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5"><i data-lucide="list-checks" class="w-3.5 h-3.5"></i>Sub-Issues <span class="font-normal text-gray-400">${subs.filter(s => s.s === 'Done').length}/${subs.length}</span></h3>
+        <ul class="space-y-1 text-xs">${subs.map(s => `<li><button class="w-full flex items-center gap-2 text-left text-gray-200 hover:text-white" onclick="openIssue('${esc(s.r)}',${s.n})"><span class="font-mono text-gray-400">#${s.n}</span><span class="flex-1 truncate">${esc(s.t)}</span><span class="text-gray-400">${s.s}</span></button></li>`).join('')}</ul></section>` : ''}
+    </div>`;
+  d.classList.remove('translate-x-full'); d.setAttribute('aria-hidden', 'false');
+  d.querySelector('#closeDrawer').onclick = closeDrawer;
+  d.querySelector('#statusSel').onchange = (e) => { const from = it.s; it.s = e.target.value; renderBoard(); toast(`${r}#${n}: ${from} → ${it.s} · auf GitHub gesetzt`); };
+  renderBoard();
+  lucide.createIcons();
+  d.querySelector('#closeDrawer').focus();
+}
+function closeDrawer() { const d = document.getElementById('drawer'); d.classList.add('translate-x-full'); d.setAttribute('aria-hidden', 'true'); state.open = null; renderBoard(); }
+
+let toastTimer;
+function toast(msg, undo) {
+  const t = document.getElementById('toast');
+  t.innerHTML = esc(msg) + (undo ? ` <button class="ml-2 text-cursor hover:underline underline-offset-2 pointer-events-auto">Rückgängig</button>` : '');
+  t.style.opacity = 1; t.classList.toggle('pointer-events-none', !undo);
+  if (undo) t.querySelector('button').onclick = () => { undo(); t.style.opacity = 0; };
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => { t.style.opacity = 0; t.classList.add('pointer-events-none'); }, 4000);
+}
+
+function render() { renderSliceModes(); renderSlices(); renderAgents(); renderChips(); renderBoard(); }
+document.getElementById('laneMode').onchange = (e) => { state.lane = e.target.value; renderBoard(); };
+document.getElementById('q').oninput = (e) => { state.q = e.target.value; renderChips(); renderBoard(); lucide.createIcons(); };
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && state.open) closeDrawer(); });
+render();
+</script>
+</body>
+</html>

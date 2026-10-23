@@ -84,6 +84,13 @@ import { AgentWorkspace } from './AgentWorkspace';
 import { ResumePicker } from './ResumePicker';
 import { ShortcutsHelp } from './ShortcutsHelp';
 import { AgentSettingsPanel } from './AgentSettingsPanel';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { fetchBoard } from '../../services/boardApi';
+import { deriveAgentLinks, linksByAgent } from '../../utils/board';
+import type { BoardData } from '../../types';
+
+/** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
+const BOARD_REFRESH_MS = 60_000;
 
 interface AgentsViewProps {
   /** Whether the view is visible (drives SSE subscription and keyboard handling) */
@@ -457,6 +464,47 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       setSelectedKey(id);
     },
     [attachPane]
+  );
+
+  // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
+  const location = useLocation();
+  const navigate = useNavigate();
+  const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
+  useEffect(() => {
+    if (!attachParam || loading) return;
+    if (sessions.some((s) => s.id === attachParam)) attach(attachParam);
+    else showHint(`Agent ${attachParam} not found`, 'error');
+    navigate('/agents', { replace: true });
+  }, [attachParam, loading, sessions, attach, showHint, navigate]);
+
+  // Board "Agent starten": composer prefill via router state, which external links cannot set
+  const prefill = active
+    ? (location.state as { dispatch?: unknown; cwd?: unknown } | null)
+    : null;
+  useEffect(() => {
+    if (typeof prefill?.dispatch !== 'string') return;
+    setInput(prefill.dispatch);
+    if (typeof prefill.cwd === 'string' && prefill.cwd) setDispatchCwd(prefill.cwd);
+    setComposerOpen(true);
+    navigate('/agents', { replace: true, state: null });
+  }, [prefill, navigate]);
+
+  // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
+  const [board, setBoard] = useState<BoardData | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    // server caches the board ~60 s, so re-activating /agents is cheap
+    const load = () =>
+      fetchBoard()
+        .then(setBoard)
+        .catch(() => {});
+    load();
+    const interval = setInterval(load, BOARD_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [active]);
+  const issuesByAgent = useMemo(
+    () => (board ? linksByAgent(deriveAgentLinks(board.items, sessions)) : undefined),
+    [board, sessions]
   );
 
   const openCloud = useCallback(
@@ -1562,6 +1610,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               onMoveGroup={rail.moveGroup}
               appsById={appsById}
               nav={nav}
+              issuesByAgent={issuesByAgent}
+              onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
               bottom={
                 remoteEnabled ? (
                   <RemoteAgents
