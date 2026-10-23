@@ -3319,6 +3319,27 @@ app.patch(
   }
 );
 
+// Local checkout of an issue's repo, preset as target directory for "Agent starten"
+const boardRepoSlugSchema = z.string().regex(/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/);
+
+app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
+  const slug = boardRepoSlugSchema.safeParse(req.query.repo);
+  if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
+  try {
+    const sessions = await agentService.listSessions({ all: true }).catch(() => []);
+    const repos = await agentService.listRepos(process.env.HOME, sessions).catch(() => []);
+    const candidates = [
+      ...scanAllDirectories().map((a) => a.path),
+      ...(getConfig().directories || []),
+      ...repos.map((r) => r.path),
+      ...sessions.map((s) => s.cwd),
+    ];
+    res.json({ path: await boardService.findRepoPath(slug.data, candidates) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 app.get('/api/board/settings', (req, res) => {
   try {
     res.json(settingsService.getBoardSettings());

@@ -3,6 +3,7 @@
  * and writes an item's Status. Status comes from each item's field value, never from views.
  */
 import { execFile } from 'child_process';
+import { parseGithubSlug } from './agentContextService.js';
 
 const CACHE_TTL_MS = 60_000;
 const PAGE_SIZE = 100; // measured on MACC: cost 4 per page with comments(last:20)
@@ -233,4 +234,50 @@ export async function setItemStatus(source, itemId, optionId) {
 
 export function clearCache() {
   cache = null;
+}
+
+// ---------------------------------------------------------------------------
+// Local checkout of a GitHub repo ("Agent starten" target directory)
+// ---------------------------------------------------------------------------
+
+const REPO_INDEX_TTL_MS = 5 * 60_000;
+// A hostile repo config must not execute code when we only read the remote
+const GIT_SAFE = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
+let repoIndex = null; // { at, entries: [{ path, slug }] }
+
+function originSlug(dir) {
+  return new Promise((resolve) => {
+    execFile('git', [...GIT_SAFE, 'remote', 'get-url', 'origin'], { cwd: dir, timeout: 3000 }, (e, out) =>
+      resolve(e ? null : parseGithubSlug(out))
+    );
+  });
+}
+
+/**
+ * Best local directory for `slug` among `entries` ({ path, slug }): case-insensitive match,
+ * main checkouts before agent worktrees, then the shortest path.
+ */
+export function pickRepoPath(slug, entries) {
+  const want = String(slug).toLowerCase();
+  const isWorktree = (p) => p.includes('/.claude/worktrees/');
+  const hits = entries
+    .filter((e) => e.slug && e.slug.toLowerCase() === want)
+    .map((e) => e.path)
+    .sort((a, b) => isWorktree(a) - isWorktree(b) || a.length - b.length);
+  return hits[0] ?? null;
+}
+
+/** Local directory whose `origin` is github.com/<slug>, searched among `candidates` (dirs). */
+export async function findRepoPath(slug, candidates) {
+  const dirs = [...new Set(candidates.filter(Boolean))];
+  const known = new Set(repoIndex?.entries.map((e) => e.path));
+  if (
+    !repoIndex ||
+    Date.now() - repoIndex.at > REPO_INDEX_TTL_MS ||
+    dirs.some((d) => !known.has(d))
+  ) {
+    const slugs = await Promise.all(dirs.map(originSlug));
+    repoIndex = { at: Date.now(), entries: dirs.map((path, i) => ({ path, slug: slugs[i] })) };
+  }
+  return pickRepoPath(slug, repoIndex.entries);
 }

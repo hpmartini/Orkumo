@@ -414,15 +414,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   }, [attachParam, loading, sessions, attach, showHint, navigate]);
 
   // Board "Agent starten": composer prefill via router state, which external links cannot set
-  const dispatchPrefill = active
-    ? (location.state as { dispatch?: unknown } | null)?.dispatch
-    : undefined;
+  const prefill = active
+    ? (location.state as { dispatch?: unknown; cwd?: unknown } | null)
+    : null;
   useEffect(() => {
-    if (typeof dispatchPrefill !== 'string') return;
-    setInput(dispatchPrefill);
+    if (typeof prefill?.dispatch !== 'string') return;
+    setInput(prefill.dispatch);
+    if (typeof prefill.cwd === 'string' && prefill.cwd) setDispatchCwd(prefill.cwd);
     setComposerOpen(true);
     navigate('/agents', { replace: true, state: null });
-  }, [dispatchPrefill, navigate]);
+  }, [prefill, navigate]);
 
   // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
   const [board, setBoard] = useState<BoardData | null>(null);

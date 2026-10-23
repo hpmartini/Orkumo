@@ -35,6 +35,14 @@ export function setBoardItemStatus(
   });
 }
 
+/** Local checkout of a GitHub repo ("owner/name"), null if none is known */
+export async function fetchRepoPath(repo: string): Promise<string | null> {
+  const { path } = await request<{ path: string | null }>(
+    `/board/repo-path?repo=${encodeURIComponent(repo)}`
+  );
+  return path;
+}
+
 export function fetchBoardSettings(): Promise<BoardSettings> {
   return request<BoardSettings>('/board/settings');
 }

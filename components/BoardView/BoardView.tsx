@@ -18,6 +18,7 @@ import {
   type SliceEntry,
 } from '../../utils/board';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
+import { fetchRepoPath } from '../../services/boardApi';
 import { undoToast, useBoard } from './useBoard';
 import { BoardRail, type RailAgent } from './BoardRail';
 import { BoardGrid } from './BoardGrid';
@@ -351,9 +352,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
           onStatus={(optionId) => moveItem(openItem.itemId, optionId)}
           onOpenKey={(key) => setParam('item', key)}
           onAttach={(jobId) => navigate(`/agents?attach=${encodeURIComponent(jobId)}`)}
-          onStartAgent={(it) =>
-            navigate('/agents', { state: { dispatch: `Bearbeite ${it.url} ` } })
-          }
+          onStartAgent={async (it) => {
+            // No local checkout found (or lookup failed): composer keeps its own directory
+            const cwd = it.repo ? await fetchRepoPath(it.repo).catch(() => null) : null;
+            navigate('/agents', { state: { dispatch: `Bearbeite ${it.url} `, cwd } });
+          }}
           onAgentIssues={(jobId) =>
             setSearchParams((prev) => {
               const next = new URLSearchParams(prev);

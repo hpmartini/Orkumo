@@ -6,8 +6,15 @@ vi.mock('child_process', () => {
   return { execFile, default: { execFile } };
 });
 
-const { mapItem, parseMwBoardSessions, mapCheckState, getBoard, setItemStatus, clearCache } =
-  await import('../server/services/boardService.js');
+const {
+  mapItem,
+  parseMwBoardSessions,
+  mapCheckState,
+  getBoard,
+  setItemStatus,
+  clearCache,
+  pickRepoPath,
+} = await import('../server/services/boardService.js');
 
 const UUID = '6259550d-1555-4cd2-85d1-d37082bb80f4';
 
@@ -199,5 +206,28 @@ describe('boardService - status write during in-flight fetch', () => {
 
     expect((await refreshing).items[0].statusOptionId).toBe('done');
     expect((await getBoard(source)).items[0].statusOptionId).toBe('done');
+  });
+});
+
+describe('boardService - pickRepoPath', () => {
+  const entries = [
+    { path: '/w/DevOrbitDashboard/.claude/worktrees/issue-44-board', slug: 'hpmartini/DevHub' },
+    { path: '/w/DevOrbitDashboard', slug: 'hpmartini/DevHub' },
+    { path: '/w/archive/old/DevHub-copy', slug: 'hpmartini/DevHub' },
+    { path: '/w/glen', slug: 'hpmartini/glen' },
+    { path: '/w/no-remote', slug: null },
+  ];
+
+  it('matches the origin slug case-insensitively, main checkout before worktree, shortest first', () => {
+    expect(pickRepoPath('HPMARTINI/devhub', entries)).toBe('/w/DevOrbitDashboard');
+    expect(pickRepoPath('hpmartini/glen', entries)).toBe('/w/glen');
+  });
+
+  it('falls back to a worktree when it is the only checkout', () => {
+    expect(pickRepoPath('hpmartini/DevHub', entries.slice(0, 1))).toBe(entries[0].path);
+  });
+
+  it('returns null when no local checkout has that origin', () => {
+    expect(pickRepoPath('hpmartini/MAPLE', entries)).toBeNull();
   });
 });
