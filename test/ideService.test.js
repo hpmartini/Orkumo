@@ -184,39 +184,6 @@ describe('IDEService', () => {
       expect(result.success).toBe(true);
     });
 
-    it('should open project in IDE on Windows without shell injection', async () => {
-      os.platform.mockReturnValue('win32');
-      const winService = new IDEService();
-
-      fs.promises = {
-        realpath: vi.fn((p) => Promise.resolve(p)),
-        access: vi.fn(() => Promise.resolve()),
-      };
-
-      const mockChild = {
-        on: vi.fn(),
-        unref: vi.fn(),
-      };
-      spawn.mockReturnValue(mockChild);
-
-      const promise = winService.openInIDE('/path/to/project', 'vscode');
-
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
-      const result = await promise;
-
-      // Verify spawn is called with the IDE executable directly (no cmd.exe)
-      expect(spawn).toHaveBeenCalledWith(
-        'C:\\Program Files\\Microsoft VS Code\\Code.exe',
-        ['/path/to/project'],
-        {
-          detached: true,
-          stdio: 'ignore',
-        }
-      );
-      expect(result.success).toBe(true);
-    });
-
     it('should reject when IDE is not installed', async () => {
       fs.promises = {
         realpath: vi.fn((p) => Promise.resolve(p)),
@@ -305,36 +272,6 @@ describe('IDEService', () => {
           '/Applications/Visual Studio Code.app',
           maliciousPath, // Passed as-is in args array, not interpreted by shell
         ],
-        expect.any(Object)
-      );
-    });
-
-    it('should not allow command injection on Windows', async () => {
-      os.platform.mockReturnValue('win32');
-      const winService = new IDEService();
-
-      fs.promises = {
-        realpath: vi.fn((p) => Promise.resolve(p)),
-        access: vi.fn(() => Promise.resolve()),
-      };
-
-      const mockChild = {
-        on: vi.fn(),
-        unref: vi.fn(),
-      };
-      spawn.mockReturnValue(mockChild);
-
-      const maliciousPath = 'C:\\project & calc.exe';
-      const promise = winService.openInIDE(maliciousPath, 'vscode');
-
-      await new Promise((resolve) => setTimeout(resolve, 150));
-
-      await promise;
-
-      // Verify spawn is called without cmd.exe (direct execution)
-      expect(spawn).toHaveBeenCalledWith(
-        'C:\\Program Files\\Microsoft VS Code\\Code.exe',
-        [maliciousPath],
         expect.any(Object)
       );
     });

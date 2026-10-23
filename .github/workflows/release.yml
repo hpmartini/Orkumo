@@ -1,6 +1,6 @@
 name: Release
 
-# Baut die Electron-App für macOS/Windows/Linux und hängt die Installer an das Release.
+# Baut die Electron-App für macOS/Linux und hängt die Installer an das Release.
 on:
   release:
     types: [published]
@@ -16,7 +16,6 @@ jobs:
         include:
           - { os: macos-latest, flags: '--mac --arm64' }
           - { os: macos-15-intel, flags: '--mac --x64' }
-          - { os: windows-2022, flags: '--win --x64' }
           - { os: ubuntu-latest, flags: '--linux --x64' }
     runs-on: ${{ matrix.os }}
 
@@ -49,8 +48,8 @@ jobs:
       - name: Upload to release
         shell: bash
         run: |
-          # Schleife statt Wortsplitting: NSIS-Dateinamen enthalten Leerzeichen.
-          find dist-electron -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.exe' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -print0 |
+          # Schleife statt Wortsplitting: robust gegen Leerzeichen in Dateinamen.
+          find dist-electron -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -print0 |
             while IFS= read -r -d '' f; do
               gh release upload "${{ github.event.release.tag_name }}" "$f" --clobber
             done

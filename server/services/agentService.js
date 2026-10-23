@@ -113,7 +113,7 @@ export function resolveClaudeBinary() {
   ].filter(Boolean);
   const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
   for (const dir of pathDirs) {
-    candidates.push(path.join(dir, os.platform() === 'win32' ? 'claude.cmd' : 'claude'));
+    candidates.push(path.join(dir, 'claude'));
   }
   for (const candidate of candidates) {
     try {

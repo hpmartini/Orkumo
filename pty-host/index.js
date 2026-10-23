@@ -14,9 +14,6 @@ const PORT = process.env.PTY_HOST_PORT || 3098;
 
 // Detect user's default shell
 const defaultShell = (() => {
-  if (os.platform() === 'win32') {
-    return 'powershell.exe';
-  }
   const userShell = process.env.SHELL;
   if (userShell && fs.existsSync(userShell)) {
     return userShell;

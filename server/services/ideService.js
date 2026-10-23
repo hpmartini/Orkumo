@@ -1,7 +1,6 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
-import path from 'path';
 import { getDataFilePath, ensureDataDirectory } from './dataPath.js';
 
 /**
@@ -174,24 +173,6 @@ class IDEService {
         sublime: process.env.SUBLIME_PATH
           ? [process.env.SUBLIME_PATH]
           : ['/usr/bin/subl', '/snap/bin/sublime-text'],
-      },
-      win32: {
-        vscode: process.env.VSCODE_PATH || 'C:\\Program Files\\Microsoft VS Code\\Code.exe',
-        cursor:
-          process.env.CURSOR_PATH ||
-          path.join(os.homedir(), 'AppData', 'Local', 'Programs', 'Cursor', 'Cursor.exe'),
-        webstorm:
-          process.env.WEBSTORM_PATH ||
-          'C:\\Program Files\\JetBrains\\WebStorm\\bin\\webstorm64.exe',
-        intellij:
-          process.env.INTELLIJ_PATH ||
-          'C:\\Program Files\\JetBrains\\IntelliJ IDEA\\bin\\idea64.exe',
-        phpstorm:
-          process.env.PHPSTORM_PATH ||
-          'C:\\Program Files\\JetBrains\\PhpStorm\\bin\\phpstorm64.exe',
-        pycharm:
-          process.env.PYCHARM_PATH || 'C:\\Program Files\\JetBrains\\PyCharm\\bin\\pycharm64.exe',
-        sublime: process.env.SUBLIME_PATH || 'C:\\Program Files\\Sublime Text\\sublime_text.exe',
       },
     };
     return paths[this.platform] || {};
@@ -370,11 +351,6 @@ class IDEService {
           args = ['-a', installedPath, projectPath];
           break;
         case 'linux':
-          cmd = installedPath;
-          args = [projectPath];
-          break;
-        case 'win32':
-          // Use installedPath directly to avoid shell interpretation
           cmd = installedPath;
           args = [projectPath];
           break;
