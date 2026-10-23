@@ -48,6 +48,7 @@ import * as healthService from './services/healthService.js';
 import * as agentService from './services/agentService.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { getAgentContexts } from './services/agentContextService.js';
+import * as boardService from './services/boardService.js';
 import { PORTS, TERMINAL, RATE_LIMIT, TIMEOUTS } from '../config/defaults.js';
 
 // Load environment variables from .env.local
@@ -205,7 +206,7 @@ function validate(schema) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
+          details: error.issues.map((e) => ({ path: e.path.join('.'), message: e.message })),
         });
       }
       next(error);
@@ -3272,6 +3273,68 @@ app.put(
     }
   }
 );
+
+// ============================================
+// Agent Task Board API (GitHub ProjectV2 via gh)
+// ============================================
+
+const boardItemIdSchema = z.string().regex(/^PVTI_[A-Za-z0-9_-]+$/);
+const boardSliceKeys = z.array(z.string().max(200)).max(500);
+const boardSettingsSchema = z
+  .object({
+    source: z
+      .object({
+        owner: z.string().regex(/^[A-Za-z0-9-]{1,39}$/),
+        number: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
+    favorites: boardSliceKeys.optional(),
+    order: boardSliceKeys.optional(),
+    hidden: boardSliceKeys.optional(),
+  })
+  .strict();
+
+app.get('/api/board/items', agentLimiter, async (req, res) => {
+  try {
+    const { source } = settingsService.getBoardSettings();
+    res.json(await boardService.getBoard(source, { refresh: req.query.refresh === '1' }));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.patch(
+  '/api/board/items/:itemId/status',
+  agentLimiter,
+  validateParams(boardItemIdSchema),
+  validate(z.object({ optionId: z.string().min(1).max(100) })),
+  async (req, res) => {
+    try {
+      const { source } = settingsService.getBoardSettings();
+      res.json(await boardService.setItemStatus(source, req.params.itemId, req.body.optionId));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.get('/api/board/settings', (req, res) => {
+  try {
+    res.json(settingsService.getBoardSettings());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
+  try {
+    if (req.body.source) boardService.clearCache();
+    res.json(settingsService.updateBoardSettings(req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
 
 /**
  * Agent view preferences (grouping, layout, dispatch defaults, scope)

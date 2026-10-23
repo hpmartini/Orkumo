@@ -473,3 +473,92 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
 };
+
+// ---------------------------------------------------------------------------
+// Agent Task Board (/board, #44). Source of truth: GitHub Project (GraphQL via gh).
+// ---------------------------------------------------------------------------
+
+export interface BoardSource {
+  owner: string;
+  /** Project number, e.g. 4 for users/hpmartini/projects/4 (MACC) */
+  number: number;
+}
+
+export interface BoardStatusOption {
+  id: string;
+  name: string;
+  /** GitHub ProjectV2 color name: GRAY | BLUE | GREEN | YELLOW | ORANGE | RED | PINK | PURPLE */
+  color: string;
+}
+
+export interface BoardLabel {
+  name: string;
+  /** hex without '#' */
+  color: string;
+}
+
+export type BoardCheckState = 'success' | 'failure' | 'pending' | null;
+
+export interface BoardPullRequest {
+  /** "owner/name" */
+  repo: string;
+  number: number;
+  url: string;
+  title: string | null;
+  /** OPEN | CLOSED | MERGED */
+  state: string;
+  checks: BoardCheckState;
+}
+
+export interface BoardIssueRef {
+  repo: string;
+  number: number;
+  title: string;
+}
+
+export interface BoardItem {
+  /** ProjectV2 item node id (PVTI_…), used to write the status */
+  itemId: string;
+  type: 'Issue' | 'PullRequest' | 'DraftIssue';
+  /** null for draft issues */
+  number: number | null;
+  title: string;
+  url: string | null;
+  /** "owner/name"; null for draft issues */
+  repo: string | null;
+  /** OPEN | CLOSED | MERGED */
+  state: string;
+  statusOptionId: string | null;
+  labels: BoardLabel[];
+  milestone: string | null;
+  assignees: string[];
+  parent: BoardIssueRef | null;
+  subIssues: { total: number; completed: number };
+  /** Linked PRs (closing references for issues; the PR itself for PR items) */
+  pullRequests: BoardPullRequest[];
+  /** Full session UUIDs from `<!-- mw-board:start session=<uuid> -->` comments */
+  mwBoardSessions: string[];
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export interface BoardData {
+  source: BoardSource;
+  projectId: string;
+  title: string;
+  statusField: { id: string; options: BoardStatusOption[] };
+  items: BoardItem[];
+  /** epoch ms of the GitHub fetch behind this response */
+  fetchedAt: number;
+}
+
+export type BoardSliceKind = 'repo' | 'label' | 'milestone' | 'assignee';
+export type BoardSwimlaneMode = 'parent' | 'repo' | 'none';
+
+/** Persisted board preferences. Slice keys are `${kind}:${value}`, e.g. "repo:hpmartini/DevHub". */
+export interface BoardSettings {
+  source: BoardSource;
+  favorites: string[];
+  order: string[];
+  hidden: string[];
+}
