@@ -1,5 +1,7 @@
 # DevOrbit Dashboard
 
+> **Vision:** DevOrbit ist die komplette Arbeitsumgebung für agentische Entwicklung (ADE): Issues planen, Agents steuern, Code editieren, Terminal, über alle Geräte hinweg, verbunden über den Kontext Issue ↔ Agent ↔ Worktree ↔ PR ↔ Code. Details: [docs/VISION.md](docs/VISION.md).
+
 **DevOrbit Dashboard** is an advanced local development environment manager that monitors, controls, and optimizes your development workflow. It integrates with Gemini AI to analyze project configurations and provide intelligent recommendations, making it easier to manage complex microservice architectures and local setups.
 
 ## 🚀 Features

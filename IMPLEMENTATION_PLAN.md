@@ -1,5 +1,17 @@
 # DevOrbit Dashboard - Implementation Plan
 
+## Roadmap (Leitbild)
+
+Leitbild: [docs/VISION.md](docs/VISION.md). Epics in `hpmartini/DevHub`, Board MACC.
+
+| #   | Säule               | Issues        |
+| :-- | :------------------ | :------------ |
+| 1   | Kontext-Verknüpfung | Basis für 2–5 |
+| 2   | Board               | #44           |
+| 3   | Agents/Mesh         | #45–#56, #57  |
+| 4   | Code-Modus          | CodingView    |
+| 5   | Einheitliche Shell  | übergreifend  |
+
 This document outlines the planned features, architecture decisions, and implementation details.
 
 ## Implementation Status
