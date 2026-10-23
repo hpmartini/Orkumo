@@ -3,6 +3,8 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
   Kanban,
   LayoutDashboard,
   Play,
@@ -74,7 +76,12 @@ export const RailNav: React.FC<{
   nav: RailNavProps;
   grouping: AgentGrouping;
   onGrouping: (grouping: AgentGrouping) => void;
-}> = ({ nav, grouping, onGrouping }) => (
+  /** Header buttons; hidden when not given */
+  onCollapseAll?: () => void;
+  onExpandAll?: () => void;
+  /** A quick filter forces every group open: the buttons would have no visible effect */
+  collapseDisabled?: boolean;
+}> = ({ nav, grouping, onGrouping, onCollapseAll, onExpandAll, collapseDisabled }) => (
   <div className="px-3 py-2 border-b border-gray-700 space-y-2 shrink-0">
     <div className="flex items-center gap-1 text-xs">
       <button
@@ -107,24 +114,48 @@ export const RailNav: React.FC<{
         <Settings size={13} />
       </button>
     </div>
-    <div
-      className="flex rounded border border-gray-700 bg-gray-900 p-0.5 text-xs"
-      role="group"
-      aria-label="Group agents by (Ctrl+S)"
-      title="Group agents by (Ctrl+S)"
-    >
-      {GROUP_MODES.map((mode) => (
+    <div className="flex items-center gap-1">
+      <div
+        className="flex flex-1 rounded border border-gray-700 bg-gray-900 p-0.5 text-xs"
+        role="group"
+        aria-label="Group agents by (Ctrl+S)"
+        title="Group agents by (Ctrl+S)"
+      >
+        {GROUP_MODES.map((mode) => (
+          <button
+            key={mode.key}
+            onClick={() => onGrouping(mode.key)}
+            aria-pressed={grouping === mode.key}
+            className={`flex-1 px-2 py-0.5 rounded ${
+              grouping === mode.key ? 'bg-sel text-white' : 'text-gray-300 hover:text-white'
+            }`}
+          >
+            {mode.label}
+          </button>
+        ))}
+      </div>
+      {onCollapseAll && (
         <button
-          key={mode.key}
-          onClick={() => onGrouping(mode.key)}
-          aria-pressed={grouping === mode.key}
-          className={`flex-1 px-2 py-0.5 rounded ${
-            grouping === mode.key ? 'bg-sel text-white' : 'text-gray-300 hover:text-white'
-          }`}
+          onClick={onCollapseAll}
+          disabled={collapseDisabled}
+          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor disabled:opacity-40 disabled:pointer-events-none"
+          title={collapseDisabled ? 'Clear the filters to collapse groups' : 'Collapse all groups'}
+          aria-label="Collapse all groups"
         >
-          {mode.label}
+          <ChevronsDownUp size={13} />
         </button>
-      ))}
+      )}
+      {onExpandAll && (
+        <button
+          onClick={onExpandAll}
+          disabled={collapseDisabled}
+          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor disabled:opacity-40 disabled:pointer-events-none"
+          title={collapseDisabled ? 'Clear the filters to expand groups' : 'Expand all groups'}
+          aria-label="Expand all groups"
+        >
+          <ChevronsUpDown size={13} />
+        </button>
+      )}
     </div>
   </div>
 );

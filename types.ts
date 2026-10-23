@@ -256,6 +256,14 @@ export interface AgentListeningServer {
   url: string;
 }
 
+/** Live resource use of a listening server process (GET /api/agents/servers/stats) */
+export interface AgentServerStats {
+  pid: number;
+  /** CPU percent of one core, as reported by ps */
+  cpu: number;
+  memMb: number;
+}
+
 export interface AgentContext {
   /** slug = "owner/repo" from the origin remote (github) */
   repo: {
@@ -265,7 +273,15 @@ export interface AgentContext {
     dirty: boolean;
     ahead: number;
     behind: number;
+    /** true when the session runs in a linked git worktree (not the main checkout) */
+    isWorktree: boolean;
+    /** Folder name of the linked worktree; null for the main checkout */
+    worktreeName: string | null;
+    /** Absolute path of the linked worktree; null for the main checkout */
+    worktreePath: string | null;
   } | null;
+  /** Model of the session's latest assistant turn (e.g. "claude-opus-5-5"); null when unknown */
+  model: string | null;
   /** null when gh is unavailable/unauthenticated or not a github repo */
   issues: { open: number; url: string | null } | null;
   pulls: { open: number; url: string | null; items: AgentPullRequest[] } | null;
@@ -281,6 +297,10 @@ export interface AgentSession {
   kind: 'background' | 'interactive';
   /** Client-side cloud/remote session: PTY args instead of `attach <id>` */
   ptyArgs?: string[];
+  /** PTY command for ptyArgs (default `claude`; `ssh` for remote attach) */
+  ptyCommand?: 'claude' | 'ssh';
+  /** Tailscale device the session runs on (remote sessions only) */
+  host?: string;
   cwd: string;
   startedAt: number;
   updatedAt?: number | null;
@@ -336,6 +356,24 @@ export interface AgentsResponse {
   userSettings: ClaudeUserSettings | null;
   cli: { installed: boolean; path: string | null };
   capabilities?: AgentCapabilities;
+}
+
+export type RemoteDeviceState = 'ok' | 'offline' | 'ssh-denied' | 'claude-missing' | 'error';
+
+export interface RemoteDevice {
+  host: string;
+  name: string;
+  os: 'macOS' | 'linux';
+  state: RemoteDeviceState;
+  reason?: string;
+  sessions: AgentSession[];
+}
+
+export interface RemoteAgentsResponse {
+  /** false: neither `tailscale` in PATH nor the macOS app binary */
+  tailscale: boolean;
+  error?: string;
+  devices: RemoteDevice[];
 }
 
 export interface AgentCapabilities {

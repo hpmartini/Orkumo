@@ -46,9 +46,14 @@ import { injectLogger, removeLogger, checkLoggerStatus } from './services/logger
 import * as dockerService from './services/dockerService.js';
 import * as healthService from './services/healthService.js';
 import * as agentService from './services/agentService.js';
+import * as meshService from './services/meshService.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
-import { getAgentContexts } from './services/agentContextService.js';
+import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
+import {
+  getProcessStats as getServerProcessStats,
+  parsePids,
+} from './services/processStatsService.js';
 import { PORTS, TERMINAL, RATE_LIMIT, TIMEOUTS } from '../config/defaults.js';
 
 // Load environment variables from .env.local
@@ -3090,6 +3095,32 @@ app.post(
   }
 );
 
+/**
+ * GET /api/agents/remote - sessions of the other Tailscale devices (`ssh <host> claude agents --json`)
+ */
+app.get('/api/agents/remote', async (req, res) => {
+  try {
+    res.json(await meshService.listRemote());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/**
+ * GET /api/agents/remote/:host/:id/logs - `ssh <host> claude logs <id>`
+ */
+app.get('/api/agents/remote/:host/:id/logs', async (req, res) => {
+  const { host, id } = req.params;
+  if (!meshService.isKnownRemoteHost(host) || !agentIdSchema.safeParse(id).success) {
+    return res.status(400).json({ error: 'Invalid host or session id' });
+  }
+  try {
+    res.json(await meshService.getRemoteLogs(host, id));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 app.post('/api/agents/respawn-all', agentLimiter, async (req, res) => {
   try {
     res.json(await agentService.respawnSession('--all'));
@@ -3134,6 +3165,19 @@ app.post(
 app.get('/api/agents/context', agentLimiter, async (req, res) => {
   try {
     res.json({ contexts: await getAgentContexts() });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Polled every 5s by the open servers panel; ?pids=1,2,3 (max 50), vanished pids are omitted.
+app.get('/api/agents/servers/stats', agentLimiter, async (req, res) => {
+  const pids = parsePids(req.query.pids);
+  if (!pids) return res.status(400).json({ error: 'pids must be 1-50 positive integers' });
+  try {
+    // Only servers the dashboard lists: no probing of arbitrary pids
+    const known = await getKnownServerPids();
+    res.json({ stats: await getServerProcessStats(pids.filter((pid) => known.has(pid))) });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -3609,8 +3653,8 @@ wss.on('connection', (ws, req) => {
   // Parse and validate optional custom command parameters
   const command = url.searchParams.get('command') || null;
 
-  // Validate command against whitelist
-  if (command && !ALLOWED_COMMANDS.includes(command)) {
+  // Validate command against whitelist; `ssh` only for remote attach (args checked below)
+  if (command && command !== 'ssh' && !ALLOWED_COMMANDS.includes(command)) {
     console.error(`[PTY] Rejected command not in whitelist: ${command}`);
     ws.send(JSON.stringify({ type: 'error', message: 'Invalid command' }));
     ws.close();
@@ -3691,6 +3735,13 @@ wss.on('connection', (ws, req) => {
       ws.close();
       return;
     }
+  }
+
+  if (command === 'ssh' && !meshService.isRemoteAttachArgs(args)) {
+    console.error(`[PTY] Rejected ssh args: ${JSON.stringify(args)}`);
+    ws.send(JSON.stringify({ type: 'error', message: 'Invalid remote attach target' }));
+    ws.close();
+    return;
   }
 
   const options = command ? { command, args } : {};

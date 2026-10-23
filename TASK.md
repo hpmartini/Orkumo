@@ -414,3 +414,12 @@ The following existing tasks are related to the new features above:
 | Custom port setting UI     | Custom commands & port injection  |
 | Recommendations panel      | Actionable recommendations engine |
 | Stats polling optimization | ElectronBrowserView optimizations |
+
+---
+
+### PR #67 merge conflicts with main (2026-10-23)
+
+- [x] **[FIX]** `feat/44-agent-task-board` conflicted with main (#63 remote agents, #64/#66 rail redesign)
+  - Issue: 4 files in conflict — `AgentList.tsx` (row layout rewritten on main), `AgentsView.tsx`, `ProjectsRail.tsx`, `server/index.js`
+  - Approach: merge `origin/main` (no rebase, branch is pushed); take main's `AgentList.tsx` and re-apply only the board diff (`issuesByAgent`/`onOpenIssue` props, issue chips under the row); union of imports/props elsewhere
+  - Solution: merge commit; tsc clean, lint 0 errors, vitest 434/434, build green, merged server serves `/api/board/items`, `/api/board/repo-path`, `/api/agents`

@@ -266,6 +266,31 @@ describe('WebIDEPanel', () => {
       expect(screen.getByText(/Failed to restart VS Code Server/i)).toBeInTheDocument();
     });
 
+    it('should stop loading and show an error when the iframe never loads after restarts', async () => {
+      await renderReady('/home/coder/Projects/test-project');
+      // Restarts succeed, but the iframe never fires load
+      (global.fetch as any).mockImplementation(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          String(url).endsWith('/code-server/start')
+            ? { success: true }
+            : String(url).endsWith('/code-server/status')
+              ? { installed: true, running: true }
+              : { tree: [] },
+      }));
+      vi.setSystemTime(Date.now() + 60_000); // lift the recently-ready restart guard
+
+      for (let i = 0; i < 12; i++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10_000);
+        });
+        vi.setSystemTime(Date.now() + 60_000);
+      }
+
+      expect(screen.queryByText('Loading VS Code Server')).not.toBeInTheDocument();
+      expect(screen.getByText(/not responding/i)).toBeInTheDocument();
+    });
+
     it('should clear timeout when iframe loads successfully', async () => {
       await renderReady('/home/coder/Projects/test-project');
 

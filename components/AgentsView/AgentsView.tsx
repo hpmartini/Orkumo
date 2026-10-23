@@ -21,8 +21,15 @@ import type {
   AgentPastSession,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
+import { useRemoteAgents } from '../../hooks/useRemoteAgents';
+import { buildSshAttachArgs } from '../../utils/meshHosts';
 import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
 import { useAgentContexts } from '../../hooks/useAgentContexts';
+import {
+  useRailPreferences,
+  groupNeighbour,
+  FAVORITES_GROUP_KEY,
+} from '../../hooks/useRailPreferences';
 import { FOCUS_CHORD_LABEL, useAgentFocusZone } from '../../hooks/useAgentFocusZone';
 import {
   dispatchAgent,
@@ -49,6 +56,7 @@ import {
   mergeServers,
   collectPullRequests,
   summarizeContext,
+  formatModelName,
   DEFAULT_SORT,
   QUICK_FILTERS,
   SORT_OPTIONS,
@@ -70,6 +78,7 @@ import {
 } from '../CommandPalette';
 import type { PaletteCommand } from '../../utils/commandPalette';
 import { CloudSessionBar } from './CloudSessionBar';
+import { RemoteAgents } from './RemoteAgents';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
 import { ResumePicker } from './ResumePicker';
@@ -99,6 +108,9 @@ interface AgentsViewProps {
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const DELETE_CONFIRM_WINDOW = 2000;
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
+const REMOTE_STORAGE_KEY = 'devOrbitAgentRemote';
+/** Client-side id of a remote session: `<host>:<id>` (':' never occurs in a session id). */
+const remoteKey = (s: AgentSession) => `${s.host}:${s.id}`;
 
 function loadSort(): AgentSort {
   try {
@@ -187,6 +199,33 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     localStorage.getItem(DISPATCH_CWD_STORAGE_KEY)
   );
   const [now, setNow] = useState(Date.now());
+  const [remoteEnabled, setRemoteEnabled] = useState(() => {
+    try {
+      return localStorage.getItem(REMOTE_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggleRemote = useCallback(() => {
+    setRemoteEnabled((prev) => {
+      try {
+        localStorage.setItem(REMOTE_STORAGE_KEY, String(!prev));
+      } catch {
+        // switch stays in memory only
+      }
+      return !prev;
+    });
+  }, []);
+  const remote = useRemoteAgents(active && remoteEnabled);
+  const remoteSessions = useMemo(
+    () => remote.data?.devices.flatMap((d) => d.sessions) ?? [],
+    [remote.data]
+  );
+  // Remote rows follow the local list in keyboard navigation
+  const remoteKeys = useMemo(
+    () => (remoteEnabled ? remoteSessions.map(remoteKey) : []),
+    [remoteEnabled, remoteSessions]
+  );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingDeleteRef = useRef<{ key: string; at: number } | null>(null);
   const ctrlCRef = useRef<number>(0);
@@ -199,7 +238,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const filter = useMemo(() => parseFilter(input), [input]);
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
   const railRef = useRef<HTMLDivElement>(null);
-  const { zone: focusZone } = useAgentFocusZone(active, railRef);
+  const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
   const contexts = useAgentContexts(active);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
@@ -254,21 +293,37 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   }, [sessions, lookup]);
   const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
   // An active quick filter must not hide its matches inside collapsed groups
+  const rail = useRailPreferences(settings.grouping);
+  const {
+    arrange,
+    toggleCollapsed,
+    moveGroup,
+    toggleFavoriteGroup,
+    toggleFavoriteSession,
+    favoriteGroups,
+  } = rail;
   const collapsed = useMemo(
-    () => new Set(quickFilters.size ? [] : settings.collapsedGroups),
-    [settings.collapsedGroups, quickFilters]
+    () => (quickFilters.size ? new Set<string>() : rail.collapsed),
+    [rail.collapsed, quickFilters]
   );
   const groups = useMemo(
     () =>
-      groupSessions(shownSessions, settings.grouping, {
-        // Filtering for Completed means the user wants all of them, not "… N more"
-        expandedCompleted: expandedCompleted || quickFilters.has('completed'),
-        sort,
-        lookup,
-        apps,
-      }),
-    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps]
+      arrange(
+        groupSessions(shownSessions, settings.grouping, {
+          // Filtering for Completed means the user wants all of them, not "… N more"
+          expandedCompleted: expandedCompleted || quickFilters.has('completed'),
+          sort,
+          lookup,
+          apps,
+        })
+      ),
+    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps, arrange]
   );
+  // Session of the active workspace tab: marked and revealed in the rail
+  const activeSessionId = useMemo(() => {
+    const id = workspace.tabs.find((t) => t.id === workspace.activeTabId)?.activeSessionId;
+    return id && sessions.some((s) => s.id === id) ? id : null;
+  }, [workspace.tabs, workspace.activeTabId, sessions]);
   const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
   const items = useMemo(() => {
     const flat = flattenGroups(
@@ -294,15 +349,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         ? `more:${item.group.key}`
         : item.session.id;
 
+  const selectedRemote = remoteKeys.includes(selectedKey ?? '')
+    ? (remoteSessions.find((s) => remoteKey(s) === selectedKey) ?? null)
+    : null;
   const selectedIndex = useMemo(() => {
+    // A selected remote row leaves no local selection, so local shortcuts never hit a stand-in
+    if (selectedRemote) return -1;
     const index = items.findIndex((item) => itemKey(item) === selectedKey);
     if (index >= 0) return index;
     const firstSession = items.findIndex((item) => item.type === 'session');
     return firstSession >= 0 ? firstSession : items.length > 0 ? 0 : -1;
-  }, [items, selectedKey]);
+  }, [items, selectedKey, selectedRemote]);
   const selectedItem: NavItem | null = selectedIndex >= 0 ? items[selectedIndex] : null;
   const selectedSession = selectedItem?.type === 'session' ? selectedItem.session : null;
-  const peekSession = peekId ? sessions.find((s) => s.id === peekId) || null : null;
+  const peekSession = peekId
+    ? sessions.find((s) => s.id === peekId) ||
+      remoteSessions.find((s) => remoteKey(s) === peekId) ||
+      null
+    : null;
 
   const targetCwd: string | null = useMemo(() => {
     if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
@@ -467,6 +531,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [targetCwd, attach]
   );
 
+  // Remote panes join the client-side PTY tabs, so a flaky device poll never prunes them
+  const attachRemote = useCallback(
+    (session: AgentSession) => {
+      if (!session.host) return;
+      const host = session.host;
+      const key = remoteKey(session);
+      setCloudSessions((prev) =>
+        prev.some((s) => s.id === key)
+          ? prev
+          : [
+              ...prev,
+              {
+                ...session,
+                // namespaced so a remote id never collides with a local session/pane
+                id: key,
+                name: `${session.name} · ${host.split('.')[0]}`,
+                ptyCommand: 'ssh',
+                ptyArgs: buildSshAttachArgs(host, session.id),
+              },
+            ]
+      );
+      attach(key);
+    },
+    [attach]
+  );
+
   const closeAnyPane = useCallback(
     (id: string) => {
       setCloudSessions((prev) => prev.filter((s) => s.id !== id));
@@ -485,14 +575,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setSelectedKey(session.id);
   }, []);
 
+  // Single click on an already attached agent: switch to its tab/pane and put the cursor in the terminal
+  const focusOpen = useCallback(
+    (id: string) => {
+      attach(id);
+      requestAnimationFrame(() => moveFocus('terminal'));
+    },
+    [attach, moveFocus]
+  );
+
   const toggleGroup = useCallback(
     (group: SessionGroup) => {
-      const next = collapsed.has(group.key)
-        ? settings.collapsedGroups.filter((k) => k !== group.key)
-        : [...settings.collapsedGroups, group.key];
-      updateSettings({ collapsedGroups: next });
+      // Quick filters force all groups open, so a toggle would change nothing visible
+      if (quickFilters.size > 0) showHint('Clear the filters to collapse groups', 'info');
+      else toggleCollapsed(group.key);
     },
-    [collapsed, settings.collapsedGroups, updateSettings]
+    [toggleCollapsed, quickFilters, showHint]
   );
 
   const activateItem = useCallback(
@@ -505,6 +603,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       else attach(item.session.id);
     },
     [toggleGroup, attach, showHint]
+  );
+
+  const activateRemote = useCallback(
+    (session: AgentSession) => {
+      if (session.kind === 'interactive')
+        showHint('Interactive sessions run in their own terminal', 'info');
+      else attachRemote(session);
+    },
+    [attachRemote, showHint]
   );
 
   const doDispatch = useCallback(
@@ -754,6 +861,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   const handleReorder = useCallback(
     async (direction: 'up' | 'down') => {
+      if (selectedItem?.type === 'group') {
+        // Same rule as the group menu: favorites stay a block of their own
+        const key: string = selectedItem.group.key;
+        const keys = items.flatMap((i) =>
+          i.type === 'group' && (i.group.key as string) !== FAVORITES_GROUP_KEY
+            ? [i.group.key as string]
+            : []
+        );
+        const target =
+          key !== 'all' &&
+          groupNeighbour(keys, [...favoriteGroups], key, direction === 'up' ? -1 : 1);
+        if (target) moveGroup(key, target, keys);
+        return;
+      }
       if (!selectedItem || selectedItem.type !== 'session') return;
       const group = selectedItem.group;
       const ids = group.sessions.map((s) => s.id);
@@ -768,7 +889,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         toast.error(err instanceof Error ? err.message : 'Reorder failed');
       }
     },
-    [selectedItem, refresh]
+    [selectedItem, items, favoriteGroups, moveGroup, refresh]
   );
 
   const handleReply = useCallback(
@@ -812,14 +933,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   const moveSelection = useCallback(
     (direction: 'up' | 'down') => {
-      if (items.length === 0) return;
-      const next =
-        direction === 'up'
-          ? Math.max(0, selectedIndex - 1)
-          : Math.min(items.length - 1, selectedIndex + 1);
-      setSelectedKey(itemKey(items[next]));
+      const keys = [...items.map(itemKey), ...remoteKeys];
+      if (keys.length === 0) return;
+      const at = selectedRemote ? keys.indexOf(remoteKey(selectedRemote)) : selectedIndex;
+      const next = direction === 'up' ? Math.max(0, at - 1) : Math.min(keys.length - 1, at + 1);
+      setSelectedKey(keys[next]);
     },
-    [items, selectedIndex]
+    [items, selectedIndex, remoteKeys, selectedRemote]
   );
 
   // ---------------------------------------------------------------------
@@ -926,11 +1046,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         case 'Enter':
         case 'ArrowRight':
           e.preventDefault();
-          activateItem(selectedItem);
+          if (selectedRemote) activateRemote(selectedRemote);
+          else activateItem(selectedItem);
           break;
         case ' ':
           e.preventDefault();
-          togglePeek(selectedSession);
+          if (selectedRemote) togglePeek({ ...selectedRemote, id: remoteKey(selectedRemote) });
+          else if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
+          else togglePeek(selectedSession);
           break;
         case 'Escape':
           if (peekId) setPeekId(null);
@@ -939,6 +1062,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           if (e.ctrlKey || e.metaKey || e.altKey) break;
           e.preventDefault();
           setComposerOpen(true);
+          break;
+        case 'F': // Shift+F: plain F is the app-wide "open favorites" shortcut
+          if (e.ctrlKey || e.metaKey || e.altKey || !selectedItem) break;
+          if (selectedItem.type === 'group') {
+            const key: string = selectedItem.group.key;
+            if (key !== FAVORITES_GROUP_KEY && key !== 'all') toggleFavoriteGroup(key);
+          } else if (selectedItem.type === 'session') {
+            toggleFavoriteSession(selectedItem.session.id);
+          }
+          e.preventDefault();
           break;
         default:
           break;
@@ -958,6 +1091,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     panel,
     selectedItem,
     selectedSession,
+    selectedRemote,
     peekId,
     toggleGrouping,
     handlePin,
@@ -965,8 +1099,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     attachNth,
     handleStopOrDelete,
     handleReorder,
+    toggleFavoriteGroup,
+    toggleFavoriteSession,
     moveSelection,
     activateItem,
+    activateRemote,
+    toggleGroup,
     togglePeek,
     attach,
     onExit,
@@ -1218,6 +1356,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   useRegisterCommands('agents', paletteCommands);
 
   const defaultModel = settings.dispatch.model || userSettings?.model || 'default';
+  // Model of the open agent; the dispatch default only stands in when it is unknown
+  const activeModel = formatModelName(activeSessionId ? contexts[activeSessionId]?.model : null);
+  const modelLabel =
+    activeModel ?? (defaultModel === 'default' ? 'default' : `default: ${defaultModel}`);
+  const modelTitle = activeModel
+    ? 'Model of the open agent (from its session)'
+    : 'Dispatch model for new agents (/model)';
 
   if (disabled) {
     return (
@@ -1315,8 +1460,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           <kbd className="kbd">{FOCUS_CHORD_LABEL}</kbd>
           <span className="text-gray-400 hidden xl:inline">switches</span>
         </div>
+        <span className="text-[11px] text-gray-500 font-mono" title={modelTitle}>
+          model {modelLabel}
+          <span className="sr-only"> ({modelTitle})</span>
+        </span>
         <div className="hidden xl:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
-          <span title="Dispatch model (/model)">model {defaultModel}</span>
           {settings.dispatch.effort && (
             <span title="Dispatch effort (/effort)">effort {settings.dispatch.effort}</span>
           )}
@@ -1404,6 +1552,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             nav={nav}
             grouping={settings.grouping}
             onGrouping={(grouping) => updateSettings({ grouping })}
+            onCollapseAll={() =>
+              rail.collapseAll([FAVORITES_GROUP_KEY, ...groups.map((g) => g.key)])
+            }
+            onExpandAll={() => rail.expandAll()}
+            collapseDisabled={quickFilters.size > 0}
           />
           <AgentFilterBar
             sort={sort}
@@ -1433,6 +1586,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               onTogglePeek={togglePeek}
               peekId={peekId}
               openIds={openIdSet}
+              onFocusOpen={focusOpen}
               now={now}
               grouping={settings.grouping}
               contexts={contexts}
@@ -1446,10 +1600,34 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               groupActions={groupActions}
               highlightedId={highlightedId}
               collapsedKeys={collapsed}
+              activeSessionId={activeSessionId}
+              onRevealActive={(id) => rail.revealSession(groups, id)}
+              onToggleGroup={toggleCollapsed}
+              favoriteGroupKeys={rail.favoriteGroups}
+              favoriteSessionIds={rail.favoriteSessions}
+              onToggleFavoriteGroup={rail.toggleFavoriteGroup}
+              onToggleFavoriteSession={rail.toggleFavoriteSession}
+              onMoveGroup={rail.moveGroup}
               appsById={appsById}
               nav={nav}
               issuesByAgent={issuesByAgent}
               onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+              bottom={
+                remoteEnabled ? (
+                  <RemoteAgents
+                    data={remote.data}
+                    error={remote.error}
+                    loading={remote.loading}
+                    now={now}
+                    peekId={peekId}
+                    selectedKey={selectedRemote ? remoteKey(selectedRemote) : null}
+                    railFocused={focusZone === 'rail'}
+                    onSelect={(s) => setSelectedKey(remoteKey(s))}
+                    onAttach={attachRemote}
+                    onPeek={(s) => togglePeek({ ...s, id: remoteKey(s) })}
+                  />
+                ) : undefined
+              }
               top={
                 settings.grouping === 'state' ? (
                   <ProjectsSection
@@ -1473,6 +1651,26 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               </button>
             </div>
           )}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-t border-gray-800 text-xs text-gray-300">
+            <span id="remote-agents-label">Remote-Agents</span>
+            <span className="text-gray-500 truncate">via Tailscale + SSH</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={remoteEnabled}
+              aria-labelledby="remote-agents-label"
+              onClick={toggleRemote}
+              className={`ml-auto relative w-8 h-4 rounded-full transition-colors motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-300 ${
+                remoteEnabled ? 'bg-blue-500' : 'bg-gray-700'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform motion-reduce:transition-none ${
+                  remoteEnabled ? 'translate-x-4' : ''
+                }`}
+              />
+            </button>
+          </div>
           <CloudSessionBar onOpen={openCloud} />
           {/* Feedback for actions started outside the composer (the composer shows its own) */}
           <div role="status" aria-live="polite">
@@ -1515,7 +1713,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               <PeekPanel
                 session={peekSession}
                 onClose={() => setPeekId(null)}
-                onAttach={() => attach(peekSession.id)}
+                onAttach={() =>
+                  peekSession.host ? attachRemote(peekSession) : attach(peekSession.id)
+                }
                 onReply={(text) => handleReply(peekSession, text)}
               />
             </div>
@@ -1529,7 +1729,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           <PeekPanel
             session={peekSession}
             onClose={() => setPeekId(null)}
-            onAttach={() => attach(peekSession.id)}
+            onAttach={() => (peekSession.host ? attachRemote(peekSession) : attach(peekSession.id))}
             onReply={(text) => handleReply(peekSession, text)}
           />
         </div>

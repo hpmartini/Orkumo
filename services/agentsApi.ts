@@ -17,6 +17,8 @@ import type {
   AgentSession,
   AgentNotification,
   AgentContext,
+  RemoteAgentsResponse,
+  AgentServerStats,
 } from '../types';
 
 const API_BASE = API_BASE_URL;
@@ -76,6 +78,18 @@ export async function fetchAgentContexts(): Promise<Record<string, AgentContext>
   return contexts;
 }
 
+/** CPU/memory per server pid; pids that vanished are missing from the result. */
+export async function fetchServerStats(
+  pids: number[],
+  signal?: AbortSignal
+): Promise<AgentServerStats[]> {
+  const { stats } = await request<{ stats: AgentServerStats[] }>(
+    `/agents/servers/stats${query({ pids: pids.join(',') })}`,
+    { signal }
+  );
+  return stats;
+}
+
 export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatchResult> {
   return request<AgentDispatchResult>('/agents/dispatch', {
     method: 'POST',
@@ -92,6 +106,16 @@ export function openCloudSession(target?: string): Promise<{ args: string[] }> {
 
 export function fetchAgentLogs(id: string, lines = 40): Promise<AgentLogs> {
   return request<AgentLogs>(`/agents/${encodeURIComponent(id)}/logs${query({ lines })}`);
+}
+
+export function fetchRemoteAgents(): Promise<RemoteAgentsResponse> {
+  return request<RemoteAgentsResponse>('/agents/remote');
+}
+
+export function fetchRemoteAgentLogs(host: string, id: string): Promise<AgentLogs> {
+  return request<AgentLogs>(
+    `/agents/remote/${encodeURIComponent(host)}/${encodeURIComponent(id)}/logs`
+  );
 }
 
 export function replyToAgent(
