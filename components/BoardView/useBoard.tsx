@@ -28,7 +28,7 @@ export function undoToast(message: string, onUndo: () => void) {
         </button>
       </span>
     ),
-    { duration: 6000 }
+    { duration: 10000 }
   );
 }
 
