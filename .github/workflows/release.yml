@@ -16,7 +16,7 @@ jobs:
         include:
           - { os: macos-latest, flags: '--mac --arm64' }
           - { os: macos-15-intel, flags: '--mac --x64' }
-          - { os: windows-latest, flags: '--win --x64' }
+          - { os: windows-2022, flags: '--win --x64' }
           - { os: ubuntu-latest, flags: '--linux --x64' }
     runs-on: ${{ matrix.os }}
 

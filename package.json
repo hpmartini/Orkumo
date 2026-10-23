@@ -38,10 +38,10 @@
     "bundle:server": "node scripts/bundle-server.js",
     "electron:rebuild": "electron-rebuild",
     "electron:build": "bun run build && bun run bundle:server && bun run electron:rebuild && electron-builder",
-    "electron:build:mac": "bun run build && bun run bundle:server && bun run electron:rebuild && electron-builder --mac",
-    "electron:build:win": "bun run build && electron-builder --win",
-    "electron:build:linux": "bun run build && electron-builder --linux",
-    "electron:build:all": "bun run build && electron-builder --mac --win --linux",
+    "electron:build:mac": "bun run build && bun run bundle:server && bun run electron:rebuild && electron-builder --mac --x64 --arm64",
+    "electron:build:win": "bun run build && electron-builder --win --x64 --arm64",
+    "electron:build:linux": "bun run build && electron-builder --linux --x64 --arm64",
+    "electron:build:all": "bun run build && electron-builder --mac --win --linux --x64 --arm64",
     "prepare": "husky"
   },
   "dependencies": {
@@ -117,5 +117,7 @@
     "vite": "^6.2.0",
     "vitest": "^4.0.16",
     "wait-on": "^9.0.3"
-  }
+  },
+  "description": "Developer dashboard for managing local development applications",
+  "author": "Hans-Peter Martini <hpm@martini-labs.de>"
 }
