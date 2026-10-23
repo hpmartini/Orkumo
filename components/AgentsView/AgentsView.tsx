@@ -1388,7 +1388,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             nav={nav}
             grouping={settings.grouping}
             onGrouping={(grouping) => updateSettings({ grouping })}
-            onCollapseAll={() => rail.collapseAll(groups.map((g) => g.key))}
+            onCollapseAll={() =>
+              rail.collapseAll([FAVORITES_GROUP_KEY, ...groups.map((g) => g.key)])
+            }
             onExpandAll={() => rail.expandAll()}
             collapseDisabled={quickFilters.size > 0}
           />

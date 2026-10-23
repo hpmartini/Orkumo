@@ -56,7 +56,7 @@ export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent,
         <button
           onClick={onClose}
           aria-label="Close"
-          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+          className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
         >
           <X size={14} />
         </button>
@@ -106,7 +106,7 @@ export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent,
                   href={`http://localhost:${server.port}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+                  className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
                   aria-label={`Open localhost:${server.port}`}
                   title="Open"
                 >
@@ -114,7 +114,7 @@ export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent,
                 </a>
                 <button
                   onClick={() => copy(server.port)}
-                  className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+                  className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
                   aria-label={`Copy URL of port ${server.port}`}
                   title="Copy URL"
                 >

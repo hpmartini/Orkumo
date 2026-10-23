@@ -99,7 +99,7 @@ const worktreeTitle = (repo: NonNullable<AgentContext['repo']>) =>
 
 /** Text cue (not only colour) for the session open in the workspace */
 const ActivePill: React.FC = () => (
-  <span className="shrink-0 rounded border border-blue-300/50 px-1 text-[10px] font-normal leading-4 text-blue-200">
+  <span className="shrink-0 rounded border border-blue-300/50 px-1 text-[11px] font-normal leading-4 text-blue-200">
     active
   </span>
 );
@@ -119,7 +119,7 @@ const FavoriteButton: React.FC<{
     aria-pressed={active}
     aria-label={label}
     title={label}
-    className={`shrink-0 flex items-center justify-center min-h-6 min-w-6 rounded hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
+    className={`shrink-0 flex items-center justify-center min-h-8 min-w-8 rounded hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
       active || alwaysVisible
         ? 'opacity-100'
         : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
@@ -229,23 +229,113 @@ export const AgentList: React.FC<AgentListProps> = ({
     setDropKey(null);
   };
 
+  // After a keyboard move the selection stays on the moved group, not on its old index
+  const followGroup = useRef<string | null>(null);
+  useEffect(() => {
+    const key = followGroup.current;
+    if (!key) return;
+    const at = items.findIndex((i) => i.type === 'group' && i.group.key === key);
+    if (at >= 0 && at !== selectedIndex) onSelectIndex(at);
+    followGroup.current = null;
+  }, [items, selectedIndex, onSelectIndex]);
+
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuByKeyboard = useRef(false);
+
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      // Arrow keys are handled by the menu itself
+      if (e.key === 'Escape' || e.key === 'Tab') setMenu(null);
+    };
     document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', close);
+    document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', close);
+      document.removeEventListener('keydown', onKey);
     };
+  }, [menu]);
+
+  // Keyboard-opened menu takes focus; closing hands it back to the rail
+  useEffect(() => {
+    if (!menu) return;
+    if (menuByKeyboard.current) {
+      menuRef.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+      const rail = listRef.current?.closest<HTMLElement>('[data-focus-zone="rail"]');
+      return () => {
+        menuByKeyboard.current = false;
+        rail?.focus();
+      };
+    }
   }, [menu]);
 
   const openMenu = (index: number, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     onSelectIndex(index);
+    menuByKeyboard.current = false;
     setMenu({ index, x: e.clientX, y: e.clientY });
   };
+
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const buttons = Array.from(
+      menuRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []
+    );
+    if (buttons.length === 0) return;
+    const at = buttons.indexOf(document.activeElement as HTMLElement);
+    const next =
+      e.key === 'Home'
+        ? 0
+        : e.key === 'End'
+          ? buttons.length - 1
+          : (at + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next].focus();
+  };
+
+  // ContextMenu / Shift+F10 open the menu for the selected row; Alt+Up/Down moves the selected group.
+  // Capture phase: these chords must not reach the rail's own arrow-key navigation.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const rail = listRef.current?.closest('[data-focus-zone="rail"]');
+      if (!rail || !(e.target instanceof Node) || !rail.contains(e.target)) return;
+      if (menu) return;
+      const opensMenu = e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey);
+      const item = items[selectedIndex];
+      if (opensMenu && item) {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = listRef.current?.querySelector<HTMLElement>(
+          `[data-nav-index="${selectedIndex}"]`
+        );
+        const rect = row?.getBoundingClientRect();
+        menuByKeyboard.current = true;
+        setMenu({
+          index: selectedIndex,
+          x: (rect?.left ?? 0) + 24,
+          y: (rect?.top ?? 0) + (rect?.height ?? 0) / 2,
+        });
+        return;
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        if (item?.type !== 'group') return;
+        const key: string = item.group.key;
+        const target = canReorder(key) ? neighbour(key, e.key === 'ArrowUp' ? -1 : 1) : null;
+        e.preventDefault();
+        e.stopPropagation();
+        if (target) {
+          followGroup.current = key;
+          onMoveGroup?.(key, target, reorderableKeys);
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey, { capture: true });
+    return () => document.removeEventListener('keydown', onKey, { capture: true });
+  });
 
   const menuItem = menu ? items[menu.index] : null;
   const favoriteAction = (isFav: boolean, toggle: (() => void) | undefined): AgentRowAction[] =>
@@ -378,7 +468,13 @@ export const AgentList: React.FC<AgentListProps> = ({
                   >
                     <button
                       aria-expanded={!collapsed}
-                      className="text-gray-400 hover:text-white rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onSelectIndex(index);
+                        if (onToggleGroup) onToggleGroup(item.group.key);
+                        else onActivate(item);
+                      }}
+                      className="p-1 -m-1 text-gray-400 hover:text-white rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
                       aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${item.group.title}`}
                     >
                       {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
@@ -502,7 +598,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                       {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
                       {isOpen && (
                         <span
-                          className="shrink-0 inline-flex items-center gap-0.5 rounded border border-blue-300/50 px-1 text-[10px] font-normal leading-4 text-blue-200"
+                          className="shrink-0 inline-flex items-center gap-0.5 rounded border border-blue-300/50 px-1 text-[11px] font-normal leading-4 text-blue-200"
                           title={
                             isActive ? 'Attached, shown in the workspace' : 'Attached in a tab'
                           }
@@ -511,7 +607,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                           {isActive ? 'active' : 'attached'}
                         </span>
                       )}
-                      {session.loop && <span className="text-[10px] text-blue-300">loop</span>}
+                      {session.loop && <span className="text-[11px] text-blue-300">loop</span>}
                       <span className="flex-1" />
                       <span className="text-xs text-gray-500 font-mono shrink-0" title="Age">
                         {age}
@@ -549,7 +645,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                             )}
                             {ctx.repo.isWorktree && (
                               <span
-                                className="shrink-0 rounded border border-sky-300/40 px-1 text-[10px] leading-4 text-sky-300"
+                                className="shrink-0 rounded border border-sky-300/40 px-1 text-[11px] leading-4 text-sky-300"
                                 title={`Git ${worktreeTitle(ctx.repo)}`}
                               >
                                 worktree
@@ -670,7 +766,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         e.stopPropagation();
                         onTogglePeek(session);
                       }}
-                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
                       title="Peek (Space)"
                       aria-label="Peek"
                     >
@@ -696,6 +792,8 @@ export const AgentList: React.FC<AgentListProps> = ({
         <div
           className="fixed z-50 w-max min-w-[10rem] max-w-[14rem] bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 text-sm"
           role="menu"
+          ref={menuRef}
+          onKeyDown={onMenuKeyDown}
           style={{
             left: Math.min(menu.x, window.innerWidth - 232),
             top: Math.min(menu.y, window.innerHeight - 320),
