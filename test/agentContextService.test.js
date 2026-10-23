@@ -1,4 +1,8 @@
 import { describe, it, expect, vi } from 'vitest';
+import { execFileSync } from 'child_process';
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
 // node-pty is a native module - keep it out of the unit test
 vi.mock('node-pty', () => ({ spawn: vi.fn() }));
@@ -12,6 +16,9 @@ const {
   parseListeningSockets,
   parseCwds,
   dirOwnsCwd,
+  resolveRepoIdentity,
+  gitInfo,
+  parseModelFromTranscript,
 } = await import('../server/services/agentContextService.js');
 
 describe('agentContextService - parseGithubSlug', () => {
@@ -135,5 +142,105 @@ describe('agentContextService - listening servers', () => {
     expect(dirOwnsCwd('/a/b', '/a/b/c')).toBe(true);
     expect(dirOwnsCwd('/a/b', '/a/bc')).toBe(false);
     expect(dirOwnsCwd('/', '/a')).toBe(false);
+  });
+});
+
+describe('agentContextService - resolveRepoIdentity', () => {
+  it('main checkout keeps its own folder name', () => {
+    expect(
+      resolveRepoIdentity({ top: '/a/proj', gitDir: '/a/proj/.git', commonDir: '/a/proj/.git' })
+    ).toEqual({ name: 'proj', isWorktree: false, worktreeName: null, worktreePath: null });
+  });
+  it('linked worktree resolves to the main checkout name', () => {
+    expect(
+      resolveRepoIdentity({
+        top: '/a/proj/.claude/worktrees/feat',
+        gitDir: '/a/proj/.git/worktrees/feat',
+        commonDir: '/a/proj/.git',
+      })
+    ).toEqual({
+      name: 'proj',
+      isWorktree: true,
+      worktreeName: 'feat',
+      worktreePath: '/a/proj/.claude/worktrees/feat',
+    });
+  });
+  it('bare repo strips the .git suffix', () => {
+    expect(
+      resolveRepoIdentity({
+        top: '/w/feat',
+        gitDir: '/r/proj.git/worktrees/feat',
+        commonDir: '/r/proj.git',
+      }).name
+    ).toBe('proj');
+  });
+  it('submodule (git-dir == common-dir) is not a worktree', () => {
+    const dir = '/a/proj/.git/modules/sub';
+    expect(
+      resolveRepoIdentity({ top: '/a/proj/sub', gitDir: dir, commonDir: dir }).isWorktree
+    ).toBe(false);
+  });
+});
+
+describe('agentContextService - gitInfo with a real git worktree', () => {
+  it('names a linked worktree after the main repository', async () => {
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'devorbit-wt-')));
+    try {
+      const main = path.join(root, 'main-repo');
+      const git = (...args) =>
+        execFileSync('git', ['-C', main, '-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+          stdio: 'ignore',
+        });
+      fs.mkdirSync(main);
+      git('init', '-q');
+      git('commit', '-q', '--allow-empty', '-m', 'init');
+      const wt = path.join(main, '.claude', 'worktrees', 'feature-x');
+      git('worktree', 'add', '-q', '-b', 'feature-x', wt);
+
+      expect(await gitInfo(main)).toMatchObject({
+        name: 'main-repo',
+        isWorktree: false,
+        worktreeName: null,
+      });
+      expect(await gitInfo(wt)).toMatchObject({
+        name: 'main-repo',
+        isWorktree: true,
+        worktreeName: 'feature-x',
+        branch: 'feature-x',
+      });
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('agentContextService - parseModelFromTranscript', () => {
+  const line = (o) => JSON.stringify(o);
+  const asst = (model, extra = {}) => line({ type: 'assistant', message: { model }, ...extra });
+
+  it('returns the model of the latest assistant entry (model switch mid-session)', () => {
+    const text = [
+      line({ type: 'user', message: { role: 'user' } }),
+      asst('claude-sonnet-5-5'),
+      line({ type: 'user', message: { role: 'user' } }),
+      asst('claude-opus-5-5'),
+      '',
+    ].join('\n');
+    expect(parseModelFromTranscript(text)).toBe('claude-opus-5-5');
+  });
+  it('skips synthetic and sub-agent entries', () => {
+    const text = [
+      asst('claude-opus-5-5'),
+      asst('claude-haiku-5-5', { isSidechain: true }),
+      asst('<synthetic>'),
+    ].join('\n');
+    expect(parseModelFromTranscript(text)).toBe('claude-opus-5-5');
+  });
+  it('tolerates a partial first line and returns null without assistant entries', () => {
+    expect(parseModelFromTranscript('ial":"x"}\n' + asst('claude-sonnet-5-5'))).toBe(
+      'claude-sonnet-5-5'
+    );
+    expect(parseModelFromTranscript('{"type":"user"}\nnot json')).toBeNull();
+    expect(parseModelFromTranscript('')).toBeNull();
   });
 });

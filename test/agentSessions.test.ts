@@ -13,6 +13,9 @@ import {
   applyQuickFilters,
   matchServers,
   summarizeContext,
+  mainRepoPath,
+  repoName,
+  formatModelName,
   type SessionLookup,
 } from '../utils/agentSessions';
 import type { AgentSession } from '../types';
@@ -274,5 +277,79 @@ describe('groupSessions (project)', () => {
       'session',
       'session',
     ]);
+  });
+
+  it('groups unmatched worktree sessions with their main repo before contexts load', () => {
+    const sessions = [
+      session({ id: 'm', cwd: '/tmp/proj' }),
+      session({ id: 'w1', cwd: '/tmp/proj/.claude/worktrees/feat' }),
+      session({ id: 'w2', cwd: '/tmp/proj', worktree: '/tmp/proj/.worktrees/fix' }),
+    ];
+    const groups = groupSessions(sessions, 'project', { apps });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      key: 'project:dir:/tmp/proj',
+      title: 'proj',
+      cwd: '/tmp/proj',
+    });
+    expect(groups[0].sessions).toHaveLength(3);
+  });
+
+  it('groups a worktree with its DevOrbit app', () => {
+    const sessions = [
+      session({ id: 'a', cwd: '/code/api' }),
+      session({ id: 'b', cwd: '/code/api/.claude/worktrees/agents-ui' }),
+    ];
+    const groups = groupSessions(sessions, 'project', { apps });
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:api', 'api', 2],
+    ]);
+  });
+});
+
+describe('repoName / mainRepoPath', () => {
+  const ctx = (name: string) =>
+    ({ repo: { name } }) as unknown as NonNullable<SessionLookup['contexts']>[string];
+
+  it('derives the main repo from worktree paths', () => {
+    expect(mainRepoPath('/a/proj/.claude/worktrees/x')).toBe('/a/proj');
+    expect(mainRepoPath('/a/proj/.claude/worktrees/x/sub')).toBe('/a/proj');
+    expect(mainRepoPath('/a/proj/.worktrees/x')).toBe('/a/proj');
+    expect(mainRepoPath('/a/proj')).toBe('/a/proj');
+    expect(mainRepoPath('/a/my.worktrees-x')).toBe('/a/my.worktrees-x');
+  });
+
+  it('prefers the context repo name, else the path-derived main name', () => {
+    const s = session({ id: 's', cwd: '/a/proj/.claude/worktrees/feat' });
+    expect(repoName(s)).toBe('proj');
+    expect(repoName(s, { contexts: { s: ctx('Real') } })).toBe('Real');
+    expect(repoName(session({ id: 't', cwd: '/a/plain' }))).toBe('plain');
+  });
+});
+
+describe('formatModelName', () => {
+  it.each([
+    ['claude-opus-5-5', 'Opus 5.5'],
+    ['claude-sonnet-5-5', 'Sonnet 5.5'],
+    ['claude-haiku-5-5', 'Haiku 5.5'],
+    ['claude-fable-5-1', 'Fable 5.1'],
+    ['claude-opus-5', 'Opus 5'],
+    ['claude-opus-4-7', 'Opus 4.7'],
+    ['claude-haiku-4-5-20251001', 'Haiku 4.5'],
+    ['claude-opus-4-20250514', 'Opus 4'],
+    ['claude-3-5-sonnet-20241022', 'Sonnet 3.5'],
+    ['claude-3-opus-20240229', 'Opus 3'],
+    ['claude-opus-5-5[1m]', 'Opus 5.5'],
+    ['sonnet', 'sonnet'],
+    ['gpt-4o', 'gpt-4o'],
+  ])('%s -> %s', (id, label) => {
+    expect(formatModelName(id)).toBe(label);
+  });
+
+  it('ignores synthetic and empty ids', () => {
+    expect(formatModelName('<synthetic>')).toBeNull();
+    expect(formatModelName('')).toBeNull();
+    expect(formatModelName(null)).toBeNull();
+    expect(formatModelName(undefined)).toBeNull();
   });
 });

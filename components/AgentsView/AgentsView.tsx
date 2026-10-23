@@ -25,6 +25,11 @@ import { useRemoteAgents } from '../../hooks/useRemoteAgents';
 import { buildSshAttachArgs } from '../../utils/meshHosts';
 import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
 import { useAgentContexts } from '../../hooks/useAgentContexts';
+import {
+  useRailPreferences,
+  groupNeighbour,
+  FAVORITES_GROUP_KEY,
+} from '../../hooks/useRailPreferences';
 import { FOCUS_CHORD_LABEL, useAgentFocusZone } from '../../hooks/useAgentFocusZone';
 import {
   dispatchAgent,
@@ -51,6 +56,7 @@ import {
   mergeServers,
   collectPullRequests,
   summarizeContext,
+  formatModelName,
   DEFAULT_SORT,
   QUICK_FILTERS,
   SORT_OPTIONS,
@@ -220,7 +226,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const filter = useMemo(() => parseFilter(input), [input]);
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
   const railRef = useRef<HTMLDivElement>(null);
-  const { zone: focusZone } = useAgentFocusZone(active, railRef);
+  const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
   const contexts = useAgentContexts(active);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
@@ -275,21 +281,37 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   }, [sessions, lookup]);
   const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
   // An active quick filter must not hide its matches inside collapsed groups
+  const rail = useRailPreferences(settings.grouping);
+  const {
+    arrange,
+    toggleCollapsed,
+    moveGroup,
+    toggleFavoriteGroup,
+    toggleFavoriteSession,
+    favoriteGroups,
+  } = rail;
   const collapsed = useMemo(
-    () => new Set(quickFilters.size ? [] : settings.collapsedGroups),
-    [settings.collapsedGroups, quickFilters]
+    () => (quickFilters.size ? new Set<string>() : rail.collapsed),
+    [rail.collapsed, quickFilters]
   );
   const groups = useMemo(
     () =>
-      groupSessions(shownSessions, settings.grouping, {
-        // Filtering for Completed means the user wants all of them, not "… N more"
-        expandedCompleted: expandedCompleted || quickFilters.has('completed'),
-        sort,
-        lookup,
-        apps,
-      }),
-    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps]
+      arrange(
+        groupSessions(shownSessions, settings.grouping, {
+          // Filtering for Completed means the user wants all of them, not "… N more"
+          expandedCompleted: expandedCompleted || quickFilters.has('completed'),
+          sort,
+          lookup,
+          apps,
+        })
+      ),
+    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps, arrange]
   );
+  // Session of the active workspace tab: marked and revealed in the rail
+  const activeSessionId = useMemo(() => {
+    const id = workspace.tabs.find((t) => t.id === workspace.activeTabId)?.activeSessionId;
+    return id && sessions.some((s) => s.id === id) ? id : null;
+  }, [workspace.tabs, workspace.activeTabId, sessions]);
   const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
   const items = useMemo(() => {
     const flat = flattenGroups(
@@ -495,14 +517,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setSelectedKey(session.id);
   }, []);
 
+  // Single click on an already attached agent: switch to its tab/pane and put the cursor in the terminal
+  const focusOpen = useCallback(
+    (id: string) => {
+      attach(id);
+      requestAnimationFrame(() => moveFocus('terminal'));
+    },
+    [attach, moveFocus]
+  );
+
   const toggleGroup = useCallback(
     (group: SessionGroup) => {
-      const next = collapsed.has(group.key)
-        ? settings.collapsedGroups.filter((k) => k !== group.key)
-        : [...settings.collapsedGroups, group.key];
-      updateSettings({ collapsedGroups: next });
+      // Quick filters force all groups open, so a toggle would change nothing visible
+      if (quickFilters.size > 0) showHint('Clear the filters to collapse groups', 'info');
+      else toggleCollapsed(group.key);
     },
-    [collapsed, settings.collapsedGroups, updateSettings]
+    [toggleCollapsed, quickFilters, showHint]
   );
 
   const activateItem = useCallback(
@@ -764,6 +794,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   const handleReorder = useCallback(
     async (direction: 'up' | 'down') => {
+      if (selectedItem?.type === 'group') {
+        // Same rule as the group menu: favorites stay a block of their own
+        const key: string = selectedItem.group.key;
+        const keys = items.flatMap((i) =>
+          i.type === 'group' && (i.group.key as string) !== FAVORITES_GROUP_KEY
+            ? [i.group.key as string]
+            : []
+        );
+        const target =
+          key !== 'all' &&
+          groupNeighbour(keys, [...favoriteGroups], key, direction === 'up' ? -1 : 1);
+        if (target) moveGroup(key, target, keys);
+        return;
+      }
       if (!selectedItem || selectedItem.type !== 'session') return;
       const group = selectedItem.group;
       const ids = group.sessions.map((s) => s.id);
@@ -778,7 +822,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         toast.error(err instanceof Error ? err.message : 'Reorder failed');
       }
     },
-    [selectedItem, refresh]
+    [selectedItem, items, favoriteGroups, moveGroup, refresh]
   );
 
   const handleReply = useCallback(
@@ -940,7 +984,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           break;
         case ' ':
           e.preventDefault();
-          togglePeek(selectedSession);
+          if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
+          else togglePeek(selectedSession);
           break;
         case 'Escape':
           if (peekId) setPeekId(null);
@@ -949,6 +994,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           if (e.ctrlKey || e.metaKey || e.altKey) break;
           e.preventDefault();
           setComposerOpen(true);
+          break;
+        case 'F': // Shift+F: plain F is the app-wide "open favorites" shortcut
+          if (e.ctrlKey || e.metaKey || e.altKey || !selectedItem) break;
+          if (selectedItem.type === 'group') {
+            const key: string = selectedItem.group.key;
+            if (key !== FAVORITES_GROUP_KEY && key !== 'all') toggleFavoriteGroup(key);
+          } else if (selectedItem.type === 'session') {
+            toggleFavoriteSession(selectedItem.session.id);
+          }
+          e.preventDefault();
           break;
         default:
           break;
@@ -975,8 +1030,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     attachNth,
     handleStopOrDelete,
     handleReorder,
+    toggleFavoriteGroup,
+    toggleFavoriteSession,
     moveSelection,
     activateItem,
+    toggleGroup,
     togglePeek,
     attach,
     onExit,
@@ -1228,6 +1286,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   useRegisterCommands('agents', paletteCommands);
 
   const defaultModel = settings.dispatch.model || userSettings?.model || 'default';
+  // Model of the open agent; the dispatch default only stands in when it is unknown
+  const activeModel = formatModelName(activeSessionId ? contexts[activeSessionId]?.model : null);
+  const modelLabel =
+    activeModel ?? (defaultModel === 'default' ? 'default' : `default: ${defaultModel}`);
+  const modelTitle = activeModel
+    ? 'Model of the open agent (from its session)'
+    : 'Dispatch model for new agents (/model)';
 
   if (disabled) {
     return (
@@ -1325,8 +1390,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           <kbd className="kbd">{FOCUS_CHORD_LABEL}</kbd>
           <span className="text-gray-400 hidden xl:inline">switches</span>
         </div>
+        <span className="text-[11px] text-gray-500 font-mono" title={modelTitle}>
+          model {modelLabel}
+          <span className="sr-only"> ({modelTitle})</span>
+        </span>
         <div className="hidden xl:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
-          <span title="Dispatch model (/model)">model {defaultModel}</span>
           {settings.dispatch.effort && (
             <span title="Dispatch effort (/effort)">effort {settings.dispatch.effort}</span>
           )}
@@ -1414,6 +1482,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             nav={nav}
             grouping={settings.grouping}
             onGrouping={(grouping) => updateSettings({ grouping })}
+            onCollapseAll={() =>
+              rail.collapseAll([FAVORITES_GROUP_KEY, ...groups.map((g) => g.key)])
+            }
+            onExpandAll={() => rail.expandAll()}
+            collapseDisabled={quickFilters.size > 0}
           />
           <AgentFilterBar
             sort={sort}
@@ -1443,6 +1516,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               onTogglePeek={togglePeek}
               peekId={peekId}
               openIds={openIdSet}
+              onFocusOpen={focusOpen}
               now={now}
               grouping={settings.grouping}
               contexts={contexts}
@@ -1456,6 +1530,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               groupActions={groupActions}
               highlightedId={highlightedId}
               collapsedKeys={collapsed}
+              activeSessionId={activeSessionId}
+              onRevealActive={(id) => rail.revealSession(groups, id)}
+              onToggleGroup={toggleCollapsed}
+              favoriteGroupKeys={rail.favoriteGroups}
+              favoriteSessionIds={rail.favoriteSessions}
+              onToggleFavoriteGroup={rail.toggleFavoriteGroup}
+              onToggleFavoriteSession={rail.toggleFavoriteSession}
+              onMoveGroup={rail.moveGroup}
               appsById={appsById}
               nav={nav}
               bottom={
