@@ -142,6 +142,17 @@ export function filterItems(
   });
 }
 
+/** Search box: "label:ui" matches label names, anything else "#nr title" (repo included). */
+export function matchesQuery(item: BoardItem, query: string): boolean {
+  const q = query.trim().toLowerCase();
+  if (!q) return true;
+  if (q.startsWith('label:')) {
+    const name = q.slice(6).trim();
+    return item.labels.some((l) => l.name.toLowerCase().includes(name));
+  }
+  return `${item.repo ?? ''}#${item.number ?? ''} ${item.title}`.toLowerCase().includes(q);
+}
+
 /** Moves `key` before `beforeKey` (null = to the end). Keys of other kinds in `order` are kept. */
 export function moveSliceKey(
   order: string[],

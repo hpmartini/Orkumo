@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { AlertTriangle, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react';
 import type { AgentSession, BoardItem, BoardSliceKind, BoardSwimlaneMode } from '../../types';
 import {
   boardColumns,
@@ -13,6 +13,7 @@ import {
   itemKey,
   linksByAgent,
   linksByIssue,
+  matchesQuery,
   moveSliceKey,
   type SliceEntry,
 } from '../../utils/board';
@@ -74,6 +75,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
   const { sessions } = useAgentSessions({ active });
   const [view, setView] = useState<ViewPrefs>(loadView);
   const [doneOpen, setDoneOpen] = useState(false);
+  const [query, setQuery] = useState('');
 
   const updateView = (patch: Partial<ViewPrefs>) => {
     const next = { ...view, ...patch };
@@ -129,15 +131,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
     [items, sliceKind, selected, prefs.hidden]
   );
   const visible = useMemo(() => {
-    if (!agentFilter) return scoped;
-    const keys = new Set(issuesByAgent.get(agentFilter) ?? []);
-    return filterItems(items, {
-      kind: sliceKind,
-      selected,
-      hidden: prefs.hidden,
-      agentIssueKeys: keys,
-    });
-  }, [agentFilter, scoped, issuesByAgent, items, sliceKind, selected, prefs.hidden]);
+    const byAgent = agentFilter
+      ? filterItems(items, {
+          kind: sliceKind,
+          selected,
+          hidden: prefs.hidden,
+          agentIssueKeys: new Set(issuesByAgent.get(agentFilter) ?? []),
+        })
+      : scoped;
+    return query.trim() ? byAgent.filter((i) => matchesQuery(i, query)) : byAgent;
+  }, [agentFilter, scoped, issuesByAgent, items, sliceKind, selected, prefs.hidden, query]);
 
   const columns = useMemo(() => boardColumns(options, visible), [options, visible]);
   const lanes = useMemo(
@@ -263,6 +266,21 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
               ))}
             </select>
           </label>
+          <div className="relative">
+            <Search
+              size={14}
+              className="absolute left-2 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none"
+            />
+            <input
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Escape' && setQuery('')}
+              placeholder="Filtern: Titel, #Nr, label:ui"
+              aria-label="Board filtern"
+              className="w-56 bg-gray-850 border border-gray-700 rounded pl-7 pr-2 py-1 text-xs text-gray-100 placeholder:text-gray-400 focus:outline-none focus:border-blue-500"
+            />
+          </div>
           <button
             onClick={refresh}
             disabled={loading}
@@ -333,6 +351,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
           onStatus={(optionId) => moveItem(openItem.itemId, optionId)}
           onOpenKey={(key) => setParam('item', key)}
           onAttach={(jobId) => navigate(`/agents?attach=${encodeURIComponent(jobId)}`)}
+          onStartAgent={(it) =>
+            navigate(`/agents?dispatch=${encodeURIComponent(`Bearbeite ${it.url} `)}`)
+          }
           onAgentIssues={(jobId) =>
             setSearchParams((prev) => {
               const next = new URLSearchParams(prev);

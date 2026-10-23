@@ -13,6 +13,7 @@ import {
   sliceKey,
   buildSlices,
   filterItems,
+  matchesQuery,
   moveSliceKey,
   buildLanes,
   deriveAgentLinks,
@@ -205,6 +206,32 @@ describe('slices', () => {
       expect(filterItems(all, { kind: 'repo', selected: null, hidden: [], agentIssueKeys: keys })).toEqual([c, draft]);
       expect(filterItems(all, { kind: 'repo', selected: null, hidden: [], agentIssueKeys: null })).toEqual(all);
     });
+  });
+});
+
+describe('matchesQuery', () => {
+  const it44 = item({
+    number: 44,
+    title: 'Agent Task Board',
+    labels: [{ name: 'area: ui', color: 'fff' }],
+  });
+
+  it('matches everything for an empty query', () => {
+    expect(matchesQuery(it44, '  ')).toBe(true);
+  });
+
+  it('matches title, #nr and repo case-insensitively', () => {
+    expect(matchesQuery(it44, 'task BOARD')).toBe(true);
+    expect(matchesQuery(it44, '#44')).toBe(true);
+    expect(matchesQuery(it44, 'devhub#44')).toBe(true);
+    expect(matchesQuery(it44, '#45')).toBe(false);
+    expect(matchesQuery(it44, 'mesh')).toBe(false);
+  });
+
+  it('label: prefix searches label names only', () => {
+    expect(matchesQuery(it44, 'label:ui')).toBe(true);
+    expect(matchesQuery(it44, 'label: area')).toBe(true);
+    expect(matchesQuery(it44, 'label:board')).toBe(false);
   });
 });
 

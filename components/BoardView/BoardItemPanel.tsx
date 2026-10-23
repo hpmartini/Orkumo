@@ -1,5 +1,14 @@
 import React, { useEffect, useRef } from 'react';
-import { Bot, ExternalLink, Funnel, GitPullRequest, ListChecks, Terminal, X } from 'lucide-react';
+import {
+  Bot,
+  ExternalLink,
+  Funnel,
+  GitPullRequest,
+  ListChecks,
+  Play,
+  Terminal,
+  X,
+} from 'lucide-react';
 import type { AgentSession, BoardItem, BoardStatusOption } from '../../types';
 import { issueKey, itemKey, type AgentIssueLink } from '../../utils/board';
 import { AgentGlyph, CheckIcon, ItemIcon, LabelChip } from './BoardCard';
@@ -20,6 +29,8 @@ interface BoardItemPanelProps {
   onOpenKey: (key: string) => void;
   onAttach: (jobId: string) => void;
   onAgentIssues: (jobId: string) => void;
+  /** Opens the agent task composer prefilled with this issue */
+  onStartAgent: (item: BoardItem) => void;
 }
 
 const Muted: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -37,6 +48,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
   onOpenKey,
   onAttach,
   onAgentIssues,
+  onStartAgent,
 }) => {
   const closeRef = useRef<HTMLButtonElement>(null);
   const key = itemKey(item);
@@ -201,9 +213,18 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
               })}
             </ul>
           ) : (
-            <p className="rounded-md border border-dashed border-gray-700 px-3 py-3 text-xs text-gray-400">
+            <div className="rounded-md border border-dashed border-gray-700 px-3 py-3 text-xs text-gray-400 flex items-center gap-2">
               Kein Agent verknüpft.
-            </p>
+              {item.url && (
+                <button
+                  onClick={() => onStartAgent(item)}
+                  className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-gray-200 hover:text-white hover:bg-gray-800 transition-colors"
+                >
+                  <Play size={14} />
+                  Agent starten
+                </button>
+              )}
+            </div>
           )}
         </section>
 
