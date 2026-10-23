@@ -409,383 +409,400 @@ export const AgentList: React.FC<AgentListProps> = ({
             )}
           </div>
         )}
-        {clusters.map((cluster) => (
-          <div
-            key={`card-${cluster[0]}`}
-            role="presentation"
-            className="rounded-lg border border-gray-700 bg-gray-850 overflow-hidden"
-          >
-            {cluster.map((index) => {
-              const item = items[index];
-              const selected = index === selectedIndex;
-              if (item.type === 'group') {
-                const count = item.group.sessions.length + item.group.hidden.length;
-                const collapsed = collapsedKeys.has(item.group.key);
-                const groupKey: string = item.group.key;
-                const isFavSection = groupKey === FAVORITES_GROUP_KEY;
-                const groupFav = isFavGroup(groupKey);
-                const app = item.group.appId ? appsById?.get(item.group.appId) : undefined;
-                return (
-                  <div
-                    key={`group-${item.group.key}`}
-                    data-nav-index={index}
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => {
-                      onSelectIndex(index);
-                      if (onToggleGroup) onToggleGroup(item.group.key);
-                      else onActivate(item);
-                    }}
-                    onContextMenu={(e) => openMenu(index, e)}
-                    draggable={canReorder(groupKey)}
-                    onDragStart={(e) => {
-                      e.dataTransfer.setData(RAIL_GROUP_MIME, groupKey);
-                      e.dataTransfer.effectAllowed = 'move';
-                      setDrag(groupKey);
-                    }}
-                    onDragOver={(e) => {
-                      if (!canDropOn(groupKey)) return;
-                      e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
-                      setDropKey(groupKey);
-                    }}
-                    onDragLeave={() => setDropKey((k) => (k === groupKey ? null : k))}
-                    onDrop={(e) => {
-                      if (!drag || !canDropOn(groupKey)) return;
-                      e.preventDefault();
-                      onMoveGroup?.(drag, groupKey, reorderableKeys);
-                      endDrag();
-                    }}
-                    onDragEnd={endDrag}
-                    className={`group flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-pointer select-none ${
-                      dropKey === groupKey ? 'ring-2 ring-inset ring-blue-300 ' : ''
-                    }${drag === groupKey ? 'opacity-50 ' : ''}${
-                      selected
-                        ? selectedClass(railFocused)
-                        : `bg-gray-800 text-gray-300 hover:text-white ${collapsed ? '' : 'border-b border-gray-700'}`
-                    }`}
-                    title={grouping === 'directory' ? item.group.title : undefined}
-                  >
-                    <button
-                      aria-expanded={!collapsed}
-                      onClick={(e) => {
-                        e.stopPropagation();
+        {clusters.map((cluster) => {
+          // Drop indicator: a line in the gap where the dragged group lands (it takes the target's slot)
+          const head = items[cluster[0]];
+          const headKey = head?.type === 'group' ? (head.group.key as string) : null;
+          const dropLine =
+            drag && headKey !== null && dropKey === headKey
+              ? reorderableKeys.indexOf(drag) < reorderableKeys.indexOf(headKey)
+                ? 'bottom'
+                : 'top'
+              : null;
+          return (
+            <div key={`card-${cluster[0]}`} role="presentation" className="relative">
+              {dropLine && (
+                <div
+                  aria-hidden="true"
+                  className={`pointer-events-none absolute inset-x-1 z-10 h-0.5 rounded-full bg-blue-300 ${
+                    dropLine === 'top' ? '-top-[5px]' : '-bottom-[5px]'
+                  }`}
+                />
+              )}
+              <div className="rounded-lg border border-gray-700 bg-gray-850 overflow-hidden">
+                {cluster.map((index) => {
+                  const item = items[index];
+                  const selected = index === selectedIndex;
+                  if (item.type === 'group') {
+                    const count = item.group.sessions.length + item.group.hidden.length;
+                    const collapsed = collapsedKeys.has(item.group.key);
+                    const groupKey: string = item.group.key;
+                    const isFavSection = groupKey === FAVORITES_GROUP_KEY;
+                    const groupFav = isFavGroup(groupKey);
+                    const app = item.group.appId ? appsById?.get(item.group.appId) : undefined;
+                    return (
+                      <div
+                        key={`group-${item.group.key}`}
+                        data-nav-index={index}
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => {
+                          onSelectIndex(index);
+                          if (onToggleGroup) onToggleGroup(item.group.key);
+                          else onActivate(item);
+                        }}
+                        onContextMenu={(e) => openMenu(index, e)}
+                        draggable={canReorder(groupKey)}
+                        onDragStart={(e) => {
+                          e.dataTransfer.setData(RAIL_GROUP_MIME, groupKey);
+                          e.dataTransfer.effectAllowed = 'move';
+                          setDrag(groupKey);
+                        }}
+                        onDragOver={(e) => {
+                          if (!canDropOn(groupKey)) return;
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                          setDropKey(groupKey);
+                        }}
+                        onDragLeave={() => setDropKey((k) => (k === groupKey ? null : k))}
+                        onDrop={(e) => {
+                          if (!drag || !canDropOn(groupKey)) return;
+                          e.preventDefault();
+                          onMoveGroup?.(drag, groupKey, reorderableKeys);
+                          endDrag();
+                        }}
+                        onDragEnd={endDrag}
+                        className={`group flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-pointer select-none ${''}${drag === groupKey ? 'opacity-50 ' : ''}${
+                          selected
+                            ? selectedClass(railFocused)
+                            : `bg-gray-800 text-gray-300 hover:text-white ${collapsed ? '' : 'border-b border-gray-700'}`
+                        }`}
+                        title={grouping === 'directory' ? item.group.title : undefined}
+                      >
+                        <button
+                          aria-expanded={!collapsed}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onSelectIndex(index);
+                            if (onToggleGroup) onToggleGroup(item.group.key);
+                            else onActivate(item);
+                          }}
+                          className="p-1 -m-1 text-gray-400 hover:text-white rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                          aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${item.group.title}`}
+                        >
+                          {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+                        </button>
+                        {app && nav ? (
+                          <>
+                            <AppStatusDot status={app.status} />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                nav.onOpenProject(app.id);
+                              }}
+                              className="truncate min-w-0 text-sm font-medium text-gray-100 hover:text-white hover:underline"
+                              title={`Open ${app.name}\n${app.path}`}
+                            >
+                              {item.group.title}
+                            </button>
+                          </>
+                        ) : (
+                          <span className="truncate min-w-0">
+                            {grouping === 'directory'
+                              ? shortenPath(item.group.title, 42)
+                              : item.group.title}
+                          </span>
+                        )}
+                        <span className="shrink-0 rounded-full bg-gray-900/60 px-1.5 text-[11px] font-normal tabular-nums text-gray-300">
+                          {count}
+                        </span>
+                        {collapsed &&
+                          activeSessionId &&
+                          [...item.group.sessions, ...item.group.hidden].some(
+                            (s) => s.id === activeSessionId
+                          ) && <ActivePill />}
+                        <span className="flex-1" />
+                        {isFavSection ? (
+                          <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
+                        ) : (
+                          onToggleFavoriteGroup && (
+                            <FavoriteButton
+                              active={groupFav}
+                              label={`${groupFav ? 'Remove' : 'Add'} ${item.group.title} ${groupFav ? 'from' : 'to'} favorites`}
+                              onToggle={() => onToggleFavoriteGroup(groupKey)}
+                            />
+                          )
+                        )}
+                        {app && nav && (
+                          <span className="shrink-0">
+                            <AppPowerButton app={app} nav={nav} />
+                          </span>
+                        )}
+                      </div>
+                    );
+                  }
+                  if (item.type === 'more') {
+                    return (
+                      <div
+                        key={`more-${item.group.key}`}
+                        data-nav-index={index}
+                        role="option"
+                        aria-selected={selected}
+                        onClick={() => onSelectIndex(index)}
+                        onDoubleClick={() => onActivate(item)}
+                        className={`px-6 py-1.5 text-xs cursor-pointer ${selected ? selectedClass(railFocused) : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
+                      >
+                        … {item.count} more
+                      </div>
+                    );
+                  }
+                  const { session } = item;
+                  const glyph = stateGlyph(session.displayState);
+                  const label = prLabel(session.links);
+                  const age = formatAge(sessionAgeMs(session, now));
+                  const isPeeking = peekId === session.id;
+                  const isOpen = openIds.has(session.id);
+                  const isActive = activeSessionId === session.id;
+                  const isFav = !!favoriteSessionIds?.has(session.id);
+                  const ctx = contexts[session.id];
+                  const sessionServers = servers.get(session.id) || [];
+                  const extra =
+                    session.state === 'blocked' && session.waitingFor
+                      ? `waiting: ${session.waitingFor}`
+                      : session.state === 'working'
+                        ? session.detail
+                        : null;
+                  return (
+                    <div
+                      key={session.id}
+                      data-nav-index={index}
+                      data-session-id={session.id}
+                      role="option"
+                      aria-selected={selected}
+                      aria-current={isActive || undefined}
+                      onClick={() => {
                         onSelectIndex(index);
-                        if (onToggleGroup) onToggleGroup(item.group.key);
-                        else onActivate(item);
+                        if (isOpen) onFocusOpen?.(session.id);
                       }}
-                      className="p-1 -m-1 text-gray-400 hover:text-white rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                      aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${item.group.title}`}
+                      onDoubleClick={() => onActivate(item)}
+                      onContextMenu={(e) => openMenu(index, e)}
+                      className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
+                        selected
+                          ? selectedClass(railFocused)
+                          : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : ''}`
+                      }`}
+                      title={`${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
                     >
-                      {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-                    </button>
-                    {app && nav ? (
-                      <>
-                        <AppStatusDot status={app.status} />
+                      <span
+                        className={`w-4 text-center shrink-0 leading-5 ${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+                        aria-hidden="true"
+                        title={glyph.label}
+                      >
+                        {glyph.glyph}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5 min-w-0 leading-5">
+                          <span className="sr-only">{glyph.label}: </span>
+                          <span
+                            className={`truncate ${highlightedId === session.id ? 'font-bold' : 'font-medium'}`}
+                          >
+                            {session.name}
+                          </span>
+                          {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
+                          {isOpen && (
+                            <span
+                              className="shrink-0 inline-flex items-center gap-0.5 rounded border border-blue-300/50 px-1 text-[11px] font-normal leading-4 text-blue-200"
+                              title={
+                                isActive ? 'Attached, shown in the workspace' : 'Attached in a tab'
+                              }
+                            >
+                              <SquareTerminal size={10} aria-hidden="true" />
+                              {isActive ? 'active' : 'attached'}
+                            </span>
+                          )}
+                          {session.loop && <span className="text-[11px] text-blue-300">loop</span>}
+                          <span className="flex-1" />
+                          <span className="text-xs text-gray-500 font-mono shrink-0" title="Age">
+                            {age}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5 h-5 text-[11px] text-gray-400 min-w-0">
+                          {/* Repository + branch */}
+                          <span className="flex-1 min-w-0 flex items-center gap-1">
+                            {ctx?.repo && (
+                              <span
+                                className="flex items-center gap-1 min-w-0 max-w-full overflow-hidden"
+                                title={[
+                                  ctx.repo.slug || ctx.repo.name,
+                                  ctx.repo.branch ? `branch ${ctx.repo.branch}` : 'detached HEAD',
+                                  ctx.repo.isWorktree ? worktreeTitle(ctx.repo) : null,
+                                  ctx.repo.dirty ? 'uncommitted changes' : null,
+                                  ctx.repo.ahead ? `${ctx.repo.ahead} ahead of upstream` : null,
+                                  ctx.repo.behind ? `${ctx.repo.behind} behind upstream` : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join('\n')}
+                              >
+                                {ctx.repo.isWorktree ? (
+                                  <GitBranchPlus size={10} className="shrink-0 text-sky-300" />
+                                ) : (
+                                  <GitBranch size={10} className="shrink-0 text-gray-500" />
+                                )}
+                                <span className="truncate text-gray-300 min-w-[3.5rem] shrink-0 max-w-[60%]">
+                                  {ctx.repo.name}
+                                </span>
+                                {ctx.repo.branch && (
+                                  <span className="truncate text-gray-500 min-w-0 shrink-[2]">
+                                    {ctx.repo.branch}
+                                  </span>
+                                )}
+                                {ctx.repo.isWorktree && (
+                                  <span
+                                    className="shrink-0 rounded border border-sky-300/40 px-1 text-[11px] leading-4 text-sky-300"
+                                    title={`Git ${worktreeTitle(ctx.repo)}`}
+                                  >
+                                    worktree
+                                  </span>
+                                )}
+                                {ctx.repo.dirty && (
+                                  <span
+                                    className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
+                                    aria-label="Uncommitted changes"
+                                  />
+                                )}
+                                {ctx.repo.ahead > 0 && (
+                                  <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
+                                    <ArrowUp size={9} />
+                                    {ctx.repo.ahead}
+                                  </span>
+                                )}
+                                {ctx.repo.behind > 0 && (
+                                  <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
+                                    <ArrowDown size={9} />
+                                    {ctx.repo.behind}
+                                  </span>
+                                )}
+                              </span>
+                            )}
+                          </span>
+                          {/* Pull request */}
+                          <span className="shrink-0 flex justify-end">
+                            {label && onOpenPrs ? (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  onOpenPrs(ctx?.repo?.slug || null);
+                                }}
+                                data-popover-trigger
+                                className={`font-mono px-1 rounded border ${label.className} flex items-center gap-0.5 hover:bg-gray-800`}
+                                title={`List pull requests${ctx?.repo?.slug ? ` of ${ctx.repo.slug}` : ''}`}
+                              >
+                                {label.text}
+                              </button>
+                            ) : (
+                              label && (
+                                <a
+                                  href={label.href || undefined}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                  className={`font-mono px-1 rounded border ${label.className} flex items-center gap-0.5`}
+                                  title={`Open pull request${session.links.length > 1 ? 's' : ''}\n${session.links.map((l) => l.href).join('\n')}`}
+                                >
+                                  {label.text}
+                                  {label.href && <ExternalLink size={9} />}
+                                </a>
+                              )
+                            )}
+                          </span>
+                          {/* Open issues */}
+                          <span className="shrink-0 flex justify-end">
+                            {ctx?.issues && ctx.issues.open > 0 && (
+                              <a
+                                href={ctx.issues.url || undefined}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className="flex items-center gap-0.5 text-gray-400 hover:text-white tabular-nums"
+                                title={`${ctx.issues.open} open issue${ctx.issues.open === 1 ? '' : 's'} in the repository`}
+                              >
+                                <CircleDot size={10} />
+                                {ctx.issues.open}
+                              </a>
+                            )}
+                          </span>
+                          {/* Dev servers */}
+                          <span className="shrink-0 flex justify-end gap-1">
+                            {sessionServers.slice(0, 2).map((server) => (
+                              <a
+                                key={server.port}
+                                href={`http://localhost:${server.port}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                onClick={(e) => e.stopPropagation()}
+                                className={`font-mono hover:underline ${server.running ? 'text-emerald-400' : 'text-gray-500'}`}
+                                title={`${server.command || server.name}: port ${server.port} (${server.running ? 'running' : 'not running'})${server.pid ? `, pid ${server.pid}` : ''}\n${session.worktree || session.cwd}\nClick to open`}
+                              >
+                                :{server.port}
+                              </a>
+                            ))}
+                            {sessionServers.length > 2 && (
+                              <span
+                                className="text-gray-500"
+                                title={sessionServers
+                                  .slice(2)
+                                  .map((s) => `:${s.port} ${s.name}`)
+                                  .join('\n')}
+                              >
+                                +{sessionServers.length - 2}
+                              </span>
+                            )}
+                          </span>
+                          {/* Running sub-agents */}
+                          <span className="shrink-0 flex justify-end">
+                            {ctx && ctx.subagents.running > 0 && (
+                              <span
+                                className="flex items-center gap-0.5 text-sky-300 tabular-nums motion-safe:animate-pulse"
+                                title={`${ctx.subagents.running} running sub-agent${ctx.subagents.running === 1 ? '' : 's'}${ctx.subagents.names.length ? `\n${ctx.subagents.names.join('\n')}` : ''}`}
+                              >
+                                <Bot size={10} />
+                                {ctx.subagents.running}
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                        {extra && (
+                          <div className="text-xs text-gray-500 truncate mt-0.5">{extra}</div>
+                        )}
+                      </div>
+                      <div className="flex flex-col items-center shrink-0">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
-                            nav.onOpenProject(app.id);
+                            onTogglePeek(session);
                           }}
-                          className="truncate min-w-0 text-sm font-medium text-gray-100 hover:text-white hover:underline"
-                          title={`Open ${app.name}\n${app.path}`}
+                          className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                          title="Peek (Space)"
+                          aria-label="Peek"
                         >
-                          {item.group.title}
+                          <MoreHorizontal size={12} />
                         </button>
-                      </>
-                    ) : (
-                      <span className="truncate min-w-0">
-                        {grouping === 'directory'
-                          ? shortenPath(item.group.title, 42)
-                          : item.group.title}
-                      </span>
-                    )}
-                    <span className="shrink-0 rounded-full bg-gray-900/60 px-1.5 text-[11px] font-normal tabular-nums text-gray-300">
-                      {count}
-                    </span>
-                    {collapsed &&
-                      activeSessionId &&
-                      [...item.group.sessions, ...item.group.hidden].some(
-                        (s) => s.id === activeSessionId
-                      ) && <ActivePill />}
-                    <span className="flex-1" />
-                    {isFavSection ? (
-                      <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
-                    ) : (
-                      onToggleFavoriteGroup && (
-                        <FavoriteButton
-                          active={groupFav}
-                          label={`${groupFav ? 'Remove' : 'Add'} ${item.group.title} ${groupFav ? 'from' : 'to'} favorites`}
-                          onToggle={() => onToggleFavoriteGroup(groupKey)}
-                        />
-                      )
-                    )}
-                    {app && nav && (
-                      <span className="shrink-0">
-                        <AppPowerButton app={app} nav={nav} />
-                      </span>
-                    )}
-                  </div>
-                );
-              }
-              if (item.type === 'more') {
-                return (
-                  <div
-                    key={`more-${item.group.key}`}
-                    data-nav-index={index}
-                    role="option"
-                    aria-selected={selected}
-                    onClick={() => onSelectIndex(index)}
-                    onDoubleClick={() => onActivate(item)}
-                    className={`px-6 py-1.5 text-xs cursor-pointer ${selected ? selectedClass(railFocused) : 'text-gray-400 hover:text-white hover:bg-gray-800'}`}
-                  >
-                    … {item.count} more
-                  </div>
-                );
-              }
-              const { session } = item;
-              const glyph = stateGlyph(session.displayState);
-              const label = prLabel(session.links);
-              const age = formatAge(sessionAgeMs(session, now));
-              const isPeeking = peekId === session.id;
-              const isOpen = openIds.has(session.id);
-              const isActive = activeSessionId === session.id;
-              const isFav = !!favoriteSessionIds?.has(session.id);
-              const ctx = contexts[session.id];
-              const sessionServers = servers.get(session.id) || [];
-              const extra =
-                session.state === 'blocked' && session.waitingFor
-                  ? `waiting: ${session.waitingFor}`
-                  : session.state === 'working'
-                    ? session.detail
-                    : null;
-              return (
-                <div
-                  key={session.id}
-                  data-nav-index={index}
-                  data-session-id={session.id}
-                  role="option"
-                  aria-selected={selected}
-                  aria-current={isActive || undefined}
-                  onClick={() => {
-                    onSelectIndex(index);
-                    if (isOpen) onFocusOpen?.(session.id);
-                  }}
-                  onDoubleClick={() => onActivate(item)}
-                  onContextMenu={(e) => openMenu(index, e)}
-                  className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
-                    selected
-                      ? selectedClass(railFocused)
-                      : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : ''}`
-                  }`}
-                  title={`${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
-                >
-                  <span
-                    className={`w-4 text-center shrink-0 leading-5 ${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
-                    aria-hidden="true"
-                    title={glyph.label}
-                  >
-                    {glyph.glyph}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-1.5 min-w-0 leading-5">
-                      <span className="sr-only">{glyph.label}: </span>
-                      <span
-                        className={`truncate ${highlightedId === session.id ? 'font-bold' : 'font-medium'}`}
-                      >
-                        {session.name}
-                      </span>
-                      {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
-                      {isOpen && (
-                        <span
-                          className="shrink-0 inline-flex items-center gap-0.5 rounded border border-blue-300/50 px-1 text-[11px] font-normal leading-4 text-blue-200"
-                          title={
-                            isActive ? 'Attached, shown in the workspace' : 'Attached in a tab'
-                          }
-                        >
-                          <SquareTerminal size={10} aria-hidden="true" />
-                          {isActive ? 'active' : 'attached'}
-                        </span>
-                      )}
-                      {session.loop && <span className="text-[11px] text-blue-300">loop</span>}
-                      <span className="flex-1" />
-                      <span className="text-xs text-gray-500 font-mono shrink-0" title="Age">
-                        {age}
-                      </span>
+                        {onToggleFavoriteSession && (
+                          <FavoriteButton
+                            active={isFav}
+                            alwaysVisible={isActive}
+                            label={`${isFav ? 'Remove' : 'Add'} ${session.name} ${isFav ? 'from' : 'to'} favorites`}
+                            onToggle={() => onToggleFavoriteSession(session.id)}
+                          />
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-1.5 mt-0.5 h-5 text-[11px] text-gray-400 min-w-0">
-                      {/* Repository + branch */}
-                      <span className="flex-1 min-w-0 flex items-center gap-1">
-                        {ctx?.repo && (
-                          <span
-                            className="flex items-center gap-1 min-w-0 max-w-full overflow-hidden"
-                            title={[
-                              ctx.repo.slug || ctx.repo.name,
-                              ctx.repo.branch ? `branch ${ctx.repo.branch}` : 'detached HEAD',
-                              ctx.repo.isWorktree ? worktreeTitle(ctx.repo) : null,
-                              ctx.repo.dirty ? 'uncommitted changes' : null,
-                              ctx.repo.ahead ? `${ctx.repo.ahead} ahead of upstream` : null,
-                              ctx.repo.behind ? `${ctx.repo.behind} behind upstream` : null,
-                            ]
-                              .filter(Boolean)
-                              .join('\n')}
-                          >
-                            {ctx.repo.isWorktree ? (
-                              <GitBranchPlus size={10} className="shrink-0 text-sky-300" />
-                            ) : (
-                              <GitBranch size={10} className="shrink-0 text-gray-500" />
-                            )}
-                            <span className="truncate text-gray-300 min-w-[3.5rem] shrink-0 max-w-[60%]">
-                              {ctx.repo.name}
-                            </span>
-                            {ctx.repo.branch && (
-                              <span className="truncate text-gray-500 min-w-0 shrink-[2]">
-                                {ctx.repo.branch}
-                              </span>
-                            )}
-                            {ctx.repo.isWorktree && (
-                              <span
-                                className="shrink-0 rounded border border-sky-300/40 px-1 text-[11px] leading-4 text-sky-300"
-                                title={`Git ${worktreeTitle(ctx.repo)}`}
-                              >
-                                worktree
-                              </span>
-                            )}
-                            {ctx.repo.dirty && (
-                              <span
-                                className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
-                                aria-label="Uncommitted changes"
-                              />
-                            )}
-                            {ctx.repo.ahead > 0 && (
-                              <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
-                                <ArrowUp size={9} />
-                                {ctx.repo.ahead}
-                              </span>
-                            )}
-                            {ctx.repo.behind > 0 && (
-                              <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
-                                <ArrowDown size={9} />
-                                {ctx.repo.behind}
-                              </span>
-                            )}
-                          </span>
-                        )}
-                      </span>
-                      {/* Pull request */}
-                      <span className="shrink-0 flex justify-end">
-                        {label && onOpenPrs ? (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onOpenPrs(ctx?.repo?.slug || null);
-                            }}
-                            data-popover-trigger
-                            className={`font-mono px-1 rounded border ${label.className} flex items-center gap-0.5 hover:bg-gray-800`}
-                            title={`List pull requests${ctx?.repo?.slug ? ` of ${ctx.repo.slug}` : ''}`}
-                          >
-                            {label.text}
-                          </button>
-                        ) : (
-                          label && (
-                            <a
-                              href={label.href || undefined}
-                              target="_blank"
-                              rel="noreferrer"
-                              onClick={(e) => e.stopPropagation()}
-                              className={`font-mono px-1 rounded border ${label.className} flex items-center gap-0.5`}
-                              title={`Open pull request${session.links.length > 1 ? 's' : ''}\n${session.links.map((l) => l.href).join('\n')}`}
-                            >
-                              {label.text}
-                              {label.href && <ExternalLink size={9} />}
-                            </a>
-                          )
-                        )}
-                      </span>
-                      {/* Open issues */}
-                      <span className="shrink-0 flex justify-end">
-                        {ctx?.issues && ctx.issues.open > 0 && (
-                          <a
-                            href={ctx.issues.url || undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="flex items-center gap-0.5 text-gray-400 hover:text-white tabular-nums"
-                            title={`${ctx.issues.open} open issue${ctx.issues.open === 1 ? '' : 's'} in the repository`}
-                          >
-                            <CircleDot size={10} />
-                            {ctx.issues.open}
-                          </a>
-                        )}
-                      </span>
-                      {/* Dev servers */}
-                      <span className="shrink-0 flex justify-end gap-1">
-                        {sessionServers.slice(0, 2).map((server) => (
-                          <a
-                            key={server.port}
-                            href={`http://localhost:${server.port}`}
-                            target="_blank"
-                            rel="noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className={`font-mono hover:underline ${server.running ? 'text-emerald-400' : 'text-gray-500'}`}
-                            title={`${server.command || server.name}: port ${server.port} (${server.running ? 'running' : 'not running'})${server.pid ? `, pid ${server.pid}` : ''}\n${session.worktree || session.cwd}\nClick to open`}
-                          >
-                            :{server.port}
-                          </a>
-                        ))}
-                        {sessionServers.length > 2 && (
-                          <span
-                            className="text-gray-500"
-                            title={sessionServers
-                              .slice(2)
-                              .map((s) => `:${s.port} ${s.name}`)
-                              .join('\n')}
-                          >
-                            +{sessionServers.length - 2}
-                          </span>
-                        )}
-                      </span>
-                      {/* Running sub-agents */}
-                      <span className="shrink-0 flex justify-end">
-                        {ctx && ctx.subagents.running > 0 && (
-                          <span
-                            className="flex items-center gap-0.5 text-sky-300 tabular-nums motion-safe:animate-pulse"
-                            title={`${ctx.subagents.running} running sub-agent${ctx.subagents.running === 1 ? '' : 's'}${ctx.subagents.names.length ? `\n${ctx.subagents.names.join('\n')}` : ''}`}
-                          >
-                            <Bot size={10} />
-                            {ctx.subagents.running}
-                          </span>
-                        )}
-                      </span>
-                    </div>
-                    {extra && <div className="text-xs text-gray-500 truncate mt-0.5">{extra}</div>}
-                  </div>
-                  <div className="flex flex-col items-center shrink-0">
-                    <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        onTogglePeek(session);
-                      }}
-                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                      title="Peek (Space)"
-                      aria-label="Peek"
-                    >
-                      <MoreHorizontal size={12} />
-                    </button>
-                    {onToggleFavoriteSession && (
-                      <FavoriteButton
-                        active={isFav}
-                        alwaysVisible={isActive}
-                        label={`${isFav ? 'Remove' : 'Add'} ${session.name} ${isFav ? 'from' : 'to'} favorites`}
-                        onToggle={() => onToggleFavoriteSession(session.id)}
-                      />
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        ))}
+                  );
+                })}
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {menu && menuActions.length > 0 && (
