@@ -17,6 +17,7 @@ import type {
   AgentSession,
   AgentNotification,
   AgentContext,
+  AgentServerStats,
 } from '../types';
 
 const API_BASE = API_BASE_URL;
@@ -74,6 +75,18 @@ export async function fetchAgentsRawJson(
 export async function fetchAgentContexts(): Promise<Record<string, AgentContext>> {
   const { contexts } = await request<{ contexts: Record<string, AgentContext> }>('/agents/context');
   return contexts;
+}
+
+/** CPU/memory per server pid; pids that vanished are missing from the result. */
+export async function fetchServerStats(
+  pids: number[],
+  signal?: AbortSignal
+): Promise<AgentServerStats[]> {
+  const { stats } = await request<{ stats: AgentServerStats[] }>(
+    `/agents/servers/stats${query({ pids: pids.join(',') })}`,
+    { signal }
+  );
+  return stats;
 }
 
 export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatchResult> {

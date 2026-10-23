@@ -71,8 +71,41 @@ export function deriveSubagents(state) {
   return { running: live ? 1 : 0, total: live ? 1 : 0, names: [] };
 }
 
-async function gitInfo(dir) {
-  const top = await run('git', [...GIT_SAFE, 'rev-parse', '--show-toplevel'], dir);
+/**
+ * Repo identity from `git rev-parse --path-format=absolute --git-common-dir --git-dir --show-toplevel`.
+ * A linked worktree has a git-dir below the common dir; its repo name is the MAIN checkout's
+ * (dirname of the common dir, or the bare repo folder without ".git").
+ */
+export function resolveRepoIdentity({ top, gitDir, commonDir }) {
+  const isWorktree =
+    Boolean(commonDir && gitDir) && path.resolve(commonDir) !== path.resolve(gitDir);
+  if (!isWorktree) {
+    return { name: path.basename(top), isWorktree: false, worktreeName: null, worktreePath: null };
+  }
+  const common = path.resolve(commonDir);
+  const name =
+    path.basename(common) === '.git'
+      ? path.basename(path.dirname(common))
+      : path.basename(common).replace(/\.git$/, '');
+  return { name, isWorktree: true, worktreeName: path.basename(top), worktreePath: top };
+}
+
+export async function gitInfo(dir) {
+  const ids = await run(
+    'git',
+    [
+      ...GIT_SAFE,
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-common-dir',
+      '--git-dir',
+      '--show-toplevel',
+    ],
+    dir
+  );
+  const [commonDir, gitDir, top] = String(ids || '')
+    .split('\n')
+    .map((l) => l.trim());
   if (!top) return null;
   const [branch, status, counts, remote] = await Promise.all([
     run('git', [...GIT_SAFE, 'rev-parse', '--abbrev-ref', 'HEAD'], dir),
@@ -82,12 +115,73 @@ async function gitInfo(dir) {
   ]);
   const name = branch?.trim();
   return {
-    name: path.basename(top.trim()),
+    ...resolveRepoIdentity({ top, gitDir, commonDir }),
     slug: parseGithubSlug(remote),
     branch: name && name !== 'HEAD' ? name : null,
     dirty: Boolean(status?.trim()),
     ...parseAheadBehind(counts),
   };
+}
+
+const MODEL_TAIL_BYTES = 64 * 1024;
+// A single assistant line (large Write/tool_use input) can exceed the tail: widen up to this cap
+const MODEL_MAX_BYTES = 1024 * 1024;
+const modelCache = new Map(); // transcript file -> { mtimeMs, model }
+
+/**
+ * Model of the latest main-thread assistant entry in a transcript tail, else null.
+ * Sub-agent (sidechain) turns and "<synthetic>" placeholders are not the session's model.
+ */
+export function parseModelFromTranscript(text) {
+  const lines = String(text || '').split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    let entry;
+    try {
+      entry = JSON.parse(lines[i]);
+    } catch {
+      continue; // blank line or the partial first line of the tail
+    }
+    const model = entry?.message?.model;
+    if (entry?.type === 'assistant' && !entry.isSidechain && model && model !== '<synthetic>') {
+      return String(model);
+    }
+  }
+  return null;
+}
+
+async function sessionModel(session) {
+  if (!session.sessionId) return null;
+  for (const dir of [session.cwd, session.worktree]) {
+    if (!dir) continue;
+    const file = path.join(
+      agentService.paths.PROJECTS_DIR,
+      agentService.projectSlug(dir),
+      `${session.sessionId}.jsonl`
+    );
+    try {
+      const { mtimeMs, size } = await fsp.stat(file);
+      const hit = modelCache.get(file);
+      if (hit?.mtimeMs === mtimeMs) return hit.model;
+      let model = null;
+      const handle = await fsp.open(file, 'r');
+      try {
+        for (let window = MODEL_TAIL_BYTES; ; window *= 4) {
+          const length = Math.min(size, window);
+          const buffer = Buffer.alloc(length);
+          await handle.read(buffer, 0, length, size - length);
+          model = parseModelFromTranscript(buffer.toString('utf-8'));
+          if (model || length >= size || window >= MODEL_MAX_BYTES) break;
+        }
+      } finally {
+        await handle.close();
+      }
+      modelCache.set(file, { mtimeMs, model });
+      return model;
+    } catch {
+      // no transcript under this dir, try the next
+    }
+  }
+  return null;
 }
 
 const CI_FAIL = new Set([
@@ -352,6 +446,7 @@ async function computeAgentContexts() {
       const remote = repo?.slug ? remotes.get(repo.slug) : null;
       contexts[s.id] = {
         repo,
+        model: await sessionModel(s),
         issues: remote?.issues || null,
         pulls: remote?.pulls || null,
         servers: listening
@@ -371,6 +466,12 @@ async function computeAgentContexts() {
 // Stale-while-revalidate: gh + lsof take 7-12s cold, so serve the last result and refresh behind it.
 const CONTEXT_FRESH_MS = 10_000;
 let contextCache = null; // { at, value, promise }
+
+/** Pids of the listening servers the dashboard shows: the only ones the stats route may report */
+export async function getKnownServerPids() {
+  const contexts = await getAgentContexts();
+  return new Set(Object.values(contexts).flatMap((c) => c.servers.map((server) => server.pid)));
+}
 
 /**
  * @returns {Promise<Record<string, import('../../types').AgentContext>>}

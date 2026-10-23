@@ -6,10 +6,13 @@ import {
   MoreHorizontal,
   ExternalLink,
   GitBranch,
+  GitBranchPlus,
+  Star,
   ArrowUp,
   ArrowDown,
   CircleDot,
   Bot,
+  SquareTerminal,
 } from 'lucide-react';
 import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
 import {
@@ -22,8 +25,12 @@ import {
   formatAge,
   shortenPath,
 } from '../../utils/agentSessions';
+import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
 import { AppPowerButton, AppStatusDot, RailNavProps } from './ProjectsRail';
+
+/** Drag payload of a group header (separate from the workspace tab drag) */
+export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
 
 export interface AgentRowAction {
   id: string;
@@ -41,6 +48,8 @@ interface AgentListProps {
   onTogglePeek: (session: AgentSession) => void;
   peekId: string | null;
   openIds: Set<string>;
+  /** Single click on a session that is already attached: jump into its terminal */
+  onFocusOpen?: (id: string) => void;
   now: number;
   grouping: AgentGrouping;
   /** Repo / issue / sub-agent data per session id (may be empty while loading) */
@@ -64,6 +73,18 @@ interface AgentListProps {
   nav?: RailNavProps;
   /** Keyboard focus is in the rail: selection is solid, otherwise hollow (focus is in a terminal) */
   railFocused?: boolean;
+  /** Session open in the workspace: gets a marker, its group is revealed and the row scrolled in */
+  activeSessionId?: string | null;
+  /** Called when the active session's row is not rendered (group collapsed) so the owner can expand it */
+  onRevealActive?: (sessionId: string) => void;
+  /** Single click on a group header; falls back to onActivate */
+  onToggleGroup?: (key: string) => void;
+  favoriteGroupKeys?: Set<string>;
+  favoriteSessionIds?: Set<string>;
+  onToggleFavoriteGroup?: (key: string) => void;
+  onToggleFavoriteSession?: (id: string) => void;
+  /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
+  onMoveGroup?: (key: string, targetKey: string, visibleKeys: string[]) => void;
 }
 
 /** Selected row/header: filled while the rail has focus, outline only while it does not */
@@ -71,6 +92,42 @@ const selectedClass = (focused: boolean) =>
   focused
     ? 'bg-sel text-white [&_.text-gray-300]:text-gray-100 [&_.text-gray-400]:text-gray-200 [&_.text-gray-500]:text-gray-200 [&_.text-gray-500]:text-gray-200 [&_.text-emerald-400]:text-emerald-200 [&_.text-yellow-400]:text-yellow-200 [&_.text-blue-300]:text-blue-100 [&_.text-sky-300]:text-sky-100'
     : 'bg-transparent text-white ring-2 ring-inset ring-cursor';
+
+/** Name and path of a linked worktree for tooltips */
+const worktreeTitle = (repo: NonNullable<AgentContext['repo']>) =>
+  `worktree${repo.worktreeName ? ` ${repo.worktreeName}` : ''}${repo.worktreePath ? `\n${repo.worktreePath}` : ''}`;
+
+/** Text cue (not only colour) for the session open in the workspace */
+const ActivePill: React.FC = () => (
+  <span className="shrink-0 rounded border border-blue-300/50 px-1 text-[11px] font-normal leading-4 text-blue-200">
+    active
+  </span>
+);
+
+/** Star toggle: hidden until the parent `group` is hovered or focused (always on touch), always visible when set */
+const FavoriteButton: React.FC<{
+  active: boolean;
+  label: string;
+  onToggle: () => void;
+  alwaysVisible?: boolean;
+}> = ({ active, label, onToggle, alwaysVisible }) => (
+  <button
+    onClick={(e) => {
+      e.stopPropagation();
+      onToggle();
+    }}
+    aria-pressed={active}
+    aria-label={label}
+    title={label}
+    className={`shrink-0 flex items-center justify-center min-h-8 min-w-8 rounded hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
+      active || alwaysVisible
+        ? 'opacity-100'
+        : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100'
+    } ${active ? 'text-amber-400' : 'text-gray-400 hover:text-white'}`}
+  >
+    <Star size={11} className={active ? 'fill-current' : ''} />
+  </button>
+);
 
 /**
  * Session list with group headers, keyboard selection and per-row menus.
@@ -83,6 +140,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   onTogglePeek,
   peekId,
   openIds,
+  onFocusOpen,
   now,
   grouping,
   contexts,
@@ -97,6 +155,14 @@ export const AgentList: React.FC<AgentListProps> = ({
   appsById,
   nav,
   railFocused = true,
+  activeSessionId,
+  onRevealActive,
+  onToggleGroup,
+  favoriteGroupKeys,
+  favoriteSessionIds,
+  onToggleFavoriteGroup,
+  onToggleFavoriteSession,
+  onMoveGroup,
 }) => {
   // One card per group (its header plus rows); ungrouped items form a single card
   const clusters = items.reduce<number[][]>((acc, item, i) => {
@@ -113,30 +179,218 @@ export const AgentList: React.FC<AgentListProps> = ({
     el?.scrollIntoView({ block: 'nearest' });
   }, [selectedIndex]);
 
+  // Reveal the workspace's active session once per change; never moves focus
+  const revealed = useRef<{
+    last: string | null;
+    scrolled: string | null;
+    requested: string | null;
+  }>({ last: null, scrolled: null, requested: null });
+  useEffect(() => {
+    const state = revealed.current;
+    if (!activeSessionId) {
+      state.last = state.scrolled = state.requested = null;
+      return;
+    }
+    // A different session became active: it may be hidden again even if it was revealed before
+    if (state.last !== activeSessionId) {
+      state.last = activeSessionId;
+      state.requested = null;
+    }
+    const row = Array.from(
+      listRef.current?.querySelectorAll<HTMLElement>('[data-session-id]') ?? []
+    ).find((el) => el.dataset.sessionId === activeSessionId);
+    if (row) {
+      if (state.scrolled !== activeSessionId) {
+        state.scrolled = activeSessionId;
+        row.scrollIntoView({ block: 'nearest' });
+      }
+    } else if (state.requested !== activeSessionId) {
+      // Row is hidden in a collapsed group: ask for expansion, the next items render finds it
+      state.requested = activeSessionId;
+      onRevealActive?.(activeSessionId);
+    }
+  }, [activeSessionId, items, onRevealActive]);
+
+  // Group drag-and-drop: `drag` is the group being dragged, `dropKey` the hovered target
+  const [drag, setDrag] = useState<string | null>(null);
+  const [dropKey, setDropKey] = useState<string | null>(null);
+  const groupKeys = items.filter((i) => i.type === 'group').map((i) => i.group.key as string);
+  const reorderableKeys = groupKeys.filter((k) => k !== FAVORITES_GROUP_KEY);
+  const isFavGroup = (key: string) => !!favoriteGroupKeys?.has(key);
+  const canReorder = (key: string) =>
+    !!onMoveGroup && key !== FAVORITES_GROUP_KEY && key !== 'all' && reorderableKeys.length > 1;
+  // Favorites sort first, so a group only moves within its own favorite/other block
+  const canDropOn = (target: string) =>
+    !!drag && drag !== target && canReorder(target) && isFavGroup(drag) === isFavGroup(target);
+  const neighbour = (key: string, dir: -1 | 1) =>
+    groupNeighbour(reorderableKeys, [...(favoriteGroupKeys ?? [])], key, dir);
+  const endDrag = () => {
+    setDrag(null);
+    setDropKey(null);
+  };
+
+  // After a keyboard move the selection stays on the moved group, not on its old index
+  const followGroup = useRef<string | null>(null);
+  useEffect(() => {
+    const key = followGroup.current;
+    if (!key) return;
+    const at = items.findIndex((i) => i.type === 'group' && i.group.key === key);
+    if (at >= 0 && at !== selectedIndex) onSelectIndex(at);
+    followGroup.current = null;
+  }, [items, selectedIndex, onSelectIndex]);
+
+  const menuRef = useRef<HTMLDivElement>(null);
+  const menuByKeyboard = useRef(false);
+
   useEffect(() => {
     if (!menu) return;
     const close = () => setMenu(null);
+    const onKey = (e: KeyboardEvent) => {
+      // Arrow keys are handled by the menu itself
+      if (e.key === 'Escape' || e.key === 'Tab') setMenu(null);
+    };
     document.addEventListener('mousedown', close);
-    document.addEventListener('keydown', close);
+    document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('mousedown', close);
-      document.removeEventListener('keydown', close);
+      document.removeEventListener('keydown', onKey);
     };
+  }, [menu]);
+
+  // Keyboard-opened menu takes focus; closing hands it back to the rail
+  useEffect(() => {
+    if (!menu) return;
+    if (menuByKeyboard.current) {
+      menuRef.current?.querySelector<HTMLElement>('button:not(:disabled)')?.focus();
+      const rail = listRef.current?.closest<HTMLElement>('[data-focus-zone="rail"]');
+      return () => {
+        menuByKeyboard.current = false;
+        rail?.focus();
+      };
+    }
   }, [menu]);
 
   const openMenu = (index: number, e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     onSelectIndex(index);
+    menuByKeyboard.current = false;
     setMenu({ index, x: e.clientX, y: e.clientY });
   };
 
+  const onMenuKeyDown = (e: React.KeyboardEvent) => {
+    const keys = ['ArrowDown', 'ArrowUp', 'Home', 'End'];
+    if (!keys.includes(e.key)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const buttons = Array.from(
+      menuRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled)') ?? []
+    );
+    if (buttons.length === 0) return;
+    const at = buttons.indexOf(document.activeElement as HTMLElement);
+    const next =
+      e.key === 'Home'
+        ? 0
+        : e.key === 'End'
+          ? buttons.length - 1
+          : (at + (e.key === 'ArrowDown' ? 1 : -1) + buttons.length) % buttons.length;
+    buttons[next].focus();
+  };
+
+  // ContextMenu / Shift+F10 open the menu for the selected row; Alt+Up/Down moves the selected group.
+  // Capture phase: these chords must not reach the rail's own arrow-key navigation.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const rail = listRef.current?.closest('[data-focus-zone="rail"]');
+      if (!rail || !(e.target instanceof Node) || !rail.contains(e.target)) return;
+      if (menu) return;
+      const opensMenu = e.key === 'ContextMenu' || (e.key === 'F10' && e.shiftKey);
+      const item = items[selectedIndex];
+      if (opensMenu && item) {
+        e.preventDefault();
+        e.stopPropagation();
+        const row = listRef.current?.querySelector<HTMLElement>(
+          `[data-nav-index="${selectedIndex}"]`
+        );
+        const rect = row?.getBoundingClientRect();
+        menuByKeyboard.current = true;
+        setMenu({
+          index: selectedIndex,
+          x: (rect?.left ?? 0) + 24,
+          y: (rect?.top ?? 0) + (rect?.height ?? 0) / 2,
+        });
+        return;
+      }
+      if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        if (item?.type !== 'group') return;
+        const key: string = item.group.key;
+        const target = canReorder(key) ? neighbour(key, e.key === 'ArrowUp' ? -1 : 1) : null;
+        e.preventDefault();
+        e.stopPropagation();
+        if (target) {
+          followGroup.current = key;
+          onMoveGroup?.(key, target, reorderableKeys);
+        }
+      }
+    };
+    document.addEventListener('keydown', onKey, { capture: true });
+    return () => document.removeEventListener('keydown', onKey, { capture: true });
+  });
+
   const menuItem = menu ? items[menu.index] : null;
+  const favoriteAction = (isFav: boolean, toggle: (() => void) | undefined): AgentRowAction[] =>
+    toggle
+      ? [
+          {
+            id: 'favorite',
+            label: isFav ? 'Remove from favorites' : 'Add to favorites',
+            onSelect: toggle,
+          },
+        ]
+      : [];
+  const groupMenuActions = (group: SessionGroup): AgentRowAction[] => {
+    const key: string = group.key;
+    // The synthetic Favorites section only collapses
+    if (key === FAVORITES_GROUP_KEY) return groupActions(group).filter((a) => a.id === 'toggle');
+    const [toggle, ...rest] = groupActions(group);
+    const up = neighbour(key, -1);
+    const down = neighbour(key, 1);
+    return [
+      toggle,
+      ...favoriteAction(
+        isFavGroup(key),
+        onToggleFavoriteGroup && (() => onToggleFavoriteGroup(key))
+      ),
+      ...(canReorder(key)
+        ? [
+            {
+              id: 'move-up',
+              label: 'Move up',
+              disabled: !up,
+              onSelect: () => up && onMoveGroup?.(key, up, reorderableKeys),
+            },
+            {
+              id: 'move-down',
+              label: 'Move down',
+              disabled: !down,
+              onSelect: () => down && onMoveGroup?.(key, down, reorderableKeys),
+            },
+          ]
+        : []),
+      ...rest,
+    ];
+  };
   const menuActions: AgentRowAction[] =
     menuItem?.type === 'session'
-      ? rowActions(menuItem.session)
+      ? [
+          ...favoriteAction(
+            !!favoriteSessionIds?.has(menuItem.session.id),
+            onToggleFavoriteSession && (() => onToggleFavoriteSession(menuItem.session.id))
+          ),
+          ...rowActions(menuItem.session),
+        ]
       : menuItem?.type === 'group'
-        ? groupActions(menuItem.group)
+        ? groupMenuActions(menuItem.group)
         : [];
 
   return (
@@ -167,6 +421,9 @@ export const AgentList: React.FC<AgentListProps> = ({
               if (item.type === 'group') {
                 const count = item.group.sessions.length + item.group.hidden.length;
                 const collapsed = collapsedKeys.has(item.group.key);
+                const groupKey: string = item.group.key;
+                const isFavSection = groupKey === FAVORITES_GROUP_KEY;
+                const groupFav = isFavGroup(groupKey);
                 const app = item.group.appId ? appsById?.get(item.group.appId) : undefined;
                 return (
                   <div
@@ -174,10 +431,35 @@ export const AgentList: React.FC<AgentListProps> = ({
                     data-nav-index={index}
                     role="option"
                     aria-selected={selected}
-                    onClick={() => onSelectIndex(index)}
-                    onDoubleClick={() => onActivate(item)}
+                    onClick={() => {
+                      onSelectIndex(index);
+                      if (onToggleGroup) onToggleGroup(item.group.key);
+                      else onActivate(item);
+                    }}
                     onContextMenu={(e) => openMenu(index, e)}
-                    className={`flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-pointer select-none ${
+                    draggable={canReorder(groupKey)}
+                    onDragStart={(e) => {
+                      e.dataTransfer.setData(RAIL_GROUP_MIME, groupKey);
+                      e.dataTransfer.effectAllowed = 'move';
+                      setDrag(groupKey);
+                    }}
+                    onDragOver={(e) => {
+                      if (!canDropOn(groupKey)) return;
+                      e.preventDefault();
+                      e.dataTransfer.dropEffect = 'move';
+                      setDropKey(groupKey);
+                    }}
+                    onDragLeave={() => setDropKey((k) => (k === groupKey ? null : k))}
+                    onDrop={(e) => {
+                      if (!drag || !canDropOn(groupKey)) return;
+                      e.preventDefault();
+                      onMoveGroup?.(drag, groupKey, reorderableKeys);
+                      endDrag();
+                    }}
+                    onDragEnd={endDrag}
+                    className={`group flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-pointer select-none ${
+                      dropKey === groupKey ? 'ring-2 ring-inset ring-blue-300 ' : ''
+                    }${drag === groupKey ? 'opacity-50 ' : ''}${
                       selected
                         ? selectedClass(railFocused)
                         : `bg-gray-800 text-gray-300 hover:text-white ${collapsed ? '' : 'border-b border-gray-700'}`
@@ -185,12 +467,15 @@ export const AgentList: React.FC<AgentListProps> = ({
                     title={grouping === 'directory' ? item.group.title : undefined}
                   >
                     <button
+                      aria-expanded={!collapsed}
                       onClick={(e) => {
                         e.stopPropagation();
-                        onActivate(item);
+                        onSelectIndex(index);
+                        if (onToggleGroup) onToggleGroup(item.group.key);
+                        else onActivate(item);
                       }}
-                      className="text-gray-400 hover:text-white rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                      aria-label={collapsed ? 'Expand group' : 'Collapse group'}
+                      className="p-1 -m-1 text-gray-400 hover:text-white rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                      aria-label={`${collapsed ? 'Expand' : 'Collapse'} ${item.group.title}`}
                     >
                       {collapsed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
                     </button>
@@ -218,8 +503,25 @@ export const AgentList: React.FC<AgentListProps> = ({
                     <span className="shrink-0 rounded-full bg-gray-900/60 px-1.5 text-[11px] font-normal tabular-nums text-gray-300">
                       {count}
                     </span>
+                    {collapsed &&
+                      activeSessionId &&
+                      [...item.group.sessions, ...item.group.hidden].some(
+                        (s) => s.id === activeSessionId
+                      ) && <ActivePill />}
+                    <span className="flex-1" />
+                    {isFavSection ? (
+                      <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
+                    ) : (
+                      onToggleFavoriteGroup && (
+                        <FavoriteButton
+                          active={groupFav}
+                          label={`${groupFav ? 'Remove' : 'Add'} ${item.group.title} ${groupFav ? 'from' : 'to'} favorites`}
+                          onToggle={() => onToggleFavoriteGroup(groupKey)}
+                        />
+                      )
+                    )}
                     {app && nav && (
-                      <span className="ml-auto shrink-0">
+                      <span className="shrink-0">
                         <AppPowerButton app={app} nav={nav} />
                       </span>
                     )}
@@ -247,6 +549,8 @@ export const AgentList: React.FC<AgentListProps> = ({
               const age = formatAge(sessionAgeMs(session, now));
               const isPeeking = peekId === session.id;
               const isOpen = openIds.has(session.id);
+              const isActive = activeSessionId === session.id;
+              const isFav = !!favoriteSessionIds?.has(session.id);
               const ctx = contexts[session.id];
               const sessionServers = servers.get(session.id) || [];
               const extra =
@@ -262,13 +566,17 @@ export const AgentList: React.FC<AgentListProps> = ({
                   data-session-id={session.id}
                   role="option"
                   aria-selected={selected}
-                  onClick={() => onSelectIndex(index)}
+                  aria-current={isActive || undefined}
+                  onClick={() => {
+                    onSelectIndex(index);
+                    if (isOpen) onFocusOpen?.(session.id);
+                  }}
                   onDoubleClick={() => onActivate(item)}
                   onContextMenu={(e) => openMenu(index, e)}
                   className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
                     selected
                       ? selectedClass(railFocused)
-                      : `text-gray-300 hover:bg-gray-800 ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : ''}`
+                      : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : ''}`
                   }`}
                   title={`${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
                 >
@@ -290,11 +598,16 @@ export const AgentList: React.FC<AgentListProps> = ({
                       {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
                       {isOpen && (
                         <span
-                          className="w-1.5 h-1.5 rounded-full bg-blue-400 shrink-0"
-                          title="Open in a tab"
-                        />
+                          className="shrink-0 inline-flex items-center gap-0.5 rounded border border-blue-300/50 px-1 text-[11px] font-normal leading-4 text-blue-200"
+                          title={
+                            isActive ? 'Attached, shown in the workspace' : 'Attached in a tab'
+                          }
+                        >
+                          <SquareTerminal size={10} aria-hidden="true" />
+                          {isActive ? 'active' : 'attached'}
+                        </span>
                       )}
-                      {session.loop && <span className="text-[10px] text-blue-300">loop</span>}
+                      {session.loop && <span className="text-[11px] text-blue-300">loop</span>}
                       <span className="flex-1" />
                       <span className="text-xs text-gray-500 font-mono shrink-0" title="Age">
                         {age}
@@ -305,10 +618,11 @@ export const AgentList: React.FC<AgentListProps> = ({
                       <span className="flex-1 min-w-0 flex items-center gap-1">
                         {ctx?.repo && (
                           <span
-                            className="flex items-center gap-1 min-w-0"
+                            className="flex items-center gap-1 min-w-0 max-w-full overflow-hidden"
                             title={[
                               ctx.repo.slug || ctx.repo.name,
                               ctx.repo.branch ? `branch ${ctx.repo.branch}` : 'detached HEAD',
+                              ctx.repo.isWorktree ? worktreeTitle(ctx.repo) : null,
                               ctx.repo.dirty ? 'uncommitted changes' : null,
                               ctx.repo.ahead ? `${ctx.repo.ahead} ahead of upstream` : null,
                               ctx.repo.behind ? `${ctx.repo.behind} behind upstream` : null,
@@ -316,13 +630,25 @@ export const AgentList: React.FC<AgentListProps> = ({
                               .filter(Boolean)
                               .join('\n')}
                           >
-                            <GitBranch size={10} className="shrink-0 text-gray-500" />
+                            {ctx.repo.isWorktree ? (
+                              <GitBranchPlus size={10} className="shrink-0 text-sky-300" />
+                            ) : (
+                              <GitBranch size={10} className="shrink-0 text-gray-500" />
+                            )}
                             <span className="truncate text-gray-300 min-w-[3.5rem] shrink-0 max-w-[60%]">
                               {ctx.repo.name}
                             </span>
                             {ctx.repo.branch && (
                               <span className="truncate text-gray-500 min-w-0 shrink-[2]">
                                 {ctx.repo.branch}
+                              </span>
+                            )}
+                            {ctx.repo.isWorktree && (
+                              <span
+                                className="shrink-0 rounded border border-sky-300/40 px-1 text-[11px] leading-4 text-sky-300"
+                                title={`Git ${worktreeTitle(ctx.repo)}`}
+                              >
+                                worktree
                               </span>
                             )}
                             {ctx.repo.dirty && (
@@ -434,17 +760,27 @@ export const AgentList: React.FC<AgentListProps> = ({
                     </div>
                     {extra && <div className="text-xs text-gray-500 truncate mt-0.5">{extra}</div>}
                   </div>
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onTogglePeek(session);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                    title="Peek (Space)"
-                    aria-label="Peek"
-                  >
-                    <MoreHorizontal size={12} />
-                  </button>
+                  <div className="flex flex-col items-center shrink-0">
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onTogglePeek(session);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                      title="Peek (Space)"
+                      aria-label="Peek"
+                    >
+                      <MoreHorizontal size={12} />
+                    </button>
+                    {onToggleFavoriteSession && (
+                      <FavoriteButton
+                        active={isFav}
+                        alwaysVisible={isActive}
+                        label={`${isFav ? 'Remove' : 'Add'} ${session.name} ${isFav ? 'from' : 'to'} favorites`}
+                        onToggle={() => onToggleFavoriteSession(session.id)}
+                      />
+                    )}
+                  </div>
                 </div>
               );
             })}
@@ -454,9 +790,12 @@ export const AgentList: React.FC<AgentListProps> = ({
 
       {menu && menuActions.length > 0 && (
         <div
-          className="fixed z-50 min-w-[200px] bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 text-sm"
+          className="fixed z-50 w-max min-w-[10rem] max-w-[14rem] bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 text-sm"
+          role="menu"
+          ref={menuRef}
+          onKeyDown={onMenuKeyDown}
           style={{
-            left: Math.min(menu.x, window.innerWidth - 220),
+            left: Math.min(menu.x, window.innerWidth - 232),
             top: Math.min(menu.y, window.innerHeight - 320),
           }}
           onMouseDown={(e) => e.stopPropagation()}
@@ -469,7 +808,9 @@ export const AgentList: React.FC<AgentListProps> = ({
                 setMenu(null);
                 action.onSelect();
               }}
-              className={`w-full text-left px-3 py-1.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed ${
+              role="menuitem"
+              title={action.label}
+              className={`block w-full truncate text-left px-3 py-1.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed ${
                 action.danger ? 'text-red-300' : 'text-gray-200'
               }`}
             >
