@@ -32,6 +32,8 @@ interface AgentWorkspaceProps {
   onPeek: (sessionId: string) => void;
   /** Where keyboard focus is; only the active pane of the visible tab can show as focused */
   focusZone: FocusZone;
+  /** Extra header content per pane (linked PRs, issues, processes) */
+  renderPaneMeta?: (session: AgentSession) => React.ReactNode;
 }
 
 /** What is being dragged: a whole tab (moves its active session on split) or one pane */
@@ -118,6 +120,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   onSetLayout,
   onPeek,
   focusZone,
+  renderPaneMeta,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; position: InsertPosition } | null>(
@@ -242,6 +245,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
           onPeek={() => onPeek(session.id)}
           onMaximize={multi ? () => onDetach(session.id) : undefined}
           solo={!multi}
+          meta={renderPaneMeta?.(session)}
           headerProps={
             multi
               ? {

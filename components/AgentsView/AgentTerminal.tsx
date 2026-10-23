@@ -44,6 +44,8 @@ interface AgentTerminalProps {
   headerProps?: React.HTMLAttributes<HTMLDivElement>;
   /** Only pane of its tab: the tab already shows name and state, so the header is actions only */
   solo?: boolean;
+  /** Linked PRs, issues and running processes, shown after the connection dot */
+  meta?: React.ReactNode;
 }
 
 /**
@@ -78,6 +80,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   onMaximize,
   headerProps,
   solo,
+  meta,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
@@ -369,6 +372,11 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           role="img"
           aria-label={connected ? 'Connected' : 'Disconnected'}
         />
+        {meta && (
+          <div className="flex items-center gap-x-2 min-w-0 overflow-hidden ml-1 text-[11px] text-gray-400">
+            {meta}
+          </div>
+        )}
         <div className="flex-1" />
         {focused ? (
           <span className="flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-300 text-gray-950 font-medium shrink-0">

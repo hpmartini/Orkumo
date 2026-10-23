@@ -81,6 +81,7 @@ import { CloudSessionBar } from './CloudSessionBar';
 import { RemoteAgents } from './RemoteAgents';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
+import { SessionLinks } from './SessionLinks';
 import { ResumePicker } from './ResumePicker';
 import { ShortcutsHelp } from './ShortcutsHelp';
 import { AgentSettingsPanel } from './AgentSettingsPanel';
@@ -445,6 +446,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     pruneMissing(new Set([...sessions, ...cloudSessions].map((s) => s.id)));
   }, [sessions, cloudSessions, loading, pruneMissing]);
 
+  // Forget open row details of removed sessions; a scoped (--cwd) or failed list is incomplete
+  const { pruneExpandedSessions } = rail;
+  useEffect(() => {
+    if (loading || error || settings.scopeCwd || sessions.length === 0) return;
+    pruneExpandedSessions([...sessions, ...cloudSessions].map((s) => s.id));
+  }, [sessions, cloudSessions, loading, error, settings.scopeCwd, pruneExpandedSessions]);
+
   const showHint = useCallback(
     (text: string, tone: 'info' | 'error' | 'success' = 'info', ttl = 4000) => {
       setHint({ text, tone });
@@ -478,9 +486,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   }, [attachParam, loading, sessions, attach, showHint, navigate]);
 
   // Board "Agent starten": composer prefill via router state, which external links cannot set
-  const prefill = active
-    ? (location.state as { dispatch?: unknown; cwd?: unknown } | null)
-    : null;
+  const prefill = active ? (location.state as { dispatch?: unknown; cwd?: unknown } | null) : null;
   useEffect(() => {
     if (typeof prefill?.dispatch !== 'string') return;
     setInput(prefill.dispatch);
@@ -1605,6 +1611,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               onToggleGroup={toggleCollapsed}
               favoriteGroupKeys={rail.favoriteGroups}
               favoriteSessionIds={rail.favoriteSessions}
+              expandedSessionIds={rail.expandedSessions}
+              onToggleExpanded={rail.toggleExpandedSession}
               onToggleFavoriteGroup={rail.toggleFavoriteGroup}
               onToggleFavoriteSession={rail.toggleFavoriteSession}
               onMoveGroup={rail.moveGroup}
@@ -1706,6 +1714,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               onSetLayout={workspaceActions.setLayout}
               onPeek={(id) => setPeekId(id)}
               focusZone={focusZone}
+              renderPaneMeta={(s) => (
+                <SessionLinks
+                  session={s}
+                  ctx={contexts[s.id]}
+                  servers={(servers.get(s.id) || []).filter((srv) => srv.running)}
+                  issueKeys={issuesByAgent?.get(s.id) || []}
+                  onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+                  onOpenPrs={(repo) => {
+                    setPrRepo(repo);
+                    setPanel('prs');
+                  }}
+                />
+              )}
             />
           </div>
           {peekSession && (
