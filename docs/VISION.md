@@ -1,6 +1,6 @@
 # DevOrbit Leitbild: ADE (Agentic Development Environment)
 
-> Quelle der Wahrheit für alle Menschen und Agenten, die an DevOrbit arbeiten. Bei Widerspruch gewinnt dieses Dokument; Änderungen nur durch Hape.
+> Quelle der Wahrheit für alle Menschen und Agenten, die an DevOrbit arbeiten. Bei Widerspruch gewinnt dieses Dokument.
 
 ## Ziel
 
@@ -36,18 +36,15 @@ Alle Modi leben unter **einer einheitlichen Shell/UI** (gemeinsame Navigation, S
 
 - Alle Geräte sind verbunden: Mesh = bestehendes **Tailscale-Tailnet**, kein neues P2P-Protokoll.
 - Agents laufen **auf ihrem Gerät** weiter. Remote nur **ansehen/steuern** oder per **SSH-Terminal anhängen** (`ssh <host> claude agents --json`, Attach per `ssh -t <host> claude attach <id>`). **Keine Session-Verlagerung.**
-- DevOrbit muss remote nicht laufen; kein DevOrbit-Port wird ins Netz geöffnet.
-- v1: Liste + Attach + Logs. Stop/Reply/Dispatch remote später.
+- v1: Liste + Attach + Logs. Stop/Dispatch remote später.
 
 ## Prinzipien
 
 1. **Kontext vor Feature.** Jedes Feature sagt, welche Kontext-Verknüpfung es liest oder schreibt.
 2. **Ein Klick zwischen Modi, Kontext bleibt.** Kein Modus ist eine Sackgasse.
-3. **GitHub ist Quelle für Issues/PRs/Board**, DevOrbit spiegelt und schreibt zurück (Status), speichert keine zweite Wahrheit.
-4. **Eine Shell.** Neue Ansichten nutzen die gemeinsame Navigation und Komponenten, keine eigenen Layouts.
-5. **Nur unmodifizierte `claude`-CLI**, kein Token-Auslesen, keine Umgehung (siehe `briefings/2026-10-22-cloud-remote-sessions.md`). Gilt auch für Mesh.
-6. **Lokal zuerst.** Agents und Daten bleiben auf dem Gerät, das sie erzeugt hat.
-7. **Offene Entscheidungen gehören Hape** (`need-input`), Agents erfinden keine Leitbild-Entscheidungen.
+3. **Eine Shell.** Neue Ansichten nutzen die gemeinsame Navigation und Komponenten, keine eigenen Layouts.
+4. **Nur unmodifizierte `claude`-CLI**, kein Token-Auslesen, keine Umgehung (siehe `briefings/2026-10-22-cloud-remote-sessions.md`). Gilt auch für Mesh.
+5. **Offene Entscheidungen gehören Hape** (`need-input`), Agents erfinden keine Leitbild-Entscheidungen.
 
 ## Roadmap-Reihenfolge
 
@@ -60,8 +57,6 @@ Epics (GitHub `hpmartini/DevHub`, Board MACC = users/hpmartini/projects/4):
 | 3   | Agents/Mesh         | Agents-Liste verfeinern, Remote-Agents über SSH/Tailscale | #45–#56, #57  |
 | 4   | Code-Modus          | Web-IDE/VS-Code-Server aller Projekte, Kontext-Sprung     | CodingView    |
 | 5   | Einheitliche Shell  | Gemeinsame Navigation, Kontext-Leiste, Modus-Wechsel      | übergreifend  |
-
-Reihenfolge: 1 zuerst (Voraussetzung für Kontext-Sprünge), dann 2 und 3 parallel, 4 und 5 nachziehen, sobald Board und Agents die Kontext-Leiste brauchen.
 
 ## Für Agents
 
