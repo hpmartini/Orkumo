@@ -21,6 +21,8 @@ import type {
   AgentPastSession,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
+import { useRemoteAgents } from '../../hooks/useRemoteAgents';
+import { buildSshAttachArgs } from '../../utils/meshHosts';
 import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
 import { useAgentContexts } from '../../hooks/useAgentContexts';
 import {
@@ -76,6 +78,7 @@ import {
 } from '../CommandPalette';
 import type { PaletteCommand } from '../../utils/commandPalette';
 import { CloudSessionBar } from './CloudSessionBar';
+import { RemoteAgents } from './RemoteAgents';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
 import { ResumePicker } from './ResumePicker';
@@ -98,6 +101,9 @@ interface AgentsViewProps {
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const DELETE_CONFIRM_WINDOW = 2000;
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
+const REMOTE_STORAGE_KEY = 'devOrbitAgentRemote';
+/** Client-side id of a remote session: `<host>:<id>` (':' never occurs in a session id). */
+const remoteKey = (s: AgentSession) => `${s.host}:${s.id}`;
 
 function loadSort(): AgentSort {
   try {
@@ -186,6 +192,33 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     localStorage.getItem(DISPATCH_CWD_STORAGE_KEY)
   );
   const [now, setNow] = useState(Date.now());
+  const [remoteEnabled, setRemoteEnabled] = useState(() => {
+    try {
+      return localStorage.getItem(REMOTE_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggleRemote = useCallback(() => {
+    setRemoteEnabled((prev) => {
+      try {
+        localStorage.setItem(REMOTE_STORAGE_KEY, String(!prev));
+      } catch {
+        // switch stays in memory only
+      }
+      return !prev;
+    });
+  }, []);
+  const remote = useRemoteAgents(active && remoteEnabled);
+  const remoteSessions = useMemo(
+    () => remote.data?.devices.flatMap((d) => d.sessions) ?? [],
+    [remote.data]
+  );
+  // Remote rows follow the local list in keyboard navigation
+  const remoteKeys = useMemo(
+    () => (remoteEnabled ? remoteSessions.map(remoteKey) : []),
+    [remoteEnabled, remoteSessions]
+  );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const pendingDeleteRef = useRef<{ key: string; at: number } | null>(null);
   const ctrlCRef = useRef<number>(0);
@@ -309,15 +342,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         ? `more:${item.group.key}`
         : item.session.id;
 
+  const selectedRemote = remoteKeys.includes(selectedKey ?? '')
+    ? (remoteSessions.find((s) => remoteKey(s) === selectedKey) ?? null)
+    : null;
   const selectedIndex = useMemo(() => {
+    // A selected remote row leaves no local selection, so local shortcuts never hit a stand-in
+    if (selectedRemote) return -1;
     const index = items.findIndex((item) => itemKey(item) === selectedKey);
     if (index >= 0) return index;
     const firstSession = items.findIndex((item) => item.type === 'session');
     return firstSession >= 0 ? firstSession : items.length > 0 ? 0 : -1;
-  }, [items, selectedKey]);
+  }, [items, selectedKey, selectedRemote]);
   const selectedItem: NavItem | null = selectedIndex >= 0 ? items[selectedIndex] : null;
   const selectedSession = selectedItem?.type === 'session' ? selectedItem.session : null;
-  const peekSession = peekId ? sessions.find((s) => s.id === peekId) || null : null;
+  const peekSession = peekId
+    ? sessions.find((s) => s.id === peekId) ||
+      remoteSessions.find((s) => remoteKey(s) === peekId) ||
+      null
+    : null;
 
   const targetCwd: string | null = useMemo(() => {
     if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
@@ -441,6 +483,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [targetCwd, attach]
   );
 
+  // Remote panes join the client-side PTY tabs, so a flaky device poll never prunes them
+  const attachRemote = useCallback(
+    (session: AgentSession) => {
+      if (!session.host) return;
+      const host = session.host;
+      const key = remoteKey(session);
+      setCloudSessions((prev) =>
+        prev.some((s) => s.id === key)
+          ? prev
+          : [
+              ...prev,
+              {
+                ...session,
+                // namespaced so a remote id never collides with a local session/pane
+                id: key,
+                name: `${session.name} · ${host.split('.')[0]}`,
+                ptyCommand: 'ssh',
+                ptyArgs: buildSshAttachArgs(host, session.id),
+              },
+            ]
+      );
+      attach(key);
+    },
+    [attach]
+  );
+
   const closeAnyPane = useCallback(
     (id: string) => {
       setCloudSessions((prev) => prev.filter((s) => s.id !== id));
@@ -487,6 +555,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       else attach(item.session.id);
     },
     [toggleGroup, attach, showHint]
+  );
+
+  const activateRemote = useCallback(
+    (session: AgentSession) => {
+      if (session.kind === 'interactive')
+        showHint('Interactive sessions run in their own terminal', 'info');
+      else attachRemote(session);
+    },
+    [attachRemote, showHint]
   );
 
   const doDispatch = useCallback(
@@ -808,14 +885,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   const moveSelection = useCallback(
     (direction: 'up' | 'down') => {
-      if (items.length === 0) return;
-      const next =
-        direction === 'up'
-          ? Math.max(0, selectedIndex - 1)
-          : Math.min(items.length - 1, selectedIndex + 1);
-      setSelectedKey(itemKey(items[next]));
+      const keys = [...items.map(itemKey), ...remoteKeys];
+      if (keys.length === 0) return;
+      const at = selectedRemote ? keys.indexOf(remoteKey(selectedRemote)) : selectedIndex;
+      const next = direction === 'up' ? Math.max(0, at - 1) : Math.min(keys.length - 1, at + 1);
+      setSelectedKey(keys[next]);
     },
-    [items, selectedIndex]
+    [items, selectedIndex, remoteKeys, selectedRemote]
   );
 
   // ---------------------------------------------------------------------
@@ -922,11 +998,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         case 'Enter':
         case 'ArrowRight':
           e.preventDefault();
-          activateItem(selectedItem);
+          if (selectedRemote) activateRemote(selectedRemote);
+          else activateItem(selectedItem);
           break;
         case ' ':
           e.preventDefault();
-          if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
+          if (selectedRemote) togglePeek({ ...selectedRemote, id: remoteKey(selectedRemote) });
+          else if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
           else togglePeek(selectedSession);
           break;
         case 'Escape':
@@ -965,6 +1043,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     panel,
     selectedItem,
     selectedSession,
+    selectedRemote,
     peekId,
     toggleGrouping,
     handlePin,
@@ -976,6 +1055,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     toggleFavoriteSession,
     moveSelection,
     activateItem,
+    activateRemote,
     toggleGroup,
     togglePeek,
     attach,
@@ -1482,6 +1562,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               onMoveGroup={rail.moveGroup}
               appsById={appsById}
               nav={nav}
+              bottom={
+                remoteEnabled ? (
+                  <RemoteAgents
+                    data={remote.data}
+                    error={remote.error}
+                    loading={remote.loading}
+                    now={now}
+                    peekId={peekId}
+                    selectedKey={selectedRemote ? remoteKey(selectedRemote) : null}
+                    railFocused={focusZone === 'rail'}
+                    onSelect={(s) => setSelectedKey(remoteKey(s))}
+                    onAttach={attachRemote}
+                    onPeek={(s) => togglePeek({ ...s, id: remoteKey(s) })}
+                  />
+                ) : undefined
+              }
               top={
                 settings.grouping === 'state' ? (
                   <ProjectsSection
@@ -1505,6 +1601,26 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               </button>
             </div>
           )}
+          <div className="flex items-center gap-2 px-3 py-1.5 border-t border-gray-800 text-xs text-gray-300">
+            <span id="remote-agents-label">Remote-Agents</span>
+            <span className="text-gray-500 truncate">via Tailscale + SSH</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={remoteEnabled}
+              aria-labelledby="remote-agents-label"
+              onClick={toggleRemote}
+              className={`ml-auto relative w-8 h-4 rounded-full transition-colors motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-300 ${
+                remoteEnabled ? 'bg-blue-500' : 'bg-gray-700'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform motion-reduce:transition-none ${
+                  remoteEnabled ? 'translate-x-4' : ''
+                }`}
+              />
+            </button>
+          </div>
           <CloudSessionBar onOpen={openCloud} />
           {/* Feedback for actions started outside the composer (the composer shows its own) */}
           <div role="status" aria-live="polite">
@@ -1547,7 +1663,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               <PeekPanel
                 session={peekSession}
                 onClose={() => setPeekId(null)}
-                onAttach={() => attach(peekSession.id)}
+                onAttach={() =>
+                  peekSession.host ? attachRemote(peekSession) : attach(peekSession.id)
+                }
                 onReply={(text) => handleReply(peekSession, text)}
               />
             </div>
@@ -1561,7 +1679,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           <PeekPanel
             session={peekSession}
             onClose={() => setPeekId(null)}
-            onAttach={() => attach(peekSession.id)}
+            onAttach={() => (peekSession.host ? attachRemote(peekSession) : attach(peekSession.id))}
             onReply={(text) => handleReply(peekSession, text)}
           />
         </div>

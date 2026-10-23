@@ -47,18 +47,19 @@ interface AgentTerminalProps {
 }
 
 /**
- * Build the PTY WebSocket URL for `claude attach <id>`.
+ * Build the PTY WebSocket URL for `claude attach <id>` (or `ssh -t <host> claude attach <id>`).
  */
 export function buildAttachUrl(
   sessionId: string,
   cwd: string,
   cols: number,
   rows: number,
-  cliArgs: string[] = ['attach', sessionId]
+  cliArgs: string[] = ['attach', sessionId],
+  command: 'claude' | 'ssh' = 'claude'
 ): string {
   const ptySession = `agent-${sessionId}-${Date.now()}`;
   const args = encodeURIComponent(JSON.stringify(cliArgs));
-  return `${getWsUrl('/api/pty')}?sessionId=${ptySession}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}&command=claude&args=${args}`;
+  return `${getWsUrl('/api/pty')}?sessionId=${ptySession}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}&command=${command}&args=${args}`;
 }
 
 /**
@@ -201,7 +202,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
       session.cwd,
       terminal.cols,
       terminal.rows,
-      session.ptyArgs
+      session.ptyArgs,
+      session.ptyCommand
     );
     const ws = new WebSocket(url);
     wsRef.current = ws;
@@ -220,7 +222,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
             break;
           case 'connected':
             terminal.write(
-              `\x1b[2m# claude ${(session.ptyArgs ?? ['attach', session.id]).join(' ')} (PID ${data.pid})\x1b[0m\r\n`
+              `\x1b[2m# ${session.ptyCommand ?? 'claude'} ${(session.ptyArgs ?? ['attach', session.id]).join(' ')} (PID ${data.pid})\x1b[0m\r\n`
             );
             break;
           case 'exit':
@@ -299,12 +301,17 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           run: () => setGeneration((g) => g + 1),
           showLabel: true,
         },
-    {
-      label: 'Open in Ghostty',
-      title: 'Open in Ghostty',
-      icon: <SquareTerminal size={12} />,
-      run: openInGhostty,
-    },
+    // Ghostty attaches locally only: a remote (ssh) pane has no local session to open
+    ...(session.ptyCommand === 'ssh'
+      ? []
+      : [
+          {
+            label: 'Open in Ghostty',
+            title: 'Open in Ghostty',
+            icon: <SquareTerminal size={12} />,
+            run: openInGhostty,
+          },
+        ]),
     ...(onMaximize
       ? [
           {

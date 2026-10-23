@@ -17,6 +17,7 @@ import type {
   AgentSession,
   AgentNotification,
   AgentContext,
+  RemoteAgentsResponse,
   AgentServerStats,
 } from '../types';
 
@@ -105,6 +106,16 @@ export function openCloudSession(target?: string): Promise<{ args: string[] }> {
 
 export function fetchAgentLogs(id: string, lines = 40): Promise<AgentLogs> {
   return request<AgentLogs>(`/agents/${encodeURIComponent(id)}/logs${query({ lines })}`);
+}
+
+export function fetchRemoteAgents(): Promise<RemoteAgentsResponse> {
+  return request<RemoteAgentsResponse>('/agents/remote');
+}
+
+export function fetchRemoteAgentLogs(host: string, id: string): Promise<AgentLogs> {
+  return request<AgentLogs>(
+    `/agents/remote/${encodeURIComponent(host)}/${encodeURIComponent(id)}/logs`
+  );
 }
 
 export function replyToAgent(

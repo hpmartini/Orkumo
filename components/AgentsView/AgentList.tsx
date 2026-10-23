@@ -68,6 +68,8 @@ interface AgentListProps {
   collapsedKeys: Set<string>;
   /** Scrolls together with the list (the rail has a single scroller) */
   top?: React.ReactNode;
+  /** Rendered after the session cards, inside the same scroller (remote devices) */
+  bottom?: React.ReactNode;
   /** Project grouping: app lookup and navigation for the cluster headers */
   appsById?: Map<string, AgentConfigLike>;
   nav?: RailNavProps;
@@ -88,7 +90,7 @@ interface AgentListProps {
 }
 
 /** Selected row/header: filled while the rail has focus, outline only while it does not */
-const selectedClass = (focused: boolean) =>
+export const selectedClass = (focused: boolean) =>
   focused
     ? 'bg-sel text-white [&_.text-gray-300]:text-gray-100 [&_.text-gray-400]:text-gray-200 [&_.text-gray-500]:text-gray-200 [&_.text-gray-500]:text-gray-200 [&_.text-emerald-400]:text-emerald-200 [&_.text-yellow-400]:text-yellow-200 [&_.text-blue-300]:text-blue-100 [&_.text-sky-300]:text-sky-100'
     : 'bg-transparent text-white ring-2 ring-inset ring-cursor';
@@ -152,6 +154,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   highlightedId,
   collapsedKeys,
   top,
+  bottom,
   appsById,
   nav,
   railFocused = true,
@@ -804,6 +807,7 @@ export const AgentList: React.FC<AgentListProps> = ({
           );
         })}
       </div>
+      {bottom}
 
       {menu && menuActions.length > 0 && (
         <div

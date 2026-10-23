@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { X, ArrowRight, RefreshCw, Copy, ExternalLink } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { AgentSession, AgentLogs } from '../../types';
-import { fetchAgentLogs } from '../../services/agentsApi';
+import { fetchAgentLogs, fetchRemoteAgentLogs } from '../../services/agentsApi';
 import { extractNumberedChoices, stripAnsi } from '../../utils/agentInput';
 import { parseAnsiToReact } from '../../utils/ansiParser';
 import { stateGlyph } from '../../utils/agentSessions';
@@ -39,7 +39,9 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
       return;
     }
     try {
-      const data = await fetchAgentLogs(session.id, 60);
+      const data = session.host
+        ? await fetchRemoteAgentLogs(session.host, session.id)
+        : await fetchAgentLogs(session.id, 60);
       setLogs(data);
     } catch (err) {
       setLogs({
@@ -51,7 +53,7 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
     } finally {
       setLoading(false);
     }
-  }, [session.id, session.kind]);
+  }, [session.id, session.kind, session.host]);
 
   useEffect(() => {
     setLoading(true);
@@ -272,11 +274,13 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={sending}
+            disabled={sending || !!session.host}
             placeholder={
-              session.kind === 'interactive'
-                ? 'Interactive sessions cannot be replied to here'
-                : 'reply · ! for a shell command · 1-9 to pick a choice'
+              session.host
+                ? `Remote session on ${session.host} - attach to reply`
+                : session.kind === 'interactive'
+                  ? 'Interactive sessions cannot be replied to here'
+                  : 'reply · ! for a shell command · 1-9 to pick a choice'
             }
             className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none font-mono"
             aria-label="Reply to session"
