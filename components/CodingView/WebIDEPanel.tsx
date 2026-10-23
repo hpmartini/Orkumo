@@ -340,7 +340,9 @@ export const WebIDEPanel = ({
   const [codeServerError, setCodeServerError] = useState<string | null>(null);
   const [codeServerStatus, setCodeServerStatus] = useState<string>('Initializing...');
   const [codeServerRetryTrigger, setCodeServerRetryTrigger] = useState(0);
-  const [loadTimeout, setLoadTimeout] = useState<NodeJS.Timeout | null>(null);
+  // Ref, not state: the timer is re-armed after restarts and cleared in effect cleanup,
+  // which would otherwise see a stale null from the render that created the effect
+  const loadTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // Track when code-server is confirmed ready - prevents iframe from loading prematurely
   const [codeServerReady, setCodeServerReady] = useState(false);
 
@@ -508,16 +510,16 @@ export const WebIDEPanel = ({
     }
 
     // Clear timeout since iframe loaded successfully
-    if (loadTimeout) {
-      clearTimeout(loadTimeout);
-      setLoadTimeout(null);
+    if (loadTimeoutRef.current) {
+      clearTimeout(loadTimeoutRef.current);
+      loadTimeoutRef.current = null;
     }
     setCodeServerLoading(false);
     setCodeServerError(null);
     // Update global ready time - this prevents other panels from triggering unnecessary restarts
     lastCodeServerReadyTime = Date.now();
     console.log('[WebIDEPanel] Iframe loaded successfully, updated lastCodeServerReadyTime');
-  }, [codeServerReady, loadTimeout]);
+  }, [codeServerReady]);
 
   // Track retry count for iframe timeout handling
   const iframeRetryCount = useRef(0);
@@ -544,8 +546,10 @@ export const WebIDEPanel = ({
 
       // Use the shared manager to ensure code-server is running
       // All panels will wait for the same promise instead of starting independent operations
+      let cancelled = false;
       console.log('[WebIDEPanel] Using shared ensureCodeServerRunning');
       ensureCodeServerRunning(API_BASE_URL, iframeTimeout).then((result) => {
+        if (cancelled) return;
         if (result.success) {
           console.log('[WebIDEPanel] code-server ready, enabling iframe load');
 
@@ -553,57 +557,65 @@ export const WebIDEPanel = ({
           setCodeServerReady(true);
 
           // Set timeout for iframe load - but only this panel manages its own iframe
-          const actualTimeout = Math.min(iframeTimeout, 15000);
-          const timeout = setTimeout(() => {
-            // Debounce: if another panel already triggered an error within 1 second, skip
-            const now = Date.now();
-            if (now - lastErrorTime.current < 1000) {
-              console.log('[WebIDEPanel] Iframe timeout debounced');
-              return;
-            }
-            lastErrorTime.current = now;
-
-            if (iframeRetryCount.current < maxIframeRetries) {
-              iframeRetryCount.current++;
-              console.log('[WebIDEPanel] Iframe timeout, attempting shared restart...');
-              setCodeServerStatus('Editor not responding. Restarting VS Code Server...');
-              setCodeServerReady(false); // Disable iframe during restart
-
-              // Use shared restart to prevent race conditions
-              forceRestartCodeServer(API_BASE_URL).then((restartResult) => {
-                if (restartResult.success) {
-                  setCodeServerReady(true); // Re-enable iframe after restart
-                } else {
-                  setCodeServerLoading(false);
-                  setCodeServerError(restartResult.error || 'Failed to restart VS Code Server');
-                }
-                // On success, iframe will fire onLoad handler
-              });
-            } else {
-              setCodeServerLoading(false);
-              setCodeServerError(
-                'VS Code Server is running but not responding.\n\n' +
-                  'This could be due to:\n' +
-                  '• code-server crashed or hung\n' +
-                  '• Port 8080 is blocked\n' +
-                  '• Browser security restrictions\n\n' +
-                  'Try clicking "Retry" or use the Monaco editor.'
-              );
-            }
-          }, actualTimeout);
-          setLoadTimeout(timeout);
+          armLoadTimeout();
         } else {
           setCodeServerLoading(false);
           setCodeServerError(result.error || 'Failed to start VS Code Server');
         }
       });
 
+      // (Re-)arms the iframe load timeout; also called after each restart so a
+      // restart that still yields no load ends in the error state, not an endless spinner
+      function armLoadTimeout() {
+        const actualTimeout = Math.min(iframeTimeout, 15000);
+        if (loadTimeoutRef.current) clearTimeout(loadTimeoutRef.current);
+        loadTimeoutRef.current = setTimeout(() => {
+          // Debounce: if another panel already triggered an error within 1 second, skip
+          const now = Date.now();
+          if (now - lastErrorTime.current < 1000) {
+            console.log('[WebIDEPanel] Iframe timeout debounced');
+            return;
+          }
+          lastErrorTime.current = now;
+
+          if (iframeRetryCount.current < maxIframeRetries) {
+            iframeRetryCount.current++;
+            console.log('[WebIDEPanel] Iframe timeout, attempting shared restart...');
+            setCodeServerStatus('Editor not responding. Restarting VS Code Server...');
+            setCodeServerReady(false); // Disable iframe during restart
+
+            // Use shared restart to prevent race conditions
+            forceRestartCodeServer(API_BASE_URL).then((restartResult) => {
+              if (cancelled) return;
+              if (restartResult.success) {
+                setCodeServerReady(true); // Re-enable iframe after restart
+                armLoadTimeout(); // iframe may still not load: retry or surface the error
+              } else {
+                setCodeServerLoading(false);
+                setCodeServerError(restartResult.error || 'Failed to restart VS Code Server');
+              }
+            });
+          } else {
+            setCodeServerLoading(false);
+            setCodeServerError(
+              'VS Code Server is running but not responding.\n\n' +
+                'This could be due to:\n' +
+                '• code-server crashed or hung\n' +
+                '• Port 8080 is blocked\n' +
+                '• Browser security restrictions\n\n' +
+                'Try clicking "Retry" or use the Monaco editor.'
+            );
+          }
+        }, actualTimeout);
+      }
+
       // Clean up timeout and unsubscribe when component unmounts or editor type changes
       return () => {
         statusSubscribers.delete(handleStatusChange);
-        if (loadTimeout) {
-          clearTimeout(loadTimeout);
-          setLoadTimeout(null);
+        cancelled = true;
+        if (loadTimeoutRef.current) {
+          clearTimeout(loadTimeoutRef.current);
+          loadTimeoutRef.current = null;
         }
       };
     } else {
