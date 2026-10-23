@@ -172,13 +172,16 @@ export function createPtySession(
       createdAt: Date.now(),
     };
 
-    // Handle PTY output
+    // A reconnect reuses the sessionId and replaces this PTY; a replaced PTY must not
+    // talk to (or unregister) its successor, or the new terminal shows output but drops input.
+    const isCurrent = () => ptySessions.get(sessionId) === session;
+
     ptyProcess.onData((data) => {
-      ptyEvents.emit('data', { sessionId, data });
+      if (isCurrent()) ptyEvents.emit('data', { sessionId, data });
     });
 
-    // Handle PTY exit
     ptyProcess.onExit(({ exitCode, signal }) => {
+      if (!isCurrent()) return;
       ptyEvents.emit('exit', { sessionId, exitCode, signal });
       ptySessions.delete(sessionId);
     });
@@ -248,10 +251,11 @@ export function resizePty(sessionId, cols, rows) {
 /**
  * Kill a PTY session
  * @param {string} sessionId - Session identifier
+ * @param {number} [pid] - Only kill if the session still runs this PTY (a reconnect may have replaced it)
  */
-export function killPtySession(sessionId) {
+export function killPtySession(sessionId, pid) {
   const session = ptySessions.get(sessionId);
-  if (session && session.pty) {
+  if (session && session.pty && (pid === undefined || session.pty.pid === pid)) {
     try {
       session.pty.kill();
     } catch {

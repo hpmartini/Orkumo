@@ -3532,6 +3532,8 @@ function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows) {
  * Handle PTY connection in local mode - spawn PTY directly
  */
 function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) {
+  // This socket's PTY: on close it must not kill a newer PTY that reused the sessionId
+  let ptyPid;
   try {
     const result = createPtySession(sessionId, cwd, cols, rows, options);
 
@@ -3541,6 +3543,7 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
       ws.close();
       return;
     }
+    ptyPid = result.pid;
 
     wsSessionMap.set(ws, sessionId);
 
@@ -3602,7 +3605,7 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
     if (sid) {
       console.log(`[PTY] Session ${sid} closed`);
       wsSessionMap.delete(ws);
-      killPtySession(sid);
+      killPtySession(sid, ptyPid);
     }
   });
 
@@ -3611,7 +3614,7 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
     console.error(`[PTY] WebSocket error for session ${sid}:`, err);
     if (sid) {
       wsSessionMap.delete(ws);
-      killPtySession(sid);
+      killPtySession(sid, ptyPid);
     }
   });
 }

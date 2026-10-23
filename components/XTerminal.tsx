@@ -8,6 +8,7 @@ import { ClaudeTerminalModal } from './ClaudeTerminalModal';
 import { parseAnsiToReact } from '../utils/ansiParser';
 import { getWsUrl as getApiWsUrl, API_BASE_URL } from '../utils/apiConfig';
 import { DEFAULT_TERMINAL_OPTIONS, useGhosttyTheme, withGhostty } from '../hooks/useGhosttyTheme';
+import { attachTerminalKeys } from '../utils/terminalKeys';
 import type { ClaudeTerminalOptions, ClaudeCLIInfo, TerminalType } from '../types';
 
 interface TerminalTab {
@@ -127,6 +128,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   const ghosttyRef = useRef(ghostty);
   ghosttyRef.current = ghostty;
   const tabsRef = useRef<TerminalTab[]>([]);
+  // Cmd+W handlers are bound once per terminal; this always closes with current state
+  const closeTabRef = useRef<(tabId: string) => void>(() => {});
   const activeTabIdRef = useRef<string | null>(null);
 
   // Keep refs in sync for ResizeObserver and cleanup
@@ -353,17 +356,13 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         }
       });
 
-      // Handle Shift+Enter to insert newline (needed for Claude Code CLI)
-      // Uses CSI u encoding: \x1b[13;2u = Shift+Enter
-      terminal.attachCustomKeyEventHandler((event) => {
-        if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
-          }
-          return false; // Prevent default handling
-        }
-        return true; // Allow all other keys
-      });
+      attachTerminalKeys(
+        terminal,
+        (data) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+        },
+        () => closeTabRef.current(tabId)
+      );
 
       // Handle terminal resize events - this fires when terminal dimensions actually change
       // This is the proper way to sync PTY dimensions with xterm
@@ -462,8 +461,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
   // Close a tab
   const closeTab = useCallback(
-    (tabId: string, e: React.MouseEvent) => {
-      e.stopPropagation();
+    (tabId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
 
       // Clean up terminal resources
       const tab = tabs.find((t) => t.id === tabId);
@@ -492,6 +491,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     },
     [tabs, activeTabId, sharedActions, setTabs, setActiveTabId, setShowLogsTab]
   );
+
+  closeTabRef.current = (tabId) => closeTab(tabId);
 
   // Switch to logs tab
   const switchToLogs = useCallback(() => {
@@ -572,16 +573,14 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         }
       });
 
-      // Rebind Shift+Enter handler
-      tab.terminal.attachCustomKeyEventHandler((event) => {
-        if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
-          }
-          return false;
-        }
-        return true;
-      });
+      // Rebind shortcuts to the new socket
+      attachTerminalKeys(
+        tab.terminal,
+        (data) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+        },
+        () => closeTabRef.current(tabId)
+      );
     },
     [tabs, cwd]
   );

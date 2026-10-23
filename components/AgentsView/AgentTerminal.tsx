@@ -21,6 +21,7 @@ import {
   withGhostty,
 } from '../../hooks/useGhosttyTheme';
 import type { AgentSession } from '../../types';
+import { attachTerminalKeys } from '../../utils/terminalKeys';
 import { stateGlyph } from '../../utils/agentSessions';
 
 /** Below this pane width the header actions fold into an overflow menu */
@@ -91,6 +92,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   const [narrow, setNarrow] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [generation, setGeneration] = useState(0);
+  // Cmd+W is bound once at terminal creation; close through the latest prop
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const ghostty = useGhosttyTheme();
   const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
   const optionsRef = useRef(options);
@@ -143,14 +147,13 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         ws.send(JSON.stringify({ type: 'resize', cols, rows }));
       }
     });
-    terminal.attachCustomKeyEventHandler((event) => {
-      if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
-        sendInput('\x1b[13;2u');
-        return false;
-      }
+    attachTerminalKeys(
+      terminal,
+      sendInput,
+      () => onCloseRef.current(),
       // F6 moves focus back to the rail (handled at document level)
-      return event.key !== 'F6';
-    });
+      (event) => event.key !== 'F6'
+    );
     terminalRef.current = terminal;
     fitRef.current = fitAddon;
 
