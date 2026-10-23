@@ -352,7 +352,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
           onOpenKey={(key) => setParam('item', key)}
           onAttach={(jobId) => navigate(`/agents?attach=${encodeURIComponent(jobId)}`)}
           onStartAgent={(it) =>
-            navigate(`/agents?dispatch=${encodeURIComponent(`Bearbeite ${it.url} `)}`)
+            navigate('/agents', { state: { dispatch: `Bearbeite ${it.url} ` } })
           }
           onAgentIssues={(jobId) =>
             setSearchParams((prev) => {

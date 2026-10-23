@@ -413,14 +413,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     navigate('/agents', { replace: true });
   }, [attachParam, loading, sessions, attach, showHint, navigate]);
 
-  // `/agents?dispatch=<text>` (board "Agent starten"): open the task composer prefilled
-  const dispatchParam = active ? new URLSearchParams(location.search).get('dispatch') : null;
+  // Board "Agent starten": composer prefill via router state, which external links cannot set
+  const dispatchPrefill = active
+    ? (location.state as { dispatch?: unknown } | null)?.dispatch
+    : undefined;
   useEffect(() => {
-    if (dispatchParam === null) return;
-    setInput(dispatchParam);
+    if (typeof dispatchPrefill !== 'string') return;
+    setInput(dispatchPrefill);
     setComposerOpen(true);
-    navigate('/agents', { replace: true });
-  }, [dispatchParam, navigate]);
+    navigate('/agents', { replace: true, state: null });
+  }, [dispatchPrefill, navigate]);
 
   // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
   const [board, setBoard] = useState<BoardData | null>(null);
