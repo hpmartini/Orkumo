@@ -9,7 +9,7 @@ DevOrbit Dashboard is now available as a native desktop application using Electr
 - Native window management and system integration
 - System tray support (planned)
 - Native file dialogs and notifications
-- Cross-platform: Windows, macOS, and Linux
+- Platforms: macOS and Linux (native Windows is not supported; use WSL for the server)
 
 🔋 **Full Feature Parity**
 
@@ -32,7 +32,6 @@ DevOrbit Dashboard is now available as a native desktop application using Electr
 Download the latest release for your platform from the [Releases](https://github.com/hpmartini/DevHub/releases) page:
 
 - **macOS**: Download `.dmg` file (supports both Intel and Apple Silicon)
-- **Windows**: Download `.exe` installer or portable version
 - **Linux**: Download `.AppImage`, `.deb`, or `.rpm` based on your distribution
 
 ### Building from Source
@@ -64,7 +63,6 @@ bun run electron:build
 
 # Build for specific platform
 bun run electron:build:mac      # macOS
-bun run electron:build:win      # Windows
 bun run electron:build:linux    # Linux
 
 # Build for all platforms (requires platform-specific tools)
@@ -77,7 +75,6 @@ bun run electron:build:all
 
 1. **Start the application**
    - macOS: Double-click the app in Applications folder
-   - Windows: Run from Start Menu or Desktop shortcut
    - Linux: Run the AppImage or installed application
 
 2. **Configure directories**
@@ -238,18 +235,6 @@ If you're building from source or auditing the code:
 
 - Right-click the app and select "Open"
 - Click "Open" in the dialog that appears
-
-### Windows Issues
-
-**Windows SmartScreen warning**
-
-- This is normal for unsigned applications
-- Click "More info" → "Run anyway"
-
-**Antivirus false positive**
-
-- Some antivirus software may flag Electron apps
-- Add an exception for DevOrbit Dashboard
 
 ### Linux Issues
 

@@ -362,15 +362,6 @@ describe('WebIDEPanel', () => {
         encodeURIComponent('/Users/test/Documents/code')
       );
     });
-
-    it('should handle Windows-style paths', async () => {
-      await renderReady('C:\\Users\\test\\Projects\\myapp');
-
-      // Backslashes are converted to forward slashes before mapping
-      expect(getIframe().getAttribute('src')).toContain(
-        encodeURIComponent('/home/coder/Projects/myapp')
-      );
-    });
   });
 
   describe('Retry button functionality', () => {

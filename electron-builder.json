@@ -1,7 +1,7 @@
 {
   "appId": "com.devorbit.dashboard",
   "productName": "DevOrbitDashboard",
-  "copyright": "Copyright © 2026",
+  "copyright": "Copyright \u00a9 2026",
   "directories": {
     "output": "dist-electron",
     "buildResources": "electron/resources"
@@ -48,17 +48,6 @@
       "width": 540,
       "height": 380
     }
-  },
-  "win": {
-    "target": ["nsis", "portable"]
-  },
-  "nsis": {
-    "oneClick": false,
-    "perMachine": false,
-    "allowToChangeInstallationDirectory": true,
-    "deleteAppDataOnUninstall": false,
-    "createDesktopShortcut": true,
-    "createStartMenuShortcut": true
   },
   "linux": {
     "target": ["AppImage", "deb", "rpm"],

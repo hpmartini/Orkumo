@@ -419,7 +419,6 @@ export const WebIDEPanel = ({
       '/home/coder/Projects/',
       '/home/coder/PROJECTS/',
       '/Users/', // macOS - consider tightening to specific user directories in production
-      'C:/Users/', // Windows user directories
     ];
 
     const isAllowed = allowedPrefixes.some((prefix) => {
@@ -624,7 +623,6 @@ export const WebIDEPanel = ({
         iframeRef.current.src = 'about:blank';
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [editorType, iframeTimeout, codeServerRetryTrigger]);
 
   // Fetch file tree

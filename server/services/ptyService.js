@@ -2,7 +2,6 @@
  * PTY Service - Manages pseudo-terminal sessions for real terminal emulation
  */
 import * as pty from 'node-pty';
-import os from 'os';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import { exec } from 'child_process';
@@ -18,10 +17,6 @@ export const ptyEvents = new EventEmitter();
  * @returns {string} Path to shell binary
  */
 function detectShell() {
-  if (os.platform() === 'win32') {
-    return 'powershell.exe';
-  }
-
   // List of shells to try in order of preference
   const shellCandidates = [
     process.env.SHELL, // User's configured shell

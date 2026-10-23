@@ -47,7 +47,6 @@ bun run electron:build:all
 
 ```bash
 bun run electron:build:mac     # macOS (DMG and ZIP)
-bun run electron:build:win     # Windows (NSIS installer and portable)
 bun run electron:build:linux   # Linux (AppImage, deb, rpm)
 ```
 
@@ -97,11 +96,6 @@ The following native modules are used and properly packaged:
 2. **Notarization**: Automatic if `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are set
 3. **Distribution**: DMG and ZIP files for both Intel and Apple Silicon
 
-### Windows
-
-1. **Code Signing**: Optional but recommended (requires certificate)
-2. **Distribution**: NSIS installer and portable executable
-
 ### Linux
 
 1. **Distribution**: AppImage (universal), deb (Debian/Ubuntu), rpm (Fedora/RHEL)
@@ -135,10 +129,6 @@ This happens when the app isn't properly signed. For development:
 xattr -cr /Applications/DevOrbit\ Dashboard.app
 ```
 
-### Windows: SmartScreen warning
-
-This is normal for unsigned apps. Users can click "More info" → "Run anyway"
-
 ### Linux: Permission denied
 
 Make the AppImage executable:
@@ -165,7 +155,6 @@ electron/
 ├── entitlements.mac.plist     # macOS security entitlements
 ├── resources/                 # Build resources
 │   ├── icon.icns             # macOS icon (TODO: Add actual icon)
-│   ├── icon.ico              # Windows icon (TODO: Add actual icon)
 │   └── icon.png              # Linux icon (TODO: Add actual icon)
 └── README.md                  # This file
 ```

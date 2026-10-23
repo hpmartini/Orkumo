@@ -12,12 +12,6 @@ To add custom application icons, place the following files in this directory:
   - Can be generated from a 1024x1024 PNG using tools like [png2icons](https://github.com/idesis-gmbh/png2icons)
   - Or use macOS's built-in `iconutil` command
 
-### Windows
-
-- `icon.ico` - Windows icon file (256x256 minimum)
-  - Should contain multiple sizes: 16x16, 32x32, 48x48, 64x64, 128x128, 256x256
-  - Can be generated using online tools like [icoconvert.com](https://icoconvert.com/)
-
 ### Linux
 
 - `icon.png` - Linux icon (512x512 minimum, preferably 1024x1024)
@@ -81,7 +75,6 @@ When creating your icon:
 - Test on both light and dark backgrounds
 - Consider platform-specific design guidelines:
   - macOS: Rounded corners, subtle shadows
-  - Windows: Square with transparency
   - Linux: Flexible, but keep it simple
 
 ## Provided SVG Template
