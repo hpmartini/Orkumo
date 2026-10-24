@@ -2,7 +2,15 @@
  * API client for the Agent Task Board (`/api/board/*`).
  */
 import { API_BASE_URL } from '../utils/apiConfig';
-import type { BoardData, BoardSettings } from '../types';
+import type {
+  BoardData,
+  BoardIssueCreate,
+  BoardIssueDetails,
+  BoardIssuePatch,
+  BoardItem,
+  BoardRepoOptions,
+  BoardSettings,
+} from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -32,6 +40,27 @@ export function setBoardItemStatus(
   return request(`/board/items/${encodeURIComponent(itemId)}/status`, {
     method: 'PATCH',
     body: JSON.stringify({ optionId }),
+  });
+}
+
+export function fetchRepoOptions(repo: string): Promise<BoardRepoOptions> {
+  return request<BoardRepoOptions>(`/board/repo-options?repo=${encodeURIComponent(repo)}`);
+}
+
+export function fetchIssueDetails(issueId: string): Promise<BoardIssueDetails> {
+  return request<BoardIssueDetails>(`/board/issues/${encodeURIComponent(issueId)}`);
+}
+
+/** Creates the issue and adds it to the board project; returns the new board item */
+export function createBoardIssue(input: BoardIssueCreate): Promise<BoardItem> {
+  return request<BoardItem>('/board/issues', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** Edits the issue behind a board item; returns the item as GitHub has it afterwards */
+export function updateBoardIssue(itemId: string, patch: BoardIssuePatch): Promise<BoardItem> {
+  return request<BoardItem>(`/board/items/${encodeURIComponent(itemId)}/issue`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
   });
 }
 

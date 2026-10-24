@@ -14,6 +14,9 @@ const {
   setItemStatus,
   clearCache,
   pickRepoPath,
+  resolveIssueRefs,
+  pickNewItemStatus,
+  updateIssue,
 } = await import('../server/services/boardService.js');
 
 const UUID = '6259550d-1555-4cd2-85d1-d37082bb80f4';
@@ -55,6 +58,7 @@ describe('boardService - mapItem', () => {
       fieldValueByName: { optionId: '47fc9ee4' },
       content: {
         __typename: 'Issue',
+        id: 'I_44',
         number: 44,
         title: 'Board',
         url: 'https://github.com/hpmartini/DevHub/issues/44',
@@ -62,7 +66,12 @@ describe('boardService - mapItem', () => {
         updatedAt: '2026-10-23T10:00:00Z',
         closedAt: null,
         repository: { nameWithOwner: 'hpmartini/DevHub' },
-        parent: { number: 40, title: 'Epic', repository: { nameWithOwner: 'hpmartini/DevHub' } },
+        parent: {
+          id: 'I_40',
+          number: 40,
+          title: 'Epic',
+          repository: { nameWithOwner: 'hpmartini/DevHub' },
+        },
         subIssuesSummary: { total: 3, completed: 1 },
         labels: { nodes: [{ name: 'prio: high', color: 'f97316' }] },
         milestone: { title: 'M1' },
@@ -85,16 +94,18 @@ describe('boardService - mapItem', () => {
     expect(item).toEqual({
       itemId: 'PVTI_abc',
       type: 'Issue',
+      issueId: 'I_44',
       number: 44,
       title: 'Board',
       url: 'https://github.com/hpmartini/DevHub/issues/44',
       repo: 'hpmartini/DevHub',
       state: 'OPEN',
+      stateReason: null,
       statusOptionId: '47fc9ee4',
       labels: [{ name: 'prio: high', color: 'f97316' }],
       milestone: 'M1',
       assignees: ['hpmartini'],
-      parent: { repo: 'hpmartini/DevHub', number: 40, title: 'Epic' },
+      parent: { id: 'I_40', repo: 'hpmartini/DevHub', number: 40, title: 'Epic' },
       subIssues: { total: 3, completed: 1 },
       pullRequests: [
         {
@@ -133,7 +144,14 @@ describe('boardService - mapItem', () => {
     expect(item.parent).toBeNull();
     expect(item.subIssues).toEqual({ total: 0, completed: 0 });
     expect(item.pullRequests).toEqual([
-      { repo: 'o/r', number: 7, url: 'https://github.com/o/r/pull/7', title: 'PR', state: 'MERGED', checks: null },
+      {
+        repo: 'o/r',
+        number: 7,
+        url: 'https://github.com/o/r/pull/7',
+        title: 'PR',
+        state: 'MERGED',
+        checks: null,
+      },
     ]);
   });
 
@@ -145,6 +163,7 @@ describe('boardService - mapItem', () => {
     });
     expect(item).toMatchObject({
       type: 'DraftIssue',
+      issueId: null,
       number: null,
       url: null,
       repo: null,
@@ -229,5 +248,131 @@ describe('boardService - pickRepoPath', () => {
 
   it('returns null when no local checkout has that origin', () => {
     expect(pickRepoPath('hpmartini/MAPLE', entries)).toBeNull();
+  });
+});
+
+describe('boardService - resolveIssueRefs', () => {
+  const options = {
+    labels: [
+      { id: 'LA_1', name: 'bug' },
+      { id: 'LA_2', name: 'mw:go' },
+    ],
+    assignees: [{ id: 'MDQ6VXNlcjUwNDcxMTg=', login: 'hpmartini' }],
+    milestones: [{ id: 'MI_1', title: 'M1' }],
+  };
+  it('maps names case-insensitively, only for given keys', () => {
+    expect(resolveIssueRefs(options, { labels: ['MW:GO'], assignees: ['hpmartini'] })).toEqual({
+      labelIds: ['LA_2'],
+      assigneeIds: ['MDQ6VXNlcjUwNDcxMTg='],
+    });
+    expect(resolveIssueRefs(options, { labels: [], milestone: null })).toEqual({
+      labelIds: [],
+      milestoneId: null,
+    });
+    expect(resolveIssueRefs(options, { milestone: 'M1' })).toEqual({ milestoneId: 'MI_1' });
+    expect(resolveIssueRefs(options, { title: 'x' })).toEqual({});
+  });
+  it('rejects unknown names with 400', () => {
+    expect(() => resolveIssueRefs(options, { labels: ['nope'] })).toThrow(/Unknown label: nope/);
+    try {
+      resolveIssueRefs(options, { milestone: 'M9' });
+    } catch (e) {
+      expect(e.status).toBe(400);
+    }
+  });
+});
+
+describe('boardService - pickNewItemStatus', () => {
+  const options = [
+    { id: 'b', name: 'Todo' },
+    { id: 'a', name: 'Backlog' },
+  ];
+  it('uses the requested option, else Backlog, else the first', () => {
+    expect(pickNewItemStatus(options, 'b')).toBe('b');
+    expect(pickNewItemStatus(options)).toBe('a');
+    expect(pickNewItemStatus([{ id: 'x', name: 'Todo' }])).toBe('x');
+    expect(pickNewItemStatus([])).toBeNull();
+  });
+  it('rejects an unknown option', () => {
+    expect(() => pickNewItemStatus(options, 'zzz')).toThrow(/Unknown status option/);
+  });
+});
+
+describe('boardService - updateIssue', () => {
+  const source = { owner: 'hpmartini', number: 4 };
+  const issueNode = (over = {}) => ({
+    id: 'PVTI_i',
+    fieldValueByName: { optionId: 'todo' },
+    content: {
+      __typename: 'Issue',
+      id: 'I_7',
+      number: 7,
+      title: 'Old',
+      state: 'OPEN',
+      repository: { nameWithOwner: 'hpmartini/DevHub' },
+      ...over,
+    },
+  });
+  const boardPage = JSON.stringify({
+    data: {
+      rateLimit: { cost: 1, remaining: 1 },
+      repositoryOwner: {
+        projectV2: {
+          id: 'PVT_1',
+          title: 'MACC',
+          field: { id: 'F', options: [{ id: 'todo', name: 'Todo' }] },
+          items: { nodes: [issueNode()], pageInfo: { hasNextPage: false } },
+        },
+      },
+    },
+  });
+
+  it('sends one updateIssue with label ids (empty list as k[]), closes, and returns the refetched item', async () => {
+    clearCache();
+    const calls = [];
+    vi.mocked(execFile).mockImplementation((_cmd, args, _opts, cb) => {
+      const q = args[3];
+      calls.push(args);
+      if (q.includes('items(first')) cb(null, boardPage, '');
+      else if (q.includes('labels(first:100')) {
+        cb(
+          null,
+          JSON.stringify({
+            data: {
+              repository: {
+                id: 'R_1',
+                labels: { nodes: [{ id: 'LA_1', name: 'bug', color: 'f00' }] },
+                assignableUsers: { nodes: [] },
+                milestones: { nodes: [] },
+              },
+            },
+          }),
+          ''
+        );
+      } else if (q.includes('node(id:$id){... on ProjectV2Item')) {
+        cb(
+          null,
+          JSON.stringify({ data: { node: issueNode({ title: 'New', state: 'CLOSED' }) } }),
+          ''
+        );
+      } else cb(null, '{"data":{}}', '');
+    });
+
+    const item = await updateIssue(source, 'PVTI_i', {
+      title: 'New',
+      labels: [],
+      assignees: [],
+      state: 'CLOSED',
+      stateReason: 'NOT_PLANNED',
+    });
+
+    const update = calls.find((a) => a[3].includes('updateIssue'));
+    expect(update).toContain('title=New');
+    expect(update).toContain('labelIds[]');
+    expect(update).toContain('assigneeIds[]');
+    const close = calls.find((a) => a[3].includes('closeIssue'));
+    expect(close).toContain('reason=NOT_PLANNED');
+    expect(item).toMatchObject({ title: 'New', state: 'CLOSED', issueId: 'I_7' });
+    expect((await getBoard(source)).items[0].title).toBe('New');
   });
 });

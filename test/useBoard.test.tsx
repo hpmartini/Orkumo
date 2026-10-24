@@ -31,11 +31,13 @@ function board(statusOptionId: string): BoardData {
   const item: BoardItem = {
     itemId: ITEM,
     type: 'Issue',
+    issueId: null,
     number: 44,
     title: 'Board',
     url: 'https://github.com/o/r/issues/44',
     repo: 'o/r',
     state: 'OPEN',
+    stateReason: null,
     statusOptionId,
     labels: [],
     milestone: null,

@@ -1,17 +1,18 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
-  Pin,
-  MoreHorizontal,
+  CircleDot,
   GitBranch,
   GitBranchPlus,
   GitPullRequest,
-  Star,
-  ArrowUp,
-  ArrowDown,
-  CircleDot,
+  MoreHorizontal,
+  Pin,
+  Plus,
   SquareTerminal,
+  Star,
 } from 'lucide-react';
 import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
 import {
@@ -87,6 +88,8 @@ interface AgentListProps {
   expandedSessionIds?: Set<string>;
   onToggleExpanded?: (id: string) => void;
   onToggleFavoriteGroup?: (key: string) => void;
+  /** "+ Issue" in a project group header; gets the group's GitHub repo ("owner/name") */
+  onCreateIssue?: (repo: string) => void;
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
   onMoveGroup?: (key: string, targetKey: string, visibleKeys: string[]) => void;
@@ -165,6 +168,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   expandedSessionIds,
   onToggleExpanded,
   onToggleFavoriteGroup,
+  onCreateIssue,
   onToggleFavoriteSession,
   onMoveGroup,
   issuesByAgent,
@@ -469,6 +473,13 @@ export const AgentList: React.FC<AgentListProps> = ({
                             .map((s) => contexts[s.id]?.issues)
                             .find((i) => i && i.open > 0) || null
                         : null;
+                    // Repo of the project's agents; groups without a GitHub origin get no "+ Issue"
+                    const groupRepo =
+                      onCreateIssue && grouping === 'project' && !isFavSection
+                        ? item.group.sessions
+                            .map((s) => contexts[s.id]?.repo?.slug)
+                            .find(Boolean) || null
+                        : null;
                     const groupFav = isFavGroup(groupKey);
                     const groupSessions = [...item.group.sessions, ...item.group.hidden];
                     const attachedCount = groupSessions.filter((s) => openIds.has(s.id)).length;
@@ -573,6 +584,19 @@ export const AgentList: React.FC<AgentListProps> = ({
                             <CircleDot size={11} />
                             {groupIssues.open}
                           </a>
+                        )}
+                        {groupRepo && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCreateIssue?.(groupRepo);
+                            }}
+                            className="shrink-0 p-0.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                            title={`Neues Issue in ${groupRepo}`}
+                            aria-label={`Neues Issue in ${groupRepo}`}
+                          >
+                            <Plus size={12} />
+                          </button>
                         )}
                         {isFavSection ? (
                           <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />

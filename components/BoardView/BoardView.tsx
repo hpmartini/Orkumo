@@ -23,6 +23,7 @@ import { undoToast, useBoard } from './useBoard';
 import { BoardRail, type RailAgent } from './BoardRail';
 import { BoardGrid } from './BoardGrid';
 import { BoardItemPanel } from './BoardItemPanel';
+import { IssueCreateModal, lastIssueRepo } from './IssueCreateModal';
 
 interface BoardViewProps {
   /** Whether the view is visible (drives polling, URL state and keyboard handling) */
@@ -72,7 +73,19 @@ const toggleIn = (list: string[], key: string) =>
 export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data, settings, loading, error, refresh, updateSettings, moveItem } = useBoard(active);
+  const {
+    data,
+    settings,
+    loading,
+    error,
+    refresh,
+    updateSettings,
+    moveItem,
+    upsertItem,
+    editIssue,
+  } = useBoard(active);
+  // Column whose "+ Issue" was clicked (status option id, '' = default)
+  const [createIn, setCreateIn] = useState<string | null>(null);
   const { sessions } = useAgentSessions({ active });
   const [view, setView] = useState<ViewPrefs>(loadView);
   const [doneOpen, setDoneOpen] = useState(false);
@@ -104,6 +117,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const options = useMemo(() => data?.statusField.options ?? [], [data]);
+  const repos = useMemo(
+    () => [...new Set(items.flatMap((i) => (i.repo ? [i.repo] : [])))].sort(),
+    [items]
+  );
   const prefs = settings ?? EMPTY_PREFS;
   const { sliceKind, selected, laneMode } = view;
 
@@ -145,12 +162,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
 
   const columns = useMemo(() => boardColumns(options, visible), [options, visible]);
   const lanes = useMemo(
-    () =>
-      buildLanes(
-        visible,
-        laneMode,
-        new Set(options.filter(isDoneOption).map((o) => o.id))
-      ),
+    () => buildLanes(visible, laneMode, new Set(options.filter(isDoneOption).map((o) => o.id))),
     [visible, laneMode, options]
   );
   // Done window is measured from the GitHub fetch, so it moves with polling
@@ -206,9 +218,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
   };
 
   const onAgent = (jobId: string) => setParam('agent', agentFilter === jobId ? null : jobId);
-  const filterAgent = agentFilter
-    ? (sessionsById.get(agentFilter)?.name ?? agentFilter)
-    : null;
+  const filterAgent = agentFilter ? (sessionsById.get(agentFilter)?.name ?? agentFilter) : null;
 
   return (
     <div className="relative flex flex-1 h-full min-h-0 bg-gray-900">
@@ -235,7 +245,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
         <header className="flex items-center gap-3 px-4 h-12 border-b border-gray-700 bg-gray-900 shrink-0">
           <h1 className="text-[15px] font-semibold text-white flex items-center gap-2 min-w-0">
             <span className="truncate">{selected ?? 'Alle'}</span>
-            <span className="text-xs font-normal text-gray-400 shrink-0">{visible.length} Items</span>
+            <span className="text-xs font-normal text-gray-400 shrink-0">
+              {visible.length} Items
+            </span>
           </h1>
           {filterAgent && (
             <button
@@ -332,6 +344,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
               onOpen={(item) => setParam('item', itemKey(item))}
               onAgent={onAgent}
               onMove={moveItem}
+              onCreate={(optionId) => setCreateIn(optionId)}
               onReset={() => {
                 updateView({ selected: null });
                 setParam('agent', null);
@@ -340,6 +353,24 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
           )}
         </div>
       </main>
+
+      {createIn !== null && (
+        <IssueCreateModal
+          repo={
+            sliceKind === 'repo' && selected && repos.includes(selected)
+              ? selected
+              : lastIssueRepo(repos)
+          }
+          repos={repos}
+          statusOptions={options}
+          statusOptionId={createIn || undefined}
+          onClose={() => setCreateIn(null)}
+          onCreated={(item) => {
+            upsertItem(item);
+            setParam('item', itemKey(item));
+          }}
+        />
+      )}
 
       {openItem && (
         <BoardItemPanel
@@ -350,6 +381,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
           sessionsById={sessionsById}
           onClose={closePanel}
           onStatus={(optionId) => moveItem(openItem.itemId, optionId)}
+          onSave={(patch, optimistic) => editIssue(openItem.itemId, patch, optimistic)}
           onOpenKey={(key) => setParam('item', key)}
           onAttach={(jobId) => navigate(`/agents?attach=${encodeURIComponent(jobId)}`)}
           onStartAgent={async (it) => {

@@ -1,5 +1,12 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, GitMerge } from 'lucide-react';
+import {
+  ChevronDown,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  GitMerge,
+  Plus,
+} from 'lucide-react';
 import type { AgentSession, BoardItem, BoardStatusOption, BoardSwimlaneMode } from '../../types';
 import {
   DONE_WINDOW_DAYS,
@@ -38,6 +45,8 @@ interface BoardGridProps {
   onOpen: (item: BoardItem) => void;
   onAgent: (jobId: string) => void;
   onMove: (itemId: string, optionId: string) => void;
+  /** "+ Issue" in a column header: creates an issue with that status */
+  onCreate?: (optionId: string) => void;
   onReset: () => void;
 }
 
@@ -59,9 +68,7 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
     columnKeyOf(item, options) === col.key &&
     (!col.option || !isDoneOption(col.option) || withinDoneWindow(item, now));
   const grid = {
-    gridTemplateColumns: columns
-      .map((c) => (folded(c) ? '44px' : 'minmax(208px, 1fr)'))
-      .join(' '),
+    gridTemplateColumns: columns.map((c) => (folded(c) ? '44px' : 'minmax(208px, 1fr)')).join(' '),
   };
   const minWidth = columns.reduce((w, c) => w + (folded(c) ? 52 : 216), 50);
   const allItems = lanes.flatMap((l) => l.items);
@@ -169,6 +176,16 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
             >
               <span className="truncate">{name}</span>
               <span className="font-normal text-gray-300 tabular-nums">{count}</span>
+              {col.option && !done && props.onCreate && (
+                <button
+                  onClick={() => props.onCreate?.(col.option!.id)}
+                  className={`ml-auto p-0.5 ${TOGGLE}`}
+                  title={`Neues Issue in ${name}`}
+                  aria-label={`Neues Issue in ${name}`}
+                >
+                  <Plus size={14} />
+                </button>
+              )}
               {done && (
                 <>
                   <span className="font-normal text-[11px] text-gray-300">
@@ -193,7 +210,10 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
       {lanes.length === 0 && (
         <div className="px-4 py-16 text-center text-gray-400">
           Keine Items in dieser Auswahl.{' '}
-          <button onClick={props.onReset} className="text-cursor hover:underline underline-offset-2">
+          <button
+            onClick={props.onReset}
+            className="text-cursor hover:underline underline-offset-2"
+          >
             Filter zurücksetzen
           </button>
         </div>

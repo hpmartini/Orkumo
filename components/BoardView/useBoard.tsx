@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
-import type { BoardData, BoardItem, BoardSettings } from '../../types';
+import type { BoardData, BoardIssuePatch, BoardItem, BoardSettings } from '../../types';
 import {
   fetchBoard,
+  updateBoardIssue,
   fetchBoardSettings,
   setBoardItemStatus,
   updateBoardSettings,
@@ -88,7 +89,9 @@ export function useBoard(active: boolean) {
   useEffect(() => {
     fetchBoardSettings()
       .then(setSettings)
-      .catch(() => setSettings({ source: { owner: '', number: 0 }, favorites: [], order: [], hidden: [] }));
+      .catch(() =>
+        setSettings({ source: { owner: '', number: 0 }, favorites: [], order: [], hidden: [] })
+      );
   }, []);
 
   const updateSettings = useCallback(async (patch: Partial<BoardSettings>) => {
@@ -141,5 +144,52 @@ export function useBoard(active: boolean) {
     [patchItem]
   );
 
-  return { data, settings, loading, error, refresh: () => load(true), updateSettings, moveItem };
+  /** Inserts or replaces an item as the server returned it (after create/edit) */
+  const upsertItem = useCallback((item: BoardItem) => {
+    setData((d) => {
+      if (!d) return d;
+      const known = d.items.some((i) => i.itemId === item.itemId);
+      return {
+        ...d,
+        items: known
+          ? d.items.map((i) => (i.itemId === item.itemId ? item : i))
+          : [...d.items, item],
+      };
+    });
+  }, []);
+
+  /**
+   * Edits the issue behind an item: shows `optimistic` at once, then the server's version;
+   * reverts and toasts on error. Resolves true on success.
+   */
+  const editIssue = useCallback(
+    async (itemId: string, patch: BoardIssuePatch, optimistic: Partial<BoardItem> = {}) => {
+      const item = dataRef.current?.items.find((i) => i.itemId === itemId);
+      if (!item) return false;
+      patchItem(itemId, optimistic);
+      try {
+        upsertItem(await updateBoardIssue(itemId, patch));
+        return true;
+      } catch (err) {
+        patchItem(itemId, item);
+        toast.error(
+          `${itemKey(item)}: nicht gespeichert (${err instanceof Error ? err.message : 'Fehler'})`
+        );
+        return false;
+      }
+    },
+    [patchItem, upsertItem]
+  );
+
+  return {
+    data,
+    settings,
+    loading,
+    error,
+    refresh: () => load(true),
+    updateSettings,
+    moveItem,
+    upsertItem,
+    editIssue,
+  };
 }
