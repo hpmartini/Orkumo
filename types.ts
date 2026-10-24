@@ -264,6 +264,20 @@ export interface AgentServerStats {
   memMb: number;
 }
 
+export interface AgentCacheInfo {
+  /** Epoch ms of the latest assistant turn: the cache TTL counts from here */
+  lastActivityAt: number;
+  ttlMs: number;
+  /** Prompt tokens of the latest turn (cached + written + uncached) */
+  cachedTokens: number;
+  contextWindow: number;
+  /** Turns that read from the cache, out of all turns */
+  hits: number;
+  turns: number;
+  /** Cache-read share of all input tokens, 0..1 */
+  hitRatio: number;
+}
+
 export interface AgentContext {
   /** slug = "owner/repo" from the origin remote (github) */
   repo: {
@@ -282,6 +296,8 @@ export interface AgentContext {
   } | null;
   /** Model of the session's latest assistant turn (e.g. "claude-opus-5-5"); null when unknown */
   model: string | null;
+  /** Prompt-cache stats from the session transcript; null when there is no local transcript */
+  cache?: AgentCacheInfo | null;
   /** null when gh is unavailable/unauthenticated or not a github repo */
   issues: { open: number; url: string | null } | null;
   pulls: { open: number; url: string | null; items: AgentPullRequest[] } | null;

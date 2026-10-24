@@ -12,6 +12,7 @@ import {
   ArrowDown,
   CircleDot,
   SquareTerminal,
+  Timer,
 } from 'lucide-react';
 import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
 import {
@@ -28,6 +29,8 @@ import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferen
 import type { AgentConfigLike } from './types';
 import { AppPowerButton, AppStatusDot, RailNavProps } from './ProjectsRail';
 import { SessionLinks } from './SessionLinks';
+import { CacheBadge } from './CacheBadge';
+import { isCacheWarning } from '../../utils/agentCache';
 
 /** Drag payload of a group header (separate from the workspace tab drag) */
 export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
@@ -474,6 +477,9 @@ export const AgentList: React.FC<AgentListProps> = ({
                     const attachedCount = groupSessions.filter((s) => openIds.has(s.id)).length;
                     const groupHasActive =
                       !!activeSessionId && groupSessions.some((s) => s.id === activeSessionId);
+                    const groupCacheWarning = groupSessions.some((s) =>
+                      isCacheWarning(contexts[s.id]?.cache, now)
+                    );
                     const app = item.group.appId ? appsById?.get(item.group.appId) : undefined;
                     return (
                       <div
@@ -507,7 +513,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                           endDrag();
                         }}
                         onDragEnd={endDrag}
-                        className={`group flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-pointer select-none ${''}${drag === groupKey ? 'opacity-50 ' : ''}${
+                        className={`group flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-pointer select-none ${groupCacheWarning ? 'border-l-2 border-l-amber-400 ' : ''}${drag === groupKey ? 'opacity-50 ' : ''}${
                           selected
                             ? selectedClass(railFocused)
                             : `bg-gray-800 text-gray-300 hover:text-white ${collapsed ? '' : 'border-b border-gray-700'}`
@@ -558,6 +564,15 @@ export const AgentList: React.FC<AgentListProps> = ({
                           >
                             <SquareTerminal size={12} aria-hidden="true" />
                             <span className="sr-only">{attachedCount} attached</span>
+                          </span>
+                        )}
+                        {groupCacheWarning && (
+                          <span
+                            className="shrink-0 text-amber-300"
+                            title="Prompt cache of an agent here expires within 10 minutes"
+                          >
+                            <Timer size={12} aria-hidden="true" />
+                            <span className="sr-only">cache expiring</span>
                           </span>
                         )}
                         <span className="flex-1" />
@@ -625,6 +640,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                     (grouping !== 'project' && grouping !== 'directory') ||
                     (item.group.key as string) === FAVORITES_GROUP_KEY;
                   const runningSubagents = ctx?.subagents.running || 0;
+                  const cacheWarning = isCacheWarning(ctx?.cache, now);
                   const hasDetails =
                     !!label ||
                     issueKeys.length > 0 ||
@@ -657,7 +673,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                       } ${
                         selected
                           ? selectedClass(railFocused)
-                          : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : ''}`
+                          : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : cacheWarning ? 'ring-1 ring-inset ring-amber-400/70 bg-amber-400/5' : ''}`
                       }`}
                       title={`${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
                     >
@@ -790,6 +806,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                               </span>
                             )}
                           </span>
+                          {ctx?.cache && <CacheBadge cache={ctx.cache} />}
                         </div>
                         {expanded && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
