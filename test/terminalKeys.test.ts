@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { terminalKeyAction } from '../utils/terminalKeys';
+import type { Terminal } from '@xterm/xterm';
+import { attachTerminalKeys, terminalKeyAction } from '../utils/terminalKeys';
 
 const key = (
   k: string,
@@ -46,5 +47,41 @@ describe('terminalKeyAction', () => {
     expect(terminalKeyAction(key('@', { altKey: true }))).toBeNull(); // Option+L on a German layout
     expect(terminalKeyAction(key('Backspace', { altKey: true, metaKey: true }))).toBeNull();
     expect(terminalKeyAction(key('Backspace', { altKey: true }, 'keyup'))).toBeNull();
+  });
+});
+
+describe('attachTerminalKeys', () => {
+  const install = () => {
+    let handler: (e: KeyboardEvent) => boolean = () => true;
+    const terminal = {
+      attachCustomKeyEventHandler: (fn: typeof handler) => {
+        handler = fn;
+      },
+    } as unknown as Terminal;
+    const sent: string[] = [];
+    attachTerminalKeys(
+      terminal,
+      (d) => sent.push(d),
+      () => {}
+    );
+    return { press: (e: KeyboardEvent) => handler(e), sent };
+  };
+  const event = (type: string, k: string, mods = {}) =>
+    ({ ...key(k, mods, type), preventDefault: () => {} }) as unknown as KeyboardEvent;
+
+  it('sends Shift+Enter once and swallows its keypress, so xterm adds no \\r', () => {
+    const { press, sent } = install();
+    expect(press(event('keydown', 'Enter', { shiftKey: true }))).toBe(false);
+    expect(press(event('keypress', 'Enter', { shiftKey: true }))).toBe(false);
+    expect(press(event('keyup', 'Enter', { shiftKey: true }))).toBe(false);
+    expect(sent).toEqual(['\x1b[13;2u']);
+  });
+
+  it('lets plain Enter and typing through to xterm', () => {
+    const { press, sent } = install();
+    expect(press(event('keydown', 'Enter'))).toBe(true);
+    expect(press(event('keypress', 'Enter'))).toBe(true);
+    expect(press(event('keypress', 'a'))).toBe(true);
+    expect(sent).toEqual([]);
   });
 });

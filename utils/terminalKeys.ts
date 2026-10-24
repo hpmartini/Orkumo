@@ -34,6 +34,21 @@ export function attachTerminalKeys(
   passThrough: (e: KeyboardEvent) => boolean = () => true
 ): void {
   terminal.attachCustomKeyEventHandler((event) => {
+    if (event.type !== 'keydown') {
+      // xterm also runs the handler for keypress/keyup; a keypress let through after a
+      // mapped keydown makes xterm send the plain key too (Shift+Enter would add `\r`
+      // and submit the Claude Code prompt)
+      const { key, shiftKey, altKey, ctrlKey, metaKey } = event;
+      const mapped = terminalKeyAction({
+        type: 'keydown',
+        key,
+        shiftKey,
+        altKey,
+        ctrlKey,
+        metaKey,
+      });
+      return mapped ? false : passThrough(event);
+    }
     const action = terminalKeyAction(event);
     if (!action) return passThrough(event);
     // keeps Electron/the browser from acting on Cmd+W and Backspace chords
