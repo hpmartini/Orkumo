@@ -45,6 +45,7 @@ export default [
         Event: 'readonly',
         MessageEvent: 'readonly',
         ResizeObserver: 'readonly',
+        FontFace: 'readonly',
         URL: 'readonly',
         WebSocket: 'readonly',
         HTMLElement: 'readonly',

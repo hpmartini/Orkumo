@@ -1,6 +1,18 @@
 import { useEffect, useState } from 'react';
 import type { ITerminalOptions, ITheme } from '@xterm/xterm';
 import { API_BASE_URL } from '../utils/apiConfig';
+import symbolsFontUrl from '../assets/fonts/SymbolsNerdFontMono-Regular.woff2?url';
+
+// Nerd Font icons (Powerline, git, folders) used by prompts and the Claude Code status line.
+// Bundled and listed as fallback so devices without a local Nerd Font render them too;
+// unicode-range keeps the browser from fetching it until such a glyph shows up.
+if (typeof FontFace !== 'undefined' && typeof document !== 'undefined') {
+  document.fonts.add(
+    new FontFace('Symbols Nerd Font Mono', `url(${symbolsFontUrl}) format('woff2')`, {
+      unicodeRange: 'U+23FB-23FE, U+2665, U+26A1, U+2B58, U+E000-F8FF, U+F0000-F1AF0',
+    })
+  );
+}
 
 export interface GhosttyConfig {
   found: boolean;
@@ -36,7 +48,7 @@ export const DEFAULT_TERMINAL_OPTIONS = {
     brightCyan: '#22d3ee',
     brightWhite: '#fafafa',
   } as ITheme,
-  fontFamily: 'JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
+  fontFamily: 'JetBrains Mono, "Symbols Nerd Font Mono", Menlo, Monaco, "Courier New", monospace',
   fontSize: 13,
   cursorStyle: 'bar' as 'block' | 'bar' | 'underline',
   cursorBlink: true,
