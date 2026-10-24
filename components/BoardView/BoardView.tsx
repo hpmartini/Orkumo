@@ -75,7 +75,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
   const { data, settings, loading, error, refresh, updateSettings, moveItem } = useBoard(active);
   const { sessions } = useAgentSessions({ active });
   const [view, setView] = useState<ViewPrefs>(loadView);
-  const [doneOpen, setDoneOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   const updateView = (patch: Partial<ViewPrefs>) => {
@@ -145,12 +144,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
 
   const columns = useMemo(() => boardColumns(options, visible), [options, visible]);
   const lanes = useMemo(
-    () =>
-      buildLanes(
-        visible,
-        laneMode,
-        new Set(options.filter(isDoneOption).map((o) => o.id))
-      ),
+    () => buildLanes(visible, laneMode, new Set(options.filter(isDoneOption).map((o) => o.id))),
     [visible, laneMode, options]
   );
   // Done window is measured from the GitHub fetch, so it moves with polling
@@ -206,9 +200,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
   };
 
   const onAgent = (jobId: string) => setParam('agent', agentFilter === jobId ? null : jobId);
-  const filterAgent = agentFilter
-    ? (sessionsById.get(agentFilter)?.name ?? agentFilter)
-    : null;
+  const filterAgent = agentFilter ? (sessionsById.get(agentFilter)?.name ?? agentFilter) : null;
 
   return (
     <div className="relative flex flex-1 h-full min-h-0 bg-gray-900">
@@ -235,7 +227,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
         <header className="flex items-center gap-3 px-4 h-12 border-b border-gray-700 bg-gray-900 shrink-0">
           <h1 className="text-[15px] font-semibold text-white flex items-center gap-2 min-w-0">
             <span className="truncate">{selected ?? 'Alle'}</span>
-            <span className="text-xs font-normal text-gray-400 shrink-0">{visible.length} Items</span>
+            <span className="text-xs font-normal text-gray-400 shrink-0">
+              {visible.length} Items
+            </span>
           </h1>
           {filterAgent && (
             <button
@@ -322,8 +316,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
               options={options}
               lanes={lanes}
               laneMode={laneMode}
-              doneOpen={doneOpen}
-              onToggleDone={() => setDoneOpen(!doneOpen)}
               now={now}
               selectedKey={openKey}
               hideRepo={(item: BoardItem) => sliceKind === 'repo' && selected === item.repo}
