@@ -4,6 +4,7 @@
  */
 import { execFile } from 'child_process';
 import { parseGithubSlug } from './agentContextService.js';
+import { keepWrite, mergeRecentWrites } from '../../utils/boardWrites.js';
 
 const CACHE_TTL_MS = 60_000;
 const PAGE_SIZE = 100; // measured on MACC: cost 4 per page with comments(last:20)
@@ -50,6 +51,9 @@ const STATUS_MUTATION = `mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optio
 
 let cache = null; // { key, at, data }
 let inflight = null; // { key, promise }
+// Items this server wrote (status, create, edit), newest per item: { key, at, item, created }.
+// A fetch that started before a write must not undo it in the cache.
+const recentWrites = new Map();
 
 function httpError(message, status) {
   return Object.assign(new Error(message), { status });
@@ -223,20 +227,20 @@ export async function getBoard(source, { refresh = false } = {}) {
   const key = cacheKey(source);
   if (!refresh && cache?.key === key && Date.now() - cache.at < CACHE_TTL_MS) return cache.data;
   if (inflight?.key === key) return inflight.promise;
-  // Status writes that land while this fetch runs; its data predates them
-  const writes = new Map();
+  const startedAt = Date.now();
   const promise = loadBoard(source)
     .then((data) => {
-      for (const item of data.items) {
-        if (writes.has(item.itemId)) item.statusOptionId = writes.get(item.itemId);
-      }
-      cache = { key, at: Date.now(), data };
+      const now = Date.now();
+      const writes = [...recentWrites.values()].filter((w) => w.key === key);
+      data.items = mergeRecentWrites(data.items, writes, startedAt, now);
+      for (const w of writes) if (!keepWrite(w, startedAt, now)) recentWrites.delete(w.item.itemId);
+      cache = { key, at: now, data };
       return data;
     })
     .finally(() => {
       if (inflight?.promise === promise) inflight = null;
     });
-  inflight = { key, promise, writes };
+  inflight = { key, promise };
   return promise;
 }
 
@@ -254,17 +258,30 @@ export async function setItemStatus(source, itemId, optionId) {
     fieldId: board.statusField.id,
     optionId,
   });
-  item.statusOptionId = optionId;
-  if (cache?.key === cacheKey(source)) {
-    const cached = cache.data.items.find((i) => i.itemId === itemId);
-    if (cached) cached.statusOptionId = optionId;
-  }
-  if (inflight?.key === cacheKey(source)) inflight.writes.set(itemId, optionId);
+  rememberItem(source, { ...item, statusOptionId: optionId });
   return { itemId, statusOptionId: optionId };
 }
 
 export function clearCache() {
   cache = null;
+  recentWrites.clear();
+}
+
+/** Puts a written item into the cache and keeps it over fetches that predate the write. */
+function rememberItem(source, item, created = false) {
+  const key = cacheKey(source);
+  const before = recentWrites.get(item.itemId);
+  recentWrites.set(item.itemId, {
+    key,
+    at: Date.now(),
+    item,
+    created: created || (before?.key === key && before.created),
+  });
+  if (cache?.key !== key) return;
+  const items = cache.data.items;
+  const i = items.findIndex((x) => x.itemId === item.itemId);
+  if (i >= 0) items[i] = item;
+  else items.push(item);
 }
 
 // ---------------------------------------------------------------------------
@@ -284,8 +301,10 @@ const ISSUE_DETAILS_QUERY = `query($id:ID!){node(id:$id){... on Issue{
   subIssues(first:50){nodes{id number title state repository{nameWithOwner}}}
 }}}`;
 const CREATE_ISSUE_MUTATION = `mutation($repositoryId:ID!,$title:String!,$body:String,$labelIds:[ID!],$assigneeIds:[ID!],$milestoneId:ID){
-  createIssue(input:{repositoryId:$repositoryId,title:$title,body:$body,labelIds:$labelIds,assigneeIds:$assigneeIds,milestoneId:$milestoneId}){issue{id}}
+  createIssue(input:{repositoryId:$repositoryId,title:$title,body:$body,labelIds:$labelIds,assigneeIds:$assigneeIds,milestoneId:$milestoneId}){issue{id number url}}
 }`;
+// Live state of an issue: edits decide close/reopen and the old parent from this, not the cache
+const ISSUE_STATE_QUERY = `query($id:ID!){node(id:$id){... on Issue{state stateReason parent{id}}}}`;
 const ADD_ITEM_MUTATION = `mutation($projectId:ID!,$contentId:ID!){
   addProjectV2ItemById(input:{projectId:$projectId,contentId:$contentId}){item{id}}
 }`;
@@ -363,19 +382,11 @@ function splitVars(vars) {
   return [str, typed];
 }
 
-function upsertCachedItem(source, item) {
-  if (cache?.key !== cacheKey(source)) return;
-  const items = cache.data.items;
-  const i = items.findIndex((x) => x.itemId === item.itemId);
-  if (i >= 0) items[i] = item;
-  else items.push(item);
-}
-
-async function refetchItem(source, itemId) {
+async function refetchItem(source, itemId, created = false) {
   const node = (await ghGraphql(ITEM_QUERY, { id: itemId }))?.node;
   if (!node?.id) throw httpError('Item not found after write', 502);
   const item = mapItem(node);
-  upsertCachedItem(source, item);
+  rememberItem(source, item, created);
   return item;
 }
 
@@ -402,53 +413,82 @@ export async function getIssueDetails(issueId) {
   };
 }
 
+/** httpError carrying extra JSON fields for the client (sent next to `error`) */
+function detailedError(message, status, details) {
+  return Object.assign(httpError(message, status), { details });
+}
+
 /**
  * Creates an issue in `repo`, adds it to the board project with a status (default Backlog)
  * and returns it as a BoardItem (also inserted into the cache).
+ * Not atomic on GitHub: if adding to the project fails after the issue exists, the 502 carries
+ * `issue` ({id, number, url}); sending `issueId` then resumes with the project step instead of
+ * creating a duplicate (addProjectV2ItemById is idempotent).
  */
 export async function createIssue(source, input) {
   const board = await getBoard(source);
   const statusOptionId = pickNewItemStatus(board.statusField.options, input.statusOptionId);
-  const options = await getRepoOptions(input.repo);
-  const refs = resolveIssueRefs(options, input);
-  const [str, typed] = splitVars({
-    repositoryId: options.repositoryId,
-    title: input.title,
-    body: input.body ?? '',
-    ...refs,
-  });
-  const issueId = (await ghGraphql(CREATE_ISSUE_MUTATION, str, typed))?.createIssue?.issue?.id;
-  if (!issueId) throw httpError('GitHub did not return the new issue', 502);
-  const added = await ghGraphql(ADD_ITEM_MUTATION, {
-    projectId: board.projectId,
-    contentId: issueId,
-  });
-  const itemId = added?.addProjectV2ItemById?.item?.id;
-  if (!itemId) throw httpError('Issue created but not added to the project', 502);
-  if (statusOptionId) {
-    await ghGraphql(STATUS_MUTATION, {
+  let issue = input.issueId ? { id: input.issueId, number: null, url: null } : null;
+  if (!issue) {
+    const options = await getRepoOptions(input.repo);
+    const refs = resolveIssueRefs(options, input);
+    const [str, typed] = splitVars({
+      repositoryId: options.repositoryId,
+      title: input.title,
+      body: input.body ?? '',
+      ...refs,
+    });
+    issue = (await ghGraphql(CREATE_ISSUE_MUTATION, str, typed))?.createIssue?.issue;
+    if (!issue?.id) throw httpError('GitHub did not return the new issue', 502);
+  }
+  try {
+    const added = await ghGraphql(ADD_ITEM_MUTATION, {
       projectId: board.projectId,
-      itemId,
-      fieldId: board.statusField.id,
-      optionId: statusOptionId,
+      contentId: issue.id,
+    });
+    const itemId = added?.addProjectV2ItemById?.item?.id;
+    if (!itemId) throw httpError('GitHub did not return the project item', 502);
+    if (statusOptionId) {
+      await ghGraphql(STATUS_MUTATION, {
+        projectId: board.projectId,
+        itemId,
+        fieldId: board.statusField.id,
+        optionId: statusOptionId,
+      });
+    }
+    return await refetchItem(source, itemId, true);
+  } catch (error) {
+    const ref = issue.number ? `${input.repo}#${issue.number}` : 'Issue';
+    throw detailedError(`${ref} angelegt, aber nicht aufs Board gesetzt: ${error.message}`, 502, {
+      issue,
     });
   }
-  return refetchItem(source, itemId);
 }
 
 /**
  * Edits an issue on the board. `patch` keys (all optional): title, body, labels (names),
  * assignees (logins), milestone (title|null), state (OPEN|CLOSED) + stateReason,
  * parent ({repo, number}|null), addSubIssue ({repo, number}), removeSubIssue (issue node id).
- * Returns the refreshed BoardItem.
+ * Returns the refreshed BoardItem. The steps are separate mutations: when one fails after
+ * others applied, the error carries `item` = the issue as GitHub has it now.
  */
 export async function updateIssue(source, itemId, patch) {
   const board = await getBoard(source);
   const item = board.items.find((i) => i.itemId === itemId);
   if (!item) throw httpError('Item not on this board', 404);
   if (!item.issueId) throw httpError('Only issues can be edited', 400);
-  const id = item.issueId;
+  try {
+    await applyIssuePatch(item, patch);
+  } catch (error) {
+    const current = await refetchItem(source, itemId).catch(() => null);
+    if (current) error.details = { item: current };
+    throw error;
+  }
+  return refetchItem(source, itemId);
+}
 
+async function applyIssuePatch(item, patch) {
+  const id = item.issueId;
   const fields = {};
   if (patch.title !== undefined) fields.title = patch.title;
   if (patch.body !== undefined) fields.body = patch.body;
@@ -470,23 +510,26 @@ export async function updateIssue(source, itemId, patch) {
     );
   }
 
+  const live =
+    patch.state !== undefined || patch.parent === null
+      ? (await ghGraphql(ISSUE_STATE_QUERY, { id }))?.node
+      : null;
+  if (patch.state !== undefined && !live) throw httpError('Issue not found', 404);
   const reason = patch.stateReason || 'COMPLETED';
   // Closing a closed issue again only changes its reason
-  if (patch.state === 'CLOSED' && (item.state !== 'CLOSED' || item.stateReason !== reason)) {
+  if (patch.state === 'CLOSED' && (live.state !== 'CLOSED' || live.stateReason !== reason)) {
     await ghGraphql(CLOSE_MUTATION, { id, reason });
-  } else if (patch.state === 'OPEN' && item.state === 'CLOSED') {
+  } else if (patch.state === 'OPEN' && live.state === 'CLOSED') {
     await ghGraphql(REOPEN_MUTATION, { id });
   }
 
-  if (patch.parent !== undefined) {
-    if (patch.parent === null) {
-      if (item.parent?.id)
-        await ghGraphql(REMOVE_SUB_MUTATION, { parentId: item.parent.id, subId: id });
-    } else {
-      const parentId = await issueNodeId(patch.parent.repo, patch.parent.number);
-      if (parentId === id) throw httpError('An issue cannot be its own parent', 400);
-      await ghGraphql(ADD_SUB_MUTATION, { parentId, subId: id });
-    }
+  if (patch.parent === null) {
+    if (live?.parent?.id)
+      await ghGraphql(REMOVE_SUB_MUTATION, { parentId: live.parent.id, subId: id });
+  } else if (patch.parent) {
+    const parentId = await issueNodeId(patch.parent.repo, patch.parent.number);
+    if (parentId === id) throw httpError('An issue cannot be its own parent', 400);
+    await ghGraphql(ADD_SUB_MUTATION, { parentId, subId: id });
   }
   if (patch.addSubIssue) {
     const subId = await issueNodeId(patch.addSubIssue.repo, patch.addSubIssue.number);
@@ -496,8 +539,6 @@ export async function updateIssue(source, itemId, patch) {
   if (patch.removeSubIssue) {
     await ghGraphql(REMOVE_SUB_MUTATION, { parentId: id, subId: patch.removeSubIssue });
   }
-
-  return refetchItem(source, itemId);
 }
 
 // ---------------------------------------------------------------------------

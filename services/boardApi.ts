@@ -19,13 +19,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(
+    const message =
       payload && typeof payload === 'object' && 'error' in payload
         ? String((payload as { error: unknown }).error)
-        : `${response.status} ${response.statusText}`
-    );
+        : `${response.status} ${response.statusText}`;
+    // Extra fields of the error body (e.g. `issue`, `item`) for callers that recover from them
+    throw Object.assign(new Error(message), { details: payload ?? {} });
   }
   return payload as T;
+}
+
+/** JSON fields of a failed request besides `error` ({} for other errors) */
+export function errorDetails(err: unknown): Record<string, unknown> {
+  const details = (err as { details?: unknown })?.details;
+  return details && typeof details === 'object' ? (details as Record<string, unknown>) : {};
 }
 
 /** refresh=true bypasses the server's in-memory cache (manual refresh). */

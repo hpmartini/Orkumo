@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import type { BoardData, BoardIssuePatch, BoardItem, BoardSettings } from '../../types';
 import {
+  errorDetails,
   fetchBoard,
   updateBoardIssue,
   fetchBoardSettings,
@@ -9,6 +10,7 @@ import {
   updateBoardSettings,
 } from '../../services/boardApi';
 import { itemKey } from '../../utils/board';
+import { keepWrite, mergeRecentWrites, type RecentWrite } from '../../utils/boardWrites';
 
 const POLL_MS = 60_000;
 
@@ -44,6 +46,9 @@ export function useBoard(active: boolean) {
   // Status writes in flight: a poll answering meanwhile must not flip the card back
   // seq: only the latest move of an item may clear or revert it
   const pending = useRef(new Map<string, { optionId: string; seq: number }>());
+  // Items confirmed by the server (create, edit, status): a poll sent before the write
+  // answers with older data and must not undo them. Later polls are authoritative.
+  const written = useRef(new Map<string, RecentWrite & { item: BoardItem }>());
   const moveSeq = useRef(0);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -57,20 +62,19 @@ export function useBoard(active: boolean) {
   const load = useCallback(async (refresh = false) => {
     setLoading(true);
     try {
+      const startedAt = Date.now();
       const next = await fetchBoard(refresh);
+      const now = Date.now();
+      const writes = [...written.current.values()];
+      for (const w of writes)
+        if (!keepWrite(w, startedAt, now, 0)) written.current.delete(w.item.itemId);
       const overrides = pending.current;
-      setData(
-        overrides.size
-          ? {
-              ...next,
-              items: next.items.map((i) =>
-                overrides.has(i.itemId)
-                  ? { ...i, statusOptionId: overrides.get(i.itemId)!.optionId }
-                  : i
-              ),
-            }
-          : next
-      );
+      setData({
+        ...next,
+        items: mergeRecentWrites(next.items, writes, startedAt, now, 0).map((i) =>
+          overrides.has(i.itemId) ? { ...i, statusOptionId: overrides.get(i.itemId)!.optionId } : i
+        ),
+      });
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Board konnte nicht geladen werden');
@@ -125,6 +129,8 @@ export function useBoard(active: boolean) {
       pending.current.set(itemId, { optionId, seq });
       try {
         await setBoardItemStatus(itemId, optionId);
+        const moved = dataRef.current?.items.find((i) => i.itemId === itemId);
+        if (moved && isLatest()) written.current.set(itemId, { item: moved, at: Date.now() });
         const label = `${itemKey(item)}: ${name(before.statusOptionId)} → ${name(optionId)}`;
         if (undoable && before.statusOptionId) {
           const back = before.statusOptionId;
@@ -146,6 +152,7 @@ export function useBoard(active: boolean) {
 
   /** Inserts or replaces an item as the server returned it (after create/edit) */
   const upsertItem = useCallback((item: BoardItem) => {
+    written.current.set(item.itemId, { item, at: Date.now() });
     setData((d) => {
       if (!d) return d;
       const known = d.items.some((i) => i.itemId === item.itemId);
@@ -159,8 +166,9 @@ export function useBoard(active: boolean) {
   }, []);
 
   /**
-   * Edits the issue behind an item: shows `optimistic` at once, then the server's version;
-   * reverts and toasts on error. Resolves true on success.
+   * Edits the issue behind an item: shows `optimistic` at once, then the server's version.
+   * On error it shows the issue as GitHub has it (a later step may have failed after earlier
+   * ones applied), else reverts. Resolves true on success.
    */
   const editIssue = useCallback(
     async (itemId: string, patch: BoardIssuePatch, optimistic: Partial<BoardItem> = {}) => {
@@ -171,9 +179,12 @@ export function useBoard(active: boolean) {
         upsertItem(await updateBoardIssue(itemId, patch));
         return true;
       } catch (err) {
-        patchItem(itemId, item);
+        const current = errorDetails(err).item as BoardItem | undefined;
+        if (current?.itemId === itemId) upsertItem(current);
+        else patchItem(itemId, item);
+        const reason = err instanceof Error ? err.message : 'Fehler';
         toast.error(
-          `${itemKey(item)}: nicht gespeichert (${err instanceof Error ? err.message : 'Fehler'})`
+          `${itemKey(item)}: ${current ? 'nicht vollständig gespeichert, aktueller Stand geladen' : 'nicht gespeichert'} (${reason})`
         );
         return false;
       }

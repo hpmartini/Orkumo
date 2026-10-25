@@ -2953,7 +2953,7 @@ const agentLimiter = rateLimit({
 
 function sendAgentError(res, error) {
   const status = error?.status || 500;
-  res.status(status).json({ error: error?.message || 'Agent operation failed' });
+  res.status(status).json({ ...error?.details, error: error?.message || 'Agent operation failed' });
 }
 
 /**
@@ -3400,6 +3400,11 @@ const createIssueSchema = z
     repo: boardRepoSlugSchema,
     title: z.string().trim().min(1).max(256),
     statusOptionId: z.string().min(1).max(100).optional(),
+    // Resume: issue already created, only add it to the project (see createIssue)
+    issueId: z
+      .string()
+      .regex(/^I_[A-Za-z0-9_-]+$/)
+      .optional(),
     ...boardIssueFields,
   })
   .strict();
@@ -3476,7 +3481,13 @@ app.get('/api/board/settings', (req, res) => {
 
 app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
   try {
-    if (req.body.source) boardService.clearCache();
+    // Only a different source invalidates the cache (and its fresh-write protection)
+    const { source } = settingsService.getBoardSettings();
+    if (
+      req.body.source &&
+      (req.body.source.owner !== source.owner || req.body.source.number !== source.number)
+    )
+      boardService.clearCache();
     res.json(settingsService.updateBoardSettings(req.body));
   } catch (error) {
     sendAgentError(res, error);

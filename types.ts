@@ -624,6 +624,8 @@ export interface BoardIssueCreate extends BoardIssueFields {
   title: string;
   /** Default: "Backlog" */
   statusOptionId?: string;
+  /** Resume: the issue exists already (failed project step), only put it on the board */
+  issueId?: string;
 }
 
 export interface BoardIssuePatch extends BoardIssueFields {

@@ -8,6 +8,12 @@ const api = vi.hoisted(() => ({
   fetchBoardSettings: vi.fn(),
   setBoardItemStatus: vi.fn(),
   updateBoardSettings: vi.fn(),
+  updateBoardIssue: vi.fn(),
+  // Mirrors services/boardApi.ts
+  errorDetails: (err: unknown): Record<string, unknown> => {
+    const details = (err as { details?: unknown })?.details;
+    return details && typeof details === 'object' ? (details as Record<string, unknown>) : {};
+  },
 }));
 vi.mock('../services/boardApi', () => api);
 
@@ -175,5 +181,94 @@ describe('useBoard status writes', () => {
     expect(status(hook)).toBe('C');
     await poll(hook, 'B');
     expect(status(hook)).toBe('C');
+  });
+});
+
+/** Poll whose request is sent now and answered when the test calls the returned function */
+function sentPoll(hook: Awaited<ReturnType<typeof setup>>) {
+  let resolve!: (b: BoardData) => void;
+  api.fetchBoard.mockImplementationOnce(() => new Promise<BoardData>((r) => (resolve = r)));
+  let done!: Promise<void>;
+  act(() => void (done = hook.result.current.refresh()));
+  return (answer: BoardData) =>
+    act(async () => {
+      resolve(answer);
+      await done;
+    });
+}
+
+const items = (hook: Awaited<ReturnType<typeof setup>>) => hook.result.current.data!.items;
+
+describe('useBoard local writes vs. polls', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.restoreAllMocks();
+    // Strictly increasing clock: "sent before" / "sent after" a write never share a millisecond
+    let t = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => t++);
+    api.fetchBoardSettings.mockResolvedValue({
+      source: { owner: 'o', number: 1 },
+      favorites: [],
+      order: [],
+      hidden: [],
+    });
+  });
+
+  const base = () => board('A').items[0];
+
+  it('a new item survives a poll sent before it was created; a later poll is authoritative', async () => {
+    const hook = await setup('A');
+    const answerStale = sentPoll(hook);
+    act(() => hook.result.current.upsertItem({ ...base(), itemId: 'PVTI_2', number: 45 }));
+    await answerStale(board('A'));
+    expect(items(hook).map((i) => i.itemId)).toEqual([ITEM, 'PVTI_2']);
+
+    const answerFresh = sentPoll(hook);
+    await answerFresh(board('A'));
+    expect(items(hook).map((i) => i.itemId)).toEqual([ITEM]);
+  });
+
+  it('an edited title survives a poll sent before the edit; a later poll is authoritative', async () => {
+    const hook = await setup('A');
+    const answerStale = sentPoll(hook);
+    act(() => hook.result.current.upsertItem({ ...base(), title: 'Bearbeitet' }));
+    await answerStale(board('A'));
+    expect(items(hook)[0].title).toBe('Bearbeitet');
+
+    const answerFresh = sentPoll(hook);
+    await answerFresh(board('A'));
+    expect(items(hook)[0].title).toBe('Board');
+  });
+
+  it('a successful move survives a poll sent before the write resolved', async () => {
+    const writes = deferredWrites();
+    const hook = await setup('A');
+    act(() => void hook.result.current.moveItem(ITEM, 'B'));
+    const answerStale = sentPoll(hook);
+    await act(async () => writes[0].resolve());
+    await answerStale(board('A'));
+    expect(status(hook)).toBe('B');
+  });
+
+  it("a failed edit with details.item shows GitHub's state instead of the pre-edit item", async () => {
+    const hook = await setup('A');
+    api.updateBoardIssue.mockRejectedValueOnce(
+      Object.assign(new Error('boom'), { details: { item: { ...base(), title: 'Teilweise' } } })
+    );
+    let ok: boolean | undefined;
+    await act(async () => {
+      ok = await hook.result.current.editIssue(ITEM, { title: 'Ganz neu' }, { title: 'Ganz neu' });
+    });
+    expect(ok).toBe(false);
+    expect(items(hook)[0].title).toBe('Teilweise');
+  });
+
+  it('a failed edit without details reverts to the pre-edit item', async () => {
+    const hook = await setup('A');
+    api.updateBoardIssue.mockRejectedValueOnce(new Error('boom'));
+    await act(async () => {
+      await hook.result.current.editIssue(ITEM, { title: 'Ganz neu' }, { title: 'Ganz neu' });
+    });
+    expect(items(hook)[0].title).toBe('Board');
   });
 });

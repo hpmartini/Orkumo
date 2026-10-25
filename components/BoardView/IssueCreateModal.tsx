@@ -2,7 +2,7 @@ import React, { useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 import type { BoardItem, BoardStatusOption } from '../../types';
-import { createBoardIssue } from '../../services/boardApi';
+import { createBoardIssue, errorDetails } from '../../services/boardApi';
 import { useDialogA11y } from '../CommandPalette/useDialogA11y';
 import { LabelChip } from './BoardCard';
 import {
@@ -62,6 +62,8 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
   const [assignees, setAssignees] = useState<string[]>([]);
   const [milestone, setMilestone] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
+  // Issue exists on GitHub but the project step failed: the next submit only retries that step
+  const [orphan, setOrphan] = useState<{ id: string; url: string | null } | null>(null);
   const { options, error } = useRepoOptions(repo || null);
 
   const changeRepo = (next: string) => {
@@ -85,6 +87,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
         assignees,
         milestone: milestone[0] ?? null,
         ...(statusOptionId ? { statusOptionId } : {}),
+        ...(orphan ? { issueId: orphan.id } : {}),
       });
       try {
         localStorage.setItem(LAST_REPO_KEY, repo);
@@ -94,7 +97,9 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
       onCreated(item);
       onClose();
     } catch (err) {
-      toast.error(`Issue nicht angelegt (${err instanceof Error ? err.message : 'Fehler'})`);
+      const issue = errorDetails(err).issue as { id?: string; url?: string | null } | undefined;
+      if (issue?.id) setOrphan((o) => ({ id: issue.id!, url: issue.url ?? o?.url ?? null }));
+      toast.error(err instanceof Error ? err.message : 'Issue nicht angelegt');
       setSaving(false);
     }
   };
@@ -145,6 +150,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               <select
                 id="issue-create-repo"
                 value={repo}
+                disabled={!!orphan}
                 onChange={(e) => changeRepo(e.target.value)}
                 className={FIELD_INPUT}
               >
@@ -191,6 +197,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               onChange={(e) => setTitle(e.target.value)}
               maxLength={256}
               required
+              disabled={!!orphan}
               placeholder="Was soll passieren?"
               className={FIELD_INPUT}
             />
@@ -203,12 +210,14 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               value={body}
               onChange={(e) => setBody(e.target.value)}
               rows={7}
+              disabled={!!orphan}
               placeholder="Markdown"
               className={`${FIELD_INPUT} font-mono resize-y`}
             />
 
             <span className="text-gray-400">Labels</span>
             <FieldPicker
+              disabled={!!orphan}
               label="Labels"
               multi
               choices={labelChoices(options)}
@@ -222,6 +231,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             />
             <span className="text-gray-400">Assignees</span>
             <FieldPicker
+              disabled={!!orphan}
               label="Assignees"
               multi
               choices={assigneeChoices(options)}
@@ -231,6 +241,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             />
             <span className="text-gray-400">Milestone</span>
             <FieldPicker
+              disabled={!!orphan}
               label="Milestone"
               choices={milestoneChoices(options)}
               value={milestone}
@@ -240,6 +251,28 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
           </div>
 
           {error && <p className="mt-2 text-xs text-red-300">Auswahl nicht geladen: {error}</p>}
+          {orphan && (
+            <p role="status" className="mt-3 text-xs text-amber-200">
+              Das Issue ist auf GitHub angelegt
+              {orphan.url && (
+                <>
+                  {' '}
+                  (
+                  <a
+                    href={orphan.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    öffnen
+                  </a>
+                  )
+                </>
+              )}
+              , steht aber noch nicht auf dem Board. „Erneut aufs Board setzen“ wiederholt nur
+              diesen Schritt, ohne ein zweites Issue anzulegen.
+            </p>
+          )}
           <div className="mt-4 flex items-center justify-end gap-2">
             <button
               type="button"
@@ -253,7 +286,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               disabled={!repo || !title.trim() || saving}
               className="px-3 py-1.5 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
             >
-              {saving ? 'Lege an …' : 'Issue anlegen'}
+              {saving ? 'Lege an …' : orphan ? 'Erneut aufs Board setzen' : 'Issue anlegen'}
             </button>
           </div>
         </form>

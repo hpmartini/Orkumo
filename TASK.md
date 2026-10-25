@@ -423,3 +423,17 @@ The following existing tasks are related to the new features above:
   - Issue: 4 files in conflict — `AgentList.tsx` (row layout rewritten on main), `AgentsView.tsx`, `ProjectsRail.tsx`, `server/index.js`
   - Approach: merge `origin/main` (no rebase, branch is pushed); take main's `AgentList.tsx` and re-apply only the board diff (`issuesByAgent`/`onOpenIssue` props, issue chips under the row); union of imports/props elsewhere
   - Solution: merge commit; tsc clean, lint 0 errors, vitest 434/434, build green, merged server serves `/api/board/items`, `/api/board/repo-path`, `/api/agents`
+
+---
+
+### PR #82: neues Issue verschwindet vom Board, Review-Punkte 1–3 (2026-10-25)
+
+- [x] **[FIX]** Neu angelegtes Issue verschwand bis zu 60 s vom Board
+  - Issue: Ein Board-Abruf, der vor dem Anlegen startete, schrieb danach seine älteren Daten in den Server-Cache (`getBoard`) und in den Client-State (`useBoard.load`). Gleiches galt für Bearbeitungen und Status-Moves; zusätzlich listet GitHub ein frisch hinzugefügtes Project-Item teils verzögert.
+  - Approach: Schreibvorgänge merken und gegen jeden Abruf abgleichen statt nur den in-flight-Status zu patchen.
+  - Solution: reine Funktion `utils/boardWrites.js` (`mergeRecentWrites`, `keepWrite`), von Server und Client genutzt. Server: `recentWrites` + `rememberItem` (ersetzt `inflight.writes`); ein Write gewinnt über Abrufe, die vor ihm starteten, angelegte Items bleiben 2 min (GitHub-Verzögerung). Client: `written`-Map für Upserts und erfolgreiche Moves, Grace 0.
+- [x] **[FIX]** Review 1: `createIssue` nicht atomar → 502 trägt `issue`; erneutes Senden mit `issueId` hängt nur ans Project an (kein Duplikat); Dialog zeigt Hinweis und „Erneut aufs Board setzen“.
+- [x] **[FIX]** Review 2: `updateIssue` mit Teilfehler → Item wird nachgeladen und als `item` mitgeschickt; Panel zeigt den echten Stand statt alles zurückzurollen.
+- [x] **[FIX]** Review 3: Close/Reopen und Parent-Entfernen entscheiden nach frisch gelesenem Zustand (`ISSUE_STATE_QUERY`), nicht nach dem Cache.
+- [x] **[FIX]** Befunde aus dem Gegen-Review: Docker-Images kopieren `utils/boardWrites.js` und `config/defaults.js` (der Server importiert beide, `config/` fehlte schon vorher); Dialog sperrt im Fortsetzen-Modus alle Felder außer Status (sonst stillschweigend verworfen); `PUT /api/board/settings` leert den Cache nur bei echtem Quellwechsel (sonst ginge der Schutz für frisch angelegte Items verloren).
+- Verifikation: vitest 463/463, tsc/lint sauber, Build grün; Race gegen GitHub nachgestellt (Refresh startet während des Anlegens, dauert 10 s → Issue in Antwort und Cache); UI: anlegen, sofort neu laden → Karte bleibt. Testissues #84–#86 geschlossen.
