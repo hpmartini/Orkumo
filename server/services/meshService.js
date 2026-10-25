@@ -99,32 +99,49 @@ async function listDeviceSessions(device) {
   }
 }
 
-async function fetchRemote() {
+/** `tailscale status` → knownDevices; a failed lookup empties it so stale hosts stay no ssh target. */
+async function loadDevices() {
   const bin = resolveTailscale();
-  if (!bin) return { tailscale: false, devices: [] };
+  if (!bin) {
+    knownDevices = [];
+    return { tailscale: false, devices: [] };
+  }
   const status = await run(bin, ['status', '--json'], 5000);
-  let devices = [];
   try {
-    devices = parseTailscaleStatus(JSON.parse(status.stdout));
+    knownDevices = parseTailscaleStatus(JSON.parse(status.stdout));
   } catch {
+    knownDevices = [];
     return {
       tailscale: true,
       error: status.stderr.trim() || 'tailscale status failed',
       devices: [],
     };
   }
-  knownDevices = devices;
-  return { tailscale: true, devices: await Promise.all(devices.map(listDeviceSessions)) };
+  return { tailscale: true, devices: knownDevices };
+}
+
+async function fetchRemote() {
+  const result = await loadDevices();
+  if (!result.tailscale || result.error) return result;
+  return { tailscale: true, devices: await Promise.all(result.devices.map(listDeviceSessions)) };
 }
 
 /** Devices of the tailnet with their sessions (or why they are unreachable), cached briefly. */
 export function listRemote() {
   if (!cache || Date.now() - cache.at > CACHE_MS) {
-    cache = { at: Date.now(), promise: fetchRemote() };
-    // a failed lookup must not stick for the whole cache window
-    cache.promise.catch(() => (cache = null));
+    const entry = { at: Date.now(), promise: fetchRemote() };
+    cache = entry;
+    // a failed lookup must not stick for the whole cache window; a newer entry stays
+    entry.promise.catch(() => {
+      if (cache === entry) cache = null;
+    });
   }
   return cache.promise;
+}
+
+/** Fills the host allowlist after a server restart without querying every device over ssh. */
+export async function ensureDevices() {
+  if (knownDevices.length === 0) await loadDevices();
 }
 
 export function isKnownRemoteHost(host) {

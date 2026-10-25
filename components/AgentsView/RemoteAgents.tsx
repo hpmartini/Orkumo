@@ -183,17 +183,20 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
                       <SquareTerminal size={12} />
                     </button>
                   )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPeek(session);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                    title="Peek"
-                    aria-label="Peek"
-                  >
-                    <MoreHorizontal size={12} />
-                  </button>
+                  {/* `claude logs` only knows background sessions, not `interactive-<pid>` */}
+                  {attachable && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPeek(session);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                      title="Peek"
+                      aria-label="Peek"
+                    >
+                      <MoreHorizontal size={12} />
+                    </button>
+                  )}
                 </div>
               );
             })}
