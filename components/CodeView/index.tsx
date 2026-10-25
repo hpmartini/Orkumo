@@ -36,6 +36,11 @@ export const CodeView: React.FC<CodeViewProps> = ({ active, apps }) => {
 
   // Leaving the route keeps the last folder so the iframe survives a round trip
   const lastRequested = useRef<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retry = () => {
+    lastRequested.current = null;
+    setAttempt((n) => n + 1);
+  };
   useEffect(() => {
     if (!requested || requested === lastRequested.current) return;
     lastRequested.current = requested;
@@ -48,10 +53,13 @@ export const CodeView: React.FC<CodeViewProps> = ({ active, apps }) => {
         (err: Error) =>
           current() && setFolder({ kind: 'error', path: requested, message: err.message })
       );
-  }, [requested]);
+  }, [requested, attempt]);
 
   const folders = useMemo(() => codeFolders(apps, repos), [apps, repos]);
-  const current = folder.kind === 'none' ? '' : folder.path;
+  // The server answers with the real path; the picker may list the symlinked spelling
+  const current = [folder.kind === 'none' ? '' : folder.path, requested ?? ''].find((p) =>
+    folders.some((f) => f.path === p)
+  );
   const groups = ['Projects', 'Worktrees & agents'] as const;
 
   return (
@@ -61,7 +69,7 @@ export const CodeView: React.FC<CodeViewProps> = ({ active, apps }) => {
         <span className="text-sm font-semibold text-gray-200">Code</span>
         <select
           aria-label="Folder"
-          value={folders.some((f) => f.path === current) ? current : ''}
+          value={current ?? ''}
           onChange={(e) => e.target.value && navigate(codeUrl(e.target.value))}
           className="ml-2 min-w-0 max-w-sm bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
         >
@@ -78,9 +86,9 @@ export const CodeView: React.FC<CodeViewProps> = ({ active, apps }) => {
             </optgroup>
           ))}
         </select>
-        {current && (
-          <span className="min-w-0 truncate font-mono text-xs text-gray-400" title={current}>
-            {current}
+        {folder.kind !== 'none' && (
+          <span className="min-w-0 truncate font-mono text-xs text-gray-400" title={folder.path}>
+            {folder.path}
           </span>
         )}
       </div>
@@ -99,6 +107,12 @@ export const CodeView: React.FC<CodeViewProps> = ({ active, apps }) => {
             <ShieldAlert size={24} className="mx-auto" />
             <p>Cannot open {folder.path}</p>
             <p className="text-gray-400">{folder.message}</p>
+            <button
+              onClick={retry}
+              className="px-3 py-1 rounded text-gray-200 hover:text-white hover:bg-gray-800"
+            >
+              Retry
+            </button>
           </div>
         )}
         {folder.kind === 'ok' && (

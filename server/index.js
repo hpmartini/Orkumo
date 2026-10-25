@@ -3379,7 +3379,13 @@ async function knownDirs() {
 app.get('/api/code/folder', agentLimiter, async (req, res) => {
   try {
     const { roots, exact } = await knownDirs();
-    const folder = await codeService.resolveAllowedFolder(req.query.path, roots, exact);
+    // Agents jump to their worktree root, which is not their cwd when they run in a subfolder
+    const contexts = await getAgentContexts().catch(() => ({}));
+    const worktrees = Object.values(contexts).map((c) => c?.repo?.worktreePath);
+    const folder = await codeService.resolveAllowedFolder(req.query.path, roots, [
+      ...exact,
+      ...worktrees,
+    ]);
     if (!folder) return res.status(403).json({ error: 'Folder is not a known project directory' });
     res.json({ path: folder });
   } catch (error) {
