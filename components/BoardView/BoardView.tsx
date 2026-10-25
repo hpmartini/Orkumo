@@ -88,7 +88,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
   const [createIn, setCreateIn] = useState<string | null>(null);
   const { sessions } = useAgentSessions({ active });
   const [view, setView] = useState<ViewPrefs>(loadView);
-  const [doneOpen, setDoneOpen] = useState(false);
   const [query, setQuery] = useState('');
 
   const updateView = (patch: Partial<ViewPrefs>) => {
@@ -334,8 +333,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
               options={options}
               lanes={lanes}
               laneMode={laneMode}
-              doneOpen={doneOpen}
-              onToggleDone={() => setDoneOpen(!doneOpen)}
               now={now}
               selectedKey={openKey}
               hideRepo={(item: BoardItem) => sliceKind === 'repo' && selected === item.repo}
