@@ -19,6 +19,8 @@ import {
 } from '../../utils/board';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { fetchRepoPath } from '../../services/boardApi';
+import { fetchAgentContexts } from '../../services/agentsApi';
+import { codeUrl, linkedAgentFolder } from '../../utils/codeTarget';
 import { undoToast, useBoard } from './useBoard';
 import { BoardRail, type RailAgent } from './BoardRail';
 import { BoardGrid } from './BoardGrid';
@@ -145,12 +147,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
 
   const columns = useMemo(() => boardColumns(options, visible), [options, visible]);
   const lanes = useMemo(
-    () =>
-      buildLanes(
-        visible,
-        laneMode,
-        new Set(options.filter(isDoneOption).map((o) => o.id))
-      ),
+    () => buildLanes(visible, laneMode, new Set(options.filter(isDoneOption).map((o) => o.id))),
     [visible, laneMode, options]
   );
   // Done window is measured from the GitHub fetch, so it moves with polling
@@ -206,15 +203,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
   };
 
   const onAgent = (jobId: string) => setParam('agent', agentFilter === jobId ? null : jobId);
-  const filterAgent = agentFilter
-    ? (sessionsById.get(agentFilter)?.name ?? agentFilter)
-    : null;
+  const filterAgent = agentFilter ? (sessionsById.get(agentFilter)?.name ?? agentFilter) : null;
 
   return (
     <div className="relative flex flex-1 h-full min-h-0 bg-gray-900">
       <BoardRail
         onOpenDashboard={() => navigate('/')}
         onOpenAgents={() => navigate('/agents')}
+        onOpenCode={() => navigate('/code')}
         sliceKind={sliceKind}
         onSliceKind={(kind) => updateView({ sliceKind: kind, selected: null })}
         slices={slices}
@@ -235,7 +231,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
         <header className="flex items-center gap-3 px-4 h-12 border-b border-gray-700 bg-gray-900 shrink-0">
           <h1 className="text-[15px] font-semibold text-white flex items-center gap-2 min-w-0">
             <span className="truncate">{selected ?? 'Alle'}</span>
-            <span className="text-xs font-normal text-gray-400 shrink-0">{visible.length} Items</span>
+            <span className="text-xs font-normal text-gray-400 shrink-0">
+              {visible.length} Items
+            </span>
           </h1>
           {filterAgent && (
             <button
@@ -356,6 +354,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
             // No local checkout found (or lookup failed): composer keeps its own directory
             const cwd = it.repo ? await fetchRepoPath(it.repo).catch(() => null) : null;
             navigate('/agents', { state: { dispatch: `Bearbeite ${it.url} `, cwd } });
+          }}
+          onOpenCode={async (jobIds) => {
+            const repo = openItem.repo;
+            // An agent's cwd can be the main checkout while it works in a worktree
+            const contexts = jobIds.length ? await fetchAgentContexts().catch(() => ({})) : {};
+            const folder =
+              linkedAgentFolder(jobIds, sessionsById, contexts) ??
+              (repo ? await fetchRepoPath(repo).catch(() => null) : null);
+            if (folder) navigate(codeUrl(folder));
+            else toast.error(`Kein lokaler Checkout von ${repo ?? 'diesem Issue'} gefunden`);
           }}
           onAgentIssues={(jobId) =>
             setSearchParams((prev) => {

@@ -3,6 +3,7 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  Code2,
   Eye,
   EyeOff,
   GripVertical,
@@ -38,6 +39,7 @@ const shortKey = (key: string) => key.replace(/^[^/#]+\//, '');
 interface BoardRailProps {
   onOpenDashboard: () => void;
   onOpenAgents: () => void;
+  onOpenCode: () => void;
   sliceKind: BoardSliceKind;
   onSliceKind: (kind: BoardSliceKind) => void;
   slices: { favorites: SliceEntry[]; others: SliceEntry[]; hidden: SliceEntry[] };
@@ -189,6 +191,12 @@ export const BoardRail: React.FC<BoardRailProps> = (props) => {
           >
             <Bot size={13} /> Agents
           </button>
+          <button
+            onClick={props.onOpenCode}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+          >
+            <Code2 size={13} /> Code
+          </button>
         </nav>
         <div
           className="flex rounded border border-gray-700 bg-gray-900 p-0.5 text-xs"
@@ -280,7 +288,8 @@ export const BoardRail: React.FC<BoardRailProps> = (props) => {
                     aria-pressed={on}
                     onClick={toggle}
                     onKeyDown={(e) => {
-                      if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+                      if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' '))
+                        return;
                       e.preventDefault();
                       toggle();
                     }}
@@ -288,7 +297,9 @@ export const BoardRail: React.FC<BoardRailProps> = (props) => {
                   >
                     <div className="flex items-center gap-2">
                       <AgentGlyph session={a.session} />
-                      <span className={`flex-1 min-w-0 truncate ${on ? 'text-white' : 'text-gray-200'}`}>
+                      <span
+                        className={`flex-1 min-w-0 truncate ${on ? 'text-white' : 'text-gray-200'}`}
+                      >
                         {a.session?.name ?? a.jobId}
                       </span>
                       <span className="font-mono text-[10.5px] text-gray-400">{a.jobId}</span>
@@ -308,7 +319,9 @@ export const BoardRail: React.FC<BoardRailProps> = (props) => {
                         </button>
                       ))}
                       {a.issueKeys.length > 3 && (
-                        <span className="text-[10.5px] text-gray-400">+{a.issueKeys.length - 3}</span>
+                        <span className="text-[10.5px] text-gray-400">
+                          +{a.issueKeys.length - 3}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -320,8 +333,8 @@ export const BoardRail: React.FC<BoardRailProps> = (props) => {
             )}
           </ul>
           <p className="px-3 py-2 text-[11px] leading-snug text-gray-400 border-t border-gray-700">
-            Klick auf einen Agent filtert das Board auf seine Issues. Nochmal klicken hebt den Filter
-            auf.
+            Klick auf einen Agent filtert das Board auf seine Issues. Nochmal klicken hebt den
+            Filter auf.
           </p>
         </section>
       </div>

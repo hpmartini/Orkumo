@@ -46,6 +46,8 @@ import {
   stopAgent,
   openCloudSession,
 } from '../../services/agentsApi';
+import { fetchRepoPath } from '../../services/boardApi';
+import { agentFolder, codeUrl } from '../../utils/codeTarget';
 import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
 import {
   groupSessions,
@@ -1129,6 +1131,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         { id: 'attach', label: 'Attach in tab', disabled: !bg, onSelect: () => attach(session.id) },
         { id: 'peek', label: 'Peek / reply', onSelect: () => togglePeek(session) },
         {
+          id: 'code',
+          label: 'Open in Code',
+          disabled: !agentFolder(session, contexts[session.id]),
+          onSelect: () => {
+            const folder = agentFolder(session, contexts[session.id]);
+            if (folder) navigate(codeUrl(folder));
+          },
+        },
+        {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
           disabled: !bg,
@@ -1170,7 +1181,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         },
       ];
     },
-    [attach, togglePeek, handlePin, handleRename, refresh, deleteSession]
+    [attach, togglePeek, handlePin, handleRename, refresh, deleteSession, contexts, navigate]
   );
 
   const groupActions = useCallback(
@@ -1440,6 +1451,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             repoFilter={prRepo}
             onClearRepo={() => setPrRepo(null)}
             onSelectAgent={attach}
+            onOpenCode={async ({ pr, agents }) => {
+              // Agents on the PR's head branch sit in its worktree; else the repo's checkout
+              const folder =
+                agents.map((a) => agentFolder(a, contexts[a.id])).find(Boolean) ??
+                (await fetchRepoPath(pr.repoSlug).catch(() => null));
+              if (folder) navigate(codeUrl(folder));
+              else toast.error(`No local checkout of ${pr.repoSlug}`);
+            }}
             onClose={() => setPanel(null)}
           />
         )}

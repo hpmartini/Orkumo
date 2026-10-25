@@ -1,6 +1,7 @@
 import React, { useEffect, useRef } from 'react';
 import {
   Bot,
+  Code2,
   ExternalLink,
   Funnel,
   GitPullRequest,
@@ -31,6 +32,8 @@ interface BoardItemPanelProps {
   onAgentIssues: (jobId: string) => void;
   /** Opens the agent task composer prefilled with this issue */
   onStartAgent: (item: BoardItem) => void;
+  /** Opens the Code mode in the folder of the first of these agents, else the issue's repo */
+  onOpenCode: (jobIds: string[]) => void;
 }
 
 const Muted: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -49,12 +52,11 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
   onAttach,
   onAgentIssues,
   onStartAgent,
+  onOpenCode,
 }) => {
   const closeRef = useRef<HTMLButtonElement>(null);
   const key = itemKey(item);
-  const subs = items.filter(
-    (i) => i.parent && issueKey(i.parent.repo, i.parent.number) === key
-  );
+  const subs = items.filter((i) => i.parent && issueKey(i.parent.repo, i.parent.number) === key);
   const statusName = (id: string | null) => options.find((o) => o.id === id)?.name ?? '–';
   const parentKey = item.parent ? issueKey(item.parent.repo, item.parent.number) : null;
   const parentOnBoard = !!parentKey && items.some((i) => itemKey(i) === parentKey);
@@ -79,6 +81,19 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           {item.number != null ? `${item.repo}#${item.number}` : 'Entwurf'}
         </span>
         <div className="flex-1" />
+        <button
+          onClick={() => onOpenCode(links.map((l) => l.jobId))}
+          disabled={!item.repo && !links.length}
+          title={
+            item.repo || links.length
+              ? 'Im Code-Modus öffnen (Worktree des Agents, sonst Repo)'
+              : 'Kein Repo und kein Agent verknüpft'
+          }
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800 disabled:opacity-40 disabled:pointer-events-none"
+        >
+          <Code2 size={14} />
+          Code
+        </button>
         {item.url && (
           <a
             href={item.url}
@@ -102,7 +117,9 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
       </div>
 
       <div className="flex-1 overflow-y-auto thin-scrollbar px-4 py-4 space-y-5">
-        <h2 className="text-base font-semibold text-white leading-snug text-balance">{item.title}</h2>
+        <h2 className="text-base font-semibold text-white leading-snug text-balance">
+          {item.title}
+        </h2>
         <dl className="grid grid-cols-[96px_1fr] gap-y-2 text-xs items-center">
           <dt className="text-gray-400">Status</dt>
           <dd>
@@ -199,6 +216,15 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                       >
                         <Terminal size={14} />
                         Öffnen
+                      </button>
+                      <button
+                        onClick={() => onOpenCode([link.jobId])}
+                        disabled={!session}
+                        title={session ? session.cwd : 'Keine laufende Session'}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-gray-300 text-xs hover:text-white hover:bg-gray-800 disabled:opacity-40 disabled:pointer-events-none"
+                      >
+                        <Code2 size={14} />
+                        Code
                       </button>
                       <button
                         onClick={() => onAgentIssues(link.jobId)}
