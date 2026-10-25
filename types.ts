@@ -565,6 +565,8 @@ export interface BoardPullRequest {
 }
 
 export interface BoardIssueRef {
+  /** Issue node id (I_…); set for parents read from GitHub */
+  id?: string;
   repo: string;
   number: number;
   title: string;
@@ -574,6 +576,8 @@ export interface BoardItem {
   /** ProjectV2 item node id (PVTI_…), used to write the status */
   itemId: string;
   type: 'Issue' | 'PullRequest' | 'DraftIssue';
+  /** Issue node id (I_…) for edits; null for PRs and drafts */
+  issueId: string | null;
   /** null for draft issues */
   number: number | null;
   title: string;
@@ -582,6 +586,8 @@ export interface BoardItem {
   repo: string | null;
   /** OPEN | CLOSED | MERGED */
   state: string;
+  /** COMPLETED | NOT_PLANNED | DUPLICATE | REOPENED | null */
+  stateReason: string | null;
   statusOptionId: string | null;
   labels: BoardLabel[];
   milestone: string | null;
@@ -604,6 +610,47 @@ export interface BoardData {
   items: BoardItem[];
   /** epoch ms of the GitHub fetch behind this response */
   fetchedAt: number;
+}
+
+/** Pickable values of a repo (GET /api/board/repo-options) */
+export interface BoardRepoOptions {
+  repositoryId: string;
+  labels: (BoardLabel & { id: string })[];
+  assignees: { id: string; login: string }[];
+  milestones: { id: string; title: string }[];
+}
+
+/** Lazily loaded issue parts (GET /api/board/issues/:issueId) */
+export interface BoardIssueDetails {
+  body: string;
+  subIssues: (BoardIssueRef & { id: string; state: string })[];
+}
+
+/** Editable issue fields by name; labels/assignees replace the whole set */
+export interface BoardIssueFields {
+  title?: string;
+  body?: string;
+  labels?: string[];
+  assignees?: string[];
+  milestone?: string | null;
+}
+
+export interface BoardIssueCreate extends BoardIssueFields {
+  repo: string;
+  title: string;
+  /** Default: "Backlog" */
+  statusOptionId?: string;
+  /** Resume: the issue exists already (failed project step), only put it on the board */
+  issueId?: string;
+}
+
+export interface BoardIssuePatch extends BoardIssueFields {
+  state?: 'OPEN' | 'CLOSED';
+  stateReason?: 'COMPLETED' | 'NOT_PLANNED' | 'DUPLICATE';
+  parent?: { repo: string; number: number } | null;
+  addSubIssue?: { repo: string; number: number };
+  /** Issue node id of the sub-issue to detach */
+  removeSubIssue?: string;
 }
 
 export type BoardSliceKind = 'repo' | 'label' | 'milestone' | 'assignee';

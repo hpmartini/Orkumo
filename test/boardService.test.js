@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { execFile } from 'child_process';
 
 vi.mock('child_process', () => {
@@ -14,7 +14,12 @@ const {
   setItemStatus,
   clearCache,
   pickRepoPath,
+  resolveIssueRefs,
+  pickNewItemStatus,
+  updateIssue,
+  createIssue,
 } = await import('../server/services/boardService.js');
+const { CREATE_GRACE_MS } = await import('../utils/boardWrites.js');
 
 const UUID = '6259550d-1555-4cd2-85d1-d37082bb80f4';
 
@@ -55,6 +60,7 @@ describe('boardService - mapItem', () => {
       fieldValueByName: { optionId: '47fc9ee4' },
       content: {
         __typename: 'Issue',
+        id: 'I_44',
         number: 44,
         title: 'Board',
         url: 'https://github.com/hpmartini/DevHub/issues/44',
@@ -62,7 +68,12 @@ describe('boardService - mapItem', () => {
         updatedAt: '2026-10-23T10:00:00Z',
         closedAt: null,
         repository: { nameWithOwner: 'hpmartini/DevHub' },
-        parent: { number: 40, title: 'Epic', repository: { nameWithOwner: 'hpmartini/DevHub' } },
+        parent: {
+          id: 'I_40',
+          number: 40,
+          title: 'Epic',
+          repository: { nameWithOwner: 'hpmartini/DevHub' },
+        },
         subIssuesSummary: { total: 3, completed: 1 },
         labels: { nodes: [{ name: 'prio: high', color: 'f97316' }] },
         milestone: { title: 'M1' },
@@ -85,16 +96,18 @@ describe('boardService - mapItem', () => {
     expect(item).toEqual({
       itemId: 'PVTI_abc',
       type: 'Issue',
+      issueId: 'I_44',
       number: 44,
       title: 'Board',
       url: 'https://github.com/hpmartini/DevHub/issues/44',
       repo: 'hpmartini/DevHub',
       state: 'OPEN',
+      stateReason: null,
       statusOptionId: '47fc9ee4',
       labels: [{ name: 'prio: high', color: 'f97316' }],
       milestone: 'M1',
       assignees: ['hpmartini'],
-      parent: { repo: 'hpmartini/DevHub', number: 40, title: 'Epic' },
+      parent: { id: 'I_40', repo: 'hpmartini/DevHub', number: 40, title: 'Epic' },
       subIssues: { total: 3, completed: 1 },
       pullRequests: [
         {
@@ -133,7 +146,14 @@ describe('boardService - mapItem', () => {
     expect(item.parent).toBeNull();
     expect(item.subIssues).toEqual({ total: 0, completed: 0 });
     expect(item.pullRequests).toEqual([
-      { repo: 'o/r', number: 7, url: 'https://github.com/o/r/pull/7', title: 'PR', state: 'MERGED', checks: null },
+      {
+        repo: 'o/r',
+        number: 7,
+        url: 'https://github.com/o/r/pull/7',
+        title: 'PR',
+        state: 'MERGED',
+        checks: null,
+      },
     ]);
   });
 
@@ -145,6 +165,7 @@ describe('boardService - mapItem', () => {
     });
     expect(item).toMatchObject({
       type: 'DraftIssue',
+      issueId: null,
       number: null,
       url: null,
       repo: null,
@@ -229,5 +250,348 @@ describe('boardService - pickRepoPath', () => {
 
   it('returns null when no local checkout has that origin', () => {
     expect(pickRepoPath('hpmartini/MAPLE', entries)).toBeNull();
+  });
+});
+
+describe('boardService - resolveIssueRefs', () => {
+  const options = {
+    labels: [
+      { id: 'LA_1', name: 'bug' },
+      { id: 'LA_2', name: 'mw:go' },
+    ],
+    assignees: [{ id: 'MDQ6VXNlcjUwNDcxMTg=', login: 'hpmartini' }],
+    milestones: [{ id: 'MI_1', title: 'M1' }],
+  };
+  it('maps names case-insensitively, only for given keys', () => {
+    expect(resolveIssueRefs(options, { labels: ['MW:GO'], assignees: ['hpmartini'] })).toEqual({
+      labelIds: ['LA_2'],
+      assigneeIds: ['MDQ6VXNlcjUwNDcxMTg='],
+    });
+    expect(resolveIssueRefs(options, { labels: [], milestone: null })).toEqual({
+      labelIds: [],
+      milestoneId: null,
+    });
+    expect(resolveIssueRefs(options, { milestone: 'M1' })).toEqual({ milestoneId: 'MI_1' });
+    expect(resolveIssueRefs(options, { title: 'x' })).toEqual({});
+  });
+  it('rejects unknown names with 400', () => {
+    expect(() => resolveIssueRefs(options, { labels: ['nope'] })).toThrow(/Unknown label: nope/);
+    try {
+      resolveIssueRefs(options, { milestone: 'M9' });
+    } catch (e) {
+      expect(e.status).toBe(400);
+    }
+  });
+});
+
+describe('boardService - pickNewItemStatus', () => {
+  const options = [
+    { id: 'b', name: 'Todo' },
+    { id: 'a', name: 'Backlog' },
+  ];
+  it('uses the requested option, else Backlog, else the first', () => {
+    expect(pickNewItemStatus(options, 'b')).toBe('b');
+    expect(pickNewItemStatus(options)).toBe('a');
+    expect(pickNewItemStatus([{ id: 'x', name: 'Todo' }])).toBe('x');
+    expect(pickNewItemStatus([])).toBeNull();
+  });
+  it('rejects an unknown option', () => {
+    expect(() => pickNewItemStatus(options, 'zzz')).toThrow(/Unknown status option/);
+  });
+});
+
+describe('boardService - updateIssue', () => {
+  const source = { owner: 'hpmartini', number: 4 };
+  const issueNode = (over = {}) => ({
+    id: 'PVTI_i',
+    fieldValueByName: { optionId: 'todo' },
+    content: {
+      __typename: 'Issue',
+      id: 'I_7',
+      number: 7,
+      title: 'Old',
+      state: 'OPEN',
+      repository: { nameWithOwner: 'hpmartini/DevHub' },
+      ...over,
+    },
+  });
+  const boardPage = JSON.stringify({
+    data: {
+      rateLimit: { cost: 1, remaining: 1 },
+      repositoryOwner: {
+        projectV2: {
+          id: 'PVT_1',
+          title: 'MACC',
+          field: { id: 'F', options: [{ id: 'todo', name: 'Todo' }] },
+          items: { nodes: [issueNode()], pageInfo: { hasNextPage: false } },
+        },
+      },
+    },
+  });
+
+  it('sends one updateIssue with label ids (empty list as k[]), closes, and returns the refetched item', async () => {
+    clearCache();
+    const calls = [];
+    vi.mocked(execFile).mockImplementation((_cmd, args, _opts, cb) => {
+      const q = args[3];
+      calls.push(args);
+      if (q.includes('items(first')) cb(null, boardPage, '');
+      else if (q.includes('labels(first:100')) {
+        cb(
+          null,
+          JSON.stringify({
+            data: {
+              repository: {
+                id: 'R_1',
+                labels: { nodes: [{ id: 'LA_1', name: 'bug', color: 'f00' }] },
+                assignableUsers: { nodes: [] },
+                milestones: { nodes: [] },
+              },
+            },
+          }),
+          ''
+        );
+      } else if (q.includes('state stateReason parent{id}}')) {
+        cb(
+          null,
+          JSON.stringify({ data: { node: { state: 'OPEN', stateReason: null, parent: null } } }),
+          ''
+        );
+      } else if (q.includes('node(id:$id){... on ProjectV2Item')) {
+        cb(
+          null,
+          JSON.stringify({ data: { node: issueNode({ title: 'New', state: 'CLOSED' }) } }),
+          ''
+        );
+      } else cb(null, '{"data":{}}', '');
+    });
+
+    const item = await updateIssue(source, 'PVTI_i', {
+      title: 'New',
+      labels: [],
+      assignees: [],
+      state: 'CLOSED',
+      stateReason: 'NOT_PLANNED',
+    });
+
+    const update = calls.find((a) => a[3].includes('updateIssue'));
+    expect(update).toContain('title=New');
+    expect(update).toContain('labelIds[]');
+    expect(update).toContain('assigneeIds[]');
+    const close = calls.find((a) => a[3].includes('closeIssue'));
+    expect(close).toContain('reason=NOT_PLANNED');
+    expect(item).toMatchObject({ title: 'New', state: 'CLOSED', issueId: 'I_7' });
+    expect((await getBoard(source)).items[0].title).toBe('New');
+  });
+});
+
+// Routes each `gh api graphql` call by a substring of its query; unmatched calls get {"data":{}}.
+// A route value is a JSON string, an Error (gh fails) or a function returning one of those or (cb) => void.
+function routeGh(routes) {
+  const calls = [];
+  vi.mocked(execFile).mockImplementation((_cmd, args, _opts, cb) => {
+    const q = String(args[3]);
+    calls.push(args);
+    const hit = routes.find(([needle]) => q.includes(needle));
+    const out = hit ? (typeof hit[1] === 'function' ? hit[1]() : hit[1]) : '{"data":{}}';
+    if (typeof out === 'function') return out(cb);
+    if (out instanceof Error) return cb(out, '', out.message);
+    cb(null, out, '');
+  });
+  return calls;
+}
+
+describe('boardService - writes vs. board fetches (#72)', () => {
+  const source = { owner: 'hpmartini', number: 4 };
+  const node = (id, over = {}) => ({
+    id,
+    fieldValueByName: { optionId: 'todo' },
+    content: {
+      __typename: 'Issue',
+      id: `I_${id}`,
+      number: 1,
+      title: id,
+      state: 'OPEN',
+      repository: { nameWithOwner: 'hpmartini/DevHub' },
+      ...over,
+    },
+  });
+  const boardPage = (nodes) =>
+    JSON.stringify({
+      data: {
+        rateLimit: { cost: 1, remaining: 1 },
+        repositoryOwner: {
+          projectV2: {
+            id: 'PVT_1',
+            title: 'MACC',
+            field: { id: 'F', options: [{ id: 'todo', name: 'Backlog' }] },
+            items: { nodes, pageInfo: { hasNextPage: false } },
+          },
+        },
+      },
+    });
+  const repoOptions = JSON.stringify({
+    data: {
+      repository: {
+        id: 'R_1',
+        labels: { nodes: [] },
+        assignableUsers: { nodes: [] },
+        milestones: { nodes: [] },
+      },
+    },
+  });
+  const created = JSON.stringify({
+    data: { createIssue: { issue: { id: 'I_new', number: 99, url: 'u' } } },
+  });
+  const added = JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'PVTI_new' } } } });
+  const refetched = (n) => JSON.stringify({ data: { node: n } });
+  const ids = (board) => board.items.map((i) => i.itemId);
+  const ITEM_Q = 'node(id:$id){... on ProjectV2Item';
+
+  afterEach(() => vi.useRealTimers());
+
+  it('keeps a created item when a refresh started before the create resolves afterwards', async () => {
+    clearCache();
+    let reads = 0;
+    let releaseStale = null;
+    routeGh([
+      [
+        'items(first',
+        () =>
+          reads++ === 0
+            ? boardPage([node('PVTI_a')])
+            : (cb) => (releaseStale = () => cb(null, boardPage([node('PVTI_a')]), '')),
+      ],
+      ['labels(first:100', repoOptions],
+      ['createIssue(input', created],
+      ['addProjectV2ItemById', added],
+      [ITEM_Q, refetched(node('PVTI_new'))],
+    ]);
+
+    await getBoard(source);
+    const refreshing = getBoard(source, { refresh: true });
+    const item = await createIssue(source, { repo: 'hpmartini/DevHub', title: 'new' });
+    expect(item.itemId).toBe('PVTI_new');
+    releaseStale();
+
+    expect(ids(await refreshing)).toEqual(['PVTI_a', 'PVTI_new']);
+    expect(ids(await getBoard(source))).toEqual(['PVTI_a', 'PVTI_new']);
+  });
+
+  it('keeps a created item missing from later fetches only within CREATE_GRACE_MS', async () => {
+    clearCache();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    const t0 = new Date('2026-10-25T10:00:00Z').getTime();
+    vi.setSystemTime(t0);
+    routeGh([
+      ['items(first', boardPage([node('PVTI_a')])], // GitHub listing lags: never shows PVTI_new
+      ['labels(first:100', repoOptions],
+      ['createIssue(input', created],
+      ['addProjectV2ItemById', added],
+      [ITEM_Q, refetched(node('PVTI_new'))],
+    ]);
+
+    await getBoard(source);
+    await createIssue(source, { repo: 'hpmartini/DevHub', title: 'new' });
+
+    vi.setSystemTime(t0 + 1000); // fetch starts after the create
+    expect(ids(await getBoard(source, { refresh: true }))).toEqual(['PVTI_a', 'PVTI_new']);
+
+    vi.setSystemTime(t0 + CREATE_GRACE_MS + 1);
+    expect(ids(await getBoard(source, { refresh: true }))).toEqual(['PVTI_a']);
+    expect(ids(await getBoard(source))).toEqual(['PVTI_a']);
+  });
+
+  it('createIssue: failed add-to-project rejects with the issue; retry with issueId resumes', async () => {
+    clearCache();
+    let addFails = true;
+    const calls = routeGh([
+      ['items(first', boardPage([node('PVTI_a')])],
+      ['labels(first:100', repoOptions],
+      ['createIssue(input', created],
+      ['addProjectV2ItemById', () => (addFails ? new Error('boom') : added)],
+      [ITEM_Q, refetched(node('PVTI_new'))],
+    ]);
+
+    const err = await createIssue(source, { repo: 'hpmartini/DevHub', title: 'new' }).catch(
+      (e) => e
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(502);
+    expect(err.message).toMatch(/hpmartini\/DevHub#99/);
+    expect(err.details.issue).toMatchObject({ id: 'I_new', number: 99 });
+
+    addFails = false;
+    calls.length = 0;
+    const item = await createIssue(source, {
+      repo: 'hpmartini/DevHub',
+      title: 'new',
+      issueId: 'I_new',
+    });
+    expect(calls.some((a) => String(a[3]).includes('createIssue('))).toBe(false);
+    expect(calls.find((a) => String(a[3]).includes('addProjectV2ItemById'))).toContain(
+      'contentId=I_new'
+    );
+    expect(item.itemId).toBe('PVTI_new');
+    expect(ids(await getBoard(source))).toContain('PVTI_new');
+  });
+
+  const liveState = (state, stateReason = null, parent = null) =>
+    JSON.stringify({ data: { node: { state, stateReason, parent } } });
+  const STATE_Q = 'state stateReason parent{id}}';
+
+  it('updateIssue: close decides from the live state, not the cache', async () => {
+    clearCache();
+    let calls = routeGh([
+      ['items(first', boardPage([node('PVTI_i')])], // cache: OPEN
+      [STATE_Q, liveState('CLOSED', 'NOT_PLANNED')],
+      [ITEM_Q, refetched(node('PVTI_i', { state: 'CLOSED' }))],
+    ]);
+    await updateIssue(source, 'PVTI_i', { state: 'CLOSED', stateReason: 'NOT_PLANNED' });
+    expect(calls.some((a) => String(a[3]).includes('closeIssue'))).toBe(false);
+
+    clearCache();
+    calls = routeGh([
+      ['items(first', boardPage([node('PVTI_i', { state: 'CLOSED' })])], // cache: CLOSED
+      [STATE_Q, liveState('OPEN')],
+      [ITEM_Q, refetched(node('PVTI_i', { state: 'CLOSED' }))],
+    ]);
+    await updateIssue(source, 'PVTI_i', { state: 'CLOSED' });
+    expect(calls.find((a) => String(a[3]).includes('closeIssue'))).toContain('reason=COMPLETED');
+  });
+
+  it('updateIssue: parent:null removes the issue from its live parent', async () => {
+    clearCache();
+    const stale = { id: 'I_cached', number: 1, title: 'p', repository: { nameWithOwner: 'x/y' } };
+    const calls = routeGh([
+      ['items(first', boardPage([node('PVTI_i', { parent: stale })])],
+      [STATE_Q, liveState('OPEN', null, { id: 'I_live' })],
+      [ITEM_Q, refetched(node('PVTI_i'))],
+    ]);
+    await updateIssue(source, 'PVTI_i', { parent: null });
+    const remove = calls.find((a) => String(a[3]).includes('removeSubIssue'));
+    expect(remove).toContain('parentId=I_live');
+    expect(remove).toContain('subId=I_PVTI_i');
+  });
+
+  it('updateIssue: a failing later step rejects with the refetched item', async () => {
+    clearCache();
+    const subId = JSON.stringify({ data: { repository: { issue: { id: 'I_9' } } } });
+    const calls = routeGh([
+      ['items(first', boardPage([node('PVTI_i')])],
+      ['issue(number:$number){id}', subId],
+      ['addSubIssue(input', new Error('sub failed')],
+      [ITEM_Q, refetched(node('PVTI_i', { title: 'New' }))],
+    ]);
+    const err = await updateIssue(source, 'PVTI_i', {
+      title: 'New',
+      addSubIssue: { repo: 'hpmartini/DevHub', number: 9 },
+    }).catch((e) => e);
+
+    expect(calls.find((a) => String(a[3]).includes('updateIssue(input'))).toContain('title=New');
+    expect(err).toBeInstanceOf(Error);
+    expect(err.status).toBe(502);
+    expect(err.details.item).toMatchObject({ itemId: 'PVTI_i', title: 'New' });
+    expect((await getBoard(source)).items[0].title).toBe('New');
   });
 });

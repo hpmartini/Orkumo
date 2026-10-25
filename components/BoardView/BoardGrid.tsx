@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, GitMerge } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitMerge, Plus } from 'lucide-react';
 import type { AgentSession, BoardItem, BoardStatusOption, BoardSwimlaneMode } from '../../types';
 import {
   DONE_WINDOW_DAYS,
@@ -48,6 +48,8 @@ interface BoardGridProps {
   onOpen: (item: BoardItem) => void;
   onAgent: (jobId: string) => void;
   onMove: (itemId: string, optionId: string) => void;
+  /** "+ Issue" in a column header: creates an issue with that status */
+  onCreate?: (optionId: string) => void;
   onReset: () => void;
 }
 
@@ -182,13 +184,12 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
                 <span className="[writing-mode:vertical-rl] whitespace-nowrap">{name}</span>
               </button>
             );
-          return (
+          const fold = (
             <button
-              key={col.key}
               onClick={() => toggleColumn(col.key)}
               aria-expanded
               aria-label={`${name} (${count})`}
-              className={`self-start flex items-center gap-2 px-2 py-1.5 text-left ${HEAD}`}
+              className={`self-start flex flex-1 min-w-0 items-center gap-2 px-2 py-1.5 text-left ${HEAD}`}
               style={{ background: columnTint(col.option?.color ?? 'GRAY').head }}
               title={`${name} einklappen`}
             >
@@ -200,6 +201,24 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
                 </span>
               )}
             </button>
+          );
+          if (!col.option || done || !props.onCreate)
+            return <React.Fragment key={col.key}>{fold}</React.Fragment>;
+          const optionId = col.option.id;
+          // Sibling of the fold button, not inside it: a click must not also fold the column
+          return (
+            <div key={col.key} className="self-start flex items-stretch gap-1 min-w-0">
+              {fold}
+              <button
+                onClick={() => props.onCreate?.(optionId)}
+                className={`px-1.5 text-gray-200 ${HEAD}`}
+                style={{ background: columnTint(col.option.color).head }}
+                title={`Neues Issue in ${name}`}
+                aria-label={`Neues Issue in ${name}`}
+              >
+                <Plus size={14} />
+              </button>
+            </div>
           );
         })}
       </div>

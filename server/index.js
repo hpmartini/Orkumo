@@ -2953,7 +2953,7 @@ const agentLimiter = rateLimit({
 
 function sendAgentError(res, error) {
   const status = error?.status || 500;
-  res.status(status).json({ error: error?.message || 'Agent operation failed' });
+  res.status(status).json({ ...error?.details, error: error?.message || 'Agent operation failed' });
 }
 
 /**
@@ -3384,6 +3384,93 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
   }
 });
 
+// Create and edit issues (#72)
+const issueRefSchema = z
+  .object({ repo: boardRepoSlugSchema, number: z.number().int().positive() })
+  .strict();
+const issueNames = z.array(z.string().min(1).max(100)).max(50);
+const boardIssueFields = {
+  body: z.string().max(65536).optional(),
+  labels: issueNames.optional(),
+  assignees: issueNames.optional(),
+  milestone: z.string().min(1).max(255).nullable().optional(),
+};
+const createIssueSchema = z
+  .object({
+    repo: boardRepoSlugSchema,
+    title: z.string().trim().min(1).max(256),
+    statusOptionId: z.string().min(1).max(100).optional(),
+    // Resume: issue already created, only add it to the project (see createIssue)
+    issueId: z
+      .string()
+      .regex(/^I_[A-Za-z0-9_-]+$/)
+      .optional(),
+    ...boardIssueFields,
+  })
+  .strict();
+const updateIssueSchema = z
+  .object({
+    title: z.string().trim().min(1).max(256).optional(),
+    ...boardIssueFields,
+    state: z.enum(['OPEN', 'CLOSED']).optional(),
+    stateReason: z.enum(['COMPLETED', 'NOT_PLANNED', 'DUPLICATE']).optional(),
+    parent: issueRefSchema.nullable().optional(),
+    addSubIssue: issueRefSchema.optional(),
+    removeSubIssue: z
+      .string()
+      .regex(/^I_[A-Za-z0-9_-]+$/)
+      .optional(),
+  })
+  .strict();
+const issueNodeIdSchema = z.string().regex(/^I_[A-Za-z0-9_-]+$/);
+
+app.get('/api/board/repo-options', agentLimiter, async (req, res) => {
+  const slug = boardRepoSlugSchema.safeParse(req.query.repo);
+  if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
+  try {
+    res.json(await boardService.getRepoOptions(slug.data, { refresh: req.query.refresh === '1' }));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.get(
+  '/api/board/issues/:issueId',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  async (req, res) => {
+    try {
+      res.json(await boardService.getIssueDetails(req.params.issueId));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.post('/api/board/issues', agentLimiter, validate(createIssueSchema), async (req, res) => {
+  try {
+    const { source } = settingsService.getBoardSettings();
+    res.status(201).json(await boardService.createIssue(source, req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.patch(
+  '/api/board/items/:itemId/issue',
+  agentLimiter,
+  validateParams(boardItemIdSchema),
+  validate(updateIssueSchema),
+  async (req, res) => {
+    try {
+      const { source } = settingsService.getBoardSettings();
+      res.json(await boardService.updateIssue(source, req.params.itemId, req.body));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
 app.get('/api/board/settings', (req, res) => {
   try {
     res.json(settingsService.getBoardSettings());
@@ -3394,7 +3481,13 @@ app.get('/api/board/settings', (req, res) => {
 
 app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
   try {
-    if (req.body.source) boardService.clearCache();
+    // Only a different source invalidates the cache (and its fresh-write protection)
+    const { source } = settingsService.getBoardSettings();
+    if (
+      req.body.source &&
+      (req.body.source.owner !== source.owner || req.body.source.number !== source.number)
+    )
+      boardService.clearCache();
     res.json(settingsService.updateBoardSettings(req.body));
   } catch (error) {
     sendAgentError(res, error);

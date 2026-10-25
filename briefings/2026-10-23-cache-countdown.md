@@ -3,7 +3,9 @@
 Quelle: Issue https://github.com/hpmartini/DevHub/issues/71 ("Cash" im Issue = Prompt-Cache).
 
 ## The Job
+
 Im Agents View (`/agents`) zeigt jede Session ihren Prompt-Cache-Zustand:
+
 - **Restzeit** bis der Cache verfällt (Countdown mm:ss, tickt clientseitig jede Sekunde),
 - **Füllstand**: gecachte Tokens relativ zum Kontextfenster des Modells (Balken + Zahl, z.B. `142k / 200k`),
 - **Hits**: Zahl der Turns mit `cache_read_input_tokens > 0` plus Trefferquote (gelesene / alle Input-Tokens).
@@ -11,9 +13,11 @@ Im Agents View (`/agents`) zeigt jede Session ihren Prompt-Cache-Zustand:
 Bei ≤ 10 Minuten Restzeit (und > 0) werden die Agent-Zeile und die Zeile/Gruppe ihres Projekts in der Liste sichtbar hervorgehoben (z.B. Amber-Ring + Countdown in Amber). Abgelaufener Cache wird grau als "abgelaufen" gezeigt, nicht hervorgehoben.
 
 ## Why
+
 Hape lässt viele Claude-Sessions parallel laufen (Abo, kein API-Key). Verfällt der Cache, kostet der nächste Turn den vollen Kontext neu an Tokens und Rate-Limit. Mit dem Countdown sieht er, welchen Agenten er jetzt noch anstoßen sollte, bevor der Cache kalt wird. Teil der ADE-Vision (`docs/VISION.md`): Agent-Zustand auf einen Blick.
 
 ## Guardrails
+
 - Datenquelle: Transcript `~/.claude/projects/<slug>/<sessionId>.jsonl`, letzte Zeilen mit `message.usage` (`cache_read_input_tokens`, `cache_creation_input_tokens`, `cache_creation.ephemeral_1h_input_tokens` / `ephemeral_5m_input_tokens`, `timestamp`). Pfadauflösung wie `sessionModel()` / `getTranscriptTail()` in `server/services/agentService.js` wiederverwenden, keine zweite Implementierung.
 - Server: Feld `cache` in `AgentContext` ergänzen (`server/services/agentContextService.js` → `computeAgentContexts`, Typ in `types.ts`). Server liefert Rohwerte (`lastActivityAt`, `ttlMs`, `cachedTokens`, `contextWindow`, `hits`, `turns`, `hitRatio`), Restzeit rechnet der Client, damit der 30s-Poll von `useAgentContexts` reicht. Transcript nur inkrementell bzw. tail-begrenzt lesen; große Transcripts dürfen den Context-Endpoint nicht spürbar verlangsamen.
 - Berechnung als pure, unit-getestete Funktion (Muster: `utils/agentSessions.ts`), Tests mit vitest wie bestehende `*.test.ts`.
@@ -26,6 +30,7 @@ Hape lässt viele Claude-Sessions parallel laufen (Abo, kein API-Key). Verfällt
 - Out of scope: Benachrichtigungen/Push, automatisches "Cache warm halten", Kosten in Geld.
 
 ## Done means
+
 - Lokale Session mit frischem Turn zeigt Countdown nahe 60:00 bzw. 5:00, Füllstand und Hits; Werte stimmen mit einem händischen Abgleich gegen die letzte `usage`-Zeile ihres Transcripts überein (im PR zeigen).
 - Session mit < 10 min Rest: Agent und Projekt hervorgehoben; Screenshot im PR.
 - `bun run build`, `bunx vitest run` und `bunx tsc --noEmit` grün; neue Tests decken TTL-Wahl, Ablauf, Hits/Quote, fehlende/defekte Transcripts.
@@ -33,4 +38,5 @@ Hape lässt viele Claude-Sessions parallel laufen (Abo, kein API-Key). Verfällt
 - Weiterarbeiten bis fertig, außer das Transcript-Format enthält die `usage`-Felder nicht (dann berichten). Rückmeldung: kurzer Bericht, was gebaut, welche Annahmen gegriffen haben.
 
 ## First on approval
+
 Eine Transcript-Datei einer laufenden Session lesen und die `usage`-Felder der letzten Turns gegen die Annahmen oben prüfen (TTL-Erkennung, Fenstergröße).

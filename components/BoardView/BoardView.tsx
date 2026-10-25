@@ -23,6 +23,7 @@ import { undoToast, useBoard } from './useBoard';
 import { BoardRail, type RailAgent } from './BoardRail';
 import { BoardGrid } from './BoardGrid';
 import { BoardItemPanel } from './BoardItemPanel';
+import { IssueCreateModal, lastIssueRepo } from './IssueCreateModal';
 
 interface BoardViewProps {
   /** Whether the view is visible (drives polling, URL state and keyboard handling) */
@@ -72,7 +73,19 @@ const toggleIn = (list: string[], key: string) =>
 export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data, settings, loading, error, refresh, updateSettings, moveItem } = useBoard(active);
+  const {
+    data,
+    settings,
+    loading,
+    error,
+    refresh,
+    updateSettings,
+    moveItem,
+    upsertItem,
+    editIssue,
+  } = useBoard(active);
+  // Column whose "+ Issue" was clicked (status option id, '' = default)
+  const [createIn, setCreateIn] = useState<string | null>(null);
   const { sessions } = useAgentSessions({ active });
   const [view, setView] = useState<ViewPrefs>(loadView);
   const [query, setQuery] = useState('');
@@ -103,6 +116,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
 
   const items = useMemo(() => data?.items ?? [], [data]);
   const options = useMemo(() => data?.statusField.options ?? [], [data]);
+  const repos = useMemo(
+    () => [...new Set(items.flatMap((i) => (i.repo ? [i.repo] : [])))].sort(),
+    [items]
+  );
   const prefs = settings ?? EMPTY_PREFS;
   const { sliceKind, selected, laneMode } = view;
 
@@ -324,6 +341,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
               onOpen={(item) => setParam('item', itemKey(item))}
               onAgent={onAgent}
               onMove={moveItem}
+              onCreate={(optionId) => setCreateIn(optionId)}
               onReset={() => {
                 updateView({ selected: null });
                 setParam('agent', null);
@@ -332,6 +350,24 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
           )}
         </div>
       </main>
+
+      {createIn !== null && (
+        <IssueCreateModal
+          repo={
+            sliceKind === 'repo' && selected && repos.includes(selected)
+              ? selected
+              : lastIssueRepo(repos)
+          }
+          repos={repos}
+          statusOptions={options}
+          statusOptionId={createIn || undefined}
+          onClose={() => setCreateIn(null)}
+          onCreated={(item) => {
+            upsertItem(item);
+            setParam('item', itemKey(item));
+          }}
+        />
+      )}
 
       {openItem && (
         <BoardItemPanel
@@ -342,6 +378,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
           sessionsById={sessionsById}
           onClose={closePanel}
           onStatus={(optionId) => moveItem(openItem.itemId, optionId)}
+          onSave={(patch, optimistic) => editIssue(openItem.itemId, patch, optimistic)}
           onOpenKey={(key) => setParam('item', key)}
           onAttach={(jobId) => navigate(`/agents?attach=${encodeURIComponent(jobId)}`)}
           onStartAgent={async (it) => {

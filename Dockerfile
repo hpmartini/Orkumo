@@ -44,6 +44,9 @@ COPY --from=builder /app/dist ./dist
 
 # Copy server files
 COPY server ./server
+# Server imports these shared modules from outside server/
+COPY config/defaults.js ./config/defaults.js
+COPY utils/boardWrites.js ./utils/boardWrites.js
 
 # Create directories for persistent data
 RUN mkdir -p /app/data /app/sessions

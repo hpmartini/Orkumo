@@ -22,6 +22,25 @@ export function issueKey(repo: string, number: number): string {
   return `${repo}#${number}`;
 }
 
+/**
+ * "#12", "12", "owner/name#12" or an issue URL -> { repo, number }; `defaultRepo` fills a bare number.
+ * null when the text is not an issue reference.
+ */
+export function parseIssueRef(
+  text: string,
+  defaultRepo: string | null
+): { repo: string; number: number } | null {
+  const t = text.trim();
+  const m =
+    t.match(/^https:\/\/github\.com\/([\w.-]+\/[\w.-]+)\/issues\/(\d+)\/?$/) ??
+    t.match(/^([\w.-]+\/[\w.-]+)#(\d+)$/) ??
+    t.match(/^()#?(\d+)$/);
+  if (!m) return null;
+  const repo = m[1] || defaultRepo;
+  const number = Number(m[2]);
+  return repo && number > 0 ? { repo, number } : null;
+}
+
 /** Stable item key: "owner/name#12", or the project item id for drafts */
 export function itemKey(item: BoardItem): string {
   return item.repo && item.number != null ? issueKey(item.repo, item.number) : item.itemId;
@@ -243,7 +262,8 @@ export function deriveAgentLinks(
   for (const item of items) {
     for (const uuid of item.mwBoardSessions) {
       const short = uuid.slice(0, 8);
-      const live = sessions.find((s) => s.sessionId === uuid) ?? sessions.find((s) => s.id === short);
+      const live =
+        sessions.find((s) => s.sessionId === uuid) ?? sessions.find((s) => s.id === short);
       add({ jobId: live?.id ?? short, issueKey: itemKey(item), via: 'mw-board' });
     }
   }
