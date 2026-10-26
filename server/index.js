@@ -37,7 +37,7 @@ import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
-import { initializeDatabase, isDatabaseConnected } from './db/index.js';
+import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
 import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
@@ -52,6 +52,7 @@ import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
 import * as codeService from './services/codeService.js';
+import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
   getProcessStats as getServerProcessStats,
   parsePids,
@@ -165,6 +166,13 @@ app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
 app.use('/api/terminal/ghostty', ghosttyRoutes);
+
+// Optional modules (docs/MODULES.md). Mounted now, filled by load() in startServer(),
+// so it sits before the 404 handler at the end of this file.
+const moduleHost = createModuleHost({
+  services: { agentService, boardService, db: { getDb, isDatabaseConnected } },
+});
+app.use('/api/modules', moduleHost.router);
 
 // ============================================
 // Input Validation Schemas (Zod)
@@ -3928,6 +3936,7 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
 async function startServer() {
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
+  const modules = await moduleHost.load(getModulesDir());
 
   // A failure to bind is fatal and must be reported as such. Without this the
   // error reaches `uncaughtException` -> cleanup() -> exit code 0, which makes
@@ -3950,6 +3959,7 @@ async function startServer() {
     console.log(
       `   Database: ${dbConnected ? '✅ Connected' : '⚠️  Not connected (using file storage)'}`
     );
+    console.log(`   Modules: ${modules.length ? modules.map((m) => m.id).join(', ') : 'none'}`);
     console.log(`   WebSocket PTY: ws://localhost:${PORT}/api/pty`);
     console.log(`   Endpoints:`);
     console.log(`   - GET  /api/apps            - List discovered apps`);
@@ -3959,6 +3969,7 @@ async function startServer() {
     console.log(`   - POST /api/apps/:id/start  - Start an app`);
     console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
     console.log(`   - GET  /api/events          - SSE for real-time updates`);
+    console.log(`   - GET  /api/modules         - List loaded modules`);
     console.log(`   - WS   /api/pty             - WebSocket for terminal`);
   });
 }
