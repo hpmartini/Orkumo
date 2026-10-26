@@ -259,9 +259,7 @@ describe('agentContextService - sessionModel with session data', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-'));
     const file = path.join(dir, 'session.jsonl');
     fs.writeFileSync(file, lines.join('\n') + '\n');
-    return Promise.resolve(fn(file)).finally(() =>
-      fs.rmSync(dir, { recursive: true, force: true })
-    );
+    return Promise.resolve(fn(file)).finally(() => fs.rmSync(dir, { recursive: true, force: true }));
   }
   // A session that entered a worktree: cwd's slug has no transcript, the job state's scan path does
   const session = (transcriptPath) => ({
@@ -313,9 +311,7 @@ describe('agentContextService - sessionModel with session data', () => {
     });
     expect(files[0]).toBe('/t/abc.jsonl');
     expect(files).toHaveLength(3);
-    expect(transcriptCandidates({ sessionId: null, cwd: '/repo', transcriptPath: null })).toEqual(
-      []
-    );
+    expect(transcriptCandidates({ sessionId: null, cwd: '/repo', transcriptPath: null })).toEqual([]);
   });
 });
 

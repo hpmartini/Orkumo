@@ -219,7 +219,7 @@ describe('moveTab / setTabLayout / focus', () => {
     expect(activateTab(ws, 't1').activeTabId).toBe('t1');
   });
 
-  it("focusSession on a pane makes it the tab's active session (drives the rail reveal)", () => {
+  it('focusSession on a pane makes it the tab\'s active session (drives the rail reveal)', () => {
     const ws = splitInto(open('a', 'b'), 'b', 'a', 'right');
     const tab = ws.tabs.find((t) => t.panes.includes('a'))!;
     const other = tab.panes.find((id) => id !== tab.activeSessionId)!;

@@ -77,7 +77,12 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
   ) : null;
 
   return (
-    <div ref={rootRef} className="px-2 pb-2 space-y-2" role="listbox" aria-label="Remote agents">
+    <div
+      ref={rootRef}
+      className="px-2 pb-2 space-y-2"
+      role="listbox"
+      aria-label="Remote agents"
+    >
       <div className="px-1 pt-1 text-[11px] uppercase tracking-wide text-gray-500">
         Remote-Agents
       </div>
@@ -135,7 +140,11 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
                   onDoubleClick={() => attachable && onAttach(session)}
                   className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
                     selected ? selectedClass(railFocused) : 'text-gray-300 hover:bg-gray-800'
-                  } ${peekId === key ? 'ring-1 ring-inset ring-blue-300/50' : ''}`}
+                  } ${
+                    peekId === key
+                      ? 'ring-1 ring-inset ring-blue-300/50'
+                      : ''
+                  }`}
                   title={`${session.id} · ${device.name}:${session.cwd}${attachable ? '\nDouble-click to attach' : ''}`}
                 >
                   <span
