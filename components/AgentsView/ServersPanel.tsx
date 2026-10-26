@@ -2,7 +2,11 @@ import React, { useState } from 'react';
 import { Check, Copy, ExternalLink, Server, X } from 'lucide-react';
 import type { AgentServerStats } from '../../types';
 import type { AgentServer } from '../../utils/agentSessions';
-import { useServerStats } from '../../hooks/useServerStats';
+import {
+  MAX_STALE_FAILURES,
+  useServerStats,
+  type ServerStatsState,
+} from '../../hooks/useServerStats';
 import { usePopover } from './PullRequestsPanel';
 
 export interface ServerRow {
@@ -20,6 +24,23 @@ interface ServersPanelProps {
 const formatCpu = (s?: AgentServerStats) => (s ? `${s.cpu.toFixed(1)}%` : '–');
 const formatMem = (s?: AgentServerStats) =>
   s ? (s.memMb >= 1024 ? `${(s.memMb / 1024).toFixed(1)} GB` : `${s.memMb} MB`) : '–';
+
+/** What a row shows for its load: the values (if any), whether they are stale, and why. */
+export function serverLoad(
+  state: ServerStatsState,
+  pid?: number
+): { stats?: AgentServerStats; stale: boolean; note?: string } {
+  if (!pid) return { stale: false, note: 'No PID known' };
+  if (state.failures >= MAX_STALE_FAILURES) return { stale: false, note: 'Load unavailable' };
+  const stats = state.stats[pid];
+  const stale = state.failures > 0 && !!stats;
+  if (stale) {
+    const at = new Date(state.updatedAt ?? 0).toLocaleTimeString();
+    return { stats, stale, note: `As of ${at}, refresh failed` };
+  }
+  if (!stats && state.checked.has(pid)) return { stale: false, note: 'Process exited' };
+  return { stats, stale: false };
+}
 
 export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent, onClose }) => {
   const ref = usePopover(onClose);
@@ -68,60 +89,65 @@ export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent,
           </p>
         ) : (
           <ul className="divide-y divide-gray-800">
-            {rows.map(({ server, agentId, agentName }) => (
-              <li
-                key={`${agentId}:${server.port}`}
-                className="flex items-center gap-3 px-3 py-1.5 text-xs"
-              >
-                <span className="font-mono text-emerald-400 w-14 shrink-0">:{server.port}</span>
-                <span
-                  className="font-mono text-gray-300 truncate min-w-0 flex-1"
-                  title={server.pid ? `pid ${server.pid}` : undefined}
+            {rows.map(({ server, agentId, agentName }) => {
+              const load = serverLoad(stats, server.pid);
+              const loadTitle = (base: string) => (load.note ? `${base} – ${load.note}` : base);
+              const loadClass = load.stale ? 'text-gray-500' : 'text-gray-300';
+              return (
+                <li
+                  key={`${agentId}:${server.port}`}
+                  className="flex items-center gap-3 px-3 py-1.5 text-xs"
                 >
-                  {server.command || server.name}
-                </span>
-                <span
-                  className="w-12 shrink-0 text-right tabular-nums text-gray-300"
-                  title="CPU (share of one core, incl. child processes)"
-                >
-                  {formatCpu(server.pid ? stats[server.pid] : undefined)}
-                </span>
-                <span
-                  className="w-16 shrink-0 text-right tabular-nums text-gray-300"
-                  title="Memory (RSS, incl. child processes)"
-                >
-                  {formatMem(server.pid ? stats[server.pid] : undefined)}
-                </span>
-                <button
-                  onClick={() => {
-                    onSelectAgent(agentId);
-                    onClose();
-                  }}
-                  className="truncate max-w-[10rem] text-blue-300 hover:text-white hover:underline"
-                  title="Select this agent"
-                >
-                  {agentName}
-                </button>
-                <a
-                  href={`http://localhost:${server.port}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                  aria-label={`Open localhost:${server.port}`}
-                  title="Open"
-                >
-                  <ExternalLink size={12} />
-                </a>
-                <button
-                  onClick={() => copy(server.port)}
-                  className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                  aria-label={`Copy URL of port ${server.port}`}
-                  title="Copy URL"
-                >
-                  {copied === server.port ? <Check size={12} /> : <Copy size={12} />}
-                </button>
-              </li>
-            ))}
+                  <span className="font-mono text-emerald-400 w-14 shrink-0">:{server.port}</span>
+                  <span
+                    className="font-mono text-gray-300 truncate min-w-0 flex-1"
+                    title={server.pid ? `pid ${server.pid}` : undefined}
+                  >
+                    {server.command || server.name}
+                  </span>
+                  <span
+                    className={`w-12 shrink-0 text-right tabular-nums ${loadClass}`}
+                    title={loadTitle('CPU (share of one core, incl. child processes)')}
+                  >
+                    {formatCpu(load.stats)}
+                  </span>
+                  <span
+                    className={`w-16 shrink-0 text-right tabular-nums ${loadClass}`}
+                    title={loadTitle('Memory (RSS, incl. child processes)')}
+                  >
+                    {formatMem(load.stats)}
+                  </span>
+                  <button
+                    onClick={() => {
+                      onSelectAgent(agentId);
+                      onClose();
+                    }}
+                    className="truncate max-w-[10rem] text-blue-300 hover:text-white hover:underline"
+                    title="Select this agent"
+                  >
+                    {agentName}
+                  </button>
+                  <a
+                    href={`http://localhost:${server.port}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                    aria-label={`Open localhost:${server.port}`}
+                    title="Open"
+                  >
+                    <ExternalLink size={12} />
+                  </a>
+                  <button
+                    onClick={() => copy(server.port)}
+                    className="p-2 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                    aria-label={`Copy URL of port ${server.port}`}
+                    title="Copy URL"
+                  >
+                    {copied === server.port ? <Check size={12} /> : <Copy size={12} />}
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </div>
