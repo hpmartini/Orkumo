@@ -1060,8 +1060,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           break;
         case ' ':
           e.preventDefault();
-          if (selectedRemote) togglePeek({ ...selectedRemote, id: remoteKey(selectedRemote) });
-          else if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
+          if (selectedRemote) {
+            // `claude logs` only knows background sessions, not `interactive-<pid>`
+            if (selectedRemote.kind === 'background')
+              togglePeek({ ...selectedRemote, id: remoteKey(selectedRemote) });
+            else showHint('Interactive sessions run in their own terminal', 'info');
+          } else if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
           else togglePeek(selectedSession);
           break;
         case 'Escape':

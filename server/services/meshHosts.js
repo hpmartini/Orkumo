@@ -7,7 +7,17 @@
 
 const HOST_RE = /^[a-z0-9](?:[a-z0-9-]{0,62})(?:\.[a-z0-9](?:[a-z0-9-]{0,62}))*$/i;
 const SESSION_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/i;
-const SSH_OPTS = ['-o', 'BatchMode=yes', '-o', 'ConnectTimeout=5'];
+// No agent or port forwarding to tailnet devices, whatever ~/.ssh/config says
+const SSH_OPTS = [
+  '-o',
+  'BatchMode=yes',
+  '-o',
+  'ConnectTimeout=5',
+  '-o',
+  'ForwardAgent=no',
+  '-o',
+  'ClearAllForwardings=yes',
+];
 const SUPPORTED_OS = new Set(['macOS', 'linux']);
 
 export function parseTailscaleStatus(status) {

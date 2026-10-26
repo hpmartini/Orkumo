@@ -47,6 +47,7 @@ import * as dockerService from './services/dockerService.js';
 import * as healthService from './services/healthService.js';
 import * as agentService from './services/agentService.js';
 import * as meshService from './services/meshService.js';
+import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
@@ -3098,7 +3099,7 @@ app.post(
 /**
  * GET /api/agents/remote - sessions of the other Tailscale devices (`ssh <host> claude agents --json`)
  */
-app.get('/api/agents/remote', async (req, res) => {
+app.get('/api/agents/remote', agentLimiter, async (req, res) => {
   try {
     res.json(await meshService.listRemote());
   } catch (error) {
@@ -3109,12 +3110,14 @@ app.get('/api/agents/remote', async (req, res) => {
 /**
  * GET /api/agents/remote/:host/:id/logs - `ssh <host> claude logs <id>`
  */
-app.get('/api/agents/remote/:host/:id/logs', async (req, res) => {
+app.get('/api/agents/remote/:host/:id/logs', agentLimiter, async (req, res) => {
   const { host, id } = req.params;
-  if (!meshService.isKnownRemoteHost(host) || !agentIdSchema.safeParse(id).success) {
-    return res.status(400).json({ error: 'Invalid host or session id' });
-  }
   try {
+    await meshService.ensureDevices();
+    // Same id check as the ssh arg builders, so a mismatch is a 400 and never a 500
+    if (!meshService.isKnownRemoteHost(host) || !isSessionId(id)) {
+      return res.status(400).json({ error: 'Invalid host or session id' });
+    }
     res.json(await meshService.getRemoteLogs(host, id));
   } catch (error) {
     sendAgentError(res, error);
@@ -3833,26 +3836,50 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  if (command === 'ssh' && !meshService.isRemoteAttachArgs(args)) {
-    console.error(`[PTY] Rejected ssh args: ${JSON.stringify(args)}`);
-    ws.send(JSON.stringify({ type: 'error', message: 'Invalid remote attach target' }));
+  const startPty = () => {
+    const options = command ? { command, args } : {};
+
+    console.log(
+      `[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`
+    );
+
+    if (isRunningInDocker) {
+      // In Docker: proxy to host PTY service
+      handleDockerPtyConnection(ws, sessionId, cwd, cols, rows);
+    } else {
+      // On host: spawn PTY directly
+      handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options);
+    }
+  };
+
+  if (command !== 'ssh') {
+    startPty();
+    return;
+  }
+
+  // The Docker PTY proxy ignores command/args and the container has no ssh keys
+  if (isRunningInDocker) {
+    ws.send(
+      JSON.stringify({ type: 'error', message: 'Remote attach is not available in Docker mode' })
+    );
     ws.close();
     return;
   }
 
-  const options = command ? { command, args } : {};
-
-  console.log(
-    `[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`
-  );
-
-  if (isRunningInDocker) {
-    // In Docker: proxy to host PTY service
-    handleDockerPtyConnection(ws, sessionId, cwd, cols, rows);
-  } else {
-    // On host: spawn PTY directly
-    handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options);
-  }
+  // After a server restart the host allowlist is empty until Tailscale was asked once
+  meshService
+    .ensureDevices()
+    .catch(() => {})
+    .then(() => {
+      if (ws.readyState !== ws.OPEN) return;
+      if (!meshService.isRemoteAttachArgs(args)) {
+        console.error(`[PTY] Rejected ssh args: ${JSON.stringify(args)}`);
+        ws.send(JSON.stringify({ type: 'error', message: 'Invalid remote attach target' }));
+        ws.close();
+        return;
+      }
+      startPty();
+    });
 });
 
 // Forward PTY data to corresponding WebSocket clients (local mode only)
