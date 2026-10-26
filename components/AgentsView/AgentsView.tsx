@@ -28,6 +28,7 @@ import { useAgentContexts } from '../../hooks/useAgentContexts';
 import {
   useRailPreferences,
   groupNeighbour,
+  isFoldedAway,
   FAVORITES_GROUP_KEY,
 } from '../../hooks/useRailPreferences';
 import { FOCUS_CHORD_LABEL, useAgentFocusZone } from '../../hooks/useAgentFocusZone';
@@ -1609,7 +1610,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               highlightedId={highlightedId}
               collapsedKeys={collapsed}
               activeSessionId={activeSessionId}
-              onRevealActive={(id) => rail.revealSession(groups, id)}
+              onRevealActive={(id) => {
+                rail.revealSession(groups, id);
+                if (isFoldedAway(groups, id)) setExpandedCompleted(true);
+              }}
               onToggleGroup={toggleCollapsed}
               favoriteGroupKeys={rail.favoriteGroups}
               favoriteSessionIds={rail.favoriteSessions}

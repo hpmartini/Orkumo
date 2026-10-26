@@ -115,6 +115,10 @@ export function moveGroup(
 export const findGroupKeyOf = (groups: SessionGroup[], sessionId: string): string | null =>
   groups.find((g) => [...g.sessions, ...g.hidden].some((s) => s.id === sessionId))?.key ?? null;
 
+/** True when the session sits behind a group's "… N more" row, i.e. has no rail row yet */
+export const isFoldedAway = (groups: SessionGroup[], sessionId: string): boolean =>
+  groups.some((g) => g.hidden.some((s) => s.id === sessionId));
+
 /**
  * Pulls favorite sessions out of their groups into a leading Favorites group (a session never
  * shows up twice, so selection and row keys stay unique).
