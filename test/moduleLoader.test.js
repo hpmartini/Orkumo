@@ -67,7 +67,8 @@ describe('moduleLoader', () => {
   });
 
   it('skips a module whose ui.js is a symlink to a file outside the module', async () => {
-    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devhub-modules-'));
+    // inside the repo: vite-node cannot import() modules from os.tmpdir(), which would skip the module for the wrong reason
+    tmp = fs.mkdtempSync(path.join(FIXTURES, 'tmp-symlink-'));
     const secret = path.join(tmp, 'secret.js');
     fs.writeFileSync(secret, 'export const secret = 1;');
     const modDir = path.join(tmp, 'mods', 'linked');
@@ -82,7 +83,7 @@ describe('moduleLoader', () => {
     const { loaded, get } = await start(path.join(tmp, 'mods'));
     expect(loaded).toEqual([]);
     expect((await get('/linked/ui.js')).status).toBe(404);
-    expect(logger.error).toHaveBeenCalled();
+    expect(String(logger.error.mock.calls[0][1])).toContain('ui must be inside the module directory');
   });
 
   it('rejects invalid and duplicate ids', async () => {
