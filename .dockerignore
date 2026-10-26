@@ -45,6 +45,9 @@ docker-compose*.yml
 .git
 .gitignore
 
+# Private module code
+data/modules
+
 # Documentation
 README.md
 IMPLEMENTATION_PLAN.md
