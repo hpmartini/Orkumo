@@ -120,6 +120,7 @@ describe('boardService - mapItem', () => {
         },
       ],
       mwBoardSessions: [UUID],
+      mwMarkers: [{ kind: 'start', attrs: { session: UUID }, at: '' }],
       updatedAt: '2026-10-23T10:00:00Z',
       closedAt: null,
     });

@@ -35,9 +35,10 @@ import { KeyboardShortcuts } from './types';
 import { APP_NAME } from './constants';
 
 import { BoardView } from './components/BoardView';
+import { WorkflowView } from './components/WorkflowView';
 import { CodeView } from './components/CodeView';
 
-type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code';
+type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code' | 'workflows';
 
 function AppContent() {
   const navigate = useNavigate();
@@ -47,6 +48,7 @@ function AppContent() {
   const isAgentsRoute = location.pathname === '/agents';
   const isBoardRoute = location.pathname === '/board';
   const isCodeRoute = location.pathname === '/code';
+  const isWorkflowsRoute = location.pathname === '/workflows';
   // Agents and board bring their own left rail instead of the app sidebar
   const hasOwnRail = isAgentsRoute || isBoardRoute;
 
@@ -152,10 +154,18 @@ function AppContent() {
       }
     } else {
       setActiveTab(
-        isAgentsRoute ? 'agents' : isBoardRoute ? 'board' : isCodeRoute ? 'code' : 'dashboard'
+        isAgentsRoute
+          ? 'agents'
+          : isBoardRoute
+            ? 'board'
+            : isCodeRoute
+              ? 'code'
+              : isWorkflowsRoute
+                ? 'workflows'
+                : 'dashboard'
       );
     }
-  }, [projectId, apps, loading, isAgentsRoute, isBoardRoute, isCodeRoute]);
+  }, [projectId, apps, loading, isAgentsRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
@@ -423,6 +433,13 @@ function AppContent() {
       'issues kanban github project'
     ),
     command('code', 'Open code mode', 'Navigate', () => navigate('/code'), 'ide vscode editor'),
+    command(
+      'workflows',
+      'Open workflows',
+      'Navigate',
+      () => navigate('/workflows'),
+      'mw martini pipeline orchestrate go stages'
+    ),
     command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
     command('sidebar', 'Toggle sidebar', 'View', handleToggleSidebarCollapse),
     command('favorites', 'Open favorites', 'Navigate', handleToggleFavoritesPopup),
@@ -546,6 +563,10 @@ function AppContent() {
           }}
           onSelectCode={() => {
             navigate('/code');
+            setMobileMenuOpen(false);
+          }}
+          onSelectWorkflows={() => {
+            navigate('/workflows');
             setMobileMenuOpen(false);
           }}
           onSelectApp={handleSelectApp}
@@ -731,6 +752,16 @@ function AppContent() {
             <CodeView active={activeTab === 'code'} apps={apps} />
           </div>
 
+          {/* Workflows (mw) - polls only while active */}
+          <div
+            className={
+              activeTab === 'workflows' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+            }
+            aria-hidden={activeTab !== 'workflows'}
+          >
+            <WorkflowView active={activeTab === 'workflows'} />
+          </div>
+
           {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.
               This preserves iframe state (VS Code Server, Browser Preview) when switching tabs.
               Previously conditional rendering caused iframes to reload on every tab switch.
@@ -813,6 +844,7 @@ function AppRouter() {
       <Route path="/agents" element={<AppContent />} />
       <Route path="/board" element={<AppContent />} />
       <Route path="/code" element={<AppContent />} />
+      <Route path="/workflows" element={<AppContent />} />
       <Route path="/:projectName/:projectId" element={<AppContent />} />
     </Routes>
   );

@@ -10,7 +10,10 @@ import type {
   BoardItem,
   BoardRepoOptions,
   BoardSettings,
+  WorkflowDetails,
+  WorkflowRunInfo,
 } from '../types';
+import type { WorkflowGo } from '../utils/workflowStage.js';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -89,4 +92,32 @@ export function updateBoardSettings(patch: Partial<BoardSettings>): Promise<Boar
     method: 'PUT',
     body: JSON.stringify(patch),
   });
+}
+
+// --- Workflows (#87) ---
+
+/** Local mw run per issue key ("owner/name#n") of the board's workflow items */
+export async function fetchWorkflowRuns(refresh = false): Promise<Record<string, WorkflowRunInfo>> {
+  const { runs } = await request<{ runs: Record<string, WorkflowRunInfo> }>(
+    `/workflows/runs${refresh ? '?refresh=1' : ''}`
+  );
+  return runs;
+}
+
+/** GO for the next stage; the server refuses (409) unless it is the GO the fresh state offers */
+export function sendWorkflowGo(itemId: string, go: WorkflowGo): Promise<{ ok: true }> {
+  return request('/workflows/go', { method: 'POST', body: JSON.stringify({ itemId, go }) });
+}
+
+export function fetchWorkflowDetails(itemId: string): Promise<WorkflowDetails> {
+  return request<WorkflowDetails>(`/workflows/details?itemId=${encodeURIComponent(itemId)}`);
+}
+
+export function fetchWorkflowDoc(
+  itemId: string,
+  path: string
+): Promise<{ name: string; path: string; content: string }> {
+  return request(
+    `/workflows/doc?itemId=${encodeURIComponent(itemId)}&path=${encodeURIComponent(path)}`
+  );
 }

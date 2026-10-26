@@ -51,6 +51,7 @@ function item(partial: Partial<BoardItem> = {}): BoardItem {
     subIssues: { total: 0, completed: 0 },
     pullRequests: [],
     mwBoardSessions: [],
+    mwMarkers: [],
     updatedAt: '2026-10-20T00:00:00Z',
     closedAt: null,
     ...partial,

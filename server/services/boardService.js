@@ -5,6 +5,7 @@
 import { execFile } from 'child_process';
 import { parseGithubSlug } from './agentContextService.js';
 import { keepWrite, mergeRecentWrites } from '../../utils/boardWrites.js';
+import { parseMwMarkers } from '../../utils/workflowStage.js';
 
 const CACHE_TTL_MS = 60_000;
 const PAGE_SIZE = 100; // measured on MACC: cost 4 per page with comments(last:20)
@@ -22,7 +23,7 @@ const ITEM_FIELDS = `id
       parent{id number title repository{nameWithOwner}} subIssuesSummary{total completed}
       labels(first:20){nodes{name color}} milestone{title} assignees(first:10){nodes{login}}
       closedByPullRequestsReferences(first:10){nodes{${PR_FIELDS}}}
-      comments(last:20){nodes{body}}}
+      comments(last:20){nodes{body createdAt}}}
     ... on PullRequest{${PR_FIELDS} updatedAt closedAt
       labels(first:20){nodes{name color}} milestone{title} assignees(first:10){nodes{login}}
       comments(last:20){nodes{body}}}
@@ -166,6 +167,7 @@ export function mapItem(node) {
     },
     pullRequests,
     mwBoardSessions: parseMwBoardSessions((c.comments?.nodes || []).map((n) => n?.body)),
+    mwMarkers: parseMwMarkers(c.comments?.nodes || []),
     updatedAt: c.updatedAt ?? '',
     closedAt: c.closedAt ?? null,
   };

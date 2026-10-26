@@ -20,6 +20,7 @@ import {
   Bot,
   Kanban,
   Code2,
+  Workflow,
 } from 'lucide-react';
 import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -31,11 +32,12 @@ import { APP_NAME } from '../constants';
 interface SidebarProps {
   apps: AppConfig[];
   selectedAppId: string | null;
-  activeTab: 'dashboard' | 'apps' | 'agents' | 'board' | 'code';
+  activeTab: 'dashboard' | 'apps' | 'agents' | 'board' | 'code' | 'workflows';
   isCollapsed?: boolean;
   onSelectAgents?: () => void;
   onSelectBoard?: () => void;
   onSelectCode?: () => void;
+  onSelectWorkflows?: () => void;
   onToggleCollapse?: () => void;
   onSelectDashboard: () => void;
   onSelectApp: (id: string) => void;
@@ -79,6 +81,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectAgents,
   onSelectBoard,
   onSelectCode,
+  onSelectWorkflows,
   onSelectApp,
   onToggleFavorite,
   onToggleArchive,
@@ -420,6 +423,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
+        {/* Workflows Button */}
+        {onSelectWorkflows && (
+          <div className="p-2">
+            <ShortcutTooltip label="Workflows (mw)" position="right">
+              <button
+                onClick={onSelectWorkflows}
+                aria-label="Workflows"
+                className={`p-2 rounded-lg transition-all ${
+                  activeTab === 'workflows'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                    : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                }`}
+              >
+                <Workflow size={20} />
+              </button>
+            </ShortcutTooltip>
+          </div>
+        )}
+
         {/* Agents Button */}
         {onSelectAgents && (
           <div className="p-2">
@@ -711,6 +733,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <Code2 size={18} />
             Code
+          </button>
+        )}
+
+        {/* Workflows Button */}
+        {onSelectWorkflows && (
+          <button
+            onClick={onSelectWorkflows}
+            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${
+              activeTab === 'workflows'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+            }`}
+            title="Issues in Martini Workflows (mw), stage by stage"
+          >
+            <Workflow size={18} />
+            Workflows
           </button>
         )}
 
