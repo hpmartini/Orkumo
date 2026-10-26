@@ -9,7 +9,12 @@ import {
 } from '../utils/workflowStage.js';
 
 const SID = 'b9696574-1525-436d-b809-9d7ebb737e8e';
-const comment = (body, createdAt = '2026-10-25T10:00:00Z') => ({ body, createdAt });
+const comment = (body, createdAt = '2026-10-25T10:00:00Z', login = 'hpmartini') => ({
+  body,
+  createdAt,
+  author: { login },
+});
+const TRUSTED = ['hpmartini'];
 const startC = (mode = 'default') =>
   comment(`Abgeholt\n\n<!-- mw-board:start session=${SID} mode=${mode} dynamic=on -->`);
 const briefedC = comment(
@@ -23,7 +28,7 @@ const item = ({ comments = [], labels = ['mw:go'], state = 'OPEN', prs = [] } = 
   state,
   closedAt: state === 'OPEN' ? null : '2026-10-26T09:00:00Z',
   labels: labels.map((name) => ({ name })),
-  mwMarkers: parseMwMarkers(comments),
+  mwMarkers: parseMwMarkers(comments, TRUSTED),
   pullRequests: prs.map((s) => ({ state: s })),
 });
 const run = (over = {}) => ({
@@ -37,7 +42,7 @@ const run = (over = {}) => ({
 
 describe('parseMwMarkers', () => {
   it('reads kind, attributes and comment time in order', () => {
-    expect(parseMwMarkers([startC(), briefedC])).toEqual([
+    expect(parseMwMarkers([startC(), briefedC], TRUSTED)).toEqual([
       {
         kind: 'start',
         attrs: { session: SID, mode: 'default', dynamic: 'on' },
@@ -48,7 +53,12 @@ describe('parseMwMarkers', () => {
   });
 
   it('ignores marker-like text that is no HTML comment', () => {
-    expect(parseMwMarkers([comment('see `mw-board:start`-Marker')])).toEqual([]);
+    expect(parseMwMarkers([comment('see `mw-board:start`-Marker')], TRUSTED)).toEqual([]);
+  });
+
+  it('ignores markers written by anyone but the trusted authors', () => {
+    const forged = comment(startC().body, '2026-10-25T10:00:00Z', 'mallory');
+    expect(parseMwMarkers([forged], TRUSTED)).toEqual([]);
   });
 });
 

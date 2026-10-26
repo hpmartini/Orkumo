@@ -162,13 +162,19 @@ export async function getRuns(items, findRepoPath, { refresh = false } = {}) {
     items.map(async (item) => {
       if (!item.repo || !item.number) return;
       const sessions = item.mwMarkers.filter((m) => m.kind === 'start').map((m) => m.attrs.session);
+      // A journal run counts only for this item's checkout and (if the trace names one) issue
+      const clone = clones.get(item.repo);
       const fromJournal = sessions
         .map((s) => journal.get(s))
-        .filter(Boolean)
+        .filter((e) => e && clone && e.repoPath === clone)
         .at(-1);
-      const found = fromJournal
+      const journalRun = fromJournal
         ? await readRun(fromJournal.runDir, fromJournal.repoPath)
-        : pipelines.get(item.repo)?.get(item.number);
+        : null;
+      const found =
+        journalRun && (!journalRun.issue || journalRun.issue === item.number)
+          ? journalRun
+          : pipelines.get(item.repo)?.get(item.number);
       if (found) out[`${item.repo}#${item.number}`] = { ...found.run, runDir: found.runDir };
     })
   );
@@ -180,14 +186,18 @@ export function clearRunsCache() {
   runsCache = null;
 }
 
-/** Image URLs in markdown/HTML comment bodies (review screenshots), oldest first, deduplicated */
+// Screenshots only from GitHub's own attachment hosts: the view loads them without a click
+const IMAGE_HOST_RE =
+  /^https:\/\/(github\.com\/user-attachments\/|user-images\.githubusercontent\.com\/|private-user-images\.githubusercontent\.com\/)/;
+
+/** GitHub-hosted image URLs in markdown/HTML comment bodies (review screenshots), deduplicated */
 export function extractImages(bodies) {
   const urls = [];
   const re = /!\[[^\]]*\]\((https:\/\/[^)\s]+)\)|<img[^>]+src="(https:\/\/[^"]+)"/g;
   for (const body of bodies) {
     for (const m of String(body || '').matchAll(re)) {
       const url = m[1] || m[2];
-      if (!urls.includes(url)) urls.push(url);
+      if (IMAGE_HOST_RE.test(url) && !urls.includes(url)) urls.push(url);
     }
   }
   return urls.slice(-MAX_IMAGES);
@@ -224,9 +234,13 @@ async function commentBodies(repo, number) {
 export async function findDocs(dirs, briefingPath, runDir = null) {
   const docs = [];
   const add = async (dir, rel) => {
-    const full = path.resolve(dir, rel);
-    // Only files inside the checkout: a marker path must not walk out of it
-    if (!full.startsWith(path.resolve(dir) + path.sep)) return;
+    // Only markdown files inside the checkout (symlinks resolved): a marker path must not leave it
+    if (!rel.endsWith('.md')) return;
+    const [root, full] = await Promise.all([
+      fs.realpath(dir).catch(() => null),
+      fs.realpath(path.resolve(dir, rel)).catch(() => null),
+    ]);
+    if (!root || !full || !full.startsWith(root + path.sep)) return;
     if (docs.some((d) => d.path === full)) return;
     const stat = await fs.stat(full).catch(() => null);
     if (stat?.isFile()) docs.push({ name: rel, path: full });

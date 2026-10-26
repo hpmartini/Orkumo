@@ -54,11 +54,17 @@ describe('workflowService parsers', () => {
     expect(pendingApproval([{ stage: 'plan', sha: 'a', by: 'policy:auto.plan' }])).toBeNull();
   });
 
-  it('extractImages finds markdown and html images once', () => {
+  it('extractImages finds GitHub-hosted markdown and html images once', () => {
     const a = 'https://github.com/user-attachments/assets/1.png';
-    const b = 'https://example.com/2.png';
+    const b = 'https://user-images.githubusercontent.com/1/2.png';
+    const foreign = 'https://tracker.example.com/pixel.png';
     expect(
-      extractImages([`![shot](${a})`, `<img width="300" src="${b}">`, `![again](${a})`])
+      extractImages([
+        `![shot](${a})`,
+        `<img width="300" src="${b}">`,
+        `![again](${a})`,
+        `![x](${foreign})`,
+      ])
     ).toEqual([a, b]);
   });
 });

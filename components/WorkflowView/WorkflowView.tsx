@@ -21,7 +21,7 @@ import {
   type WorkflowCard as Card,
 } from '../../utils/workflows';
 import { agentFolder, codeUrl } from '../../utils/codeTarget';
-import { WorkflowCard } from './WorkflowCard';
+import { MODE_LABEL, WorkflowCard } from './WorkflowCard';
 import type { WorkflowNav } from './WorkflowDetails';
 import type { StagePulse } from './WorkflowScene';
 
@@ -110,7 +110,11 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
 
   const sessionOf = useCallback(
     (card: Card): AgentSession | undefined =>
-      card.state.sessionId ? sessions.find((s) => s.sessionId === card.state.sessionId) : undefined,
+      // Live session by its UUID, else by the job id (first 8 chars), as the board links them
+      card.state.sessionId
+        ? (sessions.find((s) => s.sessionId === card.state.sessionId) ??
+          sessions.find((s) => s.id === card.state.sessionId?.slice(0, 8)))
+        : undefined,
     [sessions]
   );
 
@@ -205,11 +209,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
                 mode === m ? 'bg-sel text-white' : 'text-gray-400 hover:text-gray-100'
               }`}
             >
-              {m === 'all'
-                ? 'Alle'
-                : m === 'default'
-                  ? 'Briefing'
-                  : m[0].toUpperCase() + m.slice(1)}
+              {m === 'all' ? 'Alle' : MODE_LABEL[m]}
             </button>
           ))}
         </div>
@@ -241,7 +241,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
       )}
 
       <div className="relative min-h-0 flex-1 overflow-auto">
-        <div className="relative grid min-h-full min-w-[1440px] grid-cols-6">
+        <div className="relative grid min-h-full min-w-[1200px] grid-cols-6">
           {active && (
             <Suspense fallback={null}>
               <WorkflowScene

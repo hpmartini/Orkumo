@@ -32,13 +32,15 @@ export const NEED_INPUT_LABEL = 'need-input';
 const MARKER_RE = /<!--\s*mw-board:([a-z_-]+)((?:\s+[a-z_]+=\S+)*)\s*-->/g;
 
 /**
- * mw-board markers of comment bodies in comment order.
- * @param {{ body?: string | null, createdAt?: string | null }[]} comments
+ * mw-board markers of comment bodies in comment order; only comments by `trustedAuthors` count.
+ * @param {{ body?: string | null, createdAt?: string | null, author?: { login?: string } | null }[]} comments
+ * @param {string[]} trustedAuthors
  * @returns {MwMarker[]}
  */
-export function parseMwMarkers(comments) {
+export function parseMwMarkers(comments, trustedAuthors) {
   const out = [];
   for (const c of comments || []) {
+    if (!trustedAuthors.includes(c?.author?.login ?? '')) continue;
     for (const m of String(c?.body || '').matchAll(MARKER_RE)) {
       const attrs = {};
       for (const kv of m[2].trim().split(/\s+/).filter(Boolean)) {

@@ -139,6 +139,7 @@ export const WorkflowDetails: React.FC<{
                   src={url}
                   alt={`Review-Screenshot ${i + 1}`}
                   loading="lazy"
+                  referrerPolicy="no-referrer"
                   className="aspect-video w-full object-cover"
                 />
               </a>

@@ -8,7 +8,7 @@ import { formatAge } from '../../utils/agentSessions';
 import { AgentGlyph, CheckIcon, LabelChip } from '../BoardView/BoardCard';
 import { WorkflowDetails, type WorkflowNav } from './WorkflowDetails';
 
-const MODE_LABEL = { default: 'Briefing', orchestrate: 'Orchestrate', pipeline: 'Pipeline' };
+export const MODE_LABEL = { default: 'Standard', orchestrate: 'Orchestrate', pipeline: 'Pipeline' };
 
 const WAITING: Record<string, { text: string; className: string }> = {
   hape: { text: 'Wartet auf dich', className: 'text-amber-200' },
@@ -100,10 +100,10 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
         <div className="relative p-3">
           <div className="flex items-center gap-2 text-[11px] text-gray-400">
             <AgentGlyph session={session} />
-            <span className="tabular-nums">
+            <span className="min-w-0 truncate tabular-nums" title={`${item.repo}#${item.number}`}>
               {shortRepo(item.repo)}#{item.number}
             </span>
-            <span className="ml-auto rounded-full border border-gray-750 px-1.5 leading-[18px] text-gray-300">
+            <span className="ml-auto shrink-0 rounded-full border border-gray-750 px-1.5 leading-[18px] text-gray-300">
               {MODE_LABEL[state.mode]}
             </span>
           </div>
@@ -129,7 +129,7 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
 
           {needsGo && (
             <GoButton
-              label={state.go?.kind === 'build' ? 'GO: Umsetzung starten' : `GO: ${state.reason}`}
+              label={state.go?.kind === 'build' ? 'GO: Umsetzung' : `GO: ${state.go?.stage}`}
               onGo={onGo}
             />
           )}
