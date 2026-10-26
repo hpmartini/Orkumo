@@ -48,7 +48,7 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
       ['Ctrl+R', 'Rename the selected session'],
       ['Shift+↑ / Shift+↓', 'Reorder the selected session or group'],
       ['Shift+F', 'Favorite / unfavorite the selected session or group'],
-      ['Ctrl+X', 'Stop session; press again within 2 s to delete'],
+      ['Ctrl+X', 'Delete session (with confirmation)'],
       ['Ctrl+X on a group', 'Delete all sessions in the group (with confirmation)'],
     ],
   },

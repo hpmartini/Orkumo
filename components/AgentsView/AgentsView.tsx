@@ -48,6 +48,7 @@ import {
   openCloudSession,
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
+import { confirmDelete } from '../../utils/agentDelete';
 import { agentFolder, codeUrl } from '../../utils/codeTarget';
 import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
 import {
@@ -111,7 +112,6 @@ interface AgentsViewProps {
 }
 
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
-const DELETE_CONFIRM_WINDOW = 2000;
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
 const REMOTE_STORAGE_KEY = 'devOrbitAgentRemote';
 /** Client-side id of a remote session: `<host>:<id>` (':' never occurs in a session id). */
@@ -232,7 +232,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [remoteEnabled, remoteSessions]
   );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const pendingDeleteRef = useRef<{ key: string; at: number } | null>(null);
   const ctrlCRef = useRef<number>(0);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -794,7 +793,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [refresh, showHint]
   );
 
-  const deleteSession = useCallback(
+  const removeSession = useCallback(
     async (
       session: AgentSession,
       options: { discardUnpushed?: string | null; forceRemoveWorktree?: string | null } = {}
@@ -806,13 +805,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             result.hints?.discardUnpushed &&
             window.confirm(`${result.message}\n\nDiscard the unpushed commits and delete anyway?`)
           ) {
-            return deleteSession(session, { discardUnpushed: result.hints.discardUnpushed });
+            return removeSession(session, { discardUnpushed: result.hints.discardUnpushed });
           }
           if (
             result.hints?.forceRemoveWorktree &&
             window.confirm(`${result.message}\n\nForce-remove the worktree directory and delete?`)
           ) {
-            return deleteSession(session, {
+            return removeSession(session, {
               forceRemoveWorktree: result.hints.forceRemoveWorktree,
             });
           }
@@ -830,6 +829,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [closePane, peekId, refresh]
   );
 
+  const deleteSession = useCallback(
+    (session: AgentSession) => confirmDelete(session.name, () => removeSession(session)),
+    [removeSession]
+  );
+
   const handleStopOrDelete = useCallback(
     async (item: NavItem | null) => {
       if (!item) return;
@@ -839,35 +843,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         );
         if (list.length === 0) return;
         if (!window.confirm(`Delete all ${list.length} sessions in "${item.group.title}"?`)) return;
-        for (const session of list) await deleteSession(session);
+        for (const session of list) await removeSession(session);
         return;
       }
       if (item.type !== 'session' || item.session.kind !== 'background') return;
-      const session = item.session;
-      const pending = pendingDeleteRef.current;
-      const nowMs = Date.now();
-      if (pending && pending.key === session.id && nowMs - pending.at < DELETE_CONFIRM_WINDOW) {
-        pendingDeleteRef.current = null;
-        setHint(null);
-        await deleteSession(session);
-        return;
-      }
-      pendingDeleteRef.current = { key: session.id, at: nowMs };
-      showHint(
-        `Press Ctrl+X again within 2 s to delete ${session.name}`,
-        'info',
-        DELETE_CONFIRM_WINDOW
-      );
-      if (session.state === 'working' || session.state === 'blocked') {
-        try {
-          await stopAgent(session.id);
-          refresh();
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : 'Stop failed');
-        }
-      }
+      await deleteSession(item.session);
     },
-    [deleteSession, showHint, refresh]
+    [deleteSession, removeSession]
   );
 
   const handleReorder = useCallback(
