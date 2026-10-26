@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Code2,
   Kanban,
   LayoutDashboard,
   Play,
@@ -18,6 +19,7 @@ import type { AgentConfigLike } from './types';
 export interface RailNavProps {
   onOpenDashboard: () => void;
   onOpenBoard?: () => void;
+  onOpenCode?: () => void;
   onOpenSettings: () => void;
   onOpenProject: (appId: string) => void;
   onStartApp: (appId: string) => void;
@@ -96,6 +98,14 @@ export const RailNav: React.FC<{
           className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
         >
           <Kanban size={13} /> Board
+        </button>
+      )}
+      {nav.onOpenCode && (
+        <button
+          onClick={nav.onOpenCode}
+          className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+        >
+          <Code2 size={13} /> Code
         </button>
       )}
       <span

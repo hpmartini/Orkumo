@@ -19,6 +19,7 @@ import {
   ChevronUp,
   Bot,
   Kanban,
+  Code2,
 } from 'lucide-react';
 import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -30,10 +31,11 @@ import { APP_NAME } from '../constants';
 interface SidebarProps {
   apps: AppConfig[];
   selectedAppId: string | null;
-  activeTab: 'dashboard' | 'apps' | 'agents' | 'board';
+  activeTab: 'dashboard' | 'apps' | 'agents' | 'board' | 'code';
   isCollapsed?: boolean;
   onSelectAgents?: () => void;
   onSelectBoard?: () => void;
+  onSelectCode?: () => void;
   onToggleCollapse?: () => void;
   onSelectDashboard: () => void;
   onSelectApp: (id: string) => void;
@@ -76,6 +78,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onSelectDashboard,
   onSelectAgents,
   onSelectBoard,
+  onSelectCode,
   onSelectApp,
   onToggleFavorite,
   onToggleArchive,
@@ -398,6 +401,25 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         )}
 
+        {/* Code Button */}
+        {onSelectCode && (
+          <div className="p-2">
+            <ShortcutTooltip label="Code (Web-IDE)" position="right">
+              <button
+                onClick={onSelectCode}
+                aria-label="Code"
+                className={`p-2 rounded-lg transition-all ${
+                  activeTab === 'code'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                    : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                }`}
+              >
+                <Code2 size={20} />
+              </button>
+            </ShortcutTooltip>
+          </div>
+        )}
+
         {/* Agents Button */}
         {onSelectAgents && (
           <div className="p-2">
@@ -673,6 +695,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
           >
             <Kanban size={18} />
             Board
+          </button>
+        )}
+
+        {/* Code Button */}
+        {onSelectCode && (
+          <button
+            onClick={onSelectCode}
+            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${
+              activeTab === 'code'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+            }`}
+            title="Web-IDE for any project or worktree"
+          >
+            <Code2 size={18} />
+            Code
           </button>
         )}
 

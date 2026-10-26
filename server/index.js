@@ -51,6 +51,7 @@ import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
+import * as codeService from './services/codeService.js';
 import {
   getProcessStats as getServerProcessStats,
   parsePids,
@@ -3366,6 +3367,35 @@ app.patch(
   }
 );
 
+// Directories DevOrbit knows about: configured scan roots and projects (with their subfolders),
+// plus repos, worktrees and agent cwds found elsewhere (only the folder itself)
+async function knownDirs() {
+  const sessions = await agentService.listSessions({ all: true }).catch(() => []);
+  const repos = await agentService.listRepos(process.env.HOME, sessions).catch(() => []);
+  return {
+    roots: [...scanAllDirectories().map((a) => a.path), ...(getConfig().directories || [])],
+    exact: [...repos.map((r) => r.path), ...sessions.map((s) => s.cwd)],
+  };
+}
+
+// Code mode: the Web-IDE opens a folder only when DevOrbit knows it
+app.get('/api/code/folder', agentLimiter, async (req, res) => {
+  try {
+    const { roots, exact } = await knownDirs();
+    // Agents jump to their worktree root, which is not their cwd when they run in a subfolder
+    const contexts = await getAgentContexts().catch(() => ({}));
+    const worktrees = Object.values(contexts).map((c) => c?.repo?.worktreePath);
+    const folder = await codeService.resolveAllowedFolder(req.query.path, roots, [
+      ...exact,
+      ...worktrees,
+    ]);
+    if (!folder) return res.status(403).json({ error: 'Folder is not a known project directory' });
+    res.json({ path: folder });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 // Local checkout of an issue's repo, preset as target directory for "Agent starten"
 const boardRepoSlugSchema = z.string().regex(/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/);
 
@@ -3373,15 +3403,8 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
   const slug = boardRepoSlugSchema.safeParse(req.query.repo);
   if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
   try {
-    const sessions = await agentService.listSessions({ all: true }).catch(() => []);
-    const repos = await agentService.listRepos(process.env.HOME, sessions).catch(() => []);
-    const candidates = [
-      ...scanAllDirectories().map((a) => a.path),
-      ...(getConfig().directories || []),
-      ...repos.map((r) => r.path),
-      ...sessions.map((s) => s.cwd),
-    ];
-    res.json({ path: await boardService.findRepoPath(slug.data, candidates) });
+    const { roots, exact } = await knownDirs();
+    res.json({ path: await boardService.findRepoPath(slug.data, [...roots, ...exact]) });
   } catch (error) {
     sendAgentError(res, error);
   }

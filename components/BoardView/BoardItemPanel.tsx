@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
+  Code2,
   ExternalLink,
   Funnel,
   GitPullRequest,
@@ -48,6 +49,8 @@ interface BoardItemPanelProps {
   onAgentIssues: (jobId: string) => void;
   /** Opens the agent task composer prefilled with this issue */
   onStartAgent: (item: BoardItem) => void;
+  /** Opens the Code mode in the folder of the first of these agents, else the issue's repo */
+  onOpenCode: (jobIds: string[]) => void;
   /** Edits this item's issue (only issues, not PRs or drafts) */
   onSave: IssueSave;
 }
@@ -68,6 +71,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
   onAttach,
   onAgentIssues,
   onStartAgent,
+  onOpenCode,
   onSave,
 }) => {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -137,6 +141,19 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           {item.number != null ? `${item.repo}#${item.number}` : 'Entwurf'}
         </span>
         <div className="flex-1" />
+        <button
+          onClick={() => onOpenCode(links.map((l) => l.jobId))}
+          disabled={!item.repo && !links.length}
+          title={
+            item.repo || links.length
+              ? 'Im Code-Modus öffnen (Worktree des Agents, sonst Repo)'
+              : 'Kein Repo und kein Agent verknüpft'
+          }
+          className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800 disabled:opacity-40 disabled:pointer-events-none"
+        >
+          <Code2 size={14} />
+          Code
+        </button>
         {item.url && (
           <a
             href={item.url}
@@ -301,6 +318,15 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                       >
                         <Terminal size={14} />
                         Öffnen
+                      </button>
+                      <button
+                        onClick={() => onOpenCode([link.jobId])}
+                        disabled={!session}
+                        title={session ? session.cwd : 'Keine laufende Session'}
+                        className="flex items-center gap-1 px-2 py-1 rounded text-gray-300 text-xs hover:text-white hover:bg-gray-800 disabled:opacity-40 disabled:pointer-events-none"
+                      >
+                        <Code2 size={14} />
+                        Code
                       </button>
                       <button
                         onClick={() => onAgentIssues(link.jobId)}

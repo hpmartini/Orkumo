@@ -3,6 +3,7 @@ import {
   Bot,
   ChevronDown,
   ChevronRight,
+  Code2,
   Eye,
   EyeOff,
   GripVertical,
@@ -38,6 +39,7 @@ const shortKey = (key: string) => key.replace(/^[^/#]+\//, '');
 interface BoardRailProps {
   onOpenDashboard: () => void;
   onOpenAgents: () => void;
+  onOpenCode: () => void;
   sliceKind: BoardSliceKind;
   onSliceKind: (kind: BoardSliceKind) => void;
   slices: { favorites: SliceEntry[]; others: SliceEntry[]; hidden: SliceEntry[] };
@@ -188,6 +190,12 @@ export const BoardRail: React.FC<BoardRailProps> = (props) => {
             className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
           >
             <Bot size={13} /> Agents
+          </button>
+          <button
+            onClick={props.onOpenCode}
+            className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+          >
+            <Code2 size={13} /> Code
           </button>
         </nav>
         <div

@@ -35,8 +35,9 @@ import { KeyboardShortcuts } from './types';
 import { APP_NAME } from './constants';
 
 import { BoardView } from './components/BoardView';
+import { CodeView } from './components/CodeView';
 
-type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board';
+type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code';
 
 function AppContent() {
   const navigate = useNavigate();
@@ -45,6 +46,7 @@ function AppContent() {
   const projectId = params.projectId;
   const isAgentsRoute = location.pathname === '/agents';
   const isBoardRoute = location.pathname === '/board';
+  const isCodeRoute = location.pathname === '/code';
   // Agents and board bring their own left rail instead of the app sidebar
   const hasOwnRail = isAgentsRoute || isBoardRoute;
 
@@ -149,9 +151,11 @@ function AppContent() {
         navigateRef.current('/', { replace: true });
       }
     } else {
-      setActiveTab(isAgentsRoute ? 'agents' : isBoardRoute ? 'board' : 'dashboard');
+      setActiveTab(
+        isAgentsRoute ? 'agents' : isBoardRoute ? 'board' : isCodeRoute ? 'code' : 'dashboard'
+      );
     }
-  }, [projectId, apps, loading, isAgentsRoute, isBoardRoute]);
+  }, [projectId, apps, loading, isAgentsRoute, isBoardRoute, isCodeRoute]);
 
   // Resizable sidebar
   const MIN_SIDEBAR_WIDTH = 200;
@@ -418,6 +422,7 @@ function AppContent() {
       () => navigate('/board'),
       'issues kanban github project'
     ),
+    command('code', 'Open code mode', 'Navigate', () => navigate('/code'), 'ide vscode editor'),
     command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
     command('sidebar', 'Toggle sidebar', 'View', handleToggleSidebarCollapse),
     command('favorites', 'Open favorites', 'Navigate', handleToggleFavoritesPopup),
@@ -537,6 +542,10 @@ function AppContent() {
           }}
           onSelectBoard={() => {
             navigate('/board');
+            setMobileMenuOpen(false);
+          }}
+          onSelectCode={() => {
+            navigate('/code');
             setMobileMenuOpen(false);
           }}
           onSelectApp={handleSelectApp}
@@ -693,6 +702,7 @@ function AppContent() {
               nav={{
                 onOpenDashboard: handleSelectDashboard,
                 onOpenBoard: () => navigate('/board'),
+                onOpenCode: () => navigate('/code'),
                 onOpenSettings: () => setAdminPanelOpen(true),
                 onOpenProject: handleSelectApp,
                 onStartApp: handleStartApp,
@@ -709,6 +719,16 @@ function AppContent() {
             aria-hidden={activeTab !== 'board'}
           >
             <BoardView active={activeTab === 'board'} onOpenView={() => navigate('/board')} />
+          </div>
+
+          {/* Code mode - kept mounted so the Web-IDE iframe survives navigation */}
+          <div
+            className={
+              activeTab === 'code' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+            }
+            aria-hidden={activeTab !== 'code'}
+          >
+            <CodeView active={activeTab === 'code'} apps={apps} />
           </div>
 
           {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.
@@ -792,6 +812,7 @@ function AppRouter() {
       <Route path="/" element={<AppContent />} />
       <Route path="/agents" element={<AppContent />} />
       <Route path="/board" element={<AppContent />} />
+      <Route path="/code" element={<AppContent />} />
       <Route path="/:projectName/:projectId" element={<AppContent />} />
     </Routes>
   );

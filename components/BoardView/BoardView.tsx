@@ -19,6 +19,8 @@ import {
 } from '../../utils/board';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { fetchRepoPath } from '../../services/boardApi';
+import { fetchAgentContexts } from '../../services/agentsApi';
+import { codeUrl, linkedAgentFolder } from '../../utils/codeTarget';
 import { undoToast, useBoard } from './useBoard';
 import { BoardRail, type RailAgent } from './BoardRail';
 import { BoardGrid } from './BoardGrid';
@@ -224,6 +226,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
       <BoardRail
         onOpenDashboard={() => navigate('/')}
         onOpenAgents={() => navigate('/agents')}
+        onOpenCode={() => navigate('/code')}
         sliceKind={sliceKind}
         onSliceKind={(kind) => updateView({ sliceKind: kind, selected: null })}
         slices={slices}
@@ -385,6 +388,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
             // No local checkout found (or lookup failed): composer keeps its own directory
             const cwd = it.repo ? await fetchRepoPath(it.repo).catch(() => null) : null;
             navigate('/agents', { state: { dispatch: `Bearbeite ${it.url} `, cwd } });
+          }}
+          onOpenCode={async (jobIds) => {
+            const repo = openItem.repo;
+            // An agent's cwd can be the main checkout while it works in a worktree
+            const contexts = jobIds.length ? await fetchAgentContexts().catch(() => ({})) : {};
+            const folder =
+              linkedAgentFolder(jobIds, sessionsById, contexts) ??
+              (repo ? await fetchRepoPath(repo).catch(() => null) : null);
+            if (folder) navigate(codeUrl(folder));
+            else toast.error(`Kein lokaler Checkout von ${repo ?? 'diesem Issue'} gefunden`);
           }}
           onAgentIssues={(jobId) =>
             setSearchParams((prev) => {

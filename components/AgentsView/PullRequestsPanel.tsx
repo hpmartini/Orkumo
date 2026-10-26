@@ -1,5 +1,13 @@
 import React, { useEffect, useRef } from 'react';
-import { CheckCircle2, CircleDashed, ExternalLink, GitPullRequest, X, XCircle } from 'lucide-react';
+import {
+  CheckCircle2,
+  CircleDashed,
+  Code2,
+  ExternalLink,
+  GitPullRequest,
+  X,
+  XCircle,
+} from 'lucide-react';
 import type { AgentContext, AgentPullRequest, AgentSession } from '../../types';
 import { formatAge, type PullRequestRow } from '../../utils/agentSessions';
 
@@ -68,6 +76,8 @@ interface PullRequestsPanelProps {
   repoFilter: string | null;
   onClearRepo: () => void;
   onSelectAgent: (id: string) => void;
+  /** Opens the Code mode in the PR branch's worktree (or the repo) */
+  onOpenCode: (row: PullRequestRow) => void;
   onClose: () => void;
 }
 
@@ -78,6 +88,7 @@ export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({
   repoFilter,
   onClearRepo,
   onSelectAgent,
+  onOpenCode,
   onClose,
 }) => {
   const ref = usePopover(onClose);
@@ -132,7 +143,8 @@ export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({
           </p>
         ) : (
           <ul className="divide-y divide-gray-800">
-            {shown.map(({ pr, agents }) => {
+            {shown.map((row) => {
+              const { pr, agents } = row;
               const ci = CI[pr.ci];
               const merge = mergeState(pr);
               return (
@@ -187,6 +199,16 @@ export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({
                         {agent.name}
                       </button>
                     ))}
+                    <button
+                      onClick={() => {
+                        onOpenCode(row);
+                        onClose();
+                      }}
+                      className="flex items-center gap-1 px-1.5 rounded text-gray-300 hover:text-white hover:bg-gray-800"
+                      title="Open the branch in Code mode (agent worktree, else the repo)"
+                    >
+                      <Code2 size={11} /> Code
+                    </button>
                   </div>
                 </li>
               );

@@ -195,6 +195,12 @@ export async function fetchSubagents(cwd?: string | null): Promise<AgentSubagent
   return data.agents;
 }
 
+/** Real path of `path` if the server lets the Web-IDE open it; rejects with status 403 otherwise */
+export async function checkCodeFolder(path: string): Promise<string> {
+  const data = await request<{ path: string }>(`/code/folder${query({ path })}`);
+  return data.path;
+}
+
 export async function fetchAgentRepos(
   cwd?: string | null
 ): Promise<{ cwd: string; repos: AgentRepo[] }> {
