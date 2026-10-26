@@ -3429,8 +3429,10 @@ async function findRepoInKnownDirs(slug) {
 /** Board item, its MACC column, local mw run and derived workflow state */
 async function workflowContext(itemId, { refresh = false } = {}) {
   const { source } = settingsService.getBoardSettings();
-  const board = await boardService.getBoard(source, { refresh });
-  const item = board.items.find((i) => i.itemId === itemId);
+  const board = await boardService.getBoard(source);
+  const cached = board.items.find((i) => i.itemId === itemId);
+  // GO decides on the item as GitHub has it now; reloading only it keeps the click fast
+  const item = cached && refresh ? await boardService.refetchItem(source, itemId) : cached;
   if (!item?.repo || !item.number) {
     throw Object.assign(new Error('Issue not on the board'), { status: 404 });
   }

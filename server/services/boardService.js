@@ -387,7 +387,8 @@ function splitVars(vars) {
   return [str, typed];
 }
 
-async function refetchItem(source, itemId, created = false) {
+/** One item fresh from GitHub, put into the cache (cheap next to a full board reload) */
+export async function refetchItem(source, itemId, created = false) {
   const node = (await ghGraphql(ITEM_QUERY, { id: itemId }))?.node;
   if (!node?.id) throw httpError('Item not found after write', 502);
   const item = mapItem(node, [source.owner]);
