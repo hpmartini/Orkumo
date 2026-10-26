@@ -397,7 +397,13 @@ async function startBackendServer() {
     })
     .join(':');
 
-  const enhancedPath = [...additionalPaths, filteredInheritedPath].filter(Boolean).join(':');
+  // Homebrew bin dirs go last: gh, code-server etc. resolve, but never shadow NVM's node.
+  // Finder-launched apps don't get them from the shell PATH.
+  const homebrewPaths = ['/opt/homebrew/bin', '/opt/homebrew/sbin'].filter((p) => fs.existsSync(p));
+
+  const enhancedPath = [...additionalPaths, filteredInheritedPath, ...homebrewPaths]
+    .filter(Boolean)
+    .join(':');
 
   console.log('[Electron] Enhanced PATH (first 5):', enhancedPath.split(':').slice(0, 5).join(':'));
   console.log('[Electron] NVM paths found:', nvmNodePaths.length);

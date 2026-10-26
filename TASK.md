@@ -423,3 +423,13 @@ The following existing tasks are related to the new features above:
   - Issue: 4 files in conflict — `AgentList.tsx` (row layout rewritten on main), `AgentsView.tsx`, `ProjectsRail.tsx`, `server/index.js`
   - Approach: merge `origin/main` (no rebase, branch is pushed); take main's `AgentList.tsx` and re-apply only the board diff (`issuesByAgent`/`onOpenIssue` props, issue chips under the row); union of imports/props elsewhere
   - Solution: merge commit; tsc clean, lint 0 errors, vitest 434/434, build green, merged server serves `/api/board/items`, `/api/board/repo-path`, `/api/agents`
+
+---
+
+### Board: `gh failed: spawn gh ENOENT` in Electron (2026-10-26)
+
+- [x] **[FIX]** Board konnte in der Electron-App nicht geladen werden
+  - Issue: `execFile('gh')` in `server/services/boardService.js` → ENOENT; Finder-gestartete App erbt nur `/usr/bin:/bin:/usr/sbin:/sbin`
+  - Root cause: `enhancedPath` in `electron/main.js` enthielt `/opt/homebrew/bin` nicht, dort liegt `gh`
+  - Solution: `/opt/homebrew/{bin,sbin}` ans Ende von `enhancedPath` (nach NVM/Inherited, shadowt kein Node)
+  - Verified: `gh` mit minimalem PATH ENOENT, mit Fix gefunden; `node --check` ok. Nicht im gepackten Build getestet (Rebuild nötig)
