@@ -36,6 +36,13 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
+      # Version aus dem Tag (v1.0.0-rc7 -> 1.0.0-rc7), damit jedes Release eigene Installer-Namen hat.
+      - name: Set version from tag
+        shell: bash
+        run: npm pkg set version="${TAG#v}"
+        env:
+          TAG: ${{ github.event.release.tag_name }}
+
       - name: Build app
         run: bun run build && bun run bundle:server
 
