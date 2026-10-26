@@ -63,13 +63,15 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
     let uiFile = null;
     if (mod.ui !== undefined) {
       if (typeof mod.ui !== 'string') throw new Error('ui must be a path string');
-      uiFile = path.resolve(moduleDir, mod.ui);
-      if (!uiFile.startsWith(path.resolve(moduleDir) + path.sep)) {
+      // realpath: a lexical check would let a symlinked ui file (or module dir) serve files outside; throws if missing
+      const realDir = fs.realpathSync(moduleDir);
+      uiFile = fs.realpathSync(path.resolve(moduleDir, mod.ui));
+      if (!uiFile.startsWith(realDir + path.sep)) {
         throw new Error('ui must be inside the module directory');
       }
       // root option: an absolute path through a dot-directory (e.g. ~/.config) would 404
-      const uiRel = path.relative(moduleDir, uiFile);
-      moduleRouter.get('/ui.js', (_req, res) => res.sendFile(uiRel, { root: moduleDir }));
+      const uiRel = path.relative(realDir, uiFile);
+      moduleRouter.get('/ui.js', (_req, res) => res.sendFile(uiRel, { root: realDir }));
     }
 
     await mod.register({

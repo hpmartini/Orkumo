@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import express from 'express';
+import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -11,6 +12,7 @@ const fixture = (name) => path.join(FIXTURES, name);
 const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
 
 let server;
+let tmp;
 
 async function start(dir) {
   const host = createModuleHost({ services: {}, logger });
@@ -27,6 +29,8 @@ async function start(dir) {
 afterEach(async () => {
   await new Promise((resolve) => (server ? server.close(resolve) : resolve()));
   server = undefined;
+  if (tmp) fs.rmSync(tmp, { recursive: true, force: true });
+  tmp = undefined;
   vi.clearAllMocks();
 });
 
@@ -60,6 +64,25 @@ describe('moduleLoader', () => {
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toMatch(/javascript/);
     expect((await get('/escape/ui.js')).status).toBe(404);
+  });
+
+  it('skips a module whose ui.js is a symlink to a file outside the module', async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'devhub-modules-'));
+    const secret = path.join(tmp, 'secret.js');
+    fs.writeFileSync(secret, 'export const secret = 1;');
+    const modDir = path.join(tmp, 'mods', 'linked');
+    fs.mkdirSync(modDir, { recursive: true });
+    fs.writeFileSync(path.join(modDir, 'package.json'), '{"type":"module"}');
+    fs.writeFileSync(
+      path.join(modDir, 'index.js'),
+      "export default { id: 'linked', name: 'Linked', ui: 'ui.js', register() {} };"
+    );
+    fs.symlinkSync(secret, path.join(modDir, 'ui.js'));
+
+    const { loaded, get } = await start(path.join(tmp, 'mods'));
+    expect(loaded).toEqual([]);
+    expect((await get('/linked/ui.js')).status).toBe(404);
+    expect(logger.error).toHaveBeenCalled();
   });
 
   it('rejects invalid and duplicate ids', async () => {
