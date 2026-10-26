@@ -19,6 +19,9 @@ const {
   resolveRepoIdentity,
   gitInfo,
   parseModelFromTranscript,
+  sessionModel,
+  modelFromFlags,
+  transcriptCandidates,
   accumulateCacheUsage,
   contextWindowFor,
 } = await import('../server/services/agentContextService.js');
@@ -244,6 +247,71 @@ describe('agentContextService - parseModelFromTranscript', () => {
     );
     expect(parseModelFromTranscript('{"type":"user"}\nnot json')).toBeNull();
     expect(parseModelFromTranscript('')).toBeNull();
+  });
+});
+
+describe('agentContextService - sessionModel with session data', () => {
+  const asst = (model, extra = {}) =>
+    JSON.stringify({ type: 'assistant', message: { model }, ...extra });
+  const user = JSON.stringify({ type: 'user', message: { role: 'user' } });
+
+  function withTranscript(lines, fn) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-'));
+    const file = path.join(dir, 'session.jsonl');
+    fs.writeFileSync(file, lines.join('\n') + '\n');
+    return Promise.resolve(fn(file)).finally(() => fs.rmSync(dir, { recursive: true, force: true }));
+  }
+  // A session that entered a worktree: cwd's slug has no transcript, the job state's scan path does
+  const session = (transcriptPath) => ({
+    sessionId: 'no-such-session',
+    cwd: '/nonexistent/repo',
+    worktree: null,
+    transcriptPath,
+  });
+
+  it('reads Opus from the scan path when the cwd slug has no transcript', () =>
+    withTranscript([user, asst('claude-opus-5-5')], async (file) => {
+      expect(await sessionModel(session(file))).toBe('claude-opus-5-5');
+    }));
+  it('reads Sonnet', () =>
+    withTranscript([user, asst('claude-sonnet-5-5')], async (file) => {
+      expect(await sessionModel(session(file))).toBe('claude-sonnet-5-5');
+    }));
+  it('follows a model switch mid-session, ignoring sub-agent turns', () =>
+    withTranscript(
+      [
+        asst('claude-opus-5-5'),
+        user,
+        asst('claude-sonnet-5-5'),
+        asst('claude-haiku-5-5', { isSidechain: true }),
+      ],
+      async (file) => {
+        expect(await sessionModel(session(file))).toBe('claude-sonnet-5-5');
+        // Switch back: appending changes mtime, so the cache must not hold the old model
+        await new Promise((r) => setTimeout(r, 20));
+        fs.appendFileSync(file, user + '\n' + asst('claude-opus-5-5') + '\n');
+        expect(await sessionModel(session(file))).toBe('claude-opus-5-5');
+      }
+    ));
+  it('returns null without any transcript, so the start flag stands in', async () => {
+    expect(await sessionModel(session(null))).toBeNull();
+    expect(modelFromFlags(['-n', 'x', '--effort', 'medium', '--model', 'claude-opus-5-5'])).toBe(
+      'claude-opus-5-5'
+    );
+    expect(modelFromFlags(['--model', 'sonnet', '--model', 'opus'])).toBe('opus');
+    expect(modelFromFlags(['--model'])).toBeNull();
+    expect(modelFromFlags(null)).toBeNull();
+  });
+  it('tries the scan path before the slug guesses, without duplicates', () => {
+    const files = transcriptCandidates({
+      sessionId: 'abc',
+      cwd: '/repo',
+      worktree: '/repo/.claude/worktrees/x',
+      transcriptPath: '/t/abc.jsonl',
+    });
+    expect(files[0]).toBe('/t/abc.jsonl');
+    expect(files).toHaveLength(3);
+    expect(transcriptCandidates({ sessionId: null, cwd: '/repo', transcriptPath: null })).toEqual([]);
   });
 });
 

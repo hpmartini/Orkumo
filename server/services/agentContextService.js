@@ -149,15 +149,36 @@ export function parseModelFromTranscript(text) {
   return null;
 }
 
-async function sessionModel(session) {
-  if (!session.sessionId) return null;
-  for (const dir of [session.cwd, session.worktree]) {
-    if (!dir) continue;
-    const file = path.join(
-      agentService.paths.PROJECTS_DIR,
-      agentService.projectSlug(dir),
-      `${session.sessionId}.jsonl`
-    );
+/**
+ * Transcript files to try for a session, best first. The job state's scan path wins: a session that
+ * entered a worktree (EnterWorktree) writes under the worktree's project slug, not under its cwd.
+ */
+export function transcriptCandidates(session) {
+  const files = session.transcriptPath ? [session.transcriptPath] : [];
+  if (session.sessionId) {
+    for (const dir of [session.cwd, session.worktree]) {
+      if (!dir) continue;
+      files.push(
+        path.join(
+          agentService.paths.PROJECTS_DIR,
+          agentService.projectSlug(dir),
+          `${session.sessionId}.jsonl`
+        )
+      );
+    }
+  }
+  return [...new Set(files)];
+}
+
+/** `--model` from a background job's start flags; stands in until the transcript names a model */
+export function modelFromFlags(flags) {
+  if (!Array.isArray(flags)) return null;
+  const i = flags.lastIndexOf('--model');
+  return i >= 0 && flags[i + 1] ? String(flags[i + 1]) : null;
+}
+
+export async function sessionModel(session) {
+  for (const file of transcriptCandidates(session)) {
     try {
       const { mtimeMs, size } = await fsp.stat(file);
       const hit = modelCache.get(file);
@@ -178,7 +199,7 @@ async function sessionModel(session) {
       modelCache.set(file, { mtimeMs, model });
       return model;
     } catch {
-      // no transcript under this dir, try the next
+      // no transcript under this path, try the next
     }
   }
   return null;
@@ -245,19 +266,12 @@ export function contextWindowFor(model, cachedTokens) {
 
 /** Prompt-cache stats of a session; reads only the bytes appended since the last call */
 async function sessionCache(session, model) {
-  if (!session.sessionId) return null;
-  for (const dir of [session.cwd, session.worktree]) {
-    if (!dir) continue;
-    const file = path.join(
-      agentService.paths.PROJECTS_DIR,
-      agentService.projectSlug(dir),
-      `${session.sessionId}.jsonl`
-    );
+  for (const file of transcriptCandidates(session)) {
     let size;
     try {
       ({ size } = await fsp.stat(file));
     } catch {
-      continue; // no transcript under this dir, try the next
+      continue; // no transcript under this path, try the next
     }
     let hit = cacheUsageCache.get(file);
     if (!hit || size < hit.offset) hit = { offset: 0, usage: null };
@@ -561,7 +575,7 @@ async function computeAgentContexts() {
     sessions.map(async (s) => {
       const repo = repos.get(dirOf(s)) || null;
       const remote = repo?.slug ? remotes.get(repo.slug) : null;
-      const model = await sessionModel(s);
+      const model = (await sessionModel(s)) ?? modelFromFlags(s.respawnFlags);
       contexts[s.id] = {
         repo,
         model,
