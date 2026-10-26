@@ -12,7 +12,8 @@ RUN apk add --no-cache python3 make g++ linux-headers
 COPY package.json bun.lock ./
 
 # Install all dependencies (including devDependencies for build)
-RUN bun install --frozen-lockfile
+# Frontend build only - skip native builds (node-pty) and husky
+RUN bun install --frozen-lockfile --ignore-scripts
 
 # Copy source files
 COPY . .
@@ -34,7 +35,8 @@ RUN apk add --no-cache python3 make g++ linux-headers curl
 COPY package.json bun.lock ./
 
 # Install production dependencies only
-RUN bun install --frozen-lockfile --production
+# --ignore-scripts: skip husky (prepare) and node-pty's install, which would run node-gyp@latest; node-pty is built below
+RUN bun install --frozen-lockfile --production --ignore-scripts
 
 # Rebuild node-pty for the container's architecture
 RUN cd node_modules/node-pty && bunx node-gyp@11.2.0 rebuild
