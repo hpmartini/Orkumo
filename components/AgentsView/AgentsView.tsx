@@ -28,6 +28,7 @@ import { useAgentContexts } from '../../hooks/useAgentContexts';
 import {
   useRailPreferences,
   groupNeighbour,
+  isFoldedAway,
   FAVORITES_GROUP_KEY,
 } from '../../hooks/useRailPreferences';
 import { FOCUS_CHORD_LABEL, useAgentFocusZone } from '../../hooks/useAgentFocusZone';
@@ -91,6 +92,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchBoard } from '../../services/boardApi';
 import { deriveAgentLinks, linksByAgent } from '../../utils/board';
 import type { BoardData } from '../../types';
+import { IssueCreateModal } from '../BoardView/IssueCreateModal';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -479,6 +481,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
   const navigate = useNavigate();
+  const [createIssueRepo, setCreateIssueRepo] = useState<string | null>(null);
   const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
   useEffect(() => {
     if (!attachParam || loading) return;
@@ -1059,8 +1062,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           break;
         case ' ':
           e.preventDefault();
-          if (selectedRemote) togglePeek({ ...selectedRemote, id: remoteKey(selectedRemote) });
-          else if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
+          if (selectedRemote) {
+            // `claude logs` only knows background sessions, not `interactive-<pid>`
+            if (selectedRemote.kind === 'background')
+              togglePeek({ ...selectedRemote, id: remoteKey(selectedRemote) });
+            else showHint('Interactive sessions run in their own terminal', 'info');
+          } else if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
           else togglePeek(selectedSession);
           break;
         case 'Escape':
@@ -1626,7 +1633,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               highlightedId={highlightedId}
               collapsedKeys={collapsed}
               activeSessionId={activeSessionId}
-              onRevealActive={(id) => rail.revealSession(groups, id)}
+              onRevealActive={(id) => {
+                rail.revealSession(groups, id);
+                if (isFoldedAway(groups, id)) setExpandedCompleted(true);
+              }}
               onToggleGroup={toggleCollapsed}
               favoriteGroupKeys={rail.favoriteGroups}
               favoriteSessionIds={rail.favoriteSessions}
@@ -1639,6 +1649,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               nav={nav}
               issuesByAgent={issuesByAgent}
               onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+              onCreateIssue={setCreateIssueRepo}
               bottom={
                 remoteEnabled ? (
                   <RemoteAgents
@@ -1777,6 +1788,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
       {/* Modals */}
       <ShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
+      {createIssueRepo && (
+        <IssueCreateModal
+          repo={createIssueRepo}
+          onClose={() => setCreateIssueRepo(null)}
+          onCreated={(item) => {
+            const key = `${item.repo}#${item.number}`;
+            toast(
+              (t) => (
+                <span className="text-xs">
+                  {key} angelegt
+                  <button
+                    onClick={() => {
+                      toast.dismiss(t.id);
+                      navigate(`/board?item=${encodeURIComponent(key)}`);
+                    }}
+                    className="ml-3 text-cursor hover:underline underline-offset-2"
+                  >
+                    Im Board öffnen
+                  </button>
+                </span>
+              ),
+              { duration: 8000 }
+            );
+          }}
+        />
+      )}
       <AgentSettingsPanel
         open={showSettings}
         onClose={() => setShowSettings(false)}

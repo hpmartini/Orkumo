@@ -11,6 +11,7 @@ import {
   applyGroupOrder,
   withFavoriteSessions,
   findGroupKeyOf,
+  isFoldedAway,
   FAVORITES_GROUP_KEY,
   useRailPreferences,
   keepKnown,
@@ -102,9 +103,26 @@ describe('railPreferences reducers', () => {
     expect(findGroupKeyOf(groups, 's9')).toBe('g2');
     expect(findGroupKeyOf(groups, 'nope')).toBeNull();
   });
+
+  it('isFoldedAway is true only for sessions behind "more"', () => {
+    const groups = [group('g1', ['s1']), group('g2', [], ['s9'])];
+    expect(isFoldedAway(groups, 's9')).toBe(true);
+    expect(isFoldedAway(groups, 's1')).toBe(false);
+    expect(isFoldedAway(groups, 'nope')).toBe(false);
+  });
 });
 
 describe('useRailPreferences expanded rows', () => {
+  it('revealSession expands the collapsed group holding the active session', () => {
+    localStorage.removeItem('devOrbitAgentRail.v1');
+    const { result } = renderHook(() => useRailPreferences('project'));
+    const groups = [group('g1', ['s1']), group('g2', ['s2'])];
+    act(() => result.current.collapseAll(['g1', 'g2']));
+    act(() => result.current.revealSession(groups, 's2'));
+    expect(result.current.collapsed.has('g2')).toBe(false);
+    expect(result.current.collapsed.has('g1')).toBe(true);
+  });
+
   it('persists open agent-row details across remounts and groupings', () => {
     localStorage.removeItem('devOrbitAgentRail.v1');
     const first = renderHook(() => useRailPreferences('project'));

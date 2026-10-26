@@ -2,7 +2,15 @@
  * API client for the Agent Task Board (`/api/board/*`).
  */
 import { API_BASE_URL } from '../utils/apiConfig';
-import type { BoardData, BoardSettings } from '../types';
+import type {
+  BoardData,
+  BoardIssueCreate,
+  BoardIssueDetails,
+  BoardIssuePatch,
+  BoardItem,
+  BoardRepoOptions,
+  BoardSettings,
+} from '../types';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -11,13 +19,20 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    throw new Error(
+    const message =
       payload && typeof payload === 'object' && 'error' in payload
         ? String((payload as { error: unknown }).error)
-        : `${response.status} ${response.statusText}`
-    );
+        : `${response.status} ${response.statusText}`;
+    // Extra fields of the error body (e.g. `issue`, `item`) for callers that recover from them
+    throw Object.assign(new Error(message), { details: payload ?? {} });
   }
   return payload as T;
+}
+
+/** JSON fields of a failed request besides `error` ({} for other errors) */
+export function errorDetails(err: unknown): Record<string, unknown> {
+  const details = (err as { details?: unknown })?.details;
+  return details && typeof details === 'object' ? (details as Record<string, unknown>) : {};
 }
 
 /** refresh=true bypasses the server's in-memory cache (manual refresh). */
@@ -32,6 +47,27 @@ export function setBoardItemStatus(
   return request(`/board/items/${encodeURIComponent(itemId)}/status`, {
     method: 'PATCH',
     body: JSON.stringify({ optionId }),
+  });
+}
+
+export function fetchRepoOptions(repo: string): Promise<BoardRepoOptions> {
+  return request<BoardRepoOptions>(`/board/repo-options?repo=${encodeURIComponent(repo)}`);
+}
+
+export function fetchIssueDetails(issueId: string): Promise<BoardIssueDetails> {
+  return request<BoardIssueDetails>(`/board/issues/${encodeURIComponent(issueId)}`);
+}
+
+/** Creates the issue and adds it to the board project; returns the new board item */
+export function createBoardIssue(input: BoardIssueCreate): Promise<BoardItem> {
+  return request<BoardItem>('/board/issues', { method: 'POST', body: JSON.stringify(input) });
+}
+
+/** Edits the issue behind a board item; returns the item as GitHub has it afterwards */
+export function updateBoardIssue(itemId: string, patch: BoardIssuePatch): Promise<BoardItem> {
+  return request<BoardItem>(`/board/items/${encodeURIComponent(itemId)}/issue`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
   });
 }
 

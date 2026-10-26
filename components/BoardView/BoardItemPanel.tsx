@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Bot,
   Code2,
@@ -10,9 +10,26 @@ import {
   Terminal,
   X,
 } from 'lucide-react';
-import type { AgentSession, BoardItem, BoardStatusOption } from '../../types';
+import type { AgentSession, BoardIssueDetails, BoardItem, BoardStatusOption } from '../../types';
+import { fetchIssueDetails } from '../../services/boardApi';
 import { issueKey, itemKey, type AgentIssueLink } from '../../utils/board';
 import { AgentGlyph, CheckIcon, ItemIcon, LabelChip } from './BoardCard';
+import {
+  FieldPicker,
+  assigneeChoices,
+  labelChoices,
+  labelsFor,
+  milestoneChoices,
+  useRepoOptions,
+} from './IssueFields';
+import {
+  AddSubIssue,
+  EditableTitle,
+  IssueBody,
+  IssueStateSelect,
+  ParentEditor,
+  type IssueSave,
+} from './IssueEditors';
 
 const VIA: Record<AgentIssueLink['via'], string> = {
   'mw-board': 'mw-board-Kommentar',
@@ -34,6 +51,8 @@ interface BoardItemPanelProps {
   onStartAgent: (item: BoardItem) => void;
   /** Opens the Code mode in the folder of the first of these agents, else the issue's repo */
   onOpenCode: (jobIds: string[]) => void;
+  /** Edits this item's issue (only issues, not PRs or drafts) */
+  onSave: IssueSave;
 }
 
 const Muted: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -53,13 +72,54 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
   onAgentIssues,
   onStartAgent,
   onOpenCode,
+  onSave,
 }) => {
   const closeRef = useRef<HTMLButtonElement>(null);
   const key = itemKey(item);
+  const editable = !!item.issueId;
+  const { options: repoOptions } = useRepoOptions(editable ? item.repo : null);
+  const [details, setDetails] = useState<BoardIssueDetails | null>(null);
+  const [detailsError, setDetailsError] = useState<string | null>(null);
+  const issueId = item.issueId;
+  const loadDetails = useCallback(() => {
+    if (!issueId) return () => {};
+    let alive = true;
+    fetchIssueDetails(issueId)
+      .then((d) => alive && (setDetails(d), setDetailsError(null)))
+      .catch((e) => alive && setDetailsError(e instanceof Error ? e.message : 'Fehler'));
+    return () => {
+      alive = false;
+    };
+  }, [issueId]);
+  useEffect(() => {
+    setDetails(null);
+    setDetailsError(null);
+    return loadDetails();
+  }, [loadDetails]);
+  // Body and sub-issue list live outside the board item: reload them after such edits
+  const save: IssueSave = async (patch, optimistic) => {
+    const ok = await onSave(patch, optimistic);
+    if (ok && (patch.body !== undefined || patch.addSubIssue || patch.removeSubIssue))
+      loadDetails();
+    return ok;
+  };
+  const none = <Muted>keine</Muted>;
   const subs = items.filter((i) => i.parent && issueKey(i.parent.repo, i.parent.number) === key);
   const statusName = (id: string | null) => options.find((o) => o.id === id)?.name ?? '–';
   const parentKey = item.parent ? issueKey(item.parent.repo, item.parent.number) : null;
   const parentOnBoard = !!parentKey && items.some((i) => itemKey(i) === parentKey);
+  const parentView = item.parent ? (
+    <button
+      onClick={() => parentKey && onOpenKey(parentKey)}
+      disabled={!parentOnBoard}
+      className="text-left enabled:hover:text-white"
+      title={parentOnBoard ? 'Parent öffnen' : 'Parent ist nicht auf dem Board'}
+    >
+      <span className="font-mono text-gray-400">#{item.parent.number}</span> {item.parent.title}
+    </button>
+  ) : (
+    <Muted>keiner</Muted>
+  );
 
   useEffect(() => {
     closeRef.current?.focus();
@@ -117,9 +177,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
       </div>
 
       <div className="flex-1 overflow-y-auto thin-scrollbar px-4 py-4 space-y-5">
-        <h2 className="text-base font-semibold text-white leading-snug text-balance">
-          {item.title}
-        </h2>
+        <EditableTitle title={item.title} editable={editable} onSave={save} />
         <dl className="grid grid-cols-[96px_1fr] gap-y-2 text-xs items-center">
           <dt className="text-gray-400">Status</dt>
           <dd>
@@ -137,42 +195,84 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
               ))}
             </select>
           </dd>
+          {editable && (
+            <>
+              <dt className="text-gray-400">Zustand</dt>
+              <dd>
+                <IssueStateSelect item={item} onSave={save} />
+              </dd>
+            </>
+          )}
           <dt className="text-gray-400">Projekt</dt>
           <dd className="text-gray-200">{item.repo ?? <Muted>–</Muted>}</dd>
           <dt className="text-gray-400">Labels</dt>
-          <dd className="flex flex-wrap gap-1">
-            {item.labels.length ? (
+          <dd className="flex flex-wrap gap-1 min-w-0">
+            {editable ? (
+              <FieldPicker
+                label="Labels"
+                multi
+                choices={labelChoices(repoOptions)}
+                value={item.labels.map((l) => l.name)}
+                onChange={(names) =>
+                  save({ labels: names }, { labels: labelsFor(names, repoOptions) })
+                }
+                display={
+                  item.labels.length
+                    ? item.labels.map((l) => <LabelChip key={l.name} label={l} />)
+                    : none
+                }
+              />
+            ) : item.labels.length ? (
               item.labels.map((l) => <LabelChip key={l.name} label={l} />)
             ) : (
-              <Muted>keine</Muted>
+              none
             )}
           </dd>
           <dt className="text-gray-400">Parent</dt>
           <dd className="text-gray-200 min-w-0">
-            {item.parent ? (
-              <button
-                onClick={() => parentKey && onOpenKey(parentKey)}
-                disabled={!parentOnBoard}
-                className="text-left enabled:hover:text-white"
-                title={parentOnBoard ? 'Parent öffnen' : 'Parent ist nicht auf dem Board'}
-              >
-                <span className="font-mono text-gray-400">#{item.parent.number}</span>{' '}
-                {item.parent.title}
-              </button>
+            {editable ? (
+              <ParentEditor item={item} onSave={save}>
+                {parentView}
+              </ParentEditor>
             ) : (
-              <Muted>keiner</Muted>
+              parentView
             )}
           </dd>
-          {item.milestone && (
+          {(editable || item.milestone) && (
             <>
               <dt className="text-gray-400">Milestone</dt>
-              <dd className="text-gray-200">{item.milestone}</dd>
+              <dd className="text-gray-200 min-w-0">
+                {editable ? (
+                  <FieldPicker
+                    label="Milestone"
+                    choices={milestoneChoices(repoOptions)}
+                    value={item.milestone ? [item.milestone] : []}
+                    onChange={([m = null]) => save({ milestone: m }, { milestone: m })}
+                    display={item.milestone ?? none}
+                  />
+                ) : (
+                  item.milestone
+                )}
+              </dd>
             </>
           )}
-          {item.assignees.length > 0 && (
+          {(editable || item.assignees.length > 0) && (
             <>
               <dt className="text-gray-400">Assignees</dt>
-              <dd className="text-gray-200">{item.assignees.join(', ')}</dd>
+              <dd className="text-gray-200 min-w-0">
+                {editable ? (
+                  <FieldPicker
+                    label="Assignees"
+                    multi
+                    choices={assigneeChoices(repoOptions)}
+                    value={item.assignees}
+                    onChange={(logins) => save({ assignees: logins }, { assignees: logins })}
+                    display={item.assignees.length ? item.assignees.join(', ') : none}
+                  />
+                ) : (
+                  item.assignees.join(', ')
+                )}
+              </dd>
             </>
           )}
           <dt className="text-gray-400">Aktualisiert</dt>
@@ -183,6 +283,8 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
             })}
           </dd>
         </dl>
+
+        {editable && <IssueBody body={details?.body ?? null} error={detailsError} onSave={save} />}
 
         <section>
           <h3 className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
@@ -283,7 +385,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           )}
         </section>
 
-        {subs.length > 0 && (
+        {(editable || subs.length > 0) && (
           <section>
             <h3 className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
               <ListChecks size={14} />
@@ -293,19 +395,40 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
               </span>
             </h3>
             <ul className="space-y-1 text-xs">
-              {subs.map((s) => (
-                <li key={s.itemId}>
-                  <button
-                    onClick={() => onOpenKey(itemKey(s))}
-                    className="w-full flex items-center gap-2 text-left text-gray-200 hover:text-white"
-                  >
-                    <span className="font-mono text-gray-400">#{s.number}</span>
-                    <span className="flex-1 truncate">{s.title}</span>
-                    <span className="text-gray-400">{statusName(s.statusOptionId)}</span>
-                  </button>
-                </li>
-              ))}
+              {(details?.subIssues ?? subs.map((s) => ({ ...s, id: s.issueId ?? s.itemId })))
+                .filter((s) => s.number != null)
+                .map((s) => {
+                  const subKey = issueKey(s.repo ?? '', s.number as number);
+                  const onBoard = items.find((i) => itemKey(i) === subKey);
+                  return (
+                    <li key={s.id} className="group flex items-center gap-2">
+                      <button
+                        onClick={() => onOpenKey(subKey)}
+                        disabled={!onBoard}
+                        className="flex-1 min-w-0 flex items-center gap-2 text-left text-gray-200 enabled:hover:text-white"
+                        title={onBoard ? 'Sub-Issue öffnen' : 'Nicht auf dem Board'}
+                      >
+                        <span className="font-mono text-gray-400">#{s.number}</span>
+                        <span className="flex-1 truncate">{s.title}</span>
+                        <span className="text-gray-400">
+                          {onBoard ? statusName(onBoard.statusOptionId) : s.state.toLowerCase()}
+                        </span>
+                      </button>
+                      {editable && details && (
+                        <button
+                          onClick={() => save({ removeSubIssue: s.id })}
+                          className="p-0.5 rounded text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                          aria-label={`#${s.number} als Sub-Issue entfernen`}
+                          title="Als Sub-Issue entfernen"
+                        >
+                          <X size={11} />
+                        </button>
+                      )}
+                    </li>
+                  );
+                })}
             </ul>
+            {editable && <AddSubIssue repo={item.repo} onSave={save} />}
           </section>
         )}
       </div>

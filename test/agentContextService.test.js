@@ -19,6 +19,11 @@ const {
   resolveRepoIdentity,
   gitInfo,
   parseModelFromTranscript,
+  sessionModel,
+  modelFromFlags,
+  transcriptCandidates,
+  accumulateCacheUsage,
+  contextWindowFor,
 } = await import('../server/services/agentContextService.js');
 
 describe('agentContextService - parseGithubSlug', () => {
@@ -242,5 +247,145 @@ describe('agentContextService - parseModelFromTranscript', () => {
     );
     expect(parseModelFromTranscript('{"type":"user"}\nnot json')).toBeNull();
     expect(parseModelFromTranscript('')).toBeNull();
+  });
+});
+
+describe('agentContextService - sessionModel with session data', () => {
+  const asst = (model, extra = {}) =>
+    JSON.stringify({ type: 'assistant', message: { model }, ...extra });
+  const user = JSON.stringify({ type: 'user', message: { role: 'user' } });
+
+  function withTranscript(lines, fn) {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'model-'));
+    const file = path.join(dir, 'session.jsonl');
+    fs.writeFileSync(file, lines.join('\n') + '\n');
+    return Promise.resolve(fn(file)).finally(() =>
+      fs.rmSync(dir, { recursive: true, force: true })
+    );
+  }
+  // A session that entered a worktree: cwd's slug has no transcript, the job state's scan path does
+  const session = (transcriptPath) => ({
+    sessionId: 'no-such-session',
+    cwd: '/nonexistent/repo',
+    worktree: null,
+    transcriptPath,
+  });
+
+  it('reads Opus from the scan path when the cwd slug has no transcript', () =>
+    withTranscript([user, asst('claude-opus-5-5')], async (file) => {
+      expect(await sessionModel(session(file))).toBe('claude-opus-5-5');
+    }));
+  it('reads Sonnet', () =>
+    withTranscript([user, asst('claude-sonnet-5-5')], async (file) => {
+      expect(await sessionModel(session(file))).toBe('claude-sonnet-5-5');
+    }));
+  it('follows a model switch mid-session, ignoring sub-agent turns', () =>
+    withTranscript(
+      [
+        asst('claude-opus-5-5'),
+        user,
+        asst('claude-sonnet-5-5'),
+        asst('claude-haiku-5-5', { isSidechain: true }),
+      ],
+      async (file) => {
+        expect(await sessionModel(session(file))).toBe('claude-sonnet-5-5');
+        // Switch back: appending changes mtime, so the cache must not hold the old model
+        await new Promise((r) => setTimeout(r, 20));
+        fs.appendFileSync(file, user + '\n' + asst('claude-opus-5-5') + '\n');
+        expect(await sessionModel(session(file))).toBe('claude-opus-5-5');
+      }
+    ));
+  it('returns null without any transcript, so the start flag stands in', async () => {
+    expect(await sessionModel(session(null))).toBeNull();
+    expect(modelFromFlags(['-n', 'x', '--effort', 'medium', '--model', 'claude-opus-5-5'])).toBe(
+      'claude-opus-5-5'
+    );
+    expect(modelFromFlags(['--model', 'sonnet', '--model', 'opus'])).toBe('opus');
+    expect(modelFromFlags(['--model'])).toBeNull();
+    expect(modelFromFlags(null)).toBeNull();
+  });
+  it('tries the scan path before the slug guesses, without duplicates', () => {
+    const files = transcriptCandidates({
+      sessionId: 'abc',
+      cwd: '/repo',
+      worktree: '/repo/.claude/worktrees/x',
+      transcriptPath: '/t/abc.jsonl',
+    });
+    expect(files[0]).toBe('/t/abc.jsonl');
+    expect(files).toHaveLength(3);
+    expect(transcriptCandidates({ sessionId: null, cwd: '/repo', transcriptPath: null })).toEqual(
+      []
+    );
+  });
+});
+
+describe('agentContextService - prompt cache usage', () => {
+  const turn = (id, ts, usage, extra = {}) =>
+    JSON.stringify({
+      type: 'assistant',
+      timestamp: ts,
+      message: { id, model: 'claude-opus-5-5', usage },
+      ...extra,
+    });
+  const written1h = {
+    input_tokens: 2,
+    cache_creation_input_tokens: 1000,
+    cache_read_input_tokens: 0,
+    cache_creation: { ephemeral_1h_input_tokens: 1000, ephemeral_5m_input_tokens: 0 },
+  };
+  const read = {
+    input_tokens: 2,
+    cache_creation_input_tokens: 10,
+    cache_read_input_tokens: 1000,
+    cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 0 },
+  };
+
+  it('counts turns, hits and keeps the 1h TTL on read-only turns', () => {
+    const text = [
+      turn('a', '2026-10-23T10:00:00.000Z', written1h),
+      turn('b', '2026-10-23T10:05:00.000Z', read),
+    ].join('\n');
+    const u = accumulateCacheUsage(null, text);
+    expect(u).toMatchObject({
+      turns: 2,
+      hits: 1,
+      ttlMs: 3_600_000,
+      cachedTokens: 1012,
+      readTokens: 1000,
+      inputTokens: 2014,
+    });
+    expect(u.lastAt).toBe(Date.parse('2026-10-23T10:05:00.000Z'));
+  });
+
+  it('counts a turn split over several lines once and skips sidechains and garbage', () => {
+    const text = [
+      turn('a', '2026-10-23T10:00:00.000Z', read),
+      turn('a', '2026-10-23T10:00:02.000Z', read),
+      turn('s', '2026-10-23T10:01:00.000Z', read, { isSidechain: true }),
+      '{not json',
+      JSON.stringify({ type: 'user', timestamp: '2026-10-23T10:02:00.000Z', message: {} }),
+    ].join('\n');
+    const u = accumulateCacheUsage(null, text);
+    expect(u.turns).toBe(1);
+    expect(u.lastAt).toBe(Date.parse('2026-10-23T10:00:02.000Z'));
+    expect(u.ttlMs).toBe(300_000);
+  });
+
+  it('accumulates across incremental chunks and picks 5m when written with 5m', () => {
+    const five = {
+      ...written1h,
+      cache_creation: { ephemeral_1h_input_tokens: 0, ephemeral_5m_input_tokens: 1000 },
+    };
+    const first = accumulateCacheUsage(null, turn('a', '2026-10-23T10:00:00.000Z', written1h));
+    const next = accumulateCacheUsage(first, turn('b', '2026-10-23T10:01:00.000Z', five));
+    expect(next).toMatchObject({ turns: 2, hits: 0, ttlMs: 300_000 });
+    expect(first.turns).toBe(1);
+    expect(accumulateCacheUsage(null, '').turns).toBe(0);
+  });
+
+  it('derives the context window', () => {
+    expect(contextWindowFor('claude-opus-5-5', 150_000)).toBe(200_000);
+    expect(contextWindowFor('claude-opus-5-5[1m]', 10)).toBe(1_000_000);
+    expect(contextWindowFor(null, 300_000)).toBe(1_000_000);
   });
 });

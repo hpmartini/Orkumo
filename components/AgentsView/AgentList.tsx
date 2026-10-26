@@ -1,17 +1,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
+  ArrowDown,
+  ArrowUp,
   ChevronDown,
   ChevronRight,
-  Pin,
-  MoreHorizontal,
+  CircleDot,
   GitBranch,
   GitBranchPlus,
   GitPullRequest,
-  Star,
-  ArrowUp,
-  ArrowDown,
-  CircleDot,
+  MoreHorizontal,
+  Pin,
+  Plus,
   SquareTerminal,
+  Star,
+  Timer,
 } from 'lucide-react';
 import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
 import {
@@ -28,6 +30,8 @@ import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferen
 import type { AgentConfigLike } from './types';
 import { AppPowerButton, AppStatusDot, RailNavProps } from './ProjectsRail';
 import { SessionLinks } from './SessionLinks';
+import { CacheBadge } from './CacheBadge';
+import { isCacheWarning } from '../../utils/agentCache';
 
 /** Drag payload of a group header (separate from the workspace tab drag) */
 export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
@@ -87,6 +91,8 @@ interface AgentListProps {
   expandedSessionIds?: Set<string>;
   onToggleExpanded?: (id: string) => void;
   onToggleFavoriteGroup?: (key: string) => void;
+  /** "+ Issue" in a project group header; gets the group's GitHub repo ("owner/name") */
+  onCreateIssue?: (repo: string) => void;
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
   onMoveGroup?: (key: string, targetKey: string, visibleKeys: string[]) => void;
@@ -165,6 +171,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   expandedSessionIds,
   onToggleExpanded,
   onToggleFavoriteGroup,
+  onCreateIssue,
   onToggleFavoriteSession,
   onMoveGroup,
   issuesByAgent,
@@ -469,11 +476,21 @@ export const AgentList: React.FC<AgentListProps> = ({
                             .map((s) => contexts[s.id]?.issues)
                             .find((i) => i && i.open > 0) || null
                         : null;
+                    // Repo of the project's agents; groups without a GitHub origin get no "+ Issue"
+                    const groupRepo =
+                      onCreateIssue && grouping === 'project' && !isFavSection
+                        ? item.group.sessions
+                            .map((s) => contexts[s.id]?.repo?.slug)
+                            .find(Boolean) || null
+                        : null;
                     const groupFav = isFavGroup(groupKey);
                     const groupSessions = [...item.group.sessions, ...item.group.hidden];
                     const attachedCount = groupSessions.filter((s) => openIds.has(s.id)).length;
                     const groupHasActive =
                       !!activeSessionId && groupSessions.some((s) => s.id === activeSessionId);
+                    const groupCacheWarning = groupSessions.some((s) =>
+                      isCacheWarning(contexts[s.id]?.cache, now)
+                    );
                     const app = item.group.appId ? appsById?.get(item.group.appId) : undefined;
                     return (
                       <div
@@ -507,7 +524,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                           endDrag();
                         }}
                         onDragEnd={endDrag}
-                        className={`group flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-pointer select-none ${''}${drag === groupKey ? 'opacity-50 ' : ''}${
+                        className={`group flex items-center gap-2 px-3 py-2 text-xs font-semibold cursor-pointer select-none ${groupCacheWarning ? 'border-l-2 border-l-amber-400 ' : ''}${drag === groupKey ? 'opacity-50 ' : ''}${
                           selected
                             ? selectedClass(railFocused)
                             : `bg-gray-800 text-gray-300 hover:text-white ${collapsed ? '' : 'border-b border-gray-700'}`
@@ -560,6 +577,15 @@ export const AgentList: React.FC<AgentListProps> = ({
                             <span className="sr-only">{attachedCount} attached</span>
                           </span>
                         )}
+                        {groupCacheWarning && (
+                          <span
+                            className="shrink-0 text-amber-300"
+                            title="Prompt cache of an agent here expires within 10 minutes"
+                          >
+                            <Timer size={12} aria-hidden="true" />
+                            <span className="sr-only">cache expiring</span>
+                          </span>
+                        )}
                         <span className="flex-1" />
                         {groupIssues && (
                           <a
@@ -573,6 +599,19 @@ export const AgentList: React.FC<AgentListProps> = ({
                             <CircleDot size={11} />
                             {groupIssues.open}
                           </a>
+                        )}
+                        {groupRepo && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onCreateIssue?.(groupRepo);
+                            }}
+                            className="shrink-0 p-0.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                            title={`Neues Issue in ${groupRepo}`}
+                            aria-label={`Neues Issue in ${groupRepo}`}
+                          >
+                            <Plus size={12} />
+                          </button>
                         )}
                         {isFavSection ? (
                           <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
@@ -625,6 +664,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                     (grouping !== 'project' && grouping !== 'directory') ||
                     (item.group.key as string) === FAVORITES_GROUP_KEY;
                   const runningSubagents = ctx?.subagents.running || 0;
+                  const cacheWarning = isCacheWarning(ctx?.cache, now);
                   const hasDetails =
                     !!label ||
                     issueKeys.length > 0 ||
@@ -657,7 +697,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                       } ${
                         selected
                           ? selectedClass(railFocused)
-                          : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : ''}`
+                          : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : cacheWarning ? 'ring-1 ring-inset ring-amber-400/70 bg-amber-400/5' : ''}`
                       }`}
                       title={`${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
                     >
@@ -790,6 +830,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                               </span>
                             )}
                           </span>
+                          {ctx?.cache && <CacheBadge cache={ctx.cache} />}
                         </div>
                         {expanded && (
                           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">

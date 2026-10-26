@@ -149,15 +149,36 @@ export function parseModelFromTranscript(text) {
   return null;
 }
 
-async function sessionModel(session) {
-  if (!session.sessionId) return null;
-  for (const dir of [session.cwd, session.worktree]) {
-    if (!dir) continue;
-    const file = path.join(
-      agentService.paths.PROJECTS_DIR,
-      agentService.projectSlug(dir),
-      `${session.sessionId}.jsonl`
-    );
+/**
+ * Transcript files to try for a session, best first. The job state's scan path wins: a session that
+ * entered a worktree (EnterWorktree) writes under the worktree's project slug, not under its cwd.
+ */
+export function transcriptCandidates(session) {
+  const files = session.transcriptPath ? [session.transcriptPath] : [];
+  if (session.sessionId) {
+    for (const dir of [session.cwd, session.worktree]) {
+      if (!dir) continue;
+      files.push(
+        path.join(
+          agentService.paths.PROJECTS_DIR,
+          agentService.projectSlug(dir),
+          `${session.sessionId}.jsonl`
+        )
+      );
+    }
+  }
+  return [...new Set(files)];
+}
+
+/** `--model` from a background job's start flags; stands in until the transcript names a model */
+export function modelFromFlags(flags) {
+  if (!Array.isArray(flags)) return null;
+  const i = flags.lastIndexOf('--model');
+  return i >= 0 && flags[i + 1] ? String(flags[i + 1]) : null;
+}
+
+export async function sessionModel(session) {
+  for (const file of transcriptCandidates(session)) {
     try {
       const { mtimeMs, size } = await fsp.stat(file);
       const hit = modelCache.get(file);
@@ -178,8 +199,118 @@ async function sessionModel(session) {
       modelCache.set(file, { mtimeMs, model });
       return model;
     } catch {
-      // no transcript under this dir, try the next
+      // no transcript under this path, try the next
     }
+  }
+  return null;
+}
+
+const CACHE_TTL_5M = 5 * 60_000;
+const CACHE_TTL_1H = 60 * 60_000;
+const CACHE_CHUNK_BYTES = 8 * 1024 * 1024;
+const cacheUsageCache = new Map(); // transcript file -> { offset, usage }
+
+/**
+ * Folds the main-thread assistant turns of a transcript chunk into the running prompt-cache
+ * stats. A turn is split into one line per content block sharing message.id: counted once.
+ */
+export function accumulateCacheUsage(prev, text) {
+  const usage = prev
+    ? { ...prev }
+    : {
+        turns: 0,
+        hits: 0,
+        readTokens: 0,
+        inputTokens: 0,
+        lastAt: null,
+        ttlMs: null,
+        cachedTokens: 0,
+        lastMessageId: null,
+      };
+  for (const line of String(text || '').split('\n')) {
+    let entry;
+    try {
+      entry = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    const u = entry?.message?.usage;
+    if (entry?.type !== 'assistant' || entry.isSidechain || !u) continue;
+    if (entry.message.model === '<synthetic>') continue;
+    const at = Date.parse(entry.timestamp);
+    const read = u.cache_read_input_tokens || 0;
+    const written = u.cache_creation_input_tokens || 0;
+    if (entry.message.id && entry.message.id === usage.lastMessageId) {
+      if (Number.isFinite(at)) usage.lastAt = Math.max(usage.lastAt || 0, at);
+      continue;
+    }
+    usage.lastMessageId = entry.message.id || null;
+    usage.turns += 1;
+    if (read > 0) usage.hits += 1;
+    usage.readTokens += read;
+    usage.inputTokens += read + written + (u.input_tokens || 0);
+    usage.cachedTokens = read + written + (u.input_tokens || 0);
+    if (u.cache_creation?.ephemeral_1h_input_tokens > 0) usage.ttlMs = CACHE_TTL_1H;
+    else if (u.cache_creation?.ephemeral_5m_input_tokens > 0) usage.ttlMs = CACHE_TTL_5M;
+    // A read-only turn refreshes the cache with the TTL it was written with
+    else if (usage.ttlMs === null) usage.ttlMs = CACHE_TTL_5M;
+    if (Number.isFinite(at)) usage.lastAt = at;
+  }
+  return usage;
+}
+
+/** Context window of a model; shortcut: no model id carries the window, so >200k usage implies 1M */
+export function contextWindowFor(model, cachedTokens) {
+  return String(model || '').includes('[1m]') || cachedTokens > 200_000 ? 1_000_000 : 200_000;
+}
+
+/** Prompt-cache stats of a session; reads only the bytes appended since the last call */
+async function sessionCache(session, model) {
+  for (const file of transcriptCandidates(session)) {
+    let size;
+    try {
+      ({ size } = await fsp.stat(file));
+    } catch {
+      continue; // no transcript under this path, try the next
+    }
+    let hit = cacheUsageCache.get(file);
+    if (!hit || size < hit.offset) hit = { offset: 0, usage: null };
+    if (size > hit.offset) {
+      const handle = await fsp.open(file, 'r');
+      try {
+        // Chunked: first reads of long sessions are hundreds of MB
+        for (let chunk = CACHE_CHUNK_BYTES; hit.offset < size; ) {
+          const buffer = Buffer.alloc(Math.min(chunk, size - hit.offset));
+          await handle.read(buffer, 0, buffer.length, hit.offset);
+          // Only complete lines: a partially written last line is read again next time
+          const end = buffer.lastIndexOf(0x0a) + 1;
+          if (end === 0) {
+            if (buffer.length < chunk) break; // the rest is an unfinished line
+            chunk *= 2; // one line longer than the chunk
+            continue;
+          }
+          chunk = CACHE_CHUNK_BYTES;
+          hit = {
+            offset: hit.offset + end,
+            usage: accumulateCacheUsage(hit.usage, buffer.subarray(0, end).toString('utf-8')),
+          };
+        }
+      } finally {
+        await handle.close();
+      }
+      cacheUsageCache.set(file, hit);
+    }
+    const u = hit.usage;
+    if (!u?.turns || !u.lastAt) return null;
+    return {
+      lastActivityAt: u.lastAt,
+      ttlMs: u.ttlMs,
+      cachedTokens: u.cachedTokens,
+      contextWindow: contextWindowFor(model, u.cachedTokens),
+      hits: u.hits,
+      turns: u.turns,
+      hitRatio: u.inputTokens ? u.readTokens / u.inputTokens : 0,
+    };
   }
   return null;
 }
@@ -444,9 +575,11 @@ async function computeAgentContexts() {
     sessions.map(async (s) => {
       const repo = repos.get(dirOf(s)) || null;
       const remote = repo?.slug ? remotes.get(repo.slug) : null;
+      const model = (await sessionModel(s)) ?? modelFromFlags(s.respawnFlags);
       contexts[s.id] = {
         repo,
-        model: await sessionModel(s),
+        model,
+        cache: await sessionCache(s, model).catch(() => null),
         issues: remote?.issues || null,
         pulls: remote?.pulls || null,
         servers: listening

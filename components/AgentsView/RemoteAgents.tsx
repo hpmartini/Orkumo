@@ -77,12 +77,7 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
   ) : null;
 
   return (
-    <div
-      ref={rootRef}
-      className="px-2 pb-2 space-y-2"
-      role="listbox"
-      aria-label="Remote agents"
-    >
+    <div ref={rootRef} className="px-2 pb-2 space-y-2" role="listbox" aria-label="Remote agents">
       <div className="px-1 pt-1 text-[11px] uppercase tracking-wide text-gray-500">
         Remote-Agents
       </div>
@@ -140,11 +135,7 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
                   onDoubleClick={() => attachable && onAttach(session)}
                   className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
                     selected ? selectedClass(railFocused) : 'text-gray-300 hover:bg-gray-800'
-                  } ${
-                    peekId === key
-                      ? 'ring-1 ring-inset ring-blue-300/50'
-                      : ''
-                  }`}
+                  } ${peekId === key ? 'ring-1 ring-inset ring-blue-300/50' : ''}`}
                   title={`${session.id} · ${device.name}:${session.cwd}${attachable ? '\nDouble-click to attach' : ''}`}
                 >
                   <span
@@ -183,17 +174,20 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
                       <SquareTerminal size={12} />
                     </button>
                   )}
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onPeek(session);
-                    }}
-                    className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                    title="Peek"
-                    aria-label="Peek"
-                  >
-                    <MoreHorizontal size={12} />
-                  </button>
+                  {/* `claude logs` only knows background sessions, not `interactive-<pid>` */}
+                  {attachable && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onPeek(session);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                      title="Peek"
+                      aria-label="Peek"
+                    >
+                      <MoreHorizontal size={12} />
+                    </button>
+                  )}
                 </div>
               );
             })}

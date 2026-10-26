@@ -218,6 +218,15 @@ describe('moveTab / setTabLayout / focus', () => {
     expect(focusSession(ws, 'x')).toBe(ws);
     expect(activateTab(ws, 't1').activeTabId).toBe('t1');
   });
+
+  it("focusSession on a pane makes it the tab's active session (drives the rail reveal)", () => {
+    const ws = splitInto(open('a', 'b'), 'b', 'a', 'right');
+    const tab = ws.tabs.find((t) => t.panes.includes('a'))!;
+    const other = tab.panes.find((id) => id !== tab.activeSessionId)!;
+    const next = focusSession(ws, other);
+    expect(next.tabs.find((t) => t.id === tab.id)!.activeSessionId).toBe(other);
+    expect(next.activeTabId).toBe(tab.id);
+  });
 });
 
 describe('pruneMissing', () => {

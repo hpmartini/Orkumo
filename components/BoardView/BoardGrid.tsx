@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ChevronDown, ChevronRight, ChevronsLeft, ChevronsRight, GitMerge } from 'lucide-react';
+import { ChevronDown, ChevronRight, GitMerge, Plus } from 'lucide-react';
 import type { AgentSession, BoardItem, BoardStatusOption, BoardSwimlaneMode } from '../../types';
 import {
   DONE_WINDOW_DAYS,
@@ -17,6 +17,18 @@ import { BoardCard, DRAG_TYPE } from './BoardCard';
 
 /** Cards per cell before "+ n weitere" (Backlog alone has ~300 items) */
 const MAX_CARDS = 8;
+/** Column keys whose fold state differs from the default (Done folded, rest open) */
+const FOLD_KEY = 'devOrbitBoardColumns';
+
+function loadFlipped(): Set<string> {
+  try {
+    const v = JSON.parse(localStorage.getItem(FOLD_KEY) || '[]');
+    if (Array.isArray(v)) return new Set(v.filter((k) => typeof k === 'string'));
+  } catch {
+    // unavailable or corrupt storage: use the default
+  }
+  return new Set();
+}
 
 export interface BoardColumn {
   key: string;
@@ -28,8 +40,6 @@ interface BoardGridProps {
   options: BoardStatusOption[];
   lanes: Lane[];
   laneMode: BoardSwimlaneMode;
-  doneOpen: boolean;
-  onToggleDone: () => void;
   now: number;
   selectedKey: string | null;
   hideRepo: (item: BoardItem) => boolean;
@@ -38,30 +48,41 @@ interface BoardGridProps {
   onOpen: (item: BoardItem) => void;
   onAgent: (jobId: string) => void;
   onMove: (itemId: string, optionId: string) => void;
+  /** "+ Issue" in a column header: creates an issue with that status */
+  onCreate?: (optionId: string) => void;
   onReset: () => void;
 }
 
-const TOGGLE =
-  'rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
+const HEAD =
+  'rounded-md text-xs font-semibold text-gray-100 transition-[filter] hover:brightness-125 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
 
 export const BoardGrid: React.FC<BoardGridProps> = (props) => {
-  const { columns, options, lanes, laneMode, doneOpen, onToggleDone, now } = props;
+  const { columns, options, lanes, laneMode, now } = props;
   const [collapsedLanes, setCollapsedLanes] = useState<Set<string>>(new Set());
   const [expandedCells, setExpandedCells] = useState<Set<string>>(new Set());
+  const [flipped, setFlipped] = useState<Set<string>>(loadFlipped);
   const toggle = (set: Set<string>, key: string) => {
     const next = new Set(set);
     if (!next.delete(key)) next.add(key);
     return next;
   };
 
-  const folded = (col: BoardColumn) => !!col.option && isDoneOption(col.option) && !doneOpen;
+  const folded = (col: BoardColumn) =>
+    (!!col.option && isDoneOption(col.option)) !== flipped.has(col.key);
+  const toggleColumn = (key: string) => {
+    const next = toggle(flipped, key);
+    setFlipped(next);
+    try {
+      localStorage.setItem(FOLD_KEY, JSON.stringify([...next]));
+    } catch {
+      // stays in memory only
+    }
+  };
   const visibleIn = (col: BoardColumn, item: BoardItem) =>
     columnKeyOf(item, options) === col.key &&
     (!col.option || !isDoneOption(col.option) || withinDoneWindow(item, now));
   const grid = {
-    gridTemplateColumns: columns
-      .map((c) => (folded(c) ? '44px' : 'minmax(208px, 1fr)'))
-      .join(' '),
+    gridTemplateColumns: columns.map((c) => (folded(c) ? '44px' : 'minmax(208px, 1fr)')).join(' '),
   };
   const minWidth = columns.reduce((w, c) => w + (folded(c) ? 52 : 216), 50);
   const allItems = lanes.flatMap((l) => l.items);
@@ -152,39 +173,51 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
             return (
               <button
                 key={col.key}
-                onClick={onToggleDone}
+                onClick={() => toggleColumn(col.key)}
                 aria-expanded={false}
-                className={`flex items-center justify-center ${TOGGLE}`}
-                title={`${name} (letzte ${DONE_WINDOW_DAYS} Tage, ${count}) einblenden`}
-                aria-label={`${name} einblenden`}
+                aria-label={`${name} (${count})`}
+                className={`flex flex-col items-center gap-1.5 py-1.5 ${HEAD}`}
+                style={{ background: columnTint(col.option?.color ?? 'GRAY').head }}
+                title={`${name}${done ? ` (letzte ${DONE_WINDOW_DAYS} Tage)` : ''} ausklappen`}
               >
-                <ChevronsLeft size={16} />
+                <span className="font-normal text-gray-300 tabular-nums">{count}</span>
+                <span className="[writing-mode:vertical-rl] whitespace-nowrap">{name}</span>
               </button>
             );
-          return (
-            <div
-              key={col.key}
-              className="flex items-center gap-2 px-2 py-1.5 rounded-md text-xs font-semibold text-gray-100"
+          const fold = (
+            <button
+              onClick={() => toggleColumn(col.key)}
+              aria-expanded
+              aria-label={`${name} (${count})`}
+              className={`self-start flex flex-1 min-w-0 items-center gap-2 px-2 py-1.5 text-left ${HEAD}`}
               style={{ background: columnTint(col.option?.color ?? 'GRAY').head }}
+              title={`${name} einklappen`}
             >
               <span className="truncate">{name}</span>
               <span className="font-normal text-gray-300 tabular-nums">{count}</span>
               {done && (
-                <>
-                  <span className="font-normal text-[11px] text-gray-300">
-                    · {DONE_WINDOW_DAYS} Tage
-                  </span>
-                  <button
-                    onClick={onToggleDone}
-                    aria-expanded
-                    className={`ml-auto p-0.5 ${TOGGLE}`}
-                    title={`${name} einklappen`}
-                    aria-label={`${name} einklappen`}
-                  >
-                    <ChevronsRight size={14} />
-                  </button>
-                </>
+                <span className="font-normal text-[11px] text-gray-300">
+                  · {DONE_WINDOW_DAYS} Tage
+                </span>
               )}
+            </button>
+          );
+          if (!col.option || done || !props.onCreate)
+            return <React.Fragment key={col.key}>{fold}</React.Fragment>;
+          const optionId = col.option.id;
+          // Sibling of the fold button, not inside it: a click must not also fold the column
+          return (
+            <div key={col.key} className="self-start flex items-stretch gap-1 min-w-0">
+              {fold}
+              <button
+                onClick={() => props.onCreate?.(optionId)}
+                className={`px-1.5 text-gray-200 ${HEAD}`}
+                style={{ background: columnTint(col.option.color).head }}
+                title={`Neues Issue in ${name}`}
+                aria-label={`Neues Issue in ${name}`}
+              >
+                <Plus size={14} />
+              </button>
             </div>
           );
         })}
@@ -193,7 +226,10 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
       {lanes.length === 0 && (
         <div className="px-4 py-16 text-center text-gray-400">
           Keine Items in dieser Auswahl.{' '}
-          <button onClick={props.onReset} className="text-cursor hover:underline underline-offset-2">
+          <button
+            onClick={props.onReset}
+            className="text-cursor hover:underline underline-offset-2"
+          >
             Filter zurücksetzen
           </button>
         </div>
