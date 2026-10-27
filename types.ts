@@ -180,15 +180,15 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   openFavorites: { key: 'f', description: 'Open favorites' },
   openProjects: { key: 'p', description: 'Open projects' },
   openAgents: { key: 'a', description: 'Open Claude agents view' },
-  goToTab1: { key: '1', modifiers: { meta: true }, description: 'Go to tab 1' },
-  goToTab2: { key: '2', modifiers: { meta: true }, description: 'Go to tab 2' },
-  goToTab3: { key: '3', modifiers: { meta: true }, description: 'Go to tab 3' },
-  goToTab4: { key: '4', modifiers: { meta: true }, description: 'Go to tab 4' },
-  goToTab5: { key: '5', modifiers: { meta: true }, description: 'Go to tab 5' },
-  goToTab6: { key: '6', modifiers: { meta: true }, description: 'Go to tab 6' },
-  goToTab7: { key: '7', modifiers: { meta: true }, description: 'Go to tab 7' },
-  goToTab8: { key: '8', modifiers: { meta: true }, description: 'Go to tab 8' },
-  goToTab9: { key: '9', modifiers: { meta: true }, description: 'Go to tab 9' },
+  goToTab1: { key: '1', modifiers: { meta: true }, description: 'Go to context 1' },
+  goToTab2: { key: '2', modifiers: { meta: true }, description: 'Go to context 2' },
+  goToTab3: { key: '3', modifiers: { meta: true }, description: 'Go to context 3' },
+  goToTab4: { key: '4', modifiers: { meta: true }, description: 'Go to context 4' },
+  goToTab5: { key: '5', modifiers: { meta: true }, description: 'Go to context 5' },
+  goToTab6: { key: '6', modifiers: { meta: true }, description: 'Go to context 6' },
+  goToTab7: { key: '7', modifiers: { meta: true }, description: 'Go to context 7' },
+  goToTab8: { key: '8', modifiers: { meta: true }, description: 'Go to context 8' },
+  goToTab9: { key: '9', modifiers: { meta: true }, description: 'Go to context 9' },
   // App control shortcuts
   startApp: { key: 'Enter', modifiers: { meta: true }, description: 'Start selected app' },
   stopApp: { key: '.', modifiers: { meta: true }, description: 'Stop selected app' },
@@ -656,6 +656,16 @@ export interface BoardIssuePatch extends BoardIssueFields {
 }
 
 export type BoardSliceKind = 'repo' | 'label' | 'milestone' | 'assignee';
+
+/** Project context (#97): a title bar tab with its own favorites, board slices and agent tabs */
+export interface ProjectContext {
+  id: string;
+  name: string;
+  /** Member projects (app ids); null = every project */
+  appIds: string[] | null;
+  /** Board slice keys ("label:epic-x"); empty = whole board */
+  boardFilter: string[];
+}
 export type BoardSwimlaneMode = 'parent' | 'repo' | 'none';
 
 /** Persisted board preferences. Slice keys are `${kind}:${value}`, e.g. "repo:hpmartini/DevHub". */

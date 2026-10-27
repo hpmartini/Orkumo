@@ -3528,6 +3528,93 @@ app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
   }
 });
 
+// ============================================
+// Project contexts (#97): title bar tabs with their own favorites, board slices, agent tabs
+// ============================================
+
+const contextIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
+const contextFieldsSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  // null = every project (the default "Alle" context)
+  appIds: z.array(idSchema).max(1000).nullable(),
+  boardFilter: boardSliceKeys,
+});
+// Client localStorage entries of the context being left (UI_KEYS in hooks/useProjectContexts.ts)
+const contextUiValue = z.string().max(300_000).nullable().optional();
+const contextUiSchema = z
+  .object({
+    'devOrbitAgentWorkspace.v2': contextUiValue,
+    devOrbitAgentWorkspace: contextUiValue,
+    'devOrbitAgentRail.v1': contextUiValue,
+  })
+  .strict();
+
+app.get('/api/contexts', (req, res) => {
+  try {
+    res.json(settingsService.getContexts());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post(
+  '/api/contexts',
+  validate(contextFieldsSchema.partial({ appIds: true, boardFilter: true }).strict()),
+  (req, res) => {
+    try {
+      res.status(201).json(settingsService.createContext(req.body));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.put(
+  '/api/contexts/order',
+  validate(z.object({ ids: z.array(contextIdSchema).max(100) }).strict()),
+  (req, res) => {
+    try {
+      res.json(settingsService.reorderContexts(req.body.ids));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.patch(
+  '/api/contexts/:id',
+  validateParams(contextIdSchema),
+  validate(contextFieldsSchema.partial().strict()),
+  (req, res) => {
+    try {
+      res.json(settingsService.updateContext(req.params.id, req.body));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.delete('/api/contexts/:id', validateParams(contextIdSchema), (req, res) => {
+  try {
+    res.json(settingsService.deleteContext(req.params.id));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post(
+  '/api/contexts/:id/activate',
+  validateParams(contextIdSchema),
+  validate(z.object({ ui: contextUiSchema.nullable(), from: contextIdSchema.optional() }).strict()),
+  (req, res) => {
+    try {
+      res.json(settingsService.activateContext(req.params.id, req.body.ui, req.body.from));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
 /**
  * Agent view preferences (grouping, layout, dispatch defaults, scope)
  */

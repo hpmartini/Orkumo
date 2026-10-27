@@ -12,7 +12,8 @@ import type {
   BoardSettings,
 } from '../types';
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+/** JSON request against the API; failures throw with the server's `error` message */
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },

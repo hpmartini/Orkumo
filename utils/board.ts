@@ -161,6 +161,37 @@ export function filterItems(
   });
 }
 
+/**
+ * Board filter of a project context: for every kind it names, the item needs one of the
+ * listed values (OR within a kind, AND across kinds). An empty filter keeps everything.
+ */
+export function matchesContextFilter(item: BoardItem, filter: string[]): boolean {
+  const byKind = new Map<BoardSliceKind, string[]>();
+  for (const key of filter) {
+    const kind = key.slice(0, key.indexOf(':')) as BoardSliceKind;
+    byKind.set(kind, [...(byKind.get(kind) ?? []), key]);
+  }
+  return [...byKind].every(([kind, keys]) =>
+    sliceValues(item, kind).some((v) => keys.includes(sliceKey(kind, v)))
+  );
+}
+
+/** Parses "label:epic-x, milestone:v2" into slice keys; unknown kinds and empty values drop */
+export function parseContextFilter(text: string): string[] {
+  const kinds = ['repo', 'label', 'milestone', 'assignee'];
+  return [
+    ...new Set(
+      text
+        .split(',')
+        .map((part) => part.trim())
+        .filter((key) => {
+          const colon = key.indexOf(':');
+          return colon > 0 && kinds.includes(key.slice(0, colon)) && key.slice(colon + 1).trim();
+        })
+    ),
+  ];
+}
+
 /** Search box: "label:ui" matches label names, anything else "#nr title" (repo included). */
 export function matchesQuery(item: BoardItem, query: string): boolean {
   const q = query.trim().toLowerCase();
