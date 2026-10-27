@@ -69,7 +69,9 @@ wss.on('connection', (ws, req) => {
   const customCommand = url.searchParams.get('command');
   // Browsers always send Origin; the API's ws client never does (blocks cross-site WebSocket hijacking).
   if (req.headers.origin || (customCommand && !ALLOWED_COMMANDS.has(customCommand))) {
-    console.warn(`[PTY-Host] Rejected connection (origin=${req.headers.origin || '-'}, command=${customCommand || '-'})`);
+    console.warn(
+      `[PTY-Host] Rejected connection (origin=${req.headers.origin || '-'}, command=${customCommand || '-'})`
+    );
     ws.close(1008, 'Forbidden');
     return;
   }
@@ -315,7 +317,9 @@ const httpServer = http.createServer(async (req, res) => {
 
     const bin = resolveBinary(command) || command;
     const resolvedCwd =
-      typeof cwd === 'string' && cwd.trim() && fs.existsSync(cwd) ? cwd : process.env.HOME || os.homedir();
+      typeof cwd === 'string' && cwd.trim() && fs.existsSync(cwd)
+        ? cwd
+        : process.env.HOME || os.homedir();
 
     const result = await execFileAsync(bin, args, {
       cwd: resolvedCwd,

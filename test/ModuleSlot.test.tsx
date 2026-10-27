@@ -2,7 +2,11 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { render, waitFor } from '@testing-library/react';
 import { ModuleSlot } from '../components/ModuleSlot';
 
-vi.mock('/api/modules/m/ui.js', () => ({ mount: (el: HTMLElement) => { el.textContent = 'hi'; } }));
+vi.mock('/api/modules/m/ui.js', () => ({
+  mount: (el: HTMLElement) => {
+    el.textContent = 'hi';
+  },
+}));
 
 const mockFetch = vi.fn();
 global.fetch = mockFetch;
@@ -47,6 +51,8 @@ describe('ModuleSlot', () => {
   it('mounts the module ui', async () => {
     respond([{ id: 'm', name: 'M', ui: true }]);
     const { container } = render(<ModuleSlot />);
-    await waitFor(() => expect(container.querySelector('[data-module="m"]')).toHaveTextContent('hi'));
+    await waitFor(() =>
+      expect(container.querySelector('[data-module="m"]')).toHaveTextContent('hi')
+    );
   });
 });

@@ -6,11 +6,16 @@
       {
         "rule": "flat-type-hierarchy",
         "value": "*",
-        "files": [
-          "briefings/mockups/44-board.html"
-        ],
+        "files": ["briefings/mockups/44-board.html"],
         "createdAt": "2026-10-23T11:28:37.048Z",
         "reason": "agent decision: dense Operate mockup mirrors incumbent AgentsView type scale (text-xs/sm, 15px title)"
+      },
+      {
+        "rule": "broken-image",
+        "value": "*",
+        "files": ["server/services/workflowService.js"],
+        "createdAt": "2026-10-26T15:48:54.494Z",
+        "reason": "claude: regex that parses <img src> in GitHub comment bodies, no rendered markup"
       }
     ]
   }

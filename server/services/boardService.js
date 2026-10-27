@@ -5,6 +5,7 @@
 import { execFile } from 'child_process';
 import { parseGithubSlug } from './agentContextService.js';
 import { keepWrite, mergeRecentWrites } from '../../utils/boardWrites.js';
+import { parseMwMarkers } from '../../utils/workflowStage.js';
 
 const CACHE_TTL_MS = 60_000;
 const PAGE_SIZE = 100; // measured on MACC: cost 4 per page with comments(last:20)
@@ -22,7 +23,7 @@ const ITEM_FIELDS = `id
       parent{id number title repository{nameWithOwner}} subIssuesSummary{total completed}
       labels(first:20){nodes{name color}} milestone{title} assignees(first:10){nodes{login}}
       closedByPullRequestsReferences(first:10){nodes{${PR_FIELDS}}}
-      comments(last:20){nodes{body}}}
+      comments(last:20){nodes{body createdAt author{login}}}}
     ... on PullRequest{${PR_FIELDS} updatedAt closedAt
       labels(first:20){nodes{name color}} milestone{title} assignees(first:10){nodes{login}}
       comments(last:20){nodes{body}}}
@@ -127,8 +128,11 @@ function mapPullRequest(pr) {
   };
 }
 
-/** ProjectV2Item node -> BoardItem */
-export function mapItem(node) {
+/**
+ * ProjectV2Item node -> BoardItem. `trustedAuthors`: logins whose mw-board markers count (the board
+ * owner, as mw's approvers); anyone else can comment a marker-like text.
+ */
+export function mapItem(node, trustedAuthors = []) {
   const c = node?.content || {};
   const type =
     c.__typename === 'PullRequest' || c.__typename === 'DraftIssue' ? c.__typename : 'Issue';
@@ -166,6 +170,7 @@ export function mapItem(node) {
     },
     pullRequests,
     mwBoardSessions: parseMwBoardSessions((c.comments?.nodes || []).map((n) => n?.body)),
+    mwMarkers: parseMwMarkers(c.comments?.nodes || [], trustedAuthors),
     updatedAt: c.updatedAt ?? '',
     closedAt: c.closedAt ?? null,
   };
@@ -198,7 +203,7 @@ async function loadBoard(source) {
     }
     cost += data.rateLimit?.cost ?? 0;
     remaining = data.rateLimit?.remaining ?? remaining;
-    items.push(...project.items.nodes.filter(Boolean).map(mapItem));
+    items.push(...project.items.nodes.filter(Boolean).map((n) => mapItem(n, [source.owner])));
     after = project.items.pageInfo.hasNextPage ? project.items.pageInfo.endCursor : null;
   } while (after);
   if (!project.field?.id) {
@@ -382,10 +387,11 @@ function splitVars(vars) {
   return [str, typed];
 }
 
-async function refetchItem(source, itemId, created = false) {
+/** One item fresh from GitHub, put into the cache (cheap next to a full board reload) */
+export async function refetchItem(source, itemId, created = false) {
   const node = (await ghGraphql(ITEM_QUERY, { id: itemId }))?.node;
   if (!node?.id) throw httpError('Item not found after write', 502);
-  const item = mapItem(node);
+  const item = mapItem(node, [source.owner]);
   rememberItem(source, item, created);
   return item;
 }

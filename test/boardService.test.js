@@ -55,44 +55,51 @@ describe('boardService - parseMwBoardSessions', () => {
 
 describe('boardService - mapItem', () => {
   it('maps an issue with closing PRs, parent, labels and mw-board sessions', () => {
-    const item = mapItem({
-      id: 'PVTI_abc',
-      fieldValueByName: { optionId: '47fc9ee4' },
-      content: {
-        __typename: 'Issue',
-        id: 'I_44',
-        number: 44,
-        title: 'Board',
-        url: 'https://github.com/hpmartini/DevHub/issues/44',
-        state: 'OPEN',
-        updatedAt: '2026-10-23T10:00:00Z',
-        closedAt: null,
-        repository: { nameWithOwner: 'hpmartini/DevHub' },
-        parent: {
-          id: 'I_40',
-          number: 40,
-          title: 'Epic',
+    const item = mapItem(
+      {
+        id: 'PVTI_abc',
+        fieldValueByName: { optionId: '47fc9ee4' },
+        content: {
+          __typename: 'Issue',
+          id: 'I_44',
+          number: 44,
+          title: 'Board',
+          url: 'https://github.com/hpmartini/DevHub/issues/44',
+          state: 'OPEN',
+          updatedAt: '2026-10-23T10:00:00Z',
+          closedAt: null,
           repository: { nameWithOwner: 'hpmartini/DevHub' },
+          parent: {
+            id: 'I_40',
+            number: 40,
+            title: 'Epic',
+            repository: { nameWithOwner: 'hpmartini/DevHub' },
+          },
+          subIssuesSummary: { total: 3, completed: 1 },
+          labels: { nodes: [{ name: 'prio: high', color: 'f97316' }] },
+          milestone: { title: 'M1' },
+          assignees: { nodes: [{ login: 'hpmartini' }] },
+          closedByPullRequestsReferences: {
+            nodes: [
+              {
+                number: 50,
+                url: 'https://github.com/hpmartini/DevHub/pull/50',
+                title: 'Fix',
+                state: 'OPEN',
+                repository: { nameWithOwner: 'hpmartini/DevHub' },
+                statusCheckRollup: { state: 'FAILURE' },
+              },
+            ],
+          },
+          comments: {
+            nodes: [
+              { body: `<!-- mw-board:start session=${UUID} -->`, author: { login: 'hpmartini' } },
+            ],
+          },
         },
-        subIssuesSummary: { total: 3, completed: 1 },
-        labels: { nodes: [{ name: 'prio: high', color: 'f97316' }] },
-        milestone: { title: 'M1' },
-        assignees: { nodes: [{ login: 'hpmartini' }] },
-        closedByPullRequestsReferences: {
-          nodes: [
-            {
-              number: 50,
-              url: 'https://github.com/hpmartini/DevHub/pull/50',
-              title: 'Fix',
-              state: 'OPEN',
-              repository: { nameWithOwner: 'hpmartini/DevHub' },
-              statusCheckRollup: { state: 'FAILURE' },
-            },
-          ],
-        },
-        comments: { nodes: [{ body: `<!-- mw-board:start session=${UUID} -->` }] },
       },
-    });
+      ['hpmartini']
+    );
     expect(item).toEqual({
       itemId: 'PVTI_abc',
       type: 'Issue',
@@ -120,6 +127,7 @@ describe('boardService - mapItem', () => {
         },
       ],
       mwBoardSessions: [UUID],
+      mwMarkers: [{ kind: 'start', attrs: { session: UUID }, at: '' }],
       updatedAt: '2026-10-23T10:00:00Z',
       closedAt: null,
     });

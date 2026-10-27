@@ -6,10 +6,10 @@ At start the server loads optional modules from a directory. No directory, no mo
 
 `DEVHUB_PREMIUM_DIR` if set, otherwise `<dataPath>/modules`:
 
-| Mode | Default |
-|:-----|:--------|
+| Mode             | Default                                 |
+| :--------------- | :-------------------------------------- |
 | Dev / standalone | `data/modules` (gitignored via `data/`) |
-| Electron | `<userData>/modules` |
+| Electron         | `<userData>/modules`                    |
 
 The default is not cwd-relative (packaged Electron starts with cwd `/`). To use a checkout elsewhere, put it in `.env.local`:
 
@@ -23,21 +23,21 @@ One subdirectory per module with an `index.js` (ESM; the module needs `"type": "
 
 ```js
 export default {
-  id: 'my-module',        // /^[a-z0-9-]+$/, unique; becomes the URL segment
+  id: 'my-module', // /^[a-z0-9-]+$/, unique; becomes the URL segment
   name: 'My Module',
-  ui: './ui.js',          // optional, path inside the module directory
+  ui: './ui.js', // optional, path inside the module directory
   async register(ctx) {}, // may be async
 };
 ```
 
 `ctx`:
 
-| Field | Content |
-|:------|:--------|
-| `id`, `dir` | the module id and its directory |
-| `router` | Express router mounted at `/api/modules/<id>` |
-| `services` | `agentService`, `boardService`, `db: { getDb, isDatabaseConnected }` |
-| `logger` | `info`/`warn`/`error`, prefixed `[module:<id>]` |
+| Field       | Content                                                              |
+| :---------- | :------------------------------------------------------------------- |
+| `id`, `dir` | the module id and its directory                                      |
+| `router`    | Express router mounted at `/api/modules/<id>`                        |
+| `services`  | `agentService`, `boardService`, `db: { getDb, isDatabaseConnected }` |
+| `logger`    | `info`/`warn`/`error`, prefixed `[module:<id>]`                      |
 
 Modules must not import host packages (`express`, ...): the Electron bundle has no `node_modules` for them. Everything the host offers comes through `ctx`; a module with its own dependencies bundles them.
 
@@ -51,9 +51,10 @@ Modules must not import host packages (`express`, ...): the Electron bundle has 
 The shell renders `ModuleSlot` (`components/ModuleSlot.tsx`). For each module with `ui` it does `import('/api/modules/<id>/ui.js')` and calls the export:
 
 ```js
-export function mount(el) {   // el: an empty div owned by the module
+export function mount(el) {
+  // el: an empty div owned by the module
   // render with any framework into el
-  return () => {};            // optional cleanup, called on unmount
+  return () => {}; // optional cleanup, called on unmount
 }
 ```
 

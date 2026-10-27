@@ -51,6 +51,13 @@ import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
+import * as workflowService from './services/workflowService.js';
+import {
+  BUILD_LABEL,
+  deriveWorkflowState,
+  isWorkflowItem,
+  sameGo,
+} from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
@@ -3413,6 +3420,131 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
   try {
     const { roots, exact } = await knownDirs();
     res.json({ path: await boardService.findRepoPath(slug.data, [...roots, ...exact]) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// ---------------------------------------------------------------------------
+// Workflows (#87): mw runs per issue, GO actions, card details
+// ---------------------------------------------------------------------------
+
+async function findRepoInKnownDirs(slug) {
+  const { roots, exact } = await knownDirs();
+  return boardService.findRepoPath(slug, [...roots, ...exact]);
+}
+
+/** Board item, its MACC column, local mw run and derived workflow state */
+async function workflowContext(itemId, { refresh = false } = {}) {
+  const { source } = settingsService.getBoardSettings();
+  const board = await boardService.getBoard(source);
+  const cached = board.items.find((i) => i.itemId === itemId);
+  // GO decides on the item as GitHub has it now; reloading only it keeps the click fast
+  const item = cached && refresh ? await boardService.refetchItem(source, itemId) : cached;
+  if (!item?.repo || !item.number) {
+    throw Object.assign(new Error('Issue not on the board'), { status: 404 });
+  }
+  const status = board.statusField.options.find((o) => o.id === item.statusOptionId)?.name ?? null;
+  const runs = await workflowService.getRuns([item], findRepoInKnownDirs, { refresh });
+  const run = runs[`${item.repo}#${item.number}`] ?? null;
+  return { source, item, run, state: deriveWorkflowState(item, status, run) };
+}
+
+/** Checkout and agent worktree of a workflow item (where its docs live) */
+async function workflowDirs({ item, state }) {
+  const clone = await findRepoInKnownDirs(item.repo).catch(() => null);
+  let worktree = null;
+  if (state.sessionId) {
+    const sessions = await agentService.listSessions({ all: true }).catch(() => []);
+    const session = sessions.find((s) => s.sessionId === state.sessionId);
+    const contexts = session ? await getAgentContexts().catch(() => ({})) : {};
+    worktree = contexts[session?.id]?.repo?.worktreePath ?? session?.cwd ?? null;
+  }
+  return [...new Set([worktree, clone].filter(Boolean))];
+}
+
+app.get('/api/workflows/runs', agentLimiter, async (req, res) => {
+  try {
+    const { source } = settingsService.getBoardSettings();
+    const board = await boardService.getBoard(source);
+    const items = board.items.filter((i) => i.type === 'Issue' && isWorkflowItem(i));
+    const runs = await workflowService.getRuns(items, findRepoInKnownDirs, {
+      refresh: req.query.refresh === '1',
+    });
+    res.json({ runs });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+const workflowGoSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('build') }).strict(),
+  z
+    .object({
+      kind: z.literal('approve'),
+      runId: z.string().regex(/^[a-z]+-\d+$/),
+      stage: z.enum(['briefing', 'plan', 'pr']),
+      sha: z.string().regex(/^[0-9a-f]{7,40}$/),
+    })
+    .strict(),
+]);
+
+// GO for the next stage; refused unless it is exactly the GO the fresh state offers
+app.post(
+  '/api/workflows/go',
+  agentLimiter,
+  validate(z.object({ itemId: boardItemIdSchema, go: workflowGoSchema }).strict()),
+  async (req, res) => {
+    try {
+      const ctx = await workflowContext(req.body.itemId, { refresh: true });
+      if (!sameGo(ctx.state.go, req.body.go)) {
+        return res
+          .status(409)
+          .json({ error: 'Dieses GO ist nicht (mehr) offen', state: ctx.state });
+      }
+      if (req.body.go.kind === 'build') {
+        const labels = [...ctx.item.labels.map((l) => l.name), BUILD_LABEL];
+        const item = await boardService.updateIssue(ctx.source, ctx.item.itemId, { labels });
+        return res.json({ ok: true, item });
+      }
+      const { stage, sha } = req.body.go;
+      res.json(await workflowService.approve(ctx.run, stage, sha));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.get('/api/workflows/details', agentLimiter, async (req, res) => {
+  const itemId = boardItemIdSchema.safeParse(req.query.itemId);
+  if (!itemId.success) return res.status(400).json({ error: 'Invalid itemId' });
+  try {
+    const ctx = await workflowContext(itemId.data);
+    const details = await workflowService.getDetails(ctx.item, {
+      dirs: await workflowDirs(ctx),
+      briefingPath: ctx.state.briefingPath,
+      runDir: ctx.run?.runDir ?? null,
+    });
+    res.json({ ...details, state: ctx.state, phases: ctx.run?.phases ?? [] });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Content of a document that the details of this item list (no other paths)
+app.get('/api/workflows/doc', agentLimiter, async (req, res) => {
+  const itemId = boardItemIdSchema.safeParse(req.query.itemId);
+  if (!itemId.success || typeof req.query.path !== 'string') {
+    return res.status(400).json({ error: 'Invalid itemId or path' });
+  }
+  try {
+    const ctx = await workflowContext(itemId.data);
+    const docs = await workflowService.findDocs(
+      await workflowDirs(ctx),
+      ctx.state.briefingPath,
+      ctx.run?.runDir ?? null
+    );
+    res.json(await workflowService.readDoc(docs, req.query.path));
   } catch (error) {
     sendAgentError(res, error);
   }

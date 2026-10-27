@@ -540,6 +540,32 @@ export interface BoardSource {
   number: number;
 }
 
+// Workflows (#87): mw runs and card details; the stage rule lives in utils/workflowStage.js
+export interface WorkflowRunPhase {
+  phase: string;
+  result: string;
+  /** ISO time of the trace line */
+  at: string;
+  role?: string;
+  model?: string;
+}
+
+export interface WorkflowRunInfo {
+  runId: string;
+  repoPath: string;
+  mode: 'orchestrate' | 'pipeline';
+  phases: WorkflowRunPhase[];
+  pendingApproval: { stage: string; sha: string } | null;
+  runDir: string;
+}
+
+export interface WorkflowDetails {
+  docs: { name: string; path: string }[];
+  /** image URLs from issue and PR comments (review screenshots) */
+  screenshots: string[];
+  phases: WorkflowRunPhase[];
+}
+
 export interface BoardStatusOption {
   id: string;
   name: string;
@@ -574,6 +600,14 @@ export interface BoardIssueRef {
   title: string;
 }
 
+/** One mw-board marker comment (start, ask, briefed, goal, review, …) */
+export interface MwMarker {
+  kind: string;
+  attrs: Record<string, string>;
+  /** comment createdAt (ISO) */
+  at: string;
+}
+
 export interface BoardItem {
   /** ProjectV2 item node id (PVTI_…), used to write the status */
   itemId: string;
@@ -600,6 +634,8 @@ export interface BoardItem {
   pullRequests: BoardPullRequest[];
   /** Full session UUIDs from `<!-- mw-board:start session=<uuid> -->` comments */
   mwBoardSessions: string[];
+  /** All `<!-- mw-board:<kind> k=v -->` markers of the last 20 comments, in comment order */
+  mwMarkers: MwMarker[];
   updatedAt: string;
   closedAt: string | null;
 }

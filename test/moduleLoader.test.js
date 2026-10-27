@@ -83,7 +83,9 @@ describe('moduleLoader', () => {
     const { loaded, get } = await start(path.join(tmp, 'mods'));
     expect(loaded).toEqual([]);
     expect((await get('/linked/ui.js')).status).toBe(404);
-    expect(String(logger.error.mock.calls[0][1])).toContain('ui must be inside the module directory');
+    expect(String(logger.error.mock.calls[0][1])).toContain(
+      'ui must be inside the module directory'
+    );
   });
 
   it('rejects invalid and duplicate ids', async () => {
