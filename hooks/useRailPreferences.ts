@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AgentGrouping } from '../types';
 import type { SessionGroup, GroupKey } from '../utils/agentSessions';
 
@@ -189,8 +189,10 @@ function save(prefs: RailPrefs) {
  * Per-grouping rail preferences (collapsed groups, manual group order) plus global favorite
  * groups and favorite sessions, persisted in localStorage.
  */
-export function useRailPreferences(groupBy: AgentGrouping) {
+export function useRailPreferences(groupBy: AgentGrouping, contextId?: string) {
   const [prefs, setPrefs] = useState<RailPrefs>(load);
+  // A project context switch swaps the stored prefs (useProjectContexts): pick them up
+  useEffect(() => setPrefs(load()), [contextId]);
   const mode = prefs.modes[groupBy] || EMPTY_MODE;
 
   const update = useCallback((fn: (p: RailPrefs) => RailPrefs) => {

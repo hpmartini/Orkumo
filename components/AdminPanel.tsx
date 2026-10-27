@@ -930,37 +930,41 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               </div>
             ) : (
               <div className="space-y-2">
-                {(Object.keys(shortcuts) as (keyof KeyboardShortcuts)[]).map((shortcutId) => {
-                  const shortcut = shortcuts[shortcutId];
-                  const isEditing = editingShortcut === shortcutId;
+                {(Object.keys(DEFAULT_KEYBOARD_SHORTCUTS) as (keyof KeyboardShortcuts)[]).map(
+                  (shortcutId) => {
+                    // Saved settings may lack newer keys or keep removed ones (sidebar shortcuts, #119)
+                    const shortcut =
+                      shortcuts[shortcutId] ?? DEFAULT_KEYBOARD_SHORTCUTS[shortcutId];
+                    const isEditing = editingShortcut === shortcutId;
 
-                  return (
-                    <div
-                      key={shortcutId}
-                      className="flex items-center justify-between p-2 bg-gray-900 rounded border border-gray-700"
-                    >
-                      <span className="text-sm text-gray-300">{shortcut.description}</span>
-                      {isEditing ? (
-                        <input
-                          type="text"
-                          autoFocus
-                          readOnly
-                          placeholder="Press keys..."
-                          onKeyDown={(e) => handleShortcutKeyDown(e, shortcutId)}
-                          onBlur={() => setEditingShortcut(null)}
-                          className="w-32 px-2 py-1 text-xs bg-blue-900/50 border border-blue-500 rounded text-white text-center focus:outline-none"
-                        />
-                      ) : (
-                        <button
-                          onClick={() => setEditingShortcut(shortcutId)}
-                          className="px-3 py-1 text-xs font-mono bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-300 rounded border border-gray-600 transition-colors min-w-[80px]"
-                        >
-                          {formatShortcut(shortcut)}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
+                    return (
+                      <div
+                        key={shortcutId}
+                        className="flex items-center justify-between p-2 bg-gray-900 rounded border border-gray-700"
+                      >
+                        <span className="text-sm text-gray-300">{shortcut.description}</span>
+                        {isEditing ? (
+                          <input
+                            type="text"
+                            autoFocus
+                            readOnly
+                            placeholder="Press keys..."
+                            onKeyDown={(e) => handleShortcutKeyDown(e, shortcutId)}
+                            onBlur={() => setEditingShortcut(null)}
+                            className="w-32 px-2 py-1 text-xs bg-blue-900/50 border border-blue-500 rounded text-white text-center focus:outline-none"
+                          />
+                        ) : (
+                          <button
+                            onClick={() => setEditingShortcut(shortcutId)}
+                            className="px-3 py-1 text-xs font-mono bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-300 rounded border border-gray-600 transition-colors min-w-[80px]"
+                          >
+                            {formatShortcut(shortcut)}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  }
+                )}
               </div>
             )}
 

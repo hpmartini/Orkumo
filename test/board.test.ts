@@ -17,6 +17,7 @@ import {
   matchesContextFilter,
   parseContextFilter,
   moveSliceKey,
+  sliceFromRepoParam,
   buildLanes,
   deriveAgentLinks,
   linksByIssue,
@@ -556,5 +557,15 @@ describe('parseIssueRef', () => {
         parseContextFilter(' label:epic-a, foo:bar, milestone:, repo:o/r,label:epic-a')
       ).toEqual(['label:epic-a', 'repo:o/r']);
     });
+  });
+});
+
+describe('sliceFromRepoParam', () => {
+  const view = { sliceKind: 'label' as const, selected: 'ui' };
+  it('keeps the stored slice without param', () => {
+    expect(sliceFromRepoParam(view, null)).toEqual(view);
+  });
+  it('selects the repo slice from the param', () => {
+    expect(sliceFromRepoParam(view, 'o/r')).toEqual({ sliceKind: 'repo', selected: 'o/r' });
   });
 });

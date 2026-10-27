@@ -17,6 +17,7 @@ import {
   repoName,
   displayRepo,
   formatModelName,
+  groupRepoSlug,
   type SessionLookup,
 } from '../utils/agentSessions';
 import type { AgentSession } from '../types';
@@ -430,5 +431,20 @@ describe('formatModelName', () => {
     expect(formatModelName('')).toBeNull();
     expect(formatModelName(null)).toBeNull();
     expect(formatModelName(undefined)).toBeNull();
+  });
+});
+
+describe('groupRepoSlug', () => {
+  const a = session({ id: 'a' });
+  const b = session({ id: 'b' });
+  const contexts = { a: { repo: null }, b: { repo: { slug: 'o/r' } } };
+
+  it('takes the first known slug of a project or directory group', () => {
+    expect(groupRepoSlug({ cwd: '/r', sessions: [a, b] }, contexts)).toBe('o/r');
+    expect(groupRepoSlug({ cwd: '/r', sessions: [a] }, contexts)).toBeNull();
+  });
+
+  it('ignores state groups, which mix repos', () => {
+    expect(groupRepoSlug({ sessions: [b] }, contexts)).toBeNull();
   });
 });

@@ -121,6 +121,8 @@ export default [
       globals: {
         global: 'readonly',
         URL: 'readonly',
+        URLSearchParams: 'readonly',
+        AbortController: 'readonly',
         fetch: 'readonly',
         console: 'readonly',
         process: 'readonly',

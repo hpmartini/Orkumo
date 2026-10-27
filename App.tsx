@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   BrowserRouter,
   HashRouter,
+  Navigate,
   Routes,
   Route,
   useNavigate,
@@ -9,10 +10,9 @@ import {
   useLocation,
 } from 'react-router-dom';
 import { isElectron } from './utils/apiConfig';
-import { LayoutDashboard, Menu, X, GripVertical } from 'lucide-react';
+import { Bot, Rocket } from 'lucide-react';
 import toast, { Toaster } from 'react-hot-toast';
 import {
-  Sidebar,
   DashboardOverview,
   AppList,
   FavoritesList,
@@ -34,7 +34,6 @@ import { CommandPaletteProvider, useRegisterCommands } from './components/Comman
 import type { PaletteCommand } from './utils/commandPalette';
 import { generateProjectUrl } from './utils/routing';
 import { KeyboardShortcuts } from './types';
-import { APP_NAME } from './constants';
 
 import { BoardView } from './components/BoardView';
 import { WorkflowView } from './components/WorkflowView';
@@ -47,12 +46,10 @@ function AppContent() {
   const params = useParams();
   const location = useLocation();
   const projectId = params.projectId;
-  const isAgentsRoute = location.pathname === '/agents';
+  const isDashboardRoute = location.pathname === '/dashboard';
   const isBoardRoute = location.pathname === '/board';
   const isCodeRoute = location.pathname === '/code';
   const isWorkflowsRoute = location.pathname === '/workflows';
-  // Agents and board bring their own left rail instead of the app sidebar
-  const hasOwnRail = isAgentsRoute || isBoardRoute;
 
   const {
     apps,
@@ -97,9 +94,8 @@ function AppContent() {
   // Per-app view state management (terminals, editor type, devtools, etc.)
   const { createAppStateHelpers, getAppState, updateAppState } = usePerAppState();
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('agents');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
-  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   // Details/Coding view state
   const [detailsViewMode, setDetailsViewMode] = useState<'details' | 'coding'>('details');
@@ -107,10 +103,6 @@ function AppContent() {
     const saved = localStorage.getItem('devOrbitViewTabBarHidden');
     return saved === 'true';
   });
-
-  // Sidebar popup state (for keyboard shortcuts)
-  const [showFavoritesPopup, setShowFavoritesPopup] = useState(false);
-  const [showProjectsPopup, setShowProjectsPopup] = useState(false);
 
   // Persist view tab bar hidden state
   useEffect(() => {
@@ -123,16 +115,6 @@ function AppContent() {
 
   const handleToggleDetailsView = useCallback(() => {
     setDetailsViewMode((prev) => (prev === 'details' ? 'coding' : 'details'));
-  }, []);
-
-  const handleToggleFavoritesPopup = useCallback(() => {
-    setShowFavoritesPopup((prev) => !prev);
-    setShowProjectsPopup(false);
-  }, []);
-
-  const handleToggleProjectsPopup = useCallback(() => {
-    setShowProjectsPopup((prev) => !prev);
-    setShowFavoritesPopup(false);
   }, []);
 
   // Use refs to avoid re-running the effect when callbacks change
@@ -157,100 +139,31 @@ function AppContent() {
         setSelectedAppIdRef.current(projectId);
         setActiveTab('apps');
       } else {
-        // Invalid/stale project ID - redirect to dashboard
-        navigateRef.current('/', { replace: true });
+        // Invalid/stale project ID - back to the default view
+        navigateRef.current('/agents', { replace: true });
       }
     } else {
       setActiveTab(
-        isAgentsRoute
-          ? 'agents'
+        isDashboardRoute
+          ? 'dashboard'
           : isBoardRoute
             ? 'board'
             : isCodeRoute
               ? 'code'
               : isWorkflowsRoute
                 ? 'workflows'
-                : 'dashboard'
+                : 'agents'
       );
     }
-  }, [projectId, apps, loading, isAgentsRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
+  }, [projectId, apps, loading, isDashboardRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
 
-  // Resizable sidebar
-  const MIN_SIDEBAR_WIDTH = 200;
-  const MAX_SIDEBAR_WIDTH = 400;
-  const DEFAULT_SIDEBAR_WIDTH = 256; // 16rem = 256px
-  const COLLAPSED_SIDEBAR_WIDTH = 64; // Width when collapsed
-
-  const [sidebarWidth, setSidebarWidth] = useState(() => {
-    const saved = localStorage.getItem('devOrbitSidebarWidth');
-    return saved ? parseInt(saved, 10) : DEFAULT_SIDEBAR_WIDTH;
-  });
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
-    const saved = localStorage.getItem('devOrbitSidebarCollapsed');
-    return saved === 'true';
-  });
-  const [isResizing, setIsResizing] = useState(false);
-  const resizeRef = useRef<HTMLDivElement>(null);
-
-  // Persist sidebar width and collapsed state
-  useEffect(() => {
-    localStorage.setItem('devOrbitSidebarWidth', String(sidebarWidth));
-  }, [sidebarWidth]);
-
-  useEffect(() => {
-    localStorage.setItem('devOrbitSidebarCollapsed', String(sidebarCollapsed));
-  }, [sidebarCollapsed]);
-
-  // Calculate actual sidebar width based on collapsed state
-  const actualSidebarWidth = sidebarCollapsed ? COLLAPSED_SIDEBAR_WIDTH : sidebarWidth;
-
-  const handleToggleSidebarCollapse = useCallback(() => {
-    setSidebarCollapsed((prev) => !prev);
-  }, []);
-
-  // Handle resize
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    setIsResizing(true);
-  }, []);
-
-  useEffect(() => {
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!isResizing) return;
-      const newWidth = Math.min(MAX_SIDEBAR_WIDTH, Math.max(MIN_SIDEBAR_WIDTH, e.clientX));
-      setSidebarWidth(newWidth);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-    };
-
-    if (isResizing) {
-      document.addEventListener('mousemove', handleMouseMove);
-      document.addEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = 'col-resize';
-      document.body.style.userSelect = 'none';
-    }
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-      document.body.style.cursor = '';
-      document.body.style.userSelect = '';
-    };
-  }, [isResizing]);
-
-  const handleSelectDashboard = () => {
-    navigate('/');
-    setMobileMenuOpen(false);
-  };
+  const handleSelectDashboard = () => navigate('/dashboard');
 
   const handleSelectApp = (id: string) => {
     const app = apps.find((a) => a.id === id);
     if (app) {
       navigate(generateProjectUrl(app.name, id));
     }
-    setMobileMenuOpen(false);
   };
 
   // Rename handler that prompts for the new name
@@ -270,14 +183,11 @@ function AppContent() {
   // Keyboard shortcuts
   const keyboardShortcutActions = useMemo(
     () => [
-      { id: 'toggleSidebar' as keyof KeyboardShortcuts, handler: handleToggleSidebarCollapse },
-      { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: () => navigate('/') },
-      { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: () => navigate('/') },
+      { id: 'goToDashboard' as keyof KeyboardShortcuts, handler: handleSelectDashboard },
+      { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: handleSelectDashboard },
       { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
       { id: 'openSettingsAlt' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
       { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
-      { id: 'openFavorites' as keyof KeyboardShortcuts, handler: handleToggleFavoritesPopup },
-      { id: 'openProjects' as keyof KeyboardShortcuts, handler: handleToggleProjectsPopup },
       { id: 'openAgents' as keyof KeyboardShortcuts, handler: () => navigate('/agents') },
       // Cmd+1..9 switch to the n-th context
       ...Array.from({ length: 9 }, (_, i) => ({
@@ -329,13 +239,10 @@ function AppContent() {
       },
     ],
     [
-      handleToggleSidebarCollapse,
       navigate,
       contextList,
       switchContext,
       handleToggleDetailsView,
-      handleToggleFavoritesPopup,
-      handleToggleProjectsPopup,
       selectedAppId,
       handleStartApp,
       handleStopApp,
@@ -350,7 +257,7 @@ function AppContent() {
   });
 
   // Command palette (Cmd/Ctrl+P). Agent-specific commands are registered by AgentsView.
-  const onAppsPage = !hasOwnRail && !!selectedAppId && !!projectId;
+  const onAppsPage = !!selectedAppId && !!projectId;
   const runOnSelected = (
     action: (id: string) => Promise<unknown>,
     messages: { loading: string; success: string; error: string }
@@ -389,12 +296,10 @@ function AppContent() {
       'mw martini pipeline orchestrate go stages'
     ),
     command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
-    command('sidebar', 'Toggle sidebar', 'View', handleToggleSidebarCollapse),
-    command('favorites', 'Open favorites', 'Navigate', handleToggleFavoritesPopup),
-    command('projects', 'Open project list', 'Navigate', handleToggleProjectsPopup),
     ...(onAppsPage
       ? [
           command('coding', 'Toggle details / coding view', 'View', handleToggleDetailsView),
+          command('tabbar', 'Show / hide view tab bar', 'View', handleToggleViewTabBar),
           command(
             'start',
             'Start selected app',
@@ -435,10 +340,7 @@ function AppContent() {
   }
 
   return (
-    <div
-      className="min-h-screen bg-gray-900 text-gray-100 font-sans flex overflow-hidden"
-      style={{ '--sidebar-width': `${actualSidebarWidth}px` } as React.CSSProperties}
-    >
+    <div className="min-h-screen bg-gray-900 text-gray-100 font-sans flex overflow-hidden">
       {/* Toast notifications */}
       <Toaster
         position="top-right"
@@ -458,16 +360,9 @@ function AppContent() {
         }}
       />
 
-      {/* Mobile menu overlay */}
-      {mobileMenuOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 z-40 md:hidden"
-          onClick={() => setMobileMenuOpen(false)}
-        />
-      )}
-
       {/* TitleBar - custom titlebar with tabs and pane controls */}
       <TitleBar
+        onOpenDashboard={handleSelectDashboard}
         contexts={contexts.contexts}
         activeId={contexts.active?.id ?? null}
         onSelect={contexts.switchTo}
@@ -491,278 +386,195 @@ function AppContent() {
         }}
       />
 
-      {/* Sidebar - fixed position below titlebar (when present), doesn't scroll with content */}
-      <div
-        className={`
-          fixed top-10 bottom-0 left-0 z-40
-          transform transition-all duration-300 ease-in-out
-          ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-          ${hasOwnRail ? 'md:hidden' : ''}
-        `}
-        style={{ width: actualSidebarWidth }}
-      >
-        <Sidebar
-          apps={contextApps}
-          selectedAppId={selectedAppId}
-          activeTab={activeTab}
-          isCollapsed={sidebarCollapsed}
-          onToggleCollapse={handleToggleSidebarCollapse}
-          onSelectDashboard={handleSelectDashboard}
-          onSelectAgents={() => {
-            navigate('/agents');
-            setMobileMenuOpen(false);
-          }}
-          onSelectBoard={() => {
-            navigate('/board');
-            setMobileMenuOpen(false);
-          }}
-          onSelectCode={() => {
-            navigate('/code');
-            setMobileMenuOpen(false);
-          }}
-          onSelectWorkflows={() => {
-            navigate('/workflows');
-            setMobileMenuOpen(false);
-          }}
-          onSelectApp={handleSelectApp}
-          onToggleFavorite={handleToggleFavorite}
-          onToggleArchive={handleToggleArchive}
-          onStart={handleStartApp}
-          onStop={handleStopApp}
-          onRestart={handleRestartApp}
-          onOpenInBrowser={handleOpenInBrowser}
-          onOpenInFinder={handleOpenInFinder}
-          onOpenInTerminal={handleOpenInTerminal}
-          onRename={handleRenamePrompt}
-          onRefresh={refreshApps}
-          onOpenSettings={() => setAdminPanelOpen(true)}
-          mainDirectory="Projects"
-          keyboardShortcuts={settings?.keyboardShortcuts}
-          showViewSwitcher={isViewTabBarHidden}
-          detailsViewMode={detailsViewMode}
-          onViewModeChange={setDetailsViewMode}
-          onShowViewTabBar={handleToggleViewTabBar}
-          showFavoritesPopupExternal={showFavoritesPopup}
-          showProjectsPopupExternal={showProjectsPopup}
-          onFavoritesPopupChange={setShowFavoritesPopup}
-          onProjectsPopupChange={setShowProjectsPopup}
-        />
-        {/* Resize handle - only show when not collapsed */}
-        {!sidebarCollapsed && (
-          <div
-            ref={resizeRef}
-            onMouseDown={handleMouseDown}
-            className={`
-              hidden md:flex absolute top-0 right-0 w-1 h-full cursor-col-resize
-              items-center justify-center group
-              hover:bg-blue-500/30 transition-colors
-              ${isResizing ? 'bg-blue-500/50' : ''}
-            `}
-          >
-            <div
-              className={`
-              absolute right-0 w-4 h-12 flex items-center justify-center
-              rounded-r bg-gray-800/80 border border-l-0 border-gray-700
-              opacity-0 group-hover:opacity-100 transition-opacity
-              ${isResizing ? 'opacity-100' : ''}
-            `}
+      {/* One shell: the agents rail on every route; the other views fill its main area */}
+      <main className="flex-1 flex flex-col relative overflow-hidden mt-10">
+        {/* Small screens: the agents page is the rail, so other views need a way back to it */}
+        {activeTab !== 'agents' && (
+          <header className="flex md:hidden items-center gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900">
+            <button
+              onClick={() => navigate('/agents')}
+              className="flex items-center gap-2 px-2 py-1 rounded text-sm text-gray-300 hover:text-white hover:bg-gray-800"
             >
-              <GripVertical size={12} className="text-gray-500" />
-            </div>
-          </div>
+              <Bot size={16} /> Agents
+            </button>
+            {activeTab !== 'dashboard' && (
+              <button
+                onClick={handleSelectDashboard}
+                className="flex items-center gap-2 px-2 py-1 rounded text-sm text-gray-300 hover:text-white hover:bg-gray-800"
+              >
+                <Rocket size={16} /> Dashboard
+              </button>
+            )}
+          </header>
         )}
-      </div>
 
-      {/* Main Content - with left margin for fixed sidebar, top margin for titlebar (when present) */}
-      <main
-        className={`flex-1 flex flex-col relative ml-0 ${
-          // The agents and board views merge the sidebar into their own rail and scroll internally
-          hasOwnRail ? 'overflow-hidden' : 'md:ml-[var(--sidebar-width)] overflow-auto'
-        } mt-10`}
-      >
-        {/* Mobile header - only shown on small screens */}
-        <header
-          className={`fixed top-10 right-0 left-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 py-3 flex items-center gap-3 md:hidden`}
-        >
-          <button
-            onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            className="p-2 hover:bg-gray-800 rounded-lg transition-colors text-gray-400 hover:text-white"
-            aria-label="Toggle menu"
-          >
-            {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
-          <div className="flex items-center gap-2 text-blue-500 font-bold">
-            <LayoutDashboard size={20} /> {APP_NAME}
-          </div>
-        </header>
-
-        {/* Content container - relative positioning for multi-tab absolute children */}
-        <div
-          className={`relative ${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} mt-14 md:mt-0`}
-        >
-          {/* Dashboard View */}
-          <div
-            className={`${activeTab === 'dashboard' ? 'block' : 'hidden'} space-y-8 animate-in fade-in duration-500`}
-          >
-            <DashboardOverview
-              totalApps={contextApps.length}
-              runningCount={runningCount}
-              totalCpu={totalCpu}
-              apps={contextApps}
-            />
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-              <div className="lg:col-span-2 space-y-6">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-lg font-semibold text-gray-200">Application Registry</h3>
-                </div>
-                {/* Favorites Section */}
-                <FavoritesList
-                  apps={contextApps}
-                  selectedAppId={selectedAppId}
-                  favoritesOrder={settings?.favorites || []}
-                  favoritesSortMode={settings?.favoritesSortMode || 'manual'}
-                  onSelectApp={handleSelectApp}
-                  onStart={handleStartApp}
-                  onStop={handleStopApp}
-                  onRestart={handleRestartApp}
-                  onOpenInBrowser={handleOpenInBrowser}
-                  onToggleFavorite={handleToggleFavorite}
-                  onToggleArchive={handleToggleArchive}
-                  onReorderFavorites={handleReorderFavorites}
-                  onSetSortMode={handleSetFavoritesSortMode}
-                />
-                {/* All Applications */}
-                <AppList
-                  apps={contextApps.filter((app) => !app.isArchived && !app.isFavorite)}
-                  selectedAppId={selectedAppId}
-                  onSelectApp={handleSelectApp}
-                  onRefresh={refreshApps}
-                  onStart={handleStartApp}
-                  onStop={handleStopApp}
-                  onRestart={handleRestartApp}
-                  onOpenInBrowser={handleOpenInBrowser}
-                  onToggleFavorite={handleToggleFavorite}
-                  onToggleArchive={handleToggleArchive}
-                  onOpenInFinder={handleOpenInFinder}
-                  onOpenInTerminal={handleOpenInTerminal}
-                  onRename={handleRenamePrompt}
-                  mainDirectory="projects"
-                />
-              </div>
-
-              <div className="space-y-6">
-                <Recommendations apps={contextApps} onAnalyzeApp={handleAnalyzeApp} />
-                <SystemHealth onRestartApp={handleRestartApp} onInstallDeps={handleInstallDeps} />
-              </div>
-            </div>
-          </div>
-
-          {/* Claude Code agent view - always mounted so attached terminals survive navigation */}
-          <div
-            className={
-              activeTab === 'agents' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
-            }
-            aria-hidden={activeTab !== 'agents'}
-          >
+        <div className="flex-1 min-h-0 relative">
+          {/* Always mounted so attached terminals survive navigation */}
+          <div className="absolute inset-0 flex flex-col min-h-0">
+            {/* Not keyed by context: that would remount the views below (Web-IDE, terminals) */}
             <AgentsView
-              key={contexts.active?.id}
+              contextId={contexts.active?.id}
               active={activeTab === 'agents'}
               apps={apps}
-              onExit={() => navigate('/')}
+              onExit={handleSelectDashboard}
               onOpenView={() => navigate('/agents')}
               nav={{
                 onOpenDashboard: handleSelectDashboard,
-                onOpenBoard: () => navigate('/board'),
-                onOpenCode: () => navigate('/code'),
+                onOpenWorkflows: () => navigate('/workflows'),
                 onOpenSettings: () => setAdminPanelOpen(true),
                 onOpenProject: handleSelectApp,
                 onStartApp: handleStartApp,
                 onStopApp: handleStopApp,
               }}
-            />
-          </div>
-
-          {/* Agent task board - kept mounted like the agents view, polls only while active */}
-          <div
-            className={
-              activeTab === 'board' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
-            }
-            aria-hidden={activeTab !== 'board'}
-          >
-            <BoardView
-              key={contexts.active?.id}
-              active={activeTab === 'board'}
-              onOpenView={() => navigate('/board')}
-              contextFilter={contexts.active?.boardFilter}
-            />
-          </div>
-
-          {/* Code mode - kept mounted so the Web-IDE iframe survives navigation */}
-          <div
-            className={
-              activeTab === 'code' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
-            }
-            aria-hidden={activeTab !== 'code'}
-          >
-            <CodeView active={activeTab === 'code'} apps={contextApps} />
-          </div>
-
-          {/* Workflows (mw) - polls only while active */}
-          <div
-            className={
-              activeTab === 'workflows' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
-            }
-            aria-hidden={activeTab !== 'workflows'}
-          >
-            <WorkflowView active={activeTab === 'workflows'} />
-          </div>
-
-          {/* Stays mounted on other routes so the Web-IDE and browser iframes survive navigation;
-              hidden off-screen with a clip because iframes bleed through visibility tricks */}
-          {selectedApp && (
-            <div
-              className={`flex flex-col min-h-0 ${
-                activeTab === 'apps' ? 'absolute inset-0 z-10' : 'fixed pointer-events-none'
-              }`}
-              style={
-                activeTab === 'apps'
-                  ? undefined
-                  : {
-                      left: '-200vw',
-                      top: 0,
-                      width: '100vw',
-                      height: '100vh',
-                      clipPath: 'inset(0 100% 100% 0)',
-                      visibility: 'hidden',
-                    }
-              }
-              aria-hidden={activeTab !== 'apps'}
             >
-              <AppDetail
-                key={selectedApp.id}
-                app={selectedApp}
-                onStart={handleStartApp}
-                onStop={handleStopApp}
-                onRestart={handleRestartApp}
-                onAnalyze={handleAnalyzeApp}
-                onOpenInBrowser={handleOpenInBrowser}
-                onInstallDeps={handleInstallDeps}
-                onSetPort={handleSetPort}
-                onSetCommand={handleSetCommand}
-                onRename={handleRename}
-                onToggleFavorite={handleToggleFavorite}
-                onToggleArchive={handleToggleArchive}
-                onOpenInFinder={handleOpenInFinder}
-                onOpenInTerminal={handleOpenInTerminal}
-                preferredIDE={settings?.preferredIDEs?.[selectedApp.id] || null}
-                isViewTabBarHidden={isViewTabBarHidden}
-                onToggleViewTabBar={handleToggleViewTabBar}
-                activeView={detailsViewMode}
-                onViewChange={setDetailsViewMode}
-                perAppState={createAppStateHelpers(selectedApp.id)}
-              />
-            </div>
-          )}
+              {/* Dashboard: the start view behind the rocket and the agents icon */}
+              <div
+                className={activeTab === 'dashboard' ? 'absolute inset-0 overflow-auto' : 'hidden'}
+              >
+                <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 space-y-8 animate-in fade-in duration-500">
+                  <DashboardOverview
+                    totalApps={contextApps.length}
+                    runningCount={runningCount}
+                    totalCpu={totalCpu}
+                    apps={contextApps}
+                  />
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                    <div className="lg:col-span-2 space-y-6">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-lg font-semibold text-gray-200">
+                          Application Registry
+                        </h3>
+                      </div>
+                      {/* Favorites Section */}
+                      <FavoritesList
+                        apps={contextApps}
+                        selectedAppId={selectedAppId}
+                        favoritesOrder={settings?.favorites || []}
+                        favoritesSortMode={settings?.favoritesSortMode || 'manual'}
+                        onSelectApp={handleSelectApp}
+                        onStart={handleStartApp}
+                        onStop={handleStopApp}
+                        onRestart={handleRestartApp}
+                        onOpenInBrowser={handleOpenInBrowser}
+                        onToggleFavorite={handleToggleFavorite}
+                        onToggleArchive={handleToggleArchive}
+                        onReorderFavorites={handleReorderFavorites}
+                        onSetSortMode={handleSetFavoritesSortMode}
+                      />
+                      {/* All Applications */}
+                      <AppList
+                        apps={contextApps.filter((app) => !app.isArchived && !app.isFavorite)}
+                        selectedAppId={selectedAppId}
+                        onSelectApp={handleSelectApp}
+                        onRefresh={refreshApps}
+                        onStart={handleStartApp}
+                        onStop={handleStopApp}
+                        onRestart={handleRestartApp}
+                        onOpenInBrowser={handleOpenInBrowser}
+                        onToggleFavorite={handleToggleFavorite}
+                        onToggleArchive={handleToggleArchive}
+                        onOpenInFinder={handleOpenInFinder}
+                        onOpenInTerminal={handleOpenInTerminal}
+                        onRename={handleRenamePrompt}
+                        mainDirectory="projects"
+                      />
+                    </div>
+
+                    <div className="space-y-6">
+                      <Recommendations apps={contextApps} onAnalyzeApp={handleAnalyzeApp} />
+                      <SystemHealth
+                        onRestartApp={handleRestartApp}
+                        onInstallDeps={handleInstallDeps}
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Agent task board - kept mounted like the agents view, polls only while active */}
+              <div
+                className={
+                  activeTab === 'board' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+                }
+                aria-hidden={activeTab !== 'board'}
+              >
+                <BoardView
+                  key={contexts.active?.id}
+                  active={activeTab === 'board'}
+                  contextFilter={contexts.active?.boardFilter}
+                />
+              </div>
+
+              {/* Code mode - kept mounted so the Web-IDE iframe survives navigation */}
+              <div
+                className={
+                  activeTab === 'code' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+                }
+                aria-hidden={activeTab !== 'code'}
+              >
+                <CodeView active={activeTab === 'code'} apps={contextApps} />
+              </div>
+
+              {/* Workflows (mw) - polls only while active */}
+              <div
+                className={
+                  activeTab === 'workflows'
+                    ? 'absolute inset-0 z-10 flex flex-col min-h-0'
+                    : 'hidden'
+                }
+                aria-hidden={activeTab !== 'workflows'}
+              >
+                <WorkflowView active={activeTab === 'workflows'} />
+              </div>
+
+              {/* Stays mounted on other routes so the Web-IDE and browser iframes survive navigation;
+                  hidden off-screen with a clip because iframes bleed through visibility tricks */}
+              {selectedApp && (
+                <div
+                  className={`flex flex-col min-h-0 ${
+                    activeTab === 'apps' ? 'absolute inset-0 z-10' : 'fixed pointer-events-none'
+                  }`}
+                  style={
+                    activeTab === 'apps'
+                      ? undefined
+                      : {
+                          left: '-200vw',
+                          top: 0,
+                          width: '100vw',
+                          height: '100vh',
+                          clipPath: 'inset(0 100% 100% 0)',
+                          visibility: 'hidden',
+                        }
+                  }
+                  aria-hidden={activeTab !== 'apps'}
+                >
+                  <AppDetail
+                    key={selectedApp.id}
+                    app={selectedApp}
+                    onStart={handleStartApp}
+                    onStop={handleStopApp}
+                    onRestart={handleRestartApp}
+                    onAnalyze={handleAnalyzeApp}
+                    onOpenInBrowser={handleOpenInBrowser}
+                    onInstallDeps={handleInstallDeps}
+                    onSetPort={handleSetPort}
+                    onSetCommand={handleSetCommand}
+                    onRename={handleRename}
+                    onToggleFavorite={handleToggleFavorite}
+                    onToggleArchive={handleToggleArchive}
+                    onOpenInFinder={handleOpenInFinder}
+                    onOpenInTerminal={handleOpenInTerminal}
+                    preferredIDE={settings?.preferredIDEs?.[selectedApp.id] || null}
+                    isViewTabBarHidden={isViewTabBarHidden}
+                    onToggleViewTabBar={handleToggleViewTabBar}
+                    activeView={detailsViewMode}
+                    onViewChange={setDetailsViewMode}
+                    perAppState={createAppStateHelpers(selectedApp.id)}
+                  />
+                </div>
+              )}
+            </AgentsView>
+          </div>
         </div>
       </main>
 
@@ -796,7 +608,8 @@ function AppContent() {
 function AppRouter() {
   return (
     <Routes>
-      <Route path="/" element={<AppContent />} />
+      <Route path="/" element={<Navigate to="/agents" replace />} />
+      <Route path="/dashboard" element={<AppContent />} />
       <Route path="/agents" element={<AppContent />} />
       <Route path="/board" element={<AppContent />} />
       <Route path="/code" element={<AppContent />} />

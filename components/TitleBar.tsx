@@ -4,6 +4,8 @@ import { ContextTabs } from './ContextTabs';
 import { isElectron } from '../utils/apiConfig';
 
 type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
+  /** The rocket opens the dashboard */
+  onOpenDashboard: () => void;
   // Pane visibility controls (only shown when in app/coding view)
   showPaneControls?: boolean;
   isTerminalVisible?: boolean;
@@ -13,6 +15,7 @@ type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
 };
 
 export const TitleBar: React.FC<TitleBarProps> = ({
+  onOpenDashboard,
   showPaneControls = false,
   isTerminalVisible = true,
   isBrowserVisible = true,
@@ -71,12 +74,15 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       {showTrafficLightSpacer && <div className="w-[78px] shrink-0" />}
 
       {/* App logo - always visible, flush left in fullscreen */}
-      <div
-        className={`flex items-center gap-2 shrink-0 text-blue-500 ${showTrafficLightSpacer ? 'px-3' : 'pl-3 pr-2'}`}
+      <button
+        onClick={onOpenDashboard}
+        className={`flex items-center gap-2 shrink-0 h-full text-blue-500 hover:text-blue-300 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${showTrafficLightSpacer ? 'px-3' : 'pl-3 pr-2'}`}
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        title="Dashboard"
+        aria-label="Open dashboard"
       >
         <Rocket size={18} />
-      </div>
+      </button>
 
       {/* Context tabs - not draggable so tabs are clickable; the free space after them drags */}
       <div

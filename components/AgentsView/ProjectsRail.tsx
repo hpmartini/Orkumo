@@ -1,25 +1,24 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
-  Bot,
   ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
   Code2,
-  Kanban,
-  LayoutDashboard,
   Play,
   Settings,
   Square,
+  Workflow,
 } from 'lucide-react';
 import type { AgentGrouping } from '../../types';
 import type { AgentConfigLike } from './types';
+import { codeUrl } from '../../utils/codeTarget';
 
 /** App-level navigation and actions the merged rail needs from App.tsx */
 export interface RailNavProps {
   onOpenDashboard: () => void;
-  onOpenBoard?: () => void;
-  onOpenCode?: () => void;
+  onOpenWorkflows?: () => void;
   onOpenSettings: () => void;
   onOpenProject: (appId: string) => void;
   onStartApp: (appId: string) => void;
@@ -73,7 +72,7 @@ export const AppPowerButton: React.FC<{
   );
 };
 
-/** Slim top navigation plus the group-mode switch */
+/** Group-mode switch plus rail-wide buttons (collapse, workflows, settings) */
 export const RailNav: React.FC<{
   nav: RailNavProps;
   grouping: AgentGrouping;
@@ -84,46 +83,7 @@ export const RailNav: React.FC<{
   /** A quick filter forces every group open: the buttons would have no visible effect */
   collapseDisabled?: boolean;
 }> = ({ nav, grouping, onGrouping, onCollapseAll, onExpandAll, collapseDisabled }) => (
-  <div className="px-3 py-2 border-b border-gray-700 space-y-2 shrink-0">
-    <div className="flex items-center gap-1 text-xs">
-      <button
-        onClick={nav.onOpenDashboard}
-        className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-      >
-        <LayoutDashboard size={13} /> Dashboard
-      </button>
-      {nav.onOpenBoard && (
-        <button
-          onClick={nav.onOpenBoard}
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-        >
-          <Kanban size={13} /> Board
-        </button>
-      )}
-      {nav.onOpenCode && (
-        <button
-          onClick={nav.onOpenCode}
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-        >
-          <Code2 size={13} /> Code
-        </button>
-      )}
-      <span
-        className="flex items-center gap-1.5 px-2 py-1 rounded bg-gray-800 text-white"
-        aria-current="page"
-      >
-        <Bot size={13} /> Agents
-      </span>
-      <div className="flex-1" />
-      <button
-        onClick={nav.onOpenSettings}
-        className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-        title="Settings"
-        aria-label="Settings"
-      >
-        <Settings size={13} />
-      </button>
-    </div>
+  <div className="px-3 py-2 border-b border-gray-700 shrink-0">
     <div className="flex items-center gap-1">
       <div
         className="flex flex-1 rounded border border-gray-700 bg-gray-900 p-0.5 text-xs"
@@ -166,6 +126,24 @@ export const RailNav: React.FC<{
           <ChevronsUpDown size={13} />
         </button>
       )}
+      {nav.onOpenWorkflows && (
+        <button
+          onClick={nav.onOpenWorkflows}
+          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+          title="Workflows"
+          aria-label="Workflows"
+        >
+          <Workflow size={13} />
+        </button>
+      )}
+      <button
+        onClick={nav.onOpenSettings}
+        className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+        title="Settings"
+        aria-label="Settings"
+      >
+        <Settings size={13} />
+      </button>
     </div>
   </div>
 );
@@ -177,6 +155,7 @@ export const ProjectsSection: React.FC<{
   /** A filter is active: the list is for agents, so keep the project list out of the way */
   filtered?: boolean;
 }> = ({ apps, nav, filtered }) => {
+  const navigate = useNavigate();
   const [collapsed, setCollapsed] = useState(() => {
     try {
       // Collapsed by default: 13 expanded projects push the agents below the fold
@@ -226,7 +205,15 @@ export const ProjectsSection: React.FC<{
               >
                 {app.name}
               </button>
-              <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+              <span className="flex items-center opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                <button
+                  onClick={() => navigate(codeUrl(app.path))}
+                  className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                  title={`View code of ${app.name}`}
+                  aria-label={`View code of ${app.name}`}
+                >
+                  <Code2 size={11} />
+                </button>
                 <AppPowerButton app={app} nav={nav} />
               </span>
             </div>

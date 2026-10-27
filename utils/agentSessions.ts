@@ -33,6 +33,13 @@ export interface SessionGroup {
   hidden: AgentSession[];
 }
 
+/** GitHub repo ("owner/name") of a project/directory group's agents; null for state groups */
+export const groupRepoSlug = (
+  group: Pick<SessionGroup, 'cwd' | 'sessions'>,
+  contexts: Record<string, { repo?: { slug: string | null } | null } | undefined>
+): string | null =>
+  (group.cwd && group.sessions.map((s) => contexts[s.id]?.repo?.slug).find(Boolean)) || null;
+
 export const STATE_GROUP_ORDER: GroupKey[] = [
   'pinned',
   'review',

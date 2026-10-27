@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Kanban, RefreshCw, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { AgentContext, AgentSession, WorkflowRunInfo } from '../../types';
@@ -21,8 +21,13 @@ import {
   layoutGraph,
   type PipelineType,
 } from '../../utils/workflowGraph.js';
-import { buildWorkflowCards, stageMoves, type WorkflowCard as Card } from '../../utils/workflows';
-import { agentFolder, codeUrl } from '../../utils/codeTarget';
+import {
+  buildWorkflowCards,
+  scopeWorkflowCards,
+  stageMoves,
+  type WorkflowCard as Card,
+} from '../../utils/workflows';
+import { agentFolder, boardUrl, codeUrl } from '../../utils/codeTarget';
 import { WorkflowCard } from './WorkflowCard';
 import type { WorkflowNav } from './WorkflowDetails';
 import { WorkflowGraph, type GraphView } from './WorkflowGraph';
@@ -50,6 +55,10 @@ const usePrefersReducedMotion = () => {
  */
 export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
   const navigate = useNavigate();
+  // `?repo=owner/name&agent=<jobId>` from the rail (View Workflows / Show Workflow)
+  const [searchParams, setSearchParams] = useSearchParams();
+  const repo = active ? searchParams.get('repo') : null;
+  const agent = active ? searchParams.get('agent') : null;
   const { data, loading, error, refresh } = useBoard(active);
   const { sessions } = useAgentSessions({ active });
   const [runs, setRuns] = useState<Record<string, WorkflowRunInfo>>({});
@@ -82,9 +91,22 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
 
   const now = data?.fetchedAt ?? 0;
   const allCards = useMemo(
-    () => buildWorkflowCards(data?.items ?? [], data?.statusField.options ?? [], runs, now),
-    [data, runs, now]
+    () =>
+      scopeWorkflowCards(
+        buildWorkflowCards(data?.items ?? [], data?.statusField.options ?? [], runs, now),
+        { repo, agent }
+      ),
+    [data, runs, now, repo, agent]
   );
+  // An agent's workflow: open its station and card right away
+  const agentKey = agent ? allCards[0]?.key : undefined;
+  const agentNode = agent ? allCards[0]?.node.id : undefined;
+  useEffect(() => {
+    if (!agentKey || !agentNode) return;
+    setView('all');
+    setSelected(agentNode);
+    setExpanded((prev) => new Set(prev).add(agentKey));
+  }, [agentKey, agentNode]);
   const cards = useMemo(
     () => (view === 'all' ? allCards : allCards.filter((c) => c.state.mode === view)),
     [allCards, view]
@@ -215,6 +237,20 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
 
       <header className="flex flex-wrap items-center gap-3 border-b border-gray-850 px-5 py-3">
         <h1 className="text-[15px] font-semibold tracking-tight">Workflows</h1>
+        {(repo || agent) && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-gray-850 px-2 py-0.5 text-[12px] text-gray-200">
+            {[repo, agent && `Agent ${agent}`].filter(Boolean).join(' · ')}
+            <button
+              type="button"
+              onClick={() => setSearchParams({})}
+              className="rounded p-0.5 text-gray-400 hover:text-white"
+              aria-label="Filter entfernen"
+              title="Filter entfernen"
+            >
+              <X size={12} />
+            </button>
+          </span>
+        )}
         <span className="text-[12px] text-gray-400">
           {allCards.length} Issues in mw
           {waitingOnMe > 0 && (
@@ -284,7 +320,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
         </button>
         <button
           type="button"
-          onClick={() => navigate('/board')}
+          onClick={() => navigate(repo ? boardUrl(repo, agent ?? undefined) : '/board')}
           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-850 px-2.5 py-1 text-[12px] text-gray-300 hover:bg-gray-900"
         >
           <Kanban size={13} /> Board
@@ -351,8 +387,14 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
         />
         {!loading && data && allCards.length === 0 && (
           <p className="sticky left-0 mt-6 px-5 text-[13px] text-gray-400">
-            Kein Issue läuft gerade durch mw. Ein Issue mit Label <code>mw:go</code> erscheint hier,
-            sobald es auf dem Board steht.
+            {repo || agent ? (
+              'Für diesen Filter läuft kein Issue durch mw.'
+            ) : (
+              <>
+                Kein Issue läuft gerade durch mw. Ein Issue mit Label <code>mw:go</code> erscheint
+                hier, sobald es auf dem Board steht.
+              </>
+            )}
           </p>
         )}
       </div>

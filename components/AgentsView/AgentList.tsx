@@ -5,15 +5,18 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
+  Code2,
   GitBranch,
   GitBranchPlus,
   GitPullRequest,
+  Kanban,
   MoreHorizontal,
   Pin,
   Plus,
   SquareTerminal,
   Star,
   Timer,
+  Workflow,
 } from 'lucide-react';
 import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
 import {
@@ -136,6 +139,26 @@ const FavoriteButton: React.FC<{
     <Star size={11} className={active ? 'fill-current' : ''} />
   </button>
 );
+
+/** Hover button for one menu action (same entry as in the context menu); takes no room until hovered, keyboard uses the menu */
+const ActionButton: React.FC<{
+  action?: AgentRowAction;
+  icon: React.ReactNode;
+  className?: string;
+}> = ({ action, icon, className = 'p-0.5' }) =>
+  action && !action.disabled ? (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        action.onSelect();
+      }}
+      className={`shrink-0 rounded text-gray-400 hover:text-white hover:bg-gray-700 hidden group-hover:flex [@media(hover:none)]:flex focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${className}`}
+      title={action.label}
+      aria-label={action.label}
+    >
+      {icon}
+    </button>
+  ) : null;
 
 /**
  * Session list with group headers, keyboard selection and per-row menus.
@@ -485,6 +508,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                             .find(Boolean) || null
                         : null;
                     const groupFav = isFavGroup(groupKey);
+                    const headerActions = isFavSection ? [] : groupActions(item.group);
                     const groupSessions = [...item.group.sessions, ...item.group.hidden];
                     const attachedCount = groupSessions.filter((s) => openIds.has(s.id)).length;
                     const groupHasActive =
@@ -601,6 +625,14 @@ export const AgentList: React.FC<AgentListProps> = ({
                             {groupIssues.open}
                           </a>
                         )}
+                        <ActionButton
+                          action={headerActions.find((a) => a.id === 'view-code')}
+                          icon={<Code2 size={12} />}
+                        />
+                        <ActionButton
+                          action={headerActions.find((a) => a.id === 'view-board')}
+                          icon={<Kanban size={12} />}
+                        />
                         {groupRepo && (
                           <button
                             onClick={(e) => {
@@ -667,6 +699,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                     (item.group.key as string) === FAVORITES_GROUP_KEY;
                   const runningSubagents = ctx?.subagents.running || 0;
                   const cacheWarning = isCacheWarning(ctx?.cache, now);
+                  const actions = rowActions(session);
                   const hasDetails =
                     !!label ||
                     issueKeys.length > 0 ||
@@ -866,6 +899,16 @@ export const AgentList: React.FC<AgentListProps> = ({
                         >
                           <MoreHorizontal size={12} />
                         </button>
+                        <ActionButton
+                          action={actions.find((a) => a.id === 'board')}
+                          icon={<Kanban size={12} />}
+                          className="p-1.5"
+                        />
+                        <ActionButton
+                          action={actions.find((a) => a.id === 'workflow')}
+                          icon={<Workflow size={12} />}
+                          className="p-1.5"
+                        />
                         {onToggleFavoriteSession && (
                           <FavoriteButton
                             active={isFav}

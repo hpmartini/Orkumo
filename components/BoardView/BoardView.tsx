@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
-import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, RefreshCw, Search, Star } from 'lucide-react';
 import type { AgentSession, BoardItem, BoardSliceKind, BoardSwimlaneMode } from '../../types';
 import {
   boardColumns,
@@ -15,7 +15,7 @@ import {
   linksByIssue,
   matchesContextFilter,
   matchesQuery,
-  moveSliceKey,
+  sliceFromRepoParam,
   type SliceEntry,
 } from '../../utils/board';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
@@ -23,7 +23,6 @@ import { fetchRepoPath } from '../../services/boardApi';
 import { fetchAgentContexts } from '../../services/agentsApi';
 import { codeUrl, linkedAgentFolder } from '../../utils/codeTarget';
 import { undoToast, useBoard } from './useBoard';
-import { BoardRail, type RailAgent } from './BoardRail';
 import { BoardGrid } from './BoardGrid';
 import { BoardItemPanel } from './BoardItemPanel';
 import { IssueCreateModal, lastIssueRepo } from './IssueCreateModal';
@@ -31,8 +30,6 @@ import { IssueCreateModal, lastIssueRepo } from './IssueCreateModal';
 interface BoardViewProps {
   /** Whether the view is visible (drives polling, URL state and keyboard handling) */
   active: boolean;
-  /** Make this view the visible route */
-  onOpenView?: () => void;
   /** Board filter of the active project context (slice keys) */
   contextFilter?: string[];
 }
@@ -46,6 +43,15 @@ interface ViewPrefs {
 const VIEW_KEY = 'devOrbitBoardView';
 const DEFAULT_VIEW: ViewPrefs = { sliceKind: 'repo', selected: null, laneMode: 'parent' };
 const SLICE_KINDS: BoardSliceKind[] = ['repo', 'label', 'milestone', 'assignee'];
+const SLICE_KIND_LABELS: Record<BoardSliceKind, string> = {
+  repo: 'Repo',
+  label: 'Label',
+  milestone: 'Milestone',
+  assignee: 'Assignee',
+};
+const SELECT_CLS = 'bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs';
+const ICON_BTN =
+  'p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
 const LANE_MODES: { key: BoardSwimlaneMode; label: string }[] = [
   { key: 'parent', label: 'Parent issue' },
   { key: 'repo', label: 'Repository' },
@@ -108,8 +114,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
   // Kept mounted on other routes: their query params are not ours
   const openKey = active ? searchParams.get('item') : null;
   const agentFilter = active ? searchParams.get('agent') : null;
+  const repoParam = active ? searchParams.get('repo') : null;
   const setParam = useCallback(
-    (name: 'item' | 'agent', value: string | null) =>
+    (name: 'item' | 'agent' | 'repo', value: string | null) =>
       setSearchParams((prev) => {
         const next = new URLSearchParams(prev);
         if (value) next.set(name, value);
@@ -129,7 +136,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
     [items]
   );
   const prefs = settings ?? EMPTY_PREFS;
-  const { sliceKind, selected, laneMode } = view;
+  const { laneMode } = view;
+  const { sliceKind, selected } = sliceFromRepoParam(view, repoParam);
+  // Choosing a slice in the toolbar replaces a ?repo= deep link
+  const selectSlice = (patch: Partial<ViewPrefs>) => {
+    updateView(patch);
+    if (repoParam) setParam('repo', null);
+  };
 
   const links = useMemo(() => deriveAgentLinks(items, sessions), [items, sessions]);
   const agentsByIssue = useMemo(() => linksByIssue(links), [links]);
@@ -176,7 +189,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
   const now = data?.fetchedAt ?? 0;
 
   // Agents with an issue in the current slice (plus the filtered one)
-  const railAgents = useMemo<RailAgent[]>(() => {
+  const railAgents = useMemo(() => {
     const inScope = new Set(scoped.map(itemKey));
     return [...issuesByAgent]
       .filter(([jobId, keys]) => jobId === agentFilter || keys.some((k) => inScope.has(k)))
@@ -200,8 +213,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
 
   const closePanel = useCallback(() => setParam('item', null), [setParam]);
 
-  // --- Slice list actions (persisted server-side) ---
-  const allKeys = [...slices.favorites, ...slices.others].map((e) => e.key);
+  // --- Slice actions (persisted server-side) ---
+  const selectedEntry = selected
+    ? [...slices.favorites, ...slices.others, ...slices.hidden].find((e) => e.value === selected)
+    : undefined;
   const onToggleFavorite = (entry: SliceEntry) =>
     updateSettings({ favorites: toggleIn(prefs.favorites, entry.key) });
   const onHide = (entry: SliceEntry) => {
@@ -210,63 +225,108 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
       hidden: [...prefs.hidden, entry.key],
       favorites: prefs.favorites.filter((k) => k !== entry.key),
     });
-    if (selected === entry.value) updateView({ selected: null });
+    selectSlice({ sliceKind, selected: null });
     undoToast(`${entry.value} ausgeblendet`, () => updateSettings(before));
   };
   const onUnhide = (entry: SliceEntry) =>
     updateSettings({ hidden: prefs.hidden.filter((k) => k !== entry.key) });
-  // Dropping on a favourite pins, dropping on a normal row unpins
-  const onReorder = (key: string, before: SliceEntry) => {
-    const isFav = prefs.favorites.includes(key);
-    updateSettings({
-      order: moveSliceKey(prefs.order, allKeys, key, before.key),
-      ...(isFav !== before.favorite ? { favorites: toggleIn(prefs.favorites, key) } : {}),
-    });
-  };
 
   const onAgent = (jobId: string) => setParam('agent', agentFilter === jobId ? null : jobId);
   const filterAgent = agentFilter ? (sessionsById.get(agentFilter)?.name ?? agentFilter) : null;
 
   return (
     <div className="relative flex flex-1 h-full min-h-0 bg-gray-900">
-      <BoardRail
-        onOpenDashboard={() => navigate('/')}
-        onOpenAgents={() => navigate('/agents')}
-        onOpenCode={() => navigate('/code')}
-        sliceKind={sliceKind}
-        onSliceKind={(kind) => updateView({ sliceKind: kind, selected: null })}
-        slices={slices}
-        allCount={allCount}
-        selected={selected}
-        onSelect={(value) => updateView({ selected: value })}
-        onToggleFavorite={onToggleFavorite}
-        onHide={onHide}
-        onUnhide={onUnhide}
-        onReorder={onReorder}
-        agents={railAgents}
-        agentFilter={agentFilter}
-        onAgent={onAgent}
-        onOpenIssue={(key) => setParam('item', key)}
-      />
-
       <main className="flex-1 min-w-0 flex flex-col">
         <header className="flex items-center gap-3 px-4 h-12 border-b border-gray-700 bg-gray-900 shrink-0">
-          <h1 className="text-[15px] font-semibold text-white flex items-center gap-2 min-w-0">
-            <span className="truncate">{selected ?? 'Alle'}</span>
-            <span className="text-xs font-normal text-gray-400 shrink-0">
-              {visible.length} Items
-            </span>
-          </h1>
-          {filterAgent && (
-            <button
-              onClick={() => setParam('agent', null)}
-              className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-sel text-white text-xs hover:bg-gray-750 min-w-0"
-              aria-label={`Filter Agent ${filterAgent} entfernen`}
-            >
-              <span className="truncate">Agent: {filterAgent}</span>
-              <X size={12} className="shrink-0" />
-            </button>
-          )}
+          <select
+            value={sliceKind}
+            onChange={(e) =>
+              selectSlice({ sliceKind: e.target.value as BoardSliceKind, selected: null })
+            }
+            aria-label="Slice nach"
+            className={SELECT_CLS}
+          >
+            {SLICE_KINDS.map((k) => (
+              <option key={k} value={k}>
+                {SLICE_KIND_LABELS[k]}
+              </option>
+            ))}
+          </select>
+          <select
+            value={selected ?? ''}
+            onChange={(e) => selectSlice({ sliceKind, selected: e.target.value || null })}
+            aria-label={`${SLICE_KIND_LABELS[sliceKind]} wählen`}
+            className={`${SELECT_CLS} max-w-56`}
+          >
+            <option value="">Alle ({allCount})</option>
+            {selected && !selectedEntry && <option value={selected}>{selected}</option>}
+            {(
+              [
+                ['Favoriten', slices.favorites],
+                [SLICE_KIND_LABELS[sliceKind], slices.others],
+                ['Ausgeblendet', slices.hidden],
+              ] as const
+            ).map(
+              ([label, entries]) =>
+                entries.length > 0 && (
+                  <optgroup key={label} label={label}>
+                    {entries.map((e) => (
+                      <option key={e.key} value={e.value}>
+                        {e.value} ({e.count})
+                      </option>
+                    ))}
+                  </optgroup>
+                )
+            )}
+          </select>
+          {selectedEntry &&
+            (selectedEntry.hidden ? (
+              <button
+                onClick={() => onUnhide(selectedEntry)}
+                className={ICON_BTN}
+                title="Wieder einblenden"
+                aria-label={`${selectedEntry.value} einblenden`}
+              >
+                <Eye size={14} />
+              </button>
+            ) : (
+              <>
+                <button
+                  onClick={() => onToggleFavorite(selectedEntry)}
+                  className={`${ICON_BTN} ${selectedEntry.favorite ? 'text-yellow-300' : ''}`}
+                  title={selectedEntry.favorite ? 'Favorit entfernen' : 'Als Favorit anpinnen'}
+                  aria-label={`${selectedEntry.value} ${selectedEntry.favorite ? 'lösen' : 'anpinnen'}`}
+                  aria-pressed={selectedEntry.favorite}
+                >
+                  <Star size={14} className={selectedEntry.favorite ? 'fill-yellow-300' : ''} />
+                </button>
+                <button
+                  onClick={() => onHide(selectedEntry)}
+                  className={ICON_BTN}
+                  title="Ausblenden"
+                  aria-label={`${selectedEntry.value} ausblenden`}
+                >
+                  <EyeOff size={14} />
+                </button>
+              </>
+            ))}
+          <select
+            value={agentFilter ?? ''}
+            onChange={(e) => setParam('agent', e.target.value || null)}
+            aria-label="Nach Agent filtern"
+            className={`${SELECT_CLS} max-w-48`}
+          >
+            <option value="">Alle Agents</option>
+            {agentFilter && !railAgents.some((a) => a.jobId === agentFilter) && (
+              <option value={agentFilter}>{filterAgent}</option>
+            )}
+            {railAgents.map((a) => (
+              <option key={a.jobId} value={a.jobId}>
+                {a.session?.name ?? a.jobId}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-gray-400 shrink-0">{visible.length} Items</span>
           <div className="flex-1" />
           {error && data && (
             <span className="flex items-center gap-1 text-xs text-red-300" title={error}>
@@ -278,7 +338,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
             <select
               value={laneMode}
               onChange={(e) => updateView({ laneMode: e.target.value as BoardSwimlaneMode })}
-              className="bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs"
+              className={SELECT_CLS}
             >
               {LANE_MODES.map((m) => (
                 <option key={m.key} value={m.key}>
@@ -353,7 +413,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
               onCreate={(optionId) => setCreateIn(optionId)}
               onReset={() => {
                 updateView({ selected: null });
-                setParam('agent', null);
+                setSearchParams((prev) => {
+                  const next = new URLSearchParams(prev);
+                  next.delete('agent');
+                  next.delete('repo');
+                  return next;
+                });
               }}
             />
           )}

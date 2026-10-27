@@ -6,6 +6,12 @@ import type { AgentContext, AgentRepo, AgentSession } from '../types';
 /** Route of the Code mode for `path` */
 export const codeUrl = (path: string) => `/code?path=${encodeURIComponent(path)}`;
 
+/** Route filtered to a repo ("owner/name") and, optionally, to the issues of one agent */
+const scopedUrl = (route: string) => (repo: string, agentId?: string) =>
+  `${route}?${new URLSearchParams(agentId ? { repo, agent: agentId } : { repo })}`;
+export const boardUrl = scopedUrl('/board');
+export const workflowsUrl = scopedUrl('/workflows');
+
 /** An agent works in its worktree; its cwd is the worktree (or a folder in it) otherwise */
 export function agentFolder(
   session: Pick<AgentSession, 'cwd'> | undefined,

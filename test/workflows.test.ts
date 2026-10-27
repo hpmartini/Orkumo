@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import type { BoardItem } from '../types';
-import { buildWorkflowCards, stageMoves } from '../utils/workflows';
+import { buildWorkflowCards, scopeWorkflowCards, stageMoves } from '../utils/workflows';
 
 const NOW = Date.parse('2026-10-26T12:00:00Z');
 const options = [
@@ -66,5 +66,24 @@ describe('stageMoves', () => {
     expect(stageMoves(new Map([['o/r#1', 'default.impl']]), cards)).toEqual([
       { key: 'o/r#1', from: 'default.impl', to: 'go' },
     ]);
+  });
+});
+
+describe('scopeWorkflowCards', () => {
+  const card = (key: string, repo: string, sessionId: string | null) =>
+    ({ key, item: { repo }, state: { sessionId } }) as unknown as Parameters<
+      typeof scopeWorkflowCards
+    >[0][number];
+  const cards = [
+    card('a', 'o/r', '75f5f8a7-6cab-435e'),
+    card('b', 'o/r', null),
+    card('c', 'o/x', '11111111-2222'),
+  ];
+
+  it('filters by repo (case-insensitive) and by agent job id', () => {
+    expect(scopeWorkflowCards(cards, { repo: 'O/R' }).map((c) => c.key)).toEqual(['a', 'b']);
+    expect(scopeWorkflowCards(cards, { agent: '75f5f8a7' }).map((c) => c.key)).toEqual(['a']);
+    expect(scopeWorkflowCards(cards, { repo: 'o/x', agent: '75f5f8a7' })).toEqual([]);
+    expect(scopeWorkflowCards(cards, {})).toHaveLength(3);
   });
 });
