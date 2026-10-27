@@ -89,6 +89,15 @@ function ghGraphql(query, stringVars = {}, typedVars = {}) {
             httpError(`GitHub: ${payload.errors.map((e) => e.message).join('; ')}`, 502)
           );
         }
+        // ENOENT reads like a wrong directory (#106); it means `gh` is not on the server's PATH
+        if (error?.code === 'ENOENT') {
+          return reject(
+            httpError(
+              `GitHub CLI (gh) nicht gefunden: nicht im PATH des DevOrbit-Servers (${process.env.PATH || 'leer'}). gh installieren bzw. Desktop-App von main neu bauen.`,
+              502
+            )
+          );
+        }
         if (error || !payload) {
           return reject(
             httpError(`gh failed: ${String(stderr || error?.message || 'no output').trim()}`, 502)
