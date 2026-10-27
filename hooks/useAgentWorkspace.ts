@@ -32,8 +32,10 @@ function load(): Workspace {
  * Attached agent sessions as tabs of panes, persisted in localStorage.
  * All actions are stable callbacks over the pure reducers in utils/agentWorkspace.
  */
-export function useAgentWorkspace() {
+export function useAgentWorkspace(contextId?: string) {
   const [workspace, setWorkspace] = useState<Workspace>(load);
+  // A project context switch swaps the stored workspace (useProjectContexts): pick it up
+  useEffect(() => setWorkspace(load()), [contextId]);
 
   useEffect(() => {
     try {

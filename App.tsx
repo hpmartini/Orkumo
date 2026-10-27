@@ -411,8 +411,9 @@ function AppContent() {
         <div className="flex-1 min-h-0 relative">
           {/* Always mounted so attached terminals survive navigation */}
           <div className="absolute inset-0 flex flex-col min-h-0">
+            {/* Not keyed by context: that would remount the views below (Web-IDE, terminals) */}
             <AgentsView
-              key={contexts.active?.id}
+              contextId={contexts.active?.id}
               active={activeTab === 'agents'}
               apps={apps}
               onExit={handleSelectDashboard}

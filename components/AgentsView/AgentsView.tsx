@@ -110,6 +110,8 @@ interface AgentsViewProps {
   nav: RailNavProps;
   /** Make this view the visible route (palette command "New task" from another page) */
   onOpenView: () => void;
+  /** Active project context (#97): its stored workspace and rail prefs are reloaded on change */
+  contextId?: string;
   /** Main area of the other routes (dashboard, board, code, ...): replaces the workspace while not active */
   children?: React.ReactNode;
 }
@@ -153,6 +155,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   onExit,
   nav,
   onOpenView,
+  contextId,
   children,
 }) => {
   const palette = useCommandPalette();
@@ -185,7 +188,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     closePane,
     prune: pruneMissing,
     ...workspaceActions
-  } = useAgentWorkspace();
+  } = useAgentWorkspace(contextId);
   const [expandedCompleted, setExpandedCompleted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -301,7 +304,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   }, [sessions, lookup]);
   const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
   // An active quick filter must not hide its matches inside collapsed groups
-  const rail = useRailPreferences(settings.grouping);
+  const rail = useRailPreferences(settings.grouping, contextId);
   const {
     arrange,
     toggleCollapsed,

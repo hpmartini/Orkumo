@@ -112,14 +112,11 @@ export interface KeyboardShortcut {
 }
 
 export interface KeyboardShortcuts {
-  toggleSidebar: KeyboardShortcut;
   goToDashboard: KeyboardShortcut;
   goToDashboardAlt: KeyboardShortcut;
   openSettings: KeyboardShortcut;
   openSettingsAlt: KeyboardShortcut;
   toggleDetailsCoding: KeyboardShortcut;
-  openFavorites: KeyboardShortcut;
-  openProjects: KeyboardShortcut;
   openAgents: KeyboardShortcut;
   goToTab1: KeyboardShortcut;
   goToTab2: KeyboardShortcut;
@@ -171,14 +168,11 @@ export const DEFAULT_PER_APP_STATE: PerAppViewState = {
 };
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
-  toggleSidebar: { key: 'b', description: 'Toggle sidebar' },
   goToDashboard: { key: 'h', description: 'Go to dashboard' },
   goToDashboardAlt: { key: 'd', description: 'Go to dashboard' },
   openSettings: { key: 's', description: 'Open settings' },
   openSettingsAlt: { key: ',', modifiers: { meta: true }, description: 'Open settings (Cmd+,)' },
   toggleDetailsCoding: { key: 'c', description: 'Toggle Details/Coding view' },
-  openFavorites: { key: 'f', description: 'Open favorites' },
-  openProjects: { key: 'p', description: 'Open projects' },
   openAgents: { key: 'a', description: 'Open Claude agents view' },
   goToTab1: { key: '1', modifiers: { meta: true }, description: 'Go to context 1' },
   goToTab2: { key: '2', modifiers: { meta: true }, description: 'Go to context 2' },

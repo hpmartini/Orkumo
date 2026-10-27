@@ -48,7 +48,7 @@ const errorToast = (fallback: string) => (err: unknown) =>
 /**
  * Project contexts (#97) with the active one. Switching parks the local ui entries on the
  * server and loads the target's, then calls `onSwitched` (reload apps/settings). Views that
- * read those entries must remount on `activeContextId` (`key`).
+ * read those entries must reload them on `activeContextId` (`key` or a reload effect).
  */
 export function useProjectContexts(onSwitched: () => void) {
   const [list, setList] = useState<ContextList | null>(null);
