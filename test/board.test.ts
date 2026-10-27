@@ -5,6 +5,7 @@ import {
   issueKey,
   itemKey,
   shortRepo,
+  resolveRepoSlice,
   isDoneOption,
   boardColumns,
   columnKeyOf,
@@ -555,6 +556,21 @@ describe('parseIssueRef', () => {
       expect(
         parseContextFilter(' label:epic-a, foo:bar, milestone:, repo:o/r,label:epic-a')
       ).toEqual(['label:epic-a', 'repo:o/r']);
+    });
+  });
+
+  describe('resolveRepoSlice', () => {
+    const repos = ['o/DevHub', 'o/api', 'p/api'];
+    it('takes an exact slug', () => {
+      expect(resolveRepoSlice(repos, 'p/api')).toBe('p/api');
+    });
+    it('falls back to a unique case-insensitive folder name', () => {
+      expect(resolveRepoSlice(repos, 'devhub')).toBe('o/DevHub');
+      expect(resolveRepoSlice(repos, '/x/y/DEVHUB')).toBe('o/DevHub');
+    });
+    it('is null for ambiguous or unknown names', () => {
+      expect(resolveRepoSlice(repos, 'api')).toBeNull();
+      expect(resolveRepoSlice(repos, 'nope')).toBeNull();
     });
   });
 });

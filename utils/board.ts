@@ -51,6 +51,14 @@ export function shortRepo(repo: string | null): string {
   return repo.slice(repo.lastIndexOf('/') + 1);
 }
 
+/** Board repo slug for `wanted`: exact slug, else the one repo whose name matches case-insensitively */
+export function resolveRepoSlice(repos: string[], wanted: string): string | null {
+  if (repos.includes(wanted)) return wanted;
+  const name = shortRepo(wanted).toLowerCase();
+  const matches = repos.filter((r) => shortRepo(r).toLowerCase() === name);
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function isDoneOption(o: BoardStatusOption): boolean {
   return /^done$/i.test(o.name.trim());
 }

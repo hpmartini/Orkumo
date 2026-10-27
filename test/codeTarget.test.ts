@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { agentFolder, codeFolders, codeUrl, linkedAgentFolder } from '../utils/codeTarget';
+import {
+  agentFolder,
+  boardUrl,
+  codeFolders,
+  codeUrl,
+  linkedAgentFolder,
+} from '../utils/codeTarget';
 import type { AgentContext } from '../types';
 
 const ctx = (worktreePath: string | null) =>
@@ -8,6 +14,12 @@ const ctx = (worktreePath: string | null) =>
 describe('codeTarget', () => {
   it('codeUrl encodes the path', () => {
     expect(codeUrl('/a b/c')).toBe('/code?path=%2Fa%20b%2Fc');
+  });
+
+  it('boardUrl sets and encodes only the given params', () => {
+    expect(boardUrl({})).toBe('/board');
+    expect(boardUrl({ repo: 'o/my repo' })).toBe('/board?repo=o%2Fmy+repo');
+    expect(boardUrl({ repo: 'r', agent: 'j1' })).toBe('/board?repo=r&agent=j1');
   });
 
   it('agentFolder prefers the worktree over the cwd', () => {
