@@ -900,6 +900,7 @@ function setupAutoUpdater() {
   // Configure auto-updater
   autoUpdater.autoDownload = false; // Don't download automatically, ask user first
   autoUpdater.autoInstallOnAppQuit = true;
+  let downloadRequested = false;
 
   // Update available
   autoUpdater.on('update-available', (info) => {
@@ -920,6 +921,7 @@ function setupAutoUpdater() {
         .then((result) => {
           if (result.response === 0) {
             // User clicked "Download"
+            downloadRequested = true;
             autoUpdater.downloadUpdate();
           }
         });
@@ -971,23 +973,16 @@ function setupAutoUpdater() {
   autoUpdater.on('error', (error) => {
     console.error('[Electron] Update error:', error);
 
-    // Don't show dialog for expected errors (no releases, network issues, missing config on dev builds)
-    const ignoredErrors = [
-      'No published versions on GitHub',
-      'net::ERR_INTERNET_DISCONNECTED',
-      'net::ERR_NETWORK_CHANGED',
-      'ENOENT', // Missing app-update.yml (dev/local builds)
-      'app-update.yml', // Missing update config file
-      'Cannot find channel',
-    ];
-    const shouldIgnore = ignoredErrors.some((msg) => error.message?.includes(msg));
-
-    if (!shouldIgnore && mainWindow && !mainWindow.isDestroyed()) {
+    // A failed background check (only pre-releases, no latest-mac.yml, offline,
+    // local build) is not actionable, so only a download the user started gets a dialog.
+    if (downloadRequested && mainWindow && !mainWindow.isDestroyed()) {
+      downloadRequested = false;
       dialog.showMessageBox(mainWindow, {
         type: 'error',
         title: 'Update Error',
-        message: 'Failed to check for updates',
-        detail: error.message,
+        message: 'Failed to download the update',
+        // electron-updater appends full HTTP headers; the first line carries the reason.
+        detail: error.message?.split('\n')[0],
         buttons: ['OK'],
       });
     }
