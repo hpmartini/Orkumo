@@ -22,16 +22,18 @@ vi.mock('fs', () => ({
   default: {
     existsSync: vi.fn(() => true),
     mkdirSync: vi.fn(),
-    readFileSync: vi.fn(() => JSON.stringify({
-      customPorts: {},
-      favorites: [],
-      archived: [],
-      customNames: {},
-      favoritesSortMode: 'manual',
-      version: 1
-    })),
-    writeFileSync: vi.fn()
-  }
+    readFileSync: vi.fn(() =>
+      JSON.stringify({
+        customPorts: {},
+        favorites: [],
+        archived: [],
+        customNames: {},
+        favoritesSortMode: 'manual',
+        version: 1,
+      })
+    ),
+    writeFileSync: vi.fn(),
+  },
 }));
 
 // Import the actual service after mocking fs
@@ -48,19 +50,21 @@ async function setupMocks() {
 describe('Port Configuration', () => {
   beforeEach(async () => {
     vi.clearAllMocks();
-    // Reset mock to return clean settings
-    fs.readFileSync.mockReturnValue(JSON.stringify({
-      customPorts: {},
-      favorites: [],
-      archived: [],
-      customNames: {},
-      favoritesSortMode: 'manual',
-      version: 1
-    }));
-    // Setup mocks if not already done
+    // fs/settingsService must be loaded before the mock is reset below
     if (!settingsService) {
       await setupMocks();
     }
+    // Reset mock to return clean settings
+    fs.readFileSync.mockReturnValue(
+      JSON.stringify({
+        customPorts: {},
+        favorites: [],
+        archived: [],
+        customNames: {},
+        favoritesSortMode: 'manual',
+        version: 1,
+      })
+    );
   });
 
   describe('configureAllPorts', () => {

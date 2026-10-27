@@ -27,3 +27,9 @@ data/
 *.njsproj
 *.sln
 *.sw?
+
+# Playwright MCP artifacts (may contain private data)
+.playwright-mcp/
+
+# Claude Code worktrees
+.claude/worktrees/

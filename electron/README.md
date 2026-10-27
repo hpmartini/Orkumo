@@ -19,16 +19,17 @@ The desktop application uses Electron to wrap the existing React frontend and Ex
 ### Prerequisites
 
 - Node.js 20.x or higher
-- npm or yarn
+- bun (>= 1.2)
 - All dependencies from the main project
 
 ### Running in Development Mode
 
 ```bash
-npm run electron:dev
+bun run electron:dev
 ```
 
 This will:
+
 1. Start the Express backend server on port 3001
 2. Start the Vite development server on port 3000
 3. Wait for the dev server to be ready
@@ -37,15 +38,16 @@ This will:
 ### Building for Production
 
 #### Build for all platforms
+
 ```bash
-npm run electron:build:all
+bun run electron:build:all
 ```
 
 #### Build for specific platform
+
 ```bash
-npm run electron:build:mac     # macOS (DMG and ZIP)
-npm run electron:build:win     # Windows (NSIS installer and portable)
-npm run electron:build:linux   # Linux (AppImage, deb, rpm)
+bun run electron:build:mac     # macOS (DMG and ZIP)
+bun run electron:build:linux   # Linux (AppImage, deb, rpm)
 ```
 
 Build outputs will be in the `dist-electron/` directory.
@@ -55,6 +57,7 @@ Build outputs will be in the `dist-electron/` directory.
 ### Main Process (main.js)
 
 The main process handles:
+
 - Application lifecycle management
 - Creating and managing BrowserWindow
 - Starting/stopping the Express backend server
@@ -66,6 +69,7 @@ The main process handles:
 ### Backend Integration
 
 The Express backend server is started as a forked Node.js process:
+
 - In **development**: Runs from `server/index.js`
 - In **production**: Packaged in `resources/server/` inside the app bundle
 - Communicates with frontend via HTTP/WebSocket (same as web version)
@@ -80,6 +84,7 @@ The Express backend server is started as a forked Node.js process:
 ### Native Modules
 
 The following native modules are used and properly packaged:
+
 - **node-pty**: Terminal emulation (unpacked from ASAR)
 - **pidusage**: Process monitoring (unpacked from ASAR)
 
@@ -91,11 +96,6 @@ The following native modules are used and properly packaged:
 2. **Notarization**: Automatic if `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, and `APPLE_TEAM_ID` are set
 3. **Distribution**: DMG and ZIP files for both Intel and Apple Silicon
 
-### Windows
-
-1. **Code Signing**: Optional but recommended (requires certificate)
-2. **Distribution**: NSIS installer and portable executable
-
 ### Linux
 
 1. **Distribution**: AppImage (universal), deb (Debian/Ubuntu), rpm (Fedora/RHEL)
@@ -103,6 +103,7 @@ The following native modules are used and properly packaged:
 ## Auto-Updates
 
 The application is configured for auto-updates via GitHub Releases:
+
 - Uses `electron-builder` auto-update mechanism
 - Checks for updates on startup
 - Downloads and installs updates in the background
@@ -121,24 +122,27 @@ The Electron app respects the following environment variables:
 ## Troubleshooting
 
 ### macOS: "App is damaged" error
+
 This happens when the app isn't properly signed. For development:
+
 ```bash
 xattr -cr /Applications/DevOrbit\ Dashboard.app
 ```
 
-### Windows: SmartScreen warning
-This is normal for unsigned apps. Users can click "More info" → "Run anyway"
-
 ### Linux: Permission denied
+
 Make the AppImage executable:
+
 ```bash
 chmod +x DevOrbit-Dashboard-1.0.0.AppImage
 ```
 
 ### Native module errors
+
 If you see errors about native modules (node-pty, pidusage):
+
 1. Ensure they're listed in `asarUnpack` in electron-builder.json
-2. Rebuild for Electron: `npx electron-rebuild`
+2. Rebuild for Electron: `bunx electron-rebuild`
 
 ## File Structure
 
@@ -151,7 +155,6 @@ electron/
 ├── entitlements.mac.plist     # macOS security entitlements
 ├── resources/                 # Build resources
 │   ├── icon.icns             # macOS icon (TODO: Add actual icon)
-│   ├── icon.ico              # Windows icon (TODO: Add actual icon)
 │   └── icon.png              # Linux icon (TODO: Add actual icon)
 └── README.md                  # This file
 ```

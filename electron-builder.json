@@ -1,7 +1,7 @@
 {
   "appId": "com.devorbit.dashboard",
   "productName": "DevOrbitDashboard",
-  "copyright": "Copyright © 2026",
+  "copyright": "Copyright \u00a9 2026",
   "directories": {
     "output": "dist-electron",
     "buildResources": "electron/resources"
@@ -9,6 +9,7 @@
   "files": [
     "dist/**/*",
     "electron/**/*",
+    "config/**/*",
     "!electron/**/*.md",
     "dist-server/**/*",
     "node_modules/**/*",
@@ -25,16 +26,7 @@
   "extraResources": [],
   "mac": {
     "category": "public.app-category.developer-tools",
-    "target": [
-      {
-        "target": "dmg",
-        "arch": ["x64", "arm64"]
-      },
-      {
-        "target": "zip",
-        "arch": ["x64", "arm64"]
-      }
-    ],
+    "target": ["dmg", "zip"],
     "darkModeSupport": true,
     "hardenedRuntime": false,
     "gatekeeperAssess": false
@@ -57,41 +49,8 @@
       "height": 380
     }
   },
-  "win": {
-    "target": [
-      {
-        "target": "nsis",
-        "arch": ["x64", "arm64"]
-      },
-      {
-        "target": "portable",
-        "arch": ["x64"]
-      }
-    ]
-  },
-  "nsis": {
-    "oneClick": false,
-    "perMachine": false,
-    "allowToChangeInstallationDirectory": true,
-    "deleteAppDataOnUninstall": false,
-    "createDesktopShortcut": true,
-    "createStartMenuShortcut": true
-  },
   "linux": {
-    "target": [
-      {
-        "target": "AppImage",
-        "arch": ["x64", "arm64"]
-      },
-      {
-        "target": "deb",
-        "arch": ["x64", "arm64"]
-      },
-      {
-        "target": "rpm",
-        "arch": ["x64", "arm64"]
-      }
-    ],
+    "target": ["AppImage", "deb", "rpm"],
     "category": "Development",
     "synopsis": "Developer dashboard for managing local development applications",
     "description": "DevOrbit Dashboard is a comprehensive developer dashboard that monitors and manages local development applications with AI-powered insights."

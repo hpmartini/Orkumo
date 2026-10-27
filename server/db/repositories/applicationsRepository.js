@@ -1,7 +1,7 @@
 import { eq, and, desc, asc, isNull } from 'drizzle-orm';
-import { getDb, isDatabaseConnected, schema } from '../index.js';
+import { getDb, schema } from '../index.js';
 
-const { applications, appRuns, appTags, tags } = schema;
+const { applications, appRuns } = schema;
 
 /**
  * Applications Repository
@@ -49,11 +49,7 @@ class ApplicationsRepository {
     if (!db) return null;
 
     try {
-      const result = await db
-        .select()
-        .from(applications)
-        .where(eq(applications.id, id))
-        .limit(1);
+      const result = await db.select().from(applications).where(eq(applications.id, id)).limit(1);
 
       return result[0] || null;
     } catch (error) {
@@ -273,11 +269,7 @@ class ApplicationsRepository {
         .select()
         .from(appRuns)
         .where(
-          and(
-            eq(appRuns.appId, appId),
-            eq(appRuns.status, 'running'),
-            isNull(appRuns.stoppedAt)
-          )
+          and(eq(appRuns.appId, appId), eq(appRuns.status, 'running'), isNull(appRuns.stoppedAt))
         )
         .limit(1);
 

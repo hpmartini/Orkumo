@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WebIDEPanel } from '../components/CodingView/WebIDEPanel';
 
@@ -14,16 +14,55 @@ vi.mock('@monaco-editor/react', () => ({
   ),
 }));
 
-// Mock fetch for file operations
+// Mock fetch for file operations and the code-server backend API
 global.fetch = vi.fn();
+
+const IFRAME_SELECTOR = 'iframe[title="VS Code Server"]';
+// ensureCodeServerRunning waits 2s warmup for an already running code-server
+const WARMUP_MS = 2100;
+
+const getIframe = () => document.querySelector(IFRAME_SELECTOR) as HTMLIFrameElement;
+
+// Let the shared code-server manager finish so the iframe receives its real src
+const waitForCodeServerReady = async () => {
+  await act(async () => {
+    await vi.advanceTimersByTimeAsync(WARMUP_MS);
+  });
+};
+
+// <iframe onError> never fires in browsers/React, so errors surface via backend failures
+const failBackend = () =>
+  (global.fetch as any).mockImplementation(async () => {
+    throw new Error('boom');
+  });
+
+const renderReady = async (directory: string) => {
+  render(<WebIDEPanel directory={directory} />);
+  await waitForCodeServerReady();
+};
 
 describe('WebIDEPanel', () => {
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     vi.clearAllMocks();
-    (global.fetch as any).mockResolvedValue({
+    // Docker-style URL so host paths are mapped to container paths
+    vi.stubEnv('VITE_CODE_SERVER_URL', '/code-server');
+    (global.fetch as any).mockImplementation(async (url: string) => ({
       ok: true,
-      json: async () => ({ tree: [] }),
+      json: async () =>
+        String(url).endsWith('/code-server/status')
+          ? { installed: true, running: true }
+          : { tree: [] },
+    }));
+  });
+
+  afterEach(async () => {
+    // Drain pending warmup timers so the module-level shared promise is cleared
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(5000);
     });
+    vi.useRealTimers();
+    vi.unstubAllEnvs();
   });
 
   describe('Editor Type Switcher', () => {
@@ -34,121 +73,127 @@ describe('WebIDEPanel', () => {
       expect(screen.getByText('VS Code')).toBeInTheDocument();
     });
 
-    it('should have Monaco active by default', async () => {
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
-
-      const monacoButton = await screen.findByRole('button', { name: /Monaco/i });
-      expect(monacoButton).toHaveClass('bg-blue-600');
-    });
-
-    it('should switch to code-server when VS Code button is clicked', async () => {
-      const user = userEvent.setup();
+    it('should have VS Code active by default', async () => {
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
       const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
+      const monacoButton = screen.getByRole('button', { name: /Monaco/i });
       expect(vsCodeButton).toHaveClass('bg-blue-600');
-      expect(await screen.findByText('Loading VS Code...')).toBeInTheDocument();
+      expect(monacoButton).not.toHaveClass('bg-blue-600');
+    });
+
+    it('should switch to Monaco when Monaco button is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+
+      const monacoButton = await screen.findByRole('button', { name: /Monaco/i });
+      await user.click(monacoButton);
+
+      expect(monacoButton).toHaveClass('bg-blue-600');
+      expect(screen.getByRole('button', { name: /VS Code/i })).not.toHaveClass('bg-blue-600');
     });
   });
 
   describe('code-server iframe', () => {
-    it('should render iframe when switched to VS Code mode', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+    it('should render iframe in the default VS Code mode', async () => {
+      await renderReady('/home/coder/Projects/test-project');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      expect(iframe).toBeInTheDocument();
+      expect(getIframe()).toBeInTheDocument();
     });
 
-    it('should include /code-server/ in iframe URL', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+    it('should include /code-server/ in iframe URL once code-server is ready', async () => {
+      await renderReady('/home/coder/Projects/test-project');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      expect(iframe?.getAttribute('src')).toContain('/code-server/');
+      expect(getIframe().getAttribute('src')).toContain('/code-server/');
     });
 
-    it('should show loading state initially', async () => {
-      const user = userEvent.setup();
+    it('should keep iframe on about:blank and show loading state until ready', async () => {
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
+      expect(await screen.findByText('Loading VS Code Server')).toBeInTheDocument();
+      expect(getIframe().getAttribute('src')).toBe('about:blank');
 
-      expect(await screen.findByText('Loading VS Code...')).toBeInTheDocument();
+      await waitForCodeServerReady();
+      expect(getIframe().getAttribute('src')).toContain('/code-server/');
+    });
+
+    it('should hide loading state after iframe loads', async () => {
+      await renderReady('/home/coder/Projects/test-project');
+
+      fireEvent.load(getIframe());
+
+      expect(screen.queryByText('Loading VS Code Server')).not.toBeInTheDocument();
     });
 
     it('should show retry button on error', async () => {
-      const user = userEvent.setup();
+      failBackend();
+      await renderReady('/home/coder/Projects/test-project');
+
+      expect(await screen.findByText('VS Code Server Unavailable')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
+    });
+
+    it('should show install hint when code-server is not installed', async () => {
+      (global.fetch as any).mockImplementation(async () => ({
+        ok: true,
+        json: async () => ({ installed: false }),
+      }));
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      // Simulate iframe error
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      iframe?.dispatchEvent(new Event('error'));
-
-      expect(await screen.findByText(/Failed to load VS Code/i)).toBeInTheDocument();
+      expect(await screen.findByText(/not installed/i)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
     });
   });
 
   describe('Path mapping', () => {
     it('should map Projects path to container path', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/Users/test/Projects/myapp" />);
+      await renderReady('/Users/test/Projects/myapp');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      const src = iframe?.getAttribute('src');
       // Path is URL-encoded in the query parameter
-      expect(src).toContain(encodeURIComponent('/home/coder/Projects/myapp'));
+      expect(getIframe().getAttribute('src')).toContain(
+        encodeURIComponent('/home/coder/Projects/myapp')
+      );
     });
 
     it('should handle PROJECTS (uppercase)', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/Users/test/PROJECTS/myapp" />);
+      await renderReady('/Users/test/PROJECTS/myapp');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
+      expect(getIframe().getAttribute('src')).toContain(
+        encodeURIComponent('/home/coder/PROJECTS/myapp')
+      );
+    });
 
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      const src = iframe?.getAttribute('src');
-      // Path is URL-encoded in the query parameter
-      expect(src).toContain(encodeURIComponent('/home/coder/PROJECTS/myapp'));
+    it('should use the host path directly for a local code-server', async () => {
+      vi.stubEnv('VITE_CODE_SERVER_URL', 'http://127.0.0.1:8080');
+      await renderReady('/Users/test/Projects/myapp');
+
+      expect(getIframe().getAttribute('src')).toContain(
+        encodeURIComponent('/Users/test/Projects/myapp')
+      );
     });
   });
 
   describe('Monaco Editor mode', () => {
     it('should show Explorer in Monaco mode', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+
+      await user.click(await screen.findByRole('button', { name: /Monaco/i }));
 
       expect(await screen.findByText('Explorer')).toBeInTheDocument();
     });
 
     it('should not show Explorer in code-server mode', async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
-      // Wait for Explorer to appear
+      // Default mode is code-server
+      expect(screen.queryByText('Explorer')).not.toBeInTheDocument();
+
+      // Monaco shows it, switching back hides it again
+      await user.click(await screen.findByRole('button', { name: /Monaco/i }));
       expect(await screen.findByText('Explorer')).toBeInTheDocument();
-
-      // Switch to code-server
-      const vsCodeButton = screen.getByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      // Explorer should not be visible
+      await user.click(screen.getByRole('button', { name: /VS Code/i }));
       expect(screen.queryByText('Explorer')).not.toBeInTheDocument();
     });
   });
@@ -196,62 +241,77 @@ describe('WebIDEPanel', () => {
   });
 
   describe('15-second timeout behavior', () => {
-    beforeEach(() => {
-      vi.useFakeTimers();
+    it('should try to restart code-server if iframe does not load within 15 seconds', async () => {
+      await renderReady('/home/coder/Projects/test-project');
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000);
+      });
+
+      expect(
+        screen.getByText('Editor not responding. Restarting VS Code Server...')
+      ).toBeInTheDocument();
     });
 
-    afterEach(() => {
-      vi.useRealTimers();
+    it('should show error if restart after timeout fails', async () => {
+      await renderReady('/home/coder/Projects/test-project');
+      // Make the recently-ready guard in forceRestartCodeServer irrelevant: fail the restart itself
+      vi.setSystemTime(Date.now() + 60_000);
+      (global.fetch as any).mockRejectedValue(new Error('down'));
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000 + 1500);
+      });
+
+      expect(screen.getByText(/Failed to restart VS Code Server/i)).toBeInTheDocument();
     });
 
-    it('should show timeout error after 15 seconds if iframe does not load', async () => {
-      const user = userEvent.setup({ delay: null });
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+    it('should stop loading and show an error when the iframe never loads after restarts', async () => {
+      await renderReady('/home/coder/Projects/test-project');
+      // Restarts succeed, but the iframe never fires load
+      (global.fetch as any).mockImplementation(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          String(url).endsWith('/code-server/start')
+            ? { success: true }
+            : String(url).endsWith('/code-server/status')
+              ? { installed: true, running: true }
+              : { tree: [] },
+      }));
+      vi.setSystemTime(Date.now() + 60_000); // lift the recently-ready restart guard
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
+      for (let i = 0; i < 12; i++) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(10_000);
+        });
+        vi.setSystemTime(Date.now() + 60_000);
+      }
 
-      // Initially should show loading
-      expect(await screen.findByText('Loading VS Code...')).toBeInTheDocument();
-
-      // Fast-forward 15 seconds
-      vi.advanceTimersByTime(15000);
-
-      // Should now show timeout error
-      expect(await screen.findByText(/Failed to load VS Code \(timeout\)/i)).toBeInTheDocument();
+      expect(screen.queryByText('Loading VS Code Server')).not.toBeInTheDocument();
+      expect(screen.getByText(/not responding/i)).toBeInTheDocument();
     });
 
     it('should clear timeout when iframe loads successfully', async () => {
-      const user = userEvent.setup({ delay: null });
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+      await renderReady('/home/coder/Projects/test-project');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
+      fireEvent.load(getIframe());
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(15000);
+      });
 
-      // Simulate iframe load
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      iframe?.dispatchEvent(new Event('load'));
-
-      // Fast-forward 15 seconds
-      vi.advanceTimersByTime(15000);
-
-      // Should NOT show error (timeout was cleared)
+      expect(screen.queryByText(/Editor not responding/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/Failed to load VS Code/i)).not.toBeInTheDocument();
     });
   });
 
   describe('Rapid editor switching', () => {
     it('should handle rapid switching between editors', async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
       const monacoButton = await screen.findByRole('button', { name: /Monaco/i });
       const vsCodeButton = screen.getByRole('button', { name: /VS Code/i });
 
-      // Switch rapidly
-      await user.click(vsCodeButton);
-      expect(vsCodeButton).toHaveClass('bg-blue-600');
-
       await user.click(monacoButton);
       expect(monacoButton).toHaveClass('bg-blue-600');
 
@@ -260,127 +320,92 @@ describe('WebIDEPanel', () => {
 
       await user.click(monacoButton);
       expect(monacoButton).toHaveClass('bg-blue-600');
+
+      await user.click(vsCodeButton);
+      expect(vsCodeButton).toHaveClass('bg-blue-600');
     });
 
     it('should reset loading state when switching away from code-server', async () => {
-      const user = userEvent.setup();
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
-      const monacoButton = await screen.findByRole('button', { name: /Monaco/i });
-      const vsCodeButton = screen.getByRole('button', { name: /VS Code/i });
+      expect(await screen.findByText('Loading VS Code Server')).toBeInTheDocument();
 
-      // Switch to code-server
-      await user.click(vsCodeButton);
-      expect(await screen.findByText('Loading VS Code...')).toBeInTheDocument();
-
-      // Switch back to Monaco
-      await user.click(monacoButton);
-      expect(screen.queryByText('Loading VS Code...')).not.toBeInTheDocument();
+      await user.click(screen.getByRole('button', { name: /Monaco/i }));
+      expect(screen.queryByText('Loading VS Code Server')).not.toBeInTheDocument();
     });
   });
 
   describe('Path mapping edge cases', () => {
     it('should handle nested Projects folders', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/Users/test/Projects/client/Projects/nested" />);
+      await renderReady('/Users/test/Projects/client/Projects/nested');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      const src = iframe?.getAttribute('src');
-      // Should match LAST occurrence - path is URL-encoded in query parameter
-      expect(src).toContain(encodeURIComponent('/home/coder/Projects/nested'));
+      // Should match LAST occurrence
+      expect(getIframe().getAttribute('src')).toContain(
+        encodeURIComponent('/home/coder/Projects/nested')
+      );
     });
 
     it('should handle paths with special characters', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/Users/test/Projects/my-app-v2.0" />);
+      await renderReady('/Users/test/Projects/my-app-v2.0');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      const src = iframe?.getAttribute('src');
-      // Path is URL-encoded in the query parameter
-      expect(src).toContain(encodeURIComponent('/home/coder/Projects/my-app-v2.0'));
+      expect(getIframe().getAttribute('src')).toContain(
+        encodeURIComponent('/home/coder/Projects/my-app-v2.0')
+      );
     });
 
     it('should handle paths that do not match Projects pattern', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/Users/test/Documents/code" />);
+      await renderReady('/Users/test/Documents/code');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      const src = iframe?.getAttribute('src');
-      // Should use normalized path as-is - path is URL-encoded in query parameter
-      expect(src).toContain(encodeURIComponent('/Users/test/Documents/code'));
-    });
-
-    it('should handle Windows-style paths', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="C:\\Users\\test\\Projects\\myapp" />);
-
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
-      const src = iframe?.getAttribute('src');
-      // Should convert backslashes to forward slashes - path is URL-encoded in query parameter
-      // Note: The double backslash becomes a single forward slash in the path
-      expect(src).toContain(encodeURIComponent('/home/coder/Projects//myapp'));
+      // Unmapped paths are used as-is
+      expect(getIframe().getAttribute('src')).toContain(
+        encodeURIComponent('/Users/test/Documents/code')
+      );
     });
   });
 
   describe('Retry button functionality', () => {
-    it('should reload iframe when retry button is clicked', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+    it('should restart the check-and-start cycle when retry button is clicked', async () => {
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      failBackend();
+      await renderReady('/home/coder/Projects/test-project');
+      expect(await screen.findByText('VS Code Server Unavailable')).toBeInTheDocument();
+      (global.fetch as any).mockImplementation(async (url: string) => ({
+        ok: true,
+        json: async () =>
+          String(url).endsWith('/code-server/status')
+            ? { installed: true, running: true }
+            : { tree: [] },
+      }));
+      const statusCalls = () =>
+        (global.fetch as any).mock.calls.filter(([u]: [string]) =>
+          String(u).endsWith('/code-server/status')
+        ).length;
+      const before = statusCalls();
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
+      await user.click(screen.getByRole('button', { name: /Retry/i }));
+      await waitForCodeServerReady();
 
-      // Simulate iframe error
-      const iframe = document.querySelector('iframe[title="VS Code Server"]') as HTMLIFrameElement;
-      const originalSrc = iframe?.src;
-      iframe?.dispatchEvent(new Event('error'));
-
-      expect(await screen.findByText(/Failed to load VS Code/i)).toBeInTheDocument();
-
-      // Click retry button
-      const retryButton = screen.getByRole('button', { name: /Retry/i });
-      await user.click(retryButton);
-
-      // Iframe src should be reassigned (forcing reload)
-      const iframeAfterRetry = document.querySelector('iframe[title="VS Code Server"]') as HTMLIFrameElement;
-      expect(iframeAfterRetry?.src).toBe(originalSrc);
+      expect(statusCalls()).toBe(before + 1);
+      expect(screen.queryByText('VS Code Server Unavailable')).not.toBeInTheDocument();
+      expect(getIframe().getAttribute('src')).toContain('/code-server/');
     });
   });
 
   describe('iframe security attributes', () => {
     it('should have sandbox attribute for security', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+      await renderReady('/home/coder/Projects/test-project');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
+      const iframe = getIframe();
       expect(iframe?.getAttribute('sandbox')).toContain('allow-same-origin');
       expect(iframe?.getAttribute('sandbox')).toContain('allow-scripts');
       expect(iframe?.getAttribute('sandbox')).toContain('allow-forms');
     });
 
     it('should have allow attribute for clipboard access', async () => {
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+      await renderReady('/home/coder/Projects/test-project');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
+      const iframe = getIframe();
       expect(iframe?.getAttribute('allow')).toContain('clipboard-read');
       expect(iframe?.getAttribute('allow')).toContain('clipboard-write');
     });
@@ -389,13 +414,9 @@ describe('WebIDEPanel', () => {
   describe('path validation security', () => {
     it('should validate paths when switching to code-server', async () => {
       // Valid paths should pass validation
-      const user = userEvent.setup();
-      render(<WebIDEPanel directory="/home/coder/Projects/myapp" />);
+      await renderReady('/home/coder/Projects/myapp');
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      await user.click(vsCodeButton);
-
-      const iframe = document.querySelector('iframe[title="VS Code Server"]');
+      const iframe = getIframe();
       expect(iframe).toBeInTheDocument();
       expect(iframe?.getAttribute('src')).toContain('/code-server/');
     });

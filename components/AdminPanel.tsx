@@ -16,6 +16,7 @@ import {
   CheckCircle,
   XCircle,
   AlertCircle,
+  Kanban,
 } from 'lucide-react';
 import {
   fetchConfig,
@@ -36,7 +37,13 @@ import {
   validateApiKey,
   ApiKeyInfo,
 } from '../services/api';
-import { KeyboardShortcuts, KeyboardShortcut, DEFAULT_KEYBOARD_SHORTCUTS } from '../types';
+import { fetchBoardSettings, updateBoardSettings } from '../services/boardApi';
+import {
+  KeyboardShortcuts,
+  KeyboardShortcut,
+  DEFAULT_KEYBOARD_SHORTCUTS,
+  type BoardSource,
+} from '../types';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 
 interface AdminPanelProps {
@@ -76,14 +83,42 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [editingShortcut, setEditingShortcut] = useState<keyof KeyboardShortcuts | null>(null);
   const [shortcutsDirty, setShortcutsDirty] = useState(false);
 
+  // Board source state
+  const [boardSource, setBoardSource] = useState<BoardSource>({ owner: '', number: 0 });
+  const [boardSourceLoading, setBoardSourceLoading] = useState(false);
+  const [boardSourceSaved, setBoardSourceSaved] = useState(false);
+
   useEffect(() => {
     if (isOpen) {
       loadConfig();
       loadIDEs();
       loadShortcuts();
       loadApiKeys();
+      loadBoardSource();
     }
   }, [isOpen]);
+
+  const loadBoardSource = async () => {
+    try {
+      setBoardSource((await fetchBoardSettings()).source);
+      setBoardSourceSaved(false);
+    } catch (err) {
+      console.error('Failed to load board settings:', err);
+    }
+  };
+
+  const handleSaveBoardSource = async () => {
+    setBoardSourceLoading(true);
+    setError(null);
+    try {
+      setBoardSource((await updateBoardSettings({ source: boardSource })).source);
+      setBoardSourceSaved(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to save board source');
+    } finally {
+      setBoardSourceLoading(false);
+    }
+  };
 
   const loadShortcuts = async () => {
     setShortcutsLoading(true);
@@ -641,6 +676,71 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
             )}
           </div>
 
+          {/* Board source (GitHub project behind /board) */}
+          <div className="pt-4 border-t border-gray-700">
+            <div className="flex items-center gap-2 mb-4">
+              <Kanban className="text-emerald-400" size={18} />
+              <label className="text-sm font-medium text-gray-300">Board-Quelle</label>
+            </div>
+            <form
+              className="p-4 bg-gray-900 rounded-lg border border-gray-700 space-y-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleSaveBoardSource();
+              }}
+            >
+              <p className="text-xs text-gray-500">
+                GitHub-Project, das das Board zeigt (User oder Organisation + Project-Nummer).
+              </p>
+              <div className="flex gap-2">
+                <label className="flex-1 text-xs text-gray-400">
+                  Owner
+                  <input
+                    type="text"
+                    value={boardSource.owner}
+                    onChange={(e) =>
+                      setBoardSource({ ...boardSource, owner: e.target.value.trim() })
+                    }
+                    placeholder="hpmartini"
+                    pattern="[A-Za-z0-9\-]{1,39}"
+                    required
+                    className="mt-1 w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                  />
+                </label>
+                <label className="w-28 text-xs text-gray-400">
+                  Project-Nr.
+                  <input
+                    type="number"
+                    min={1}
+                    step={1}
+                    value={boardSource.number || ''}
+                    onChange={(e) =>
+                      setBoardSource({ ...boardSource, number: Number(e.target.value) })
+                    }
+                    required
+                    className="mt-1 w-full px-3 py-2 bg-gray-800 border border-gray-600 rounded text-white text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500 font-mono"
+                  />
+                </label>
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                {boardSourceSaved && (
+                  <span className="flex items-center gap-1 text-xs text-green-400">
+                    <CheckCircle size={14} />
+                    Gespeichert
+                  </span>
+                )}
+                <button
+                  type="submit"
+                  disabled={boardSourceLoading}
+                  className="flex items-center gap-1 px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded transition-colors"
+                >
+                  <Save size={14} />
+                  Speichern
+                </button>
+              </div>
+            </form>
+          </div>
+
           {/* AI Configuration Section */}
           <div className="pt-4 border-t border-gray-700">
             <div className="flex items-center gap-2 mb-4">
@@ -774,7 +874,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                   ) : (
                     <button
                       onClick={() => setApiKeyEditing(true)}
-                      className="w-full px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-400 border border-dashed border-gray-600 rounded transition-colors"
+                      className="w-full px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-400 border border-dashed border-gray-600 rounded transition-colors"
                     >
                       + Add API Key
                     </button>
@@ -853,7 +953,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                       ) : (
                         <button
                           onClick={() => setEditingShortcut(shortcutId)}
-                          className="px-3 py-1 text-xs font-mono bg-gray-800 hover:bg-gray-700 text-gray-300 rounded border border-gray-600 transition-colors min-w-[80px]"
+                          className="px-3 py-1 text-xs font-mono bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-300 rounded border border-gray-600 transition-colors min-w-[80px]"
                         >
                           {formatShortcut(shortcut)}
                         </button>

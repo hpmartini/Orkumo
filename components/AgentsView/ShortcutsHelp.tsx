@@ -1,5 +1,6 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { X, Keyboard } from 'lucide-react';
+import { useDialogA11y } from '../CommandPalette/useDialogA11y';
 
 interface ShortcutsHelpProps {
   open: boolean;
@@ -11,23 +12,26 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
     title: 'Navigate',
     rows: [
       ['↑ / ↓', 'Move between rows'],
-      ['Enter', 'Attach to session (or dispatch if the input has text)'],
+      ['Cmd/Ctrl+P', 'Command palette: > commands, @ agents, # projects'],
+      ['N / Alt+N', 'New task (opens the task composer)'],
+      ['Enter', 'Attach to the selected session'],
       ['→', 'Attach to the selected session'],
       ['Space', 'Open / close the peek panel'],
       ['Alt+1 … Alt+9', 'Attach to session 1-9 in the focused directory'],
       ['Enter on a group', 'Collapse / expand the group'],
-      ['Esc', 'Close peek panel, clear the input'],
-      ['Ctrl+C', 'Clear input; press twice to leave the agents view'],
+      ['Esc', 'Close peek panel'],
+      ['Ctrl+C', 'Press twice to leave the agents view'],
       ['?', 'Show this overlay'],
     ],
   },
   {
-    title: 'Dispatch',
+    title: 'New task (composer)',
     rows: [
       ['Enter', 'Dispatch a new background session'],
       ['Ctrl+Enter', 'Dispatch and attach immediately'],
       ['Shift+Enter / Ctrl+J', 'Insert a newline'],
-      ['Tab', 'Browse subagents (empty input) or apply a suggestion'],
+      ['Tab', 'Apply the highlighted suggestion'],
+      ['Esc', 'Close the composer (the draft is kept)'],
       ['Ctrl+G', 'Edit the prompt in a larger editor'],
       ['@agent / <agent> …', 'Run a custom subagent'],
       ['@repo …', 'Dispatch into another repository'],
@@ -42,8 +46,9 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
       ['Ctrl+S', 'Toggle grouping: state ↔ directory'],
       ['Ctrl+T (Alt+P)', 'Pin / unpin the selected session'],
       ['Ctrl+R', 'Rename the selected session'],
-      ['Shift+↑ / Shift+↓', 'Reorder the selected session'],
-      ['Ctrl+X', 'Stop session; press again within 2 s to delete'],
+      ['Shift+↑ / Shift+↓', 'Reorder the selected session or group'],
+      ['Shift+F', 'Favorite / unfavorite the selected session or group'],
+      ['Ctrl+X', 'Delete session (with confirmation)'],
       ['Ctrl+X on a group', 'Delete all sessions in the group (with confirmation)'],
     ],
   },
@@ -59,6 +64,8 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
 ];
 
 export const ShortcutsHelp: React.FC<ShortcutsHelpProps> = ({ open, onClose }) => {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const trapTab = useDialogA11y(open, dialogRef, () => dialogRef.current);
   useEffect(() => {
     if (!open) return;
     const handler = (e: KeyboardEvent) => {
@@ -74,18 +81,24 @@ export const ShortcutsHelp: React.FC<ShortcutsHelpProps> = ({ open, onClose }) =
   if (!open) return null;
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 z-50 bg-gray-950/70 flex items-center justify-center p-4"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
+      aria-labelledby="shortcuts-title"
+      ref={dialogRef}
+      tabIndex={-1}
+      onKeyDown={trapTab}
     >
       <div
         className="w-full max-w-3xl max-h-[85vh] overflow-y-auto bg-gray-900 border border-gray-700 rounded-xl shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-5 py-3 border-b border-gray-800 sticky top-0 bg-gray-900">
-          <Keyboard size={16} className="text-blue-400" />
-          <h3 className="text-sm font-semibold text-gray-100">Agent view shortcuts</h3>
+          <Keyboard size={16} className="text-blue-300" />
+          <h3 id="shortcuts-title" className="text-sm font-semibold text-gray-100">
+            Agent view shortcuts
+          </h3>
           <span className="text-xs text-gray-500">
             Ctrl+T is reserved by most browsers - use Alt+P there (Ctrl+T works in the desktop app).
           </span>
@@ -100,9 +113,7 @@ export const ShortcutsHelp: React.FC<ShortcutsHelpProps> = ({ open, onClose }) =
         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4 p-5">
           {SECTIONS.map((section) => (
             <div key={section.title}>
-              <div className="text-[11px] uppercase tracking-wider text-gray-500 mb-2">
-                {section.title}
-              </div>
+              <div className="text-xs font-semibold text-gray-300 mb-2">{section.title}</div>
               <table className="w-full text-sm">
                 <tbody>
                   {section.rows.map(([keys, desc]) => (

@@ -1,6 +1,4 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import fs from 'fs';
-import path from 'path';
 import crypto from 'crypto';
 
 // Mock dependencies before importing the module

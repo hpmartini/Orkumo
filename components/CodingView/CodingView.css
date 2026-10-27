@@ -25,7 +25,7 @@
 /* Separator / Resize Handle */
 .coding-separator {
   flex: 0 0 6px;
-  background-color: #1f2937;
+  background-color: #344a7b;
   cursor: col-resize;
   position: relative;
   transition: background-color 0.15s ease;
@@ -72,7 +72,7 @@
 [data-separator] {
   flex: 0 0 6px !important;
   cursor: col-resize !important;
-  background-color: #1f2937 !important;
+  background-color: #344a7b !important;
   outline: none !important;
 }
 
@@ -118,7 +118,7 @@
 
 .coding-separator-static {
   flex: 0 0 6px;
-  background-color: #1f2937;
+  background-color: #344a7b;
   position: relative;
 }
 
@@ -137,7 +137,7 @@
 /* Draggable separator for terminal panel (custom implementation) */
 .coding-separator-draggable {
   flex: 0 0 6px;
-  background-color: #1f2937;
+  background-color: #344a7b;
   cursor: col-resize;
   position: relative;
   transition: background-color 0.15s ease;

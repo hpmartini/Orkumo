@@ -9,11 +9,11 @@
  * Port configuration
  */
 export const PORTS = {
-  /** Port for DevHub frontend (Vite dev server) */
-  devhub: 3000,
+  /** Port for DevHub frontend (Vite dev server); off 3000/3001 so it never collides with the apps it manages */
+  devhub: 3098,
 
   /** Port for backend API server */
-  server: 3001,
+  server: 3099,
 
   /** Default starting port for application port assignment */
   appStart: 3001,

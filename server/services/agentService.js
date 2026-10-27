@@ -121,6 +121,41 @@ const USER_SETTINGS_FILE = path.join(CLAUDE_HOME, 'settings.json');
 /** Short session id as printed by `claude --bg` (also used for route validation). */
 export const SHORT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/i;
 
+// Cloud session targets for `claude --cloud <id|url>`. Mirrors utils/cloudSession.ts - keep in sync.
+const CLOUD_ID_RE =
+  /^(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|session_[A-Za-z0-9]{8,64})$/;
+
+/** CLI args for a cloud session: `--cloud <id>`, or `--teleport` (picker) without a target. */
+export function buildCloudArgs(target) {
+  if (!target) return ['--teleport'];
+  const raw = String(target).trim();
+  let id = CLOUD_ID_RE.test(raw) ? raw : null;
+  if (!id) {
+    try {
+      const url = new URL(raw);
+      const match = url.pathname.match(/^\/code\/([^/]+)\/?$/);
+      if (
+        url.protocol === 'https:' &&
+        url.hostname === 'claude.ai' &&
+        !url.username &&
+        !url.password &&
+        match &&
+        CLOUD_ID_RE.test(match[1])
+      ) {
+        id = match[1];
+      }
+    } catch {
+      // not a URL
+    }
+  }
+  if (!id) {
+    const error = new Error('Expected a cloud session ID or a https://claude.ai/code/… URL');
+    error.status = 400;
+    throw error;
+  }
+  return ['--cloud', id];
+}
+
 /**
  * Dispatch options that widen what a background session may do on this machine.
  * They are only forwarded to the CLI when the server was started with
@@ -172,7 +207,7 @@ export function resolveClaudeBinary() {
   ].filter(Boolean);
   const pathDirs = (process.env.PATH || '').split(path.delimiter).filter(Boolean);
   for (const dir of pathDirs) {
-    candidates.push(path.join(dir, os.platform() === 'win32' ? 'claude.cmd' : 'claude'));
+    candidates.push(path.join(dir, 'claude'));
   }
   for (const candidate of candidates) {
     try {
@@ -354,6 +389,7 @@ export function extractPrLinks(children) {
       (c) =>
         c &&
         typeof c.href === 'string' &&
+        /^https:\/\//.test(c.href) &&
         (c.kind === 'pr' || /\/(pull|merge_requests)\/\d+/.test(c.href))
     )
     .map((c) => {

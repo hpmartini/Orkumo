@@ -46,9 +46,11 @@ describe('API Service', () => {
     });
 
     it('should throw error when response is not ok', async () => {
+      // 4xx is returned without retry; 5xx would go through the 1s/2s/4s backoff
       mockFetch.mockResolvedValueOnce({
         ok: false,
-        statusText: 'Internal Server Error',
+        status: 404,
+        statusText: 'Not Found',
       });
 
       const { fetchApps } = await import('../services/api');
@@ -180,10 +182,26 @@ describe('IDE API', () => {
       const { openInIDE } = await import('../services/api');
 
       // The frontend should send valid IDE IDs
-      const validIdeIds = ['vscode', 'cursor', 'webstorm', 'intellij', 'phpstorm', 'pycharm', 'sublime'];
+      const validIdeIds = [
+        'vscode',
+        'cursor',
+        'webstorm',
+        'intellij',
+        'phpstorm',
+        'pycharm',
+        'sublime',
+      ];
 
       validIdeIds.forEach((ideId) => {
-        expect(['vscode', 'cursor', 'webstorm', 'intellij', 'phpstorm', 'pycharm', 'sublime']).toContain(ideId);
+        expect([
+          'vscode',
+          'cursor',
+          'webstorm',
+          'intellij',
+          'phpstorm',
+          'pycharm',
+          'sublime',
+        ]).toContain(ideId);
       });
     });
   });
@@ -213,7 +231,9 @@ describe('IDE API', () => {
       });
 
       const { updatePreferredIDE } = await import('../services/api');
-      await expect(updatePreferredIDE('app-1', 'invalid')).rejects.toThrow('Failed to update preferred IDE');
+      await expect(updatePreferredIDE('app-1', 'invalid')).rejects.toThrow(
+        'Failed to update preferred IDE'
+      );
     });
   });
 });

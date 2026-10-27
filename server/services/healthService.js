@@ -157,7 +157,7 @@ async function getDiskSpace(targetPath) {
  */
 export async function getSystemVersions() {
   const now = Date.now();
-  if (versionCache && (now - versionCacheTime) < VERSION_CACHE_TTL) {
+  if (versionCache && now - versionCacheTime < VERSION_CACHE_TTL) {
     return versionCache;
   }
 
@@ -276,9 +276,10 @@ export async function checkProjectHealth(projectPath) {
     name: 'nodeVersion',
     status: hasNvmrc || hasNodeVersion ? 'ok' : 'missing',
     severity: 'info',
-    message: hasNvmrc || hasNodeVersion
-      ? 'Node version pinned'
-      : 'Consider adding .nvmrc or .node-version for consistent Node version',
+    message:
+      hasNvmrc || hasNodeVersion
+        ? 'Node version pinned'
+        : 'Consider adding .nvmrc or .node-version for consistent Node version',
   });
 
   // Check for TypeScript
@@ -293,7 +294,8 @@ export async function checkProjectHealth(projectPath) {
   }
 
   // Check for ESLint
-  const hasEslint = fs.existsSync(path.join(projectPath, '.eslintrc.js')) ||
+  const hasEslint =
+    fs.existsSync(path.join(projectPath, '.eslintrc.js')) ||
     fs.existsSync(path.join(projectPath, '.eslintrc.json')) ||
     fs.existsSync(path.join(projectPath, 'eslint.config.js'));
   health.checks.push({
@@ -318,7 +320,7 @@ export async function checkProjectHealth(projectPath) {
 /**
  * Get full system health report
  */
-export async function getSystemHealth(projectPaths = []) {
+export async function getSystemHealth(_projectPaths = []) {
   const [versions, diskSpace] = await Promise.all([
     getSystemVersions(),
     getDiskSpace(os.homedir()),
@@ -339,11 +341,12 @@ export async function getSystemHealth(projectPaths = []) {
         severity: 'warning',
         title: 'Node.js Update Available',
         message: `Current Node.js version (${versions.node.version}) is older than LTS 20.x`,
-        action: versions.versionManager.manager === 'nvm'
-          ? 'nvm install --lts && nvm use --lts'
-          : versions.versionManager.manager === 'volta'
-            ? 'volta install node@lts'
-            : 'Download from nodejs.org',
+        action:
+          versions.versionManager.manager === 'nvm'
+            ? 'nvm install --lts && nvm use --lts'
+            : versions.versionManager.manager === 'volta'
+              ? 'volta install node@lts'
+              : 'Download from nodejs.org',
       });
     }
   }

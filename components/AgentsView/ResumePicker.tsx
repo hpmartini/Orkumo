@@ -90,7 +90,7 @@ export const ResumePicker: React.FC<ResumePickerProps> = ({
         onKeyDown={handleKeyDown}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-gray-800">
-          <History size={16} className="text-blue-400" />
+          <History size={16} className="text-blue-300" />
           <input
             autoFocus
             value={query}
@@ -131,10 +131,8 @@ export const ResumePicker: React.FC<ResumePickerProps> = ({
               key={session.sessionId}
               onClick={() => onResume(session)}
               onMouseEnter={() => setIndex(i)}
-              className={`w-full text-left px-4 py-2 flex items-center gap-3 border-l-2 ${
-                i === index
-                  ? 'bg-gray-800 border-blue-500'
-                  : 'border-transparent hover:bg-gray-800/60'
+              className={`w-full text-left px-4 py-2 flex items-center gap-3 ${
+                i === index ? 'bg-gray-800 ring-1 ring-inset ring-blue-300' : 'hover:bg-gray-800/60'
               }`}
             >
               <div className="flex-1 min-w-0">
@@ -146,7 +144,7 @@ export const ResumePicker: React.FC<ResumePickerProps> = ({
                   {session.state ? ` · ${session.state}` : ''}
                 </div>
               </div>
-              <span className="text-xs text-gray-600 font-mono">
+              <span className="text-xs text-gray-500 font-mono">
                 {formatAge(Date.now() - session.lastActivity)} ago
               </span>
             </button>

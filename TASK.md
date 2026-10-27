@@ -414,3 +414,48 @@ The following existing tasks are related to the new features above:
 | Custom port setting UI     | Custom commands & port injection  |
 | Recommendations panel      | Actionable recommendations engine |
 | Stats polling optimization | ElectronBrowserView optimizations |
+
+---
+
+### PR #67 merge conflicts with main (2026-10-23)
+
+- [x] **[FIX]** `feat/44-agent-task-board` conflicted with main (#63 remote agents, #64/#66 rail redesign)
+  - Issue: 4 files in conflict — `AgentList.tsx` (row layout rewritten on main), `AgentsView.tsx`, `ProjectsRail.tsx`, `server/index.js`
+  - Approach: merge `origin/main` (no rebase, branch is pushed); take main's `AgentList.tsx` and re-apply only the board diff (`issuesByAgent`/`onOpenIssue` props, issue chips under the row); union of imports/props elsewhere
+  - Solution: merge commit; tsc clean, lint 0 errors, vitest 434/434, build green, merged server serves `/api/board/items`, `/api/board/repo-path`, `/api/agents`
+
+---
+
+### PR #82: neues Issue verschwindet vom Board, Review-Punkte 1–3 (2026-10-25)
+
+- [x] **[FIX]** Neu angelegtes Issue verschwand bis zu 60 s vom Board
+  - Issue: Ein Board-Abruf, der vor dem Anlegen startete, schrieb danach seine älteren Daten in den Server-Cache (`getBoard`) und in den Client-State (`useBoard.load`). Gleiches galt für Bearbeitungen und Status-Moves; zusätzlich listet GitHub ein frisch hinzugefügtes Project-Item teils verzögert.
+  - Approach: Schreibvorgänge merken und gegen jeden Abruf abgleichen statt nur den in-flight-Status zu patchen.
+  - Solution: reine Funktion `utils/boardWrites.js` (`mergeRecentWrites`, `keepWrite`), von Server und Client genutzt. Server: `recentWrites` + `rememberItem` (ersetzt `inflight.writes`); ein Write gewinnt über Abrufe, die vor ihm starteten, angelegte Items bleiben 2 min (GitHub-Verzögerung). Client: `written`-Map für Upserts und erfolgreiche Moves, Grace 0.
+- [x] **[FIX]** Review 1: `createIssue` nicht atomar → 502 trägt `issue`; erneutes Senden mit `issueId` hängt nur ans Project an (kein Duplikat); Dialog zeigt Hinweis und „Erneut aufs Board setzen“.
+- [x] **[FIX]** Review 2: `updateIssue` mit Teilfehler → Item wird nachgeladen und als `item` mitgeschickt; Panel zeigt den echten Stand statt alles zurückzurollen.
+- [x] **[FIX]** Review 3: Close/Reopen und Parent-Entfernen entscheiden nach frisch gelesenem Zustand (`ISSUE_STATE_QUERY`), nicht nach dem Cache.
+- [x] **[FIX]** Befunde aus dem Gegen-Review: Docker-Images kopieren `utils/boardWrites.js` und `config/defaults.js` (der Server importiert beide, `config/` fehlte schon vorher); Dialog sperrt im Fortsetzen-Modus alle Felder außer Status (sonst stillschweigend verworfen); `PUT /api/board/settings` leert den Cache nur bei echtem Quellwechsel (sonst ginge der Schutz für frisch angelegte Items verloren).
+- Verifikation: vitest 463/463, tsc/lint sauber, Build grün; Race gegen GitHub nachgestellt (Refresh startet während des Anlegens, dauert 10 s → Issue in Antwort und Cache); UI: anlegen, sofort neu laden → Karte bleibt. Testissues #84–#86 geschlossen.
+
+---
+
+### #95: Issues anlegen / Labels vergeben in der Desktop-App (2026-10-27)
+
+- [x] **[VERIFY]** #72-Funktionen fehlten in der installierten App
+  - Issue: Board und `/agents` boten in `/Applications/DevOrbitDashboard.app` kein „Neues Issue“ und keine Label-Bearbeitung.
+  - Root cause: Zwei veraltete Builds. Die App vom 26.10. 10:43 war aus `chore/drop-native-windows` gebaut (31 Commits hinter `main`, ohne #82: `/api/board/issues`, `repo-options` fehlten). Der Neubau vom 26.10. 18:24 hat #82, aber noch nicht `b5d2888` (Homebrew-PATH): Aus Finder/Dock gestartet findet der Server `gh` nicht (`gh failed: spawn gh ENOENT`), Board und Anlegen scheitern.
+  - Solution: kein Code nötig, `main` ab `b5d2888` enthält beides. App von `main` neu bauen.
+  - Verified: installierte App (18:24) mit Finder-PATH `/usr/bin:/bin:/usr/sbin:/sbin` → `repo-options` und `items` liefern ENOENT. `main` in Electron (unpackaged, gleicher Minimal-PATH, eigenes `--user-data-dir`, `SERVER_PORT=3491`, per CDP bedient): Board „+“ in Todo mit `mw:dynamic` → #113. Mit Shell-PATH zusätzlich: `/agents` „+“ an DevHub mit `mw:go` → #112 (Backlog), Panel: Label `mw:build` gesetzt und entfernt (#111). `gh issue view` bestätigt. Testissues #110–#113 geschlossen. vitest 508/508, tsc sauber.
+  - #106 („Mindestens in der Electron-App keine Issues anlegen“) betrifft denselben Build (gemeldet 21:45, App 18:24 ohne PATH-Fix), vermutlich dieselbe Ursache. Der Wortlaut „falsches Verzeichnis“ passt eher zu `agentService.js` (Agent-Start außerhalb der Projektordner); nach dem Neubau gegenprüfen.
+
+---
+
+### App startet weder als Electron- noch als Web-App (2026-10-27)
+
+- [x] **[FIX]** Default-Ports 3000/3001 kollidierten mit den Projekten, die DevOrbit selbst verwaltet
+  - Issue: Gepackte App (`/Applications/DevOrbitDashboard.app`) brach mit „Port 3001 is already in use“ ab; die Web-App ohne lokale Overrides hätte dieselben Ports (3000/3001) gebraucht. Dort liefen `next-server` (3000) und eine bun-API (3001).
+  - Approach: `bun run dev`, `electron:dev`, `build`, `bundle:server` und die installierte App einzeln gestartet und die Ausgabe gelesen. Dev lief nur, weil `.env.local` `VITE_PORT`/`SERVER_PORT` auf 3098/3099 überschreibt; die gepackte App liest `.env.local` nicht.
+  - Solution: `PORTS.devhub`/`PORTS.server` in `config/defaults.{js,ts}` auf 3098/3099 (wie Docker); `vite.config.ts` nutzt `PORTS` statt eigener Literale. `appStart` (Startport verwalteter Apps) bleibt 3001.
+- Verifikation: vitest 508/508, Build und Server-Bundle grün; App mit `bun run electron:build:mac` neu gebaut, in `/Applications` ersetzt, startet und lauscht auf 3099 (`/api/health` ok).
+- Offen: `code-server` im Dev-Skript scheitert mit EADDRINUSE auf 8080, solange eine andere code-server-Instanz läuft (die übrigen Prozesse laufen weiter).

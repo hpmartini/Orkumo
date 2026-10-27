@@ -2,7 +2,6 @@
  * PTY Service - Manages pseudo-terminal sessions for real terminal emulation
  */
 import * as pty from 'node-pty';
-import os from 'os';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import { exec } from 'child_process';
@@ -18,13 +17,9 @@ export const ptyEvents = new EventEmitter();
  * @returns {string} Path to shell binary
  */
 function detectShell() {
-  if (os.platform() === 'win32') {
-    return 'powershell.exe';
-  }
-
   // List of shells to try in order of preference
   const shellCandidates = [
-    process.env.SHELL,  // User's configured shell
+    process.env.SHELL, // User's configured shell
     '/bin/zsh',
     '/bin/bash',
     '/bin/ash',
@@ -64,7 +59,13 @@ console.log(`[PTY] Service initialized with default shell: ${defaultShell}`);
  * @param {object} options.env - Additional environment variables
  * @returns {object} Session info
  */
-export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, rows = 24, options = {}) {
+export function createPtySession(
+  sessionId,
+  cwd = process.env.HOME,
+  cols = 80,
+  rows = 24,
+  options = {}
+) {
   // Kill existing session if any
   if (ptySessions.has(sessionId)) {
     killPtySession(sessionId);
@@ -74,7 +75,7 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
   let workingDir = cwd;
   if (!fs.existsSync(workingDir)) {
     console.warn(`[PTY] CWD ${workingDir} doesn't exist, using fallback`);
-    workingDir = fs.existsSync('/tmp') ? '/tmp' : (process.env.HOME || '/');
+    workingDir = fs.existsSync('/tmp') ? '/tmp' : process.env.HOME || '/';
   }
 
   // Use custom command or default shell
@@ -88,7 +89,9 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
     commandArgs = command.includes('zsh') || command.includes('bash') ? ['--login'] : [];
   }
 
-  console.log(`[PTY] Creating session with command: ${command}, args: ${JSON.stringify(commandArgs)}, cwd: ${workingDir}`);
+  console.log(
+    `[PTY] Creating session with command: ${command}, args: ${JSON.stringify(commandArgs)}, cwd: ${workingDir}`
+  );
 
   try {
     // Re-detect shell at spawn time to ensure we use the best available
@@ -98,7 +101,7 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
     // Ensure PATH includes common binary locations
     const homeDir = process.env.HOME || '/root';
     const basePaths = [
-      `${homeDir}/.nvm/versions/node`,  // Will be expanded below
+      `${homeDir}/.nvm/versions/node`, // Will be expanded below
       `${homeDir}/.bun/bin`,
       `${homeDir}/.local/bin`,
       '/opt/homebrew/bin',
@@ -114,13 +117,16 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
     try {
       const nvmNodeDir = `${homeDir}/.nvm/versions/node`;
       if (fs.existsSync(nvmNodeDir)) {
-        const versions = fs.readdirSync(nvmNodeDir).filter(v => v.startsWith('v'));
-        versions.sort().reverse().forEach(v => {
-          const binPath = `${nvmNodeDir}/${v}/bin`;
-          if (fs.existsSync(binPath)) {
-            nvmPaths.push(binPath);
-          }
-        });
+        const versions = fs.readdirSync(nvmNodeDir).filter((v) => v.startsWith('v'));
+        versions
+          .sort()
+          .reverse()
+          .forEach((v) => {
+            const binPath = `${nvmNodeDir}/${v}/bin`;
+            if (fs.existsSync(binPath)) {
+              nvmPaths.push(binPath);
+            }
+          });
       }
     } catch {
       // Ignore NVM detection errors
@@ -128,7 +134,7 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
 
     // Build enhanced PATH - NVM first, then base paths, then existing PATH
     const existingPath = process.env.PATH || '';
-    const enhancedPath = [...nvmPaths, ...basePaths.filter(p => fs.existsSync(p)), existingPath]
+    const enhancedPath = [...nvmPaths, ...basePaths.filter((p) => fs.existsSync(p)), existingPath]
       .filter(Boolean)
       .join(':');
 
@@ -166,13 +172,16 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
       createdAt: Date.now(),
     };
 
-    // Handle PTY output
+    // A reconnect reuses the sessionId and replaces this PTY; a replaced PTY must not
+    // talk to (or unregister) its successor, or the new terminal shows output but drops input.
+    const isCurrent = () => ptySessions.get(sessionId) === session;
+
     ptyProcess.onData((data) => {
-      ptyEvents.emit('data', { sessionId, data });
+      if (isCurrent()) ptyEvents.emit('data', { sessionId, data });
     });
 
-    // Handle PTY exit
     ptyProcess.onExit(({ exitCode, signal }) => {
+      if (!isCurrent()) return;
       ptyEvents.emit('exit', { sessionId, exitCode, signal });
       ptySessions.delete(sessionId);
     });
@@ -194,9 +203,13 @@ export function createPtySession(sessionId, cwd = process.env.HOME, cols = 80, r
     // Try to provide more helpful error message
     let errorMessage = error.message;
     if (errorMessage.includes('posix_spawnp') || errorMessage.includes('spawn')) {
-      errorMessage = `Failed to start shell (${command}). ` +
-        `The shell may not exist or may not be executable. ` +
-        `Try restarting the application.`;
+      // posix_spawnp also fails when node-pty's own `spawn-helper` lost its
+      // executable bit during bun install - in that case *every* terminal
+      // fails, not just this command, so point at the repair step.
+      errorMessage =
+        `Failed to start shell (${command}). ` +
+        `The command may not exist on PATH, or node-pty's spawn-helper is not executable. ` +
+        `If no terminal works at all, run "bun run postinstall" to repair it.`;
     }
 
     return {
@@ -238,10 +251,11 @@ export function resizePty(sessionId, cols, rows) {
 /**
  * Kill a PTY session
  * @param {string} sessionId - Session identifier
+ * @param {number} [pid] - Only kill if the session still runs this PTY (a reconnect may have replaced it)
  */
-export function killPtySession(sessionId) {
+export function killPtySession(sessionId, pid) {
   const session = ptySessions.get(sessionId);
-  if (session && session.pty) {
+  if (session && session.pty && (pid === undefined || session.pty.pid === pid)) {
     try {
       session.pty.kill();
     } catch {
@@ -347,25 +361,29 @@ export function detectClaudeCLI() {
       process.env.PATH || '',
     ].join(':');
 
-    currentProcess = exec('which claude', { timeout: 5000, env: { ...process.env, PATH: extendedPath } }, (error, stdout) => {
-      if (isResolved) return;
+    currentProcess = exec(
+      'which claude',
+      { timeout: 5000, env: { ...process.env, PATH: extendedPath } },
+      (error, stdout) => {
+        if (isResolved) return;
 
-      if (error) {
-        resolveWith({ installed: false });
-        return;
-      }
+        if (error) {
+          resolveWith({ installed: false });
+          return;
+        }
 
-      const foundPath = stdout.trim();
+        const foundPath = stdout.trim();
 
-      // Get version
-      currentProcess = exec(`"${foundPath}" --version`, { timeout: 5000 }, (vError, vStdout) => {
-        resolveWith({
-          installed: true,
-          path: foundPath,
-          version: vError ? 'unknown' : vStdout.trim(),
+        // Get version
+        currentProcess = exec(`"${foundPath}" --version`, { timeout: 5000 }, (vError, vStdout) => {
+          resolveWith({
+            installed: true,
+            path: foundPath,
+            version: vError ? 'unknown' : vStdout.trim(),
+          });
         });
-      });
-    });
+      }
+    );
   });
 }
 

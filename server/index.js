@@ -37,7 +37,7 @@ import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
-import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
+import { initializeDatabase, isDatabaseConnected } from './db/index.js';
 import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
@@ -46,6 +46,16 @@ import { injectLogger, removeLogger, checkLoggerStatus } from './services/logger
 import * as dockerService from './services/dockerService.js';
 import * as healthService from './services/healthService.js';
 import * as agentService from './services/agentService.js';
+import * as meshService from './services/meshService.js';
+import { isSessionId } from './services/meshHosts.js';
+import ghosttyRoutes from './services/ghosttyRoutes.js';
+import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
+import * as boardService from './services/boardService.js';
+import * as codeService from './services/codeService.js';
+import {
+  getProcessStats as getServerProcessStats,
+  parsePids,
+} from './services/processStatsService.js';
 import { PORTS, TERMINAL, RATE_LIMIT, TIMEOUTS } from '../config/defaults.js';
 
 // Load environment variables from .env.local
@@ -134,9 +144,27 @@ const fileSystemLimiter = rateLimit({
   message: { error: 'Too many file system requests, please slow down' },
 });
 
-app.use(cors());
+// Browser origins allowed to call the API: loopback on any port (dashboard, Vite, Electron dev),
+// extra origins via CORS_ORIGINS (comma-separated), and file:// ("null") only inside Electron.
+// Requests without an Origin header (curl, server-to-server) are not browser-driven and pass.
+const extraCorsOrigins = (process.env.CORS_ORIGINS || '')
+  .split(',')
+  .map((o) => o.trim())
+  .filter(Boolean);
+const isAllowedOrigin = (origin) => {
+  if (!origin) return true;
+  if (origin === 'null') return process.env.ELECTRON_MODE === 'true';
+  if (extraCorsOrigins.includes(origin)) return true;
+  try {
+    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+};
+app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
+app.use('/api/terminal/ghostty', ghosttyRoutes);
 
 // ============================================
 // Input Validation Schemas (Zod)
@@ -152,18 +180,8 @@ const startAppSchema = z.object({
   port: z.number().int().min(1).max(65535).optional(),
 });
 
-const configUpdateSchema = z.object({
-  scanDepth: z.number().int().min(1).max(10).optional(),
-  excludePatterns: z.array(z.string().max(50)).max(20).optional(),
-});
-
 const directorySchema = z.object({
   path: pathSchema,
-});
-
-const analyzeSchema = z.object({
-  fileName: z.string().min(1).max(100),
-  fileContent: z.string().min(1).max(50000),
 });
 
 // IDE ID can be built-in or custom (alphanumeric with dashes)
@@ -195,7 +213,7 @@ function validate(schema) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({
           error: 'Validation failed',
-          details: error.errors.map((e) => ({ path: e.path.join('.'), message: e.message })),
+          details: error.issues.map((e) => ({ path: e.path.join('.'), message: e.message })),
         });
       }
       next(error);
@@ -209,7 +227,7 @@ function validate(schema) {
 function validateParams(schema) {
   return (req, res, next) => {
     try {
-      for (const [key, value] of Object.entries(req.params)) {
+      for (const value of Object.values(req.params)) {
         schema.parse(value);
       }
       next();
@@ -1256,11 +1274,10 @@ app.post('/api/settings/api-keys/:provider/validate', async (req, res) => {
     if (provider === 'gemini') {
       try {
         const ai = new GoogleGenAI({ apiKey: key.trim() });
-        const response = await ai.models.generateContent({
+        await ai.models.generateContent({
           model: 'gemini-2.0-flash',
           contents: 'Respond with exactly: OK',
         });
-        const text = response.text;
         res.json({ valid: true, message: 'API key is valid' });
       } catch (err) {
         const message = err.message || 'Invalid API key';
@@ -2903,7 +2920,7 @@ const agentRemoveSchema = z.object({
 });
 const agentViewSettingsSchema = z
   .object({
-    grouping: z.enum(['state', 'directory']).optional(),
+    grouping: z.enum(['state', 'directory', 'project', 'none']).optional(),
     layout: z.enum(['tabs', 'columns', 'rows', 'grid']).optional(),
     scopeCwd: z.string().max(500).nullable().optional(),
     collapsedGroups: z.array(z.string().max(500)).max(200).optional(),
@@ -2938,7 +2955,7 @@ const agentLimiter = rateLimit({
 
 function sendAgentError(res, error) {
   const status = error?.status || 500;
-  res.status(status).json({ error: error?.message || 'Agent operation failed' });
+  res.status(status).json({ ...error?.details, error: error?.message || 'Agent operation failed' });
 }
 
 /**
@@ -3063,6 +3080,51 @@ app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), as
   }
 });
 
+/**
+ * POST /api/agents/cloud-session - validated CLI args for a cloud/remote session PTY
+ * (`claude --cloud <id|url>` or `claude --teleport`). The client opens the PTY via /api/pty.
+ */
+app.post(
+  '/api/agents/cloud-session',
+  agentLimiter,
+  validate(z.object({ target: z.string().max(500).optional().nullable() })),
+  (req, res) => {
+    try {
+      res.json({ args: agentService.buildCloudArgs(req.body.target) });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/**
+ * GET /api/agents/remote - sessions of the other Tailscale devices (`ssh <host> claude agents --json`)
+ */
+app.get('/api/agents/remote', agentLimiter, async (req, res) => {
+  try {
+    res.json(await meshService.listRemote());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/**
+ * GET /api/agents/remote/:host/:id/logs - `ssh <host> claude logs <id>`
+ */
+app.get('/api/agents/remote/:host/:id/logs', agentLimiter, async (req, res) => {
+  const { host, id } = req.params;
+  try {
+    await meshService.ensureDevices();
+    // Same id check as the ssh arg builders, so a mismatch is a 400 and never a 500
+    if (!meshService.isKnownRemoteHost(host) || !isSessionId(id)) {
+      return res.status(400).json({ error: 'Invalid host or session id' });
+    }
+    res.json(await meshService.getRemoteLogs(host, id));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 app.post('/api/agents/respawn-all', agentLimiter, async (req, res) => {
   try {
     res.json(await agentService.respawnSession('--all'));
@@ -3103,6 +3165,27 @@ app.post(
     }
   }
 );
+
+app.get('/api/agents/context', agentLimiter, async (req, res) => {
+  try {
+    res.json({ contexts: await getAgentContexts() });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Polled every 5s by the open servers panel; ?pids=1,2,3 (max 50), vanished pids are omitted.
+app.get('/api/agents/servers/stats', agentLimiter, async (req, res) => {
+  const pids = parsePids(req.query.pids);
+  if (!pids) return res.status(400).json({ error: 'pids must be 1-50 positive integers' });
+  try {
+    // Only servers the dashboard lists: no probing of arbitrary pids
+    const known = await getKnownServerPids();
+    res.json({ stats: await getServerProcessStats(pids.filter((pid) => known.has(pid))) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
 
 app.get('/api/agents/subagents', async (req, res) => {
   try {
@@ -3238,6 +3321,204 @@ app.put(
     }
   }
 );
+
+// ============================================
+// Agent Task Board API (GitHub ProjectV2 via gh)
+// ============================================
+
+const boardItemIdSchema = z.string().regex(/^PVTI_[A-Za-z0-9_-]+$/);
+const boardSliceKeys = z.array(z.string().max(200)).max(500);
+const boardSettingsSchema = z
+  .object({
+    source: z
+      .object({
+        owner: z.string().regex(/^[A-Za-z0-9-]{1,39}$/),
+        number: z.number().int().positive(),
+      })
+      .strict()
+      .optional(),
+    favorites: boardSliceKeys.optional(),
+    order: boardSliceKeys.optional(),
+    hidden: boardSliceKeys.optional(),
+  })
+  .strict();
+
+app.get('/api/board/items', agentLimiter, async (req, res) => {
+  try {
+    const { source } = settingsService.getBoardSettings();
+    res.json(await boardService.getBoard(source, { refresh: req.query.refresh === '1' }));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.patch(
+  '/api/board/items/:itemId/status',
+  agentLimiter,
+  validateParams(boardItemIdSchema),
+  validate(z.object({ optionId: z.string().min(1).max(100) })),
+  async (req, res) => {
+    try {
+      const { source } = settingsService.getBoardSettings();
+      res.json(await boardService.setItemStatus(source, req.params.itemId, req.body.optionId));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+// Directories DevOrbit knows about: configured scan roots and projects (with their subfolders),
+// plus repos, worktrees and agent cwds found elsewhere (only the folder itself)
+async function knownDirs() {
+  const sessions = await agentService.listSessions({ all: true }).catch(() => []);
+  const repos = await agentService.listRepos(process.env.HOME, sessions).catch(() => []);
+  return {
+    roots: [...scanAllDirectories().map((a) => a.path), ...(getConfig().directories || [])],
+    exact: [...repos.map((r) => r.path), ...sessions.map((s) => s.cwd)],
+  };
+}
+
+// Code mode: the Web-IDE opens a folder only when DevOrbit knows it
+app.get('/api/code/folder', agentLimiter, async (req, res) => {
+  try {
+    const { roots, exact } = await knownDirs();
+    // Agents jump to their worktree root, which is not their cwd when they run in a subfolder
+    const contexts = await getAgentContexts().catch(() => ({}));
+    const worktrees = Object.values(contexts).map((c) => c?.repo?.worktreePath);
+    const folder = await codeService.resolveAllowedFolder(req.query.path, roots, [
+      ...exact,
+      ...worktrees,
+    ]);
+    if (!folder) return res.status(403).json({ error: 'Folder is not a known project directory' });
+    res.json({ path: folder });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Local checkout of an issue's repo, preset as target directory for "Agent starten"
+const boardRepoSlugSchema = z.string().regex(/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/);
+
+app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
+  const slug = boardRepoSlugSchema.safeParse(req.query.repo);
+  if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
+  try {
+    const { roots, exact } = await knownDirs();
+    res.json({ path: await boardService.findRepoPath(slug.data, [...roots, ...exact]) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Create and edit issues (#72)
+const issueRefSchema = z
+  .object({ repo: boardRepoSlugSchema, number: z.number().int().positive() })
+  .strict();
+const issueNames = z.array(z.string().min(1).max(100)).max(50);
+const boardIssueFields = {
+  body: z.string().max(65536).optional(),
+  labels: issueNames.optional(),
+  assignees: issueNames.optional(),
+  milestone: z.string().min(1).max(255).nullable().optional(),
+};
+const createIssueSchema = z
+  .object({
+    repo: boardRepoSlugSchema,
+    title: z.string().trim().min(1).max(256),
+    statusOptionId: z.string().min(1).max(100).optional(),
+    // Resume: issue already created, only add it to the project (see createIssue)
+    issueId: z
+      .string()
+      .regex(/^I_[A-Za-z0-9_-]+$/)
+      .optional(),
+    ...boardIssueFields,
+  })
+  .strict();
+const updateIssueSchema = z
+  .object({
+    title: z.string().trim().min(1).max(256).optional(),
+    ...boardIssueFields,
+    state: z.enum(['OPEN', 'CLOSED']).optional(),
+    stateReason: z.enum(['COMPLETED', 'NOT_PLANNED', 'DUPLICATE']).optional(),
+    parent: issueRefSchema.nullable().optional(),
+    addSubIssue: issueRefSchema.optional(),
+    removeSubIssue: z
+      .string()
+      .regex(/^I_[A-Za-z0-9_-]+$/)
+      .optional(),
+  })
+  .strict();
+const issueNodeIdSchema = z.string().regex(/^I_[A-Za-z0-9_-]+$/);
+
+app.get('/api/board/repo-options', agentLimiter, async (req, res) => {
+  const slug = boardRepoSlugSchema.safeParse(req.query.repo);
+  if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
+  try {
+    res.json(await boardService.getRepoOptions(slug.data, { refresh: req.query.refresh === '1' }));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.get(
+  '/api/board/issues/:issueId',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  async (req, res) => {
+    try {
+      res.json(await boardService.getIssueDetails(req.params.issueId));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.post('/api/board/issues', agentLimiter, validate(createIssueSchema), async (req, res) => {
+  try {
+    const { source } = settingsService.getBoardSettings();
+    res.status(201).json(await boardService.createIssue(source, req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.patch(
+  '/api/board/items/:itemId/issue',
+  agentLimiter,
+  validateParams(boardItemIdSchema),
+  validate(updateIssueSchema),
+  async (req, res) => {
+    try {
+      const { source } = settingsService.getBoardSettings();
+      res.json(await boardService.updateIssue(source, req.params.itemId, req.body));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.get('/api/board/settings', (req, res) => {
+  try {
+    res.json(settingsService.getBoardSettings());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
+  try {
+    // Only a different source invalidates the cache (and its fresh-write protection)
+    const { source } = settingsService.getBoardSettings();
+    if (
+      req.body.source &&
+      (req.body.source.owner !== source.owner || req.body.source.number !== source.number)
+    )
+      boardService.clearCache();
+    res.json(settingsService.updateBoardSettings(req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
 
 /**
  * Agent view preferences (grouping, layout, dispatch defaults, scope)
@@ -3381,6 +3662,8 @@ function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows, options
  * Handle PTY connection in local mode - spawn PTY directly
  */
 function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) {
+  // This socket's PTY: on close it must not kill a newer PTY that reused the sessionId
+  let ptyPid;
   try {
     const result = createPtySession(sessionId, cwd, cols, rows, options);
 
@@ -3390,6 +3673,7 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
       ws.close();
       return;
     }
+    ptyPid = result.pid;
 
     wsSessionMap.set(ws, sessionId);
 
@@ -3451,7 +3735,7 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
     if (sid) {
       console.log(`[PTY] Session ${sid} closed`);
       wsSessionMap.delete(ws);
-      killPtySession(sid);
+      killPtySession(sid, ptyPid);
     }
   });
 
@@ -3460,7 +3744,7 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
     console.error(`[PTY] WebSocket error for session ${sid}:`, err);
     if (sid) {
       wsSessionMap.delete(ws);
-      killPtySession(sid);
+      killPtySession(sid, ptyPid);
     }
   });
 }
@@ -3502,8 +3786,8 @@ wss.on('connection', (ws, req) => {
   // Parse and validate optional custom command parameters
   const command = url.searchParams.get('command') || null;
 
-  // Validate command against whitelist
-  if (command && !ALLOWED_COMMANDS.includes(command)) {
+  // Validate command against whitelist; `ssh` only for remote attach (args checked below)
+  if (command && command !== 'ssh' && !ALLOWED_COMMANDS.includes(command)) {
     console.error(`[PTY] Rejected command not in whitelist: ${command}`);
     ws.send(JSON.stringify({ type: 'error', message: 'Invalid command' }));
     ws.close();
@@ -3521,6 +3805,17 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'error', message: 'Invalid args format' }));
         ws.close();
         return;
+      }
+      // `--cloud` takes free text as a NEW session description: only validated ids/URLs may pass
+      const cloudAt = parsedArgs.indexOf('--cloud');
+      if (command === 'claude' && cloudAt !== -1) {
+        try {
+          agentService.buildCloudArgs(parsedArgs[cloudAt + 1]);
+        } catch {
+          ws.send(JSON.stringify({ type: 'error', message: 'Invalid cloud session target' }));
+          ws.close();
+          return;
+        }
       }
       // Validate args length to prevent DoS
       if (parsedArgs.length > MAX_ARGS_LENGTH) {
@@ -3575,20 +3870,51 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  const options = command ? { command, args } : {};
+  const startPty = () => {
+    const options = command ? { command, args } : {};
 
-  console.log(
-    `[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`
-  );
+    console.log(
+      `[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`
+    );
 
-  if (isRunningInDocker) {
-    // In Docker: proxy to host PTY service (forward command/args so
-    // `claude attach <id>` works instead of always spawning a shell)
-    handleDockerPtyConnection(ws, sessionId, cwd, cols, rows, options);
-  } else {
-    // On host: spawn PTY directly
-    handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options);
+    if (isRunningInDocker) {
+      // In Docker: proxy to host PTY service (forward command/args so
+      // `claude attach <id>` works instead of always spawning a shell)
+      handleDockerPtyConnection(ws, sessionId, cwd, cols, rows, options);
+    } else {
+      // On host: spawn PTY directly
+      handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options);
+    }
+  };
+
+  if (command !== 'ssh') {
+    startPty();
+    return;
   }
+
+  // The Docker PTY proxy ignores command/args and the container has no ssh keys
+  if (isRunningInDocker) {
+    ws.send(
+      JSON.stringify({ type: 'error', message: 'Remote attach is not available in Docker mode' })
+    );
+    ws.close();
+    return;
+  }
+
+  // After a server restart the host allowlist is empty until Tailscale was asked once
+  meshService
+    .ensureDevices()
+    .catch(() => {})
+    .then(() => {
+      if (ws.readyState !== ws.OPEN) return;
+      if (!meshService.isRemoteAttachArgs(args)) {
+        console.error(`[PTY] Rejected ssh args: ${JSON.stringify(args)}`);
+        ws.send(JSON.stringify({ type: 'error', message: 'Invalid remote attach target' }));
+        ws.close();
+        return;
+      }
+      startPty();
+    });
 });
 
 // Forward PTY data to corresponding WebSocket clients (local mode only)
@@ -3614,6 +3940,21 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
 async function startServer() {
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
+
+  // A failure to bind is fatal and must be reported as such. Without this the
+  // error reaches `uncaughtException` -> cleanup() -> exit code 0, which makes
+  // a hard startup failure look like a clean shutdown to the Electron parent.
+  server.once('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.error(
+        `[Server] Port ${PORT} is already in use. Set SERVER_PORT in .env.local to a free port ` +
+          `or stop the process using it (lsof -ti:${PORT} | xargs kill -9).`
+      );
+    } else {
+      console.error('[Server] Failed to start:', error);
+    }
+    process.exit(1);
+  });
 
   server.listen(PORT, () => {
     console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);

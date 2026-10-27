@@ -24,9 +24,6 @@ const HTTP_TOKEN = process.env.PTY_HOST_HTTP_TOKEN || '';
 
 // Detect user's default shell
 const defaultShell = (() => {
-  if (os.platform() === 'win32') {
-    return 'powershell.exe';
-  }
   const userShell = process.env.SHELL;
   if (userShell && fs.existsSync(userShell)) {
     return userShell;
@@ -116,16 +113,19 @@ wss.on('connection', (ws, req) => {
     sessions.set(sessionId, { pty: ptyProcess, ws });
 
     // Send connection success
-    ws.send(JSON.stringify({
-      type: 'connected',
-      shell: spawnedShell,
-      pid: ptyProcess.pid,
-      cwd: workingDir,
-    }));
+    ws.send(
+      JSON.stringify({
+        type: 'connected',
+        shell: spawnedShell,
+        pid: ptyProcess.pid,
+        cwd: workingDir,
+      })
+    );
 
     // Handle PTY output
     ptyProcess.onData((data) => {
-      if (ws.readyState === 1) { // WebSocket.OPEN
+      if (ws.readyState === 1) {
+        // WebSocket.OPEN
         ws.send(JSON.stringify({ type: 'output', data }));
       }
     });
@@ -173,7 +173,6 @@ wss.on('connection', (ws, req) => {
     ws.on('error', (err) => {
       console.error(`[PTY-Host] WebSocket error: ${err.message}`);
     });
-
   } catch (error) {
     console.error(`[PTY-Host] Failed to create PTY: ${error.message}`);
     ws.send(JSON.stringify({ type: 'error', message: error.message }));
@@ -330,7 +329,7 @@ httpServer.listen(HTTP_PORT, () => {
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('[PTY-Host] Shutting down...');
-  for (const [id, session] of sessions) {
+  for (const session of sessions.values()) {
     try {
       session.pty.kill();
     } catch {

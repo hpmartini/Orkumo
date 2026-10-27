@@ -1,5 +1,9 @@
 # CLAUDE.md
 
+## Leitbild
+
+DevOrbit ist Hapes komplette Arbeitsumgebung für agentische Entwicklung (ADE). Kernobjekt ist der Kontext Issue ↔ Agent ↔ Worktree/Branch ↔ PR ↔ Code; Modi (Überblick, Board, Agents, Code, Terminal) teilen eine Shell. Verbindlich: [docs/VISION.md](docs/VISION.md).
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
@@ -76,16 +80,16 @@ The console output in the details view is a real webbased terminal emulator, sup
 
 ```bash
 # Install dependencies
-npm install
+bun install
 
 # Run development server (port 3000)
-npm run dev
+bun run dev
 
 # Build for production
-npm run build
+bun run build
 
 # Preview production build
-npm run preview
+bun run preview
 ```
 
 ## Environment Setup

@@ -1,5 +1,7 @@
 # DevOrbit Dashboard
 
+> **Vision:** DevOrbit ist die komplette Arbeitsumgebung für agentische Entwicklung (ADE): Issues planen, Agents steuern, Code editieren, Terminal, über alle Geräte hinweg, verbunden über den Kontext Issue ↔ Agent ↔ Worktree ↔ PR ↔ Code. Details: [docs/VISION.md](docs/VISION.md).
+
 **DevOrbit Dashboard** is an advanced local development environment manager that monitors, controls, and optimizes your development workflow. It integrates with Gemini AI to analyze project configurations and provide intelligent recommendations, making it easier to manage complex microservice architectures and local setups.
 
 ## 🚀 Features
@@ -34,7 +36,7 @@
 ```bash
 git clone <repository-url>
 cd devorbit-dashboard
-npm install
+bun install
 ```
 
 ### 2. Environment Setup
@@ -52,7 +54,7 @@ GEMINI_API_KEY=your_api_key_here
 To run the entire stack including databases (Postgres, Redis) and the application:
 
 ```bash
-npm run dev:full
+bun run dev:full
 ```
 
 This command starts the Docker infrastructure and the development servers for frontend and backend.
@@ -62,7 +64,7 @@ This command starts the Docker infrastructure and the development servers for fr
 If you already have the databases running:
 
 ```bash
-npm run dev
+bun run dev
 ```
 
 ## 🏗️ Architecture
@@ -86,7 +88,7 @@ What you get:
 - **Dispatch input** with the TUI syntax: `<agent> prompt`, `@agent`, `@repo`, `/resume`, `/model`, `/effort`, skills as `/name`, `! shell command` (background job), `#123` / PR URL to select a session, and filters `a:<agent>`, `s:<state>`, `#<n>`, URL. Prompts shorter than 4 characters are rejected as `Too short`.
 - **Peek panel** (`Space`): recent output (`claude logs`, transcript fallback for exited sessions), blocking question, numbered choices, `Tab` for the suggested reply, `!` for a shell command. Replies are delivered through a hidden `claude attach` so permission prompts and questions can be answered without opening the session.
 - **Attach in tabs** (`Enter` / `→` / `Alt+1…9`): each attached session is a real terminal running `claude attach <id>`. Tabs can be **tiled** as columns, rows or a grid. `Ctrl+Z` (or the detach button) leaves the session running.
-- **Manage**: pin (`Ctrl+T`, `Alt+P` in browsers), rename (`Ctrl+R`), reorder (`Shift+↑/↓`), stop / delete (`Ctrl+X`, twice within 2 s), delete a whole group, respawn, force-delete hints from `claude rm` (`--discard-unpushed`, `--force-remove-worktree`).
+- **Manage**: pin (`Ctrl+T`, `Alt+P` in browsers), rename (`Ctrl+R`), reorder (`Shift+↑/↓`), delete with confirmation (`Ctrl+X` or row menu), delete a whole group, respawn, force-delete hints from `claude rm` (`--discard-unpushed`, `--force-remove-worktree`).
 - **Dispatch defaults** (gear icon): the flags `claude agents` accepts - `--model`, `--effort`, `--permission-mode`, `--agent`, `--dangerously-skip-permissions`, `--allow-dangerously-skip-permissions`, `--restricted`, `--settings`, `--add-dir`, `--plugin-dir`, `--mcp-config`, `--strict-mcp-config`, `--fallback-model` - plus the `--cwd` scope, notifications and the supervisor controls (`claude daemon status|stop`, `claude respawn --all`).
 - **Notifications** when a session needs input, finishes or fails (in-app toasts, optional browser notifications), and the tab title shows `N awaiting input · claude agents`.
 - Press `?` inside the view for the full shortcut list.

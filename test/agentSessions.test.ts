@@ -8,6 +8,15 @@ import {
   prLabel,
   documentTitle,
   COMPLETED_VISIBLE_LIMIT,
+  DEFAULT_SORT,
+  sortSessionsBy,
+  applyQuickFilters,
+  matchServers,
+  summarizeContext,
+  mainRepoPath,
+  repoName,
+  formatModelName,
+  type SessionLookup,
 } from '../utils/agentSessions';
 import type { AgentSession } from '../types';
 
@@ -152,5 +161,249 @@ describe('summaries and formatting', () => {
   it('builds the document title', () => {
     expect(documentTitle(0)).toBe('claude agents');
     expect(documentTitle(2)).toBe('2 awaiting input · claude agents');
+  });
+});
+
+describe('sorting, quick filters and server matching', () => {
+  const blocked = session({ id: 'b', name: 'beta', state: 'blocked', startedAt: 1 });
+  const working = session({ id: 'w', name: 'alpha', state: 'working', startedAt: 3 });
+  const failed = session({ id: 'f', name: 'gamma', state: 'failed', startedAt: 2 });
+  const done = session({ id: 'd', name: 'delta', state: 'done', startedAt: 4 });
+  const all = [done, failed, working, blocked];
+  const ids = (list: AgentSession[]) => list.map((s) => s.id).join('');
+
+  it('sorts by attention by default', () => {
+    expect(ids(sortSessionsBy(all, DEFAULT_SORT))).toBe('bwfd');
+  });
+
+  it('sorts by name, newest and oldest', () => {
+    expect(ids(sortSessionsBy(all, { key: 'name', dir: 'asc' }))).toBe('wbdf');
+    expect(ids(sortSessionsBy(all, { key: 'name', dir: 'desc' }))).toBe('fdbw');
+    expect(ids(sortSessionsBy(all, { key: 'newest', dir: 'desc' }))).toBe('dwfb');
+    expect(ids(sortSessionsBy(all, { key: 'oldest', dir: 'asc' }))).toBe('bfwd');
+  });
+
+  it('sorts by repository and running servers using the lookup', () => {
+    const lookup: SessionLookup = {
+      contexts: { w: { repo: { name: 'zeta' } }, b: { repo: { name: 'eta' } } } as never,
+      servers: new Map([['f', [{ port: 3000, running: true, name: 'app' }]]]),
+    };
+    expect(ids(sortSessionsBy([working, blocked], { key: 'repo', dir: 'asc' }, lookup))).toBe('bw');
+    expect(ids(sortSessionsBy(all, { key: 'servers', dir: 'desc' }, lookup))[0]).toBe('f');
+  });
+
+  it('applies the sort inside a flat list', () => {
+    const groups = groupSessions(all, 'none', { sort: { key: 'name', dir: 'asc' } });
+    expect(groups).toHaveLength(1);
+    expect(ids(groups[0].sessions)).toBe('wbdf');
+    expect(flattenGroups(groups, new Set()).every((i) => i.type === 'session')).toBe(true);
+  });
+
+  it('combines state chips with OR and attribute chips with AND', () => {
+    const lookup: SessionLookup = {
+      servers: new Map([['w', [{ port: 1, running: true, name: 'a' }]]]),
+    };
+    expect(ids(applyQuickFilters(all, new Set(['needs-input', 'working']), lookup))).toBe('wb');
+    expect(ids(applyQuickFilters(all, new Set(['working', 'server']), lookup))).toBe('w');
+    expect(ids(applyQuickFilters(all, new Set(['server', 'needs-input']), lookup))).toBe('');
+  });
+
+  it('matches apps by directory in both directions and parses ports from addresses', () => {
+    const s = session({ cwd: '/work/repo/sub', worktree: '/work/repo/.wt/x' });
+    const apps = [
+      { name: 'root', path: '/work/repo', port: 3000, status: 'RUNNING' },
+      { name: 'inner', path: '/work/repo/sub/web', addresses: ['http://localhost:5173/'] },
+      { name: 'other', path: '/work/repo2', port: 9999, status: 'RUNNING' },
+    ];
+    expect(matchServers(s, apps)).toEqual([
+      { port: 3000, running: true, name: 'root' },
+      { port: 5173, running: false, name: 'inner' },
+    ]);
+  });
+
+  it('totals unique running ports; unknown until contexts load', () => {
+    const a = session({ id: 'a', links: [{ state: 'open' }, { state: 'merged' }] as never });
+    const b = session({ id: 'b' });
+    const server = { port: 3000, running: true, name: 'x' };
+    const lookup: SessionLookup = {
+      contexts: { a: undefined, b: undefined } as never,
+      servers: new Map([
+        ['a', [server]],
+        ['b', [server]],
+      ]),
+    };
+    expect(summarizeContext([a, b], lookup)).toEqual({ openPrs: 0, runningServers: 1 });
+    expect(summarizeContext([a, b], {})).toEqual({ openPrs: null, runningServers: null });
+  });
+});
+
+describe('groupSessions (project)', () => {
+  const apps = [
+    { id: 'web', name: 'web', path: '/code/web' },
+    { id: 'web-admin', name: 'web-admin', path: '/code/web/admin' },
+    { id: 'api', name: 'api', path: '/code/api' },
+  ];
+
+  it('clusters sessions per app, most specific path wins, worktrees count', () => {
+    const sessions = [
+      session({ id: 'a', cwd: '/code/web/src' }),
+      session({ id: 'b', cwd: '/code/web/admin/x' }),
+      session({ id: 'c', cwd: '/elsewhere', worktree: '/code/api/.claude/worktrees/w' }),
+    ];
+    const groups = groupSessions(sessions, 'project', { apps });
+    expect(groups.map((g) => [g.key, g.appId, g.sessions.map((s) => s.id)])).toEqual([
+      ['project:api', 'api', ['c']],
+      ['project:web', 'web', ['a']],
+      ['project:web-admin', 'web-admin', ['b']],
+    ]);
+    expect(groups[0].cwd).toBe('/code/api');
+  });
+
+  it('puts unmatched sessions into trailing clusters named after their directory', () => {
+    const sessions = [
+      session({ id: 'x', cwd: '/tmp/scratch' }),
+      session({ id: 'y', cwd: '/tmp/scratch' }),
+      session({ id: 'z', cwd: '/code/api' }),
+    ];
+    const groups = groupSessions(sessions, 'project', { apps });
+    expect(groups.map((g) => g.key)).toEqual(['project:api', 'project:dir:/tmp/scratch']);
+    expect(groups[1].appId).toBeUndefined();
+    expect(groups[1].sessions).toHaveLength(2);
+    // header rows are navigable items
+    expect(flattenGroups(groups, new Set(), true).map((i) => i.type)).toEqual([
+      'group',
+      'session',
+      'group',
+      'session',
+      'session',
+    ]);
+  });
+
+  it('groups unmatched worktree sessions with their main repo before contexts load', () => {
+    const sessions = [
+      session({ id: 'm', cwd: '/tmp/proj' }),
+      session({ id: 'w1', cwd: '/tmp/proj/.claude/worktrees/feat' }),
+      session({ id: 'w2', cwd: '/tmp/proj', worktree: '/tmp/proj/.worktrees/fix' }),
+    ];
+    const groups = groupSessions(sessions, 'project', { apps });
+    expect(groups).toHaveLength(1);
+    expect(groups[0]).toMatchObject({
+      key: 'project:dir:/tmp/proj',
+      title: 'proj',
+      cwd: '/tmp/proj',
+    });
+    expect(groups[0].sessions).toHaveLength(3);
+  });
+
+  it('groups a worktree with its DevOrbit app', () => {
+    const sessions = [
+      session({ id: 'a', cwd: '/code/api' }),
+      session({ id: 'b', cwd: '/code/api/.claude/worktrees/agents-ui' }),
+    ];
+    const groups = groupSessions(sessions, 'project', { apps });
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:api', 'api', 2],
+    ]);
+  });
+
+  const repoCtx = (root: string, slug: string | null) =>
+    ({ repo: { name: root.split('/').pop(), root, slug } }) as unknown as NonNullable<
+      SessionLookup['contexts']
+    >[string];
+
+  it('merges root and subfolder sessions of one repo into an app matched case-insensitively', () => {
+    // Issue #96: app stored as ~/projects/..., sessions run in ~/PROJECTS/... and a subfolder
+    const sessions = [
+      session({ id: 'r', cwd: '/Users/h/PROJECTS/MindApp' }),
+      session({ id: 's', cwd: '/Users/h/PROJECTS/MindApp/MindApp_v1' }),
+    ];
+    const lookup: SessionLookup = {
+      contexts: {
+        r: repoCtx('/Users/h/PROJECTS/MindApp', 'hpmartini/glen'),
+        s: repoCtx('/Users/h/PROJECTS/MindApp', 'hpmartini/glen'),
+      },
+    };
+    const mh = [{ id: 'mh', name: 'glen-monorepo', path: '/Users/h/projects/MindApp' }];
+    const groups = groupSessions(sessions, 'project', { apps: mh, lookup });
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:mh', 'glen (MindApp)', 2],
+    ]);
+  });
+
+  it('groups unmatched subfolder sessions by repo root once contexts load', () => {
+    const sessions = [
+      session({ id: 'r', cwd: '/tmp/proj' }),
+      session({ id: 's', cwd: '/tmp/proj/sub' }),
+    ];
+    // Before contexts: path-based keys, stable and deterministic
+    expect(groupSessions(sessions, 'project').map((g) => g.key)).toEqual([
+      'project:dir:/tmp/proj',
+      'project:dir:/tmp/proj/sub',
+    ]);
+    const lookup: SessionLookup = {
+      contexts: { r: repoCtx('/tmp/proj', null), s: repoCtx('/tmp/proj', null) },
+    };
+    const groups = groupSessions(sessions, 'project', { lookup });
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:dir:/tmp/proj', 'proj', 2],
+    ]);
+  });
+
+  it('titles by the GitHub repo name, folder in parentheses only when it differs', () => {
+    const sessions = [session({ id: 'a', cwd: '/x/web' }), session({ id: 'b', cwd: '/x/old' })];
+    const lookup: SessionLookup = {
+      contexts: { a: repoCtx('/x/web', 'me/Web'), b: repoCtx('/x/old', 'me/new-name') },
+    };
+    expect(groupSessions(sessions, 'project', { lookup }).map((g) => g.title)).toEqual([
+      'new-name (old)',
+      'Web',
+    ]);
+  });
+});
+
+describe('repoName / mainRepoPath', () => {
+  const ctx = (name: string) =>
+    ({ repo: { name } }) as unknown as NonNullable<SessionLookup['contexts']>[string];
+
+  it('derives the main repo from worktree paths', () => {
+    expect(mainRepoPath('/a/proj/.claude/worktrees/x')).toBe('/a/proj');
+    expect(mainRepoPath('/a/proj/.claude/worktrees/x/sub')).toBe('/a/proj');
+    expect(mainRepoPath('/a/proj/.worktrees/x')).toBe('/a/proj');
+    expect(mainRepoPath('/a/proj')).toBe('/a/proj');
+    expect(mainRepoPath('/a/my.worktrees-x')).toBe('/a/my.worktrees-x');
+  });
+
+  it('prefers the context repo name, else the path-derived main name', () => {
+    const s = session({ id: 's', cwd: '/a/proj/.claude/worktrees/feat' });
+    expect(repoName(s)).toBe('proj');
+    expect(repoName(s, { contexts: { s: ctx('Real') } })).toBe('Real');
+    expect(repoName(session({ id: 't', cwd: '/a/plain' }))).toBe('plain');
+  });
+});
+
+describe('formatModelName', () => {
+  it.each([
+    ['claude-opus-5-5', 'Opus 5.5'],
+    ['claude-sonnet-5-5', 'Sonnet 5.5'],
+    ['claude-haiku-5-5', 'Haiku 5.5'],
+    ['claude-fable-5-1', 'Fable 5.1'],
+    ['claude-opus-5', 'Opus 5'],
+    ['claude-opus-4-7', 'Opus 4.7'],
+    ['claude-haiku-4-5-20251001', 'Haiku 4.5'],
+    ['claude-opus-4-20250514', 'Opus 4'],
+    ['claude-3-5-sonnet-20241022', 'Sonnet 3.5'],
+    ['claude-3-opus-20240229', 'Opus 3'],
+    ['claude-opus-5-5[1m]', 'Opus 5.5'],
+    ['sonnet', 'sonnet'],
+    ['gpt-4o', 'gpt-4o'],
+  ])('%s -> %s', (id, label) => {
+    expect(formatModelName(id)).toBe(label);
+  });
+
+  it('ignores synthetic and empty ids', () => {
+    expect(formatModelName('<synthetic>')).toBeNull();
+    expect(formatModelName('')).toBeNull();
+    expect(formatModelName(null)).toBeNull();
+    expect(formatModelName(undefined)).toBeNull();
   });
 });

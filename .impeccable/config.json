@@ -1,0 +1,17 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "flat-type-hierarchy",
+        "value": "*",
+        "files": [
+          "briefings/mockups/44-board.html"
+        ],
+        "createdAt": "2026-10-23T11:28:37.048Z",
+        "reason": "agent decision: dense Operate mockup mirrors incumbent AgentsView type scale (text-xs/sm, 15px title)"
+      }
+    ]
+  }
+}

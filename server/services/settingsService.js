@@ -1,5 +1,4 @@
 import fs from 'fs';
-import path from 'path';
 import { getDataFilePath, ensureDataDirectory } from './dataPath.js';
 
 // Settings file path - stored in persistent data directory
@@ -21,6 +20,7 @@ const defaultSettings = {
   snoozedRecommendations: {}, // Map of recommendation key -> snooze expiry timestamp
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides
   agentView: {}, // Claude Code agent view preferences (grouping, layout, dispatch defaults)
+  board: {}, // Agent task board: GitHub project source + slice favorites/order/hidden
   version: 1, // Settings schema version for future migrations
 };
 
@@ -51,6 +51,16 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
     fallbackModel: null,
   },
   version: 1,
+};
+
+/**
+ * Default agent task board settings (MACC = users/hpmartini/projects/4)
+ */
+export const DEFAULT_BOARD_SETTINGS = {
+  source: { owner: 'hpmartini', number: 4 },
+  favorites: [],
+  order: [],
+  hidden: [],
 };
 
 /**
@@ -111,6 +121,11 @@ function readSettings() {
     // Migrate: Ensure agentView exists (added in v1.7)
     if (!loadedSettings.agentView || typeof loadedSettings.agentView !== 'object') {
       loadedSettings.agentView = {};
+    }
+
+    // Migrate: Ensure board exists (added in v1.8)
+    if (!loadedSettings.board || typeof loadedSettings.board !== 'object') {
+      loadedSettings.board = {};
     }
 
     return { ...defaultSettings, ...loadedSettings };
@@ -767,6 +782,32 @@ class SettingsService {
       dispatch: { ...current.dispatch, ...(partial?.dispatch || {}) },
     };
     settings.agentView = next;
+    writeSettings(settings);
+    return next;
+  }
+
+  /**
+   * Get agent task board settings merged with defaults
+   * @returns {{source: {owner: string, number: number}, favorites: string[], order: string[], hidden: string[]}}
+   */
+  getBoardSettings() {
+    const stored = readSettings().board || {};
+    return {
+      ...DEFAULT_BOARD_SETTINGS,
+      ...stored,
+      source: { ...DEFAULT_BOARD_SETTINGS.source, ...(stored.source || {}) },
+    };
+  }
+
+  /**
+   * Update board settings (shallow merge of validated partial)
+   * @param {object} partial - { source?, favorites?, order?, hidden? }
+   * @returns {object} Full updated board settings
+   */
+  updateBoardSettings(partial) {
+    const settings = readSettings();
+    const next = { ...this.getBoardSettings(), ...partial };
+    settings.board = next;
     writeSettings(settings);
     return next;
   }

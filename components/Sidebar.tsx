@@ -18,6 +18,8 @@ import {
   Code,
   ChevronUp,
   Bot,
+  Kanban,
+  Code2,
 } from 'lucide-react';
 import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -29,9 +31,11 @@ import { APP_NAME } from '../constants';
 interface SidebarProps {
   apps: AppConfig[];
   selectedAppId: string | null;
-  activeTab: 'dashboard' | 'apps' | 'agents';
+  activeTab: 'dashboard' | 'apps' | 'agents' | 'board' | 'code';
   isCollapsed?: boolean;
   onSelectAgents?: () => void;
+  onSelectBoard?: () => void;
+  onSelectCode?: () => void;
   onToggleCollapse?: () => void;
   onSelectDashboard: () => void;
   onSelectApp: (id: string) => void;
@@ -73,6 +77,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onToggleCollapse,
   onSelectDashboard,
   onSelectAgents,
+  onSelectBoard,
+  onSelectCode,
   onSelectApp,
   onToggleFavorite,
   onToggleArchive,
@@ -376,6 +382,44 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </ShortcutTooltip>
         </div>
 
+        {/* Board Button */}
+        {onSelectBoard && (
+          <div className="p-2">
+            <ShortcutTooltip label="Agent task board" position="right">
+              <button
+                onClick={onSelectBoard}
+                aria-label="Board"
+                className={`p-2 rounded-lg transition-all ${
+                  activeTab === 'board'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                    : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                }`}
+              >
+                <Kanban size={20} />
+              </button>
+            </ShortcutTooltip>
+          </div>
+        )}
+
+        {/* Code Button */}
+        {onSelectCode && (
+          <div className="p-2">
+            <ShortcutTooltip label="Code (Web-IDE)" position="right">
+              <button
+                onClick={onSelectCode}
+                aria-label="Code"
+                className={`p-2 rounded-lg transition-all ${
+                  activeTab === 'code'
+                    ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                    : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+                }`}
+              >
+                <Code2 size={20} />
+              </button>
+            </ShortcutTooltip>
+          </div>
+        )}
+
         {/* Agents Button */}
         {onSelectAgents && (
           <div className="p-2">
@@ -638,6 +682,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
           Overview
         </button>
 
+        {/* Board Button */}
+        {onSelectBoard && (
+          <button
+            onClick={onSelectBoard}
+            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${
+              activeTab === 'board'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+            }`}
+            title="Agent task board"
+          >
+            <Kanban size={18} />
+            Board
+          </button>
+        )}
+
+        {/* Code Button */}
+        {onSelectCode && (
+          <button
+            onClick={onSelectCode}
+            className={`w-full text-left px-4 py-3 rounded-lg flex items-center gap-3 transition-all ${
+              activeTab === 'code'
+                ? 'bg-blue-600 text-white shadow-lg shadow-blue-900/50'
+                : 'text-gray-400 hover:bg-gray-900 hover:text-gray-200'
+            }`}
+            title="Web-IDE for any project or worktree"
+          >
+            <Code2 size={18} />
+            Code
+          </button>
+        )}
+
         {/* Agents Button */}
         {onSelectAgents && (
           <button
@@ -666,7 +742,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         )}
 
         {/* Grouped Apps by Directory */}
-        <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-600 uppercase tracking-wider flex items-center justify-between">
+        <div className="pt-4 pb-2 px-2 text-xs font-semibold text-gray-400 uppercase tracking-wider flex items-center justify-between">
           <span>Projects</span>
           {onRefresh && (
             <button
@@ -702,7 +778,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   )}
                   <span className="text-sm truncate">{dir}</span>
                   <span
-                    className={`ml-auto text-xs ${isMainDir ? 'text-blue-500' : 'text-gray-600'}`}
+                    className={`ml-auto text-xs ${isMainDir ? 'text-blue-500' : 'text-gray-500'}`}
                   >
                     {dirApps.length}
                   </span>
@@ -740,7 +816,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
             <div className="flex items-center gap-2">
               <Archive size={16} />
               <span className="text-sm">Archive</span>
-              <span className="text-xs text-gray-600">({archived.length})</span>
+              <span className="text-xs text-gray-500">({archived.length})</span>
             </div>
             {showArchive ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
           </button>

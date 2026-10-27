@@ -50,8 +50,12 @@ async function migrateLocalStorageToBackend(): Promise<void> {
   const customNames = JSON.parse(localStorage.getItem('devOrbitNames') || '{}');
 
   // Only migrate if there's data to migrate
-  if (favorites.length > 0 || archived.length > 0 ||
-      Object.keys(customPorts).length > 0 || Object.keys(customNames).length > 0) {
+  if (
+    favorites.length > 0 ||
+    archived.length > 0 ||
+    Object.keys(customPorts).length > 0 ||
+    Object.keys(customNames).length > 0
+  ) {
     try {
       await importSettings({ favorites, archived, customPorts, customNames });
       console.log('Successfully migrated settings from localStorage to backend');
@@ -137,10 +141,7 @@ export function useApps(): UseAppsReturn {
       await migrateLocalStorageToBackend();
 
       // Fetch apps and settings from backend in parallel
-      const [data, fetchedSettings] = await Promise.all([
-        fetchApps(),
-        fetchSettings(),
-      ]);
+      const [data, fetchedSettings] = await Promise.all([fetchApps(), fetchSettings()]);
 
       // Store settings in state
       setSettings(fetchedSettings);
@@ -162,26 +163,24 @@ export function useApps(): UseAppsReturn {
 
       // Validate restored selection - clear if app no longer exists
       const restoredId = localStorage.getItem(LAST_SELECTED_APP_KEY);
-      if (restoredId && !enrichedData.some(app => app.id === restoredId)) {
+      if (restoredId && !enrichedData.some((app) => app.id === restoredId)) {
         localStorage.removeItem(LAST_SELECTED_APP_KEY);
         setSelectedAppIdInternal(null);
       }
 
       // Fetch logs for running apps (to restore logs after page refresh)
-      const runningApps = enrichedData.filter(app => app.status === AppStatus.RUNNING);
+      const runningApps = enrichedData.filter((app) => app.status === AppStatus.RUNNING);
       for (const app of runningApps) {
         try {
           const logsData = await fetchLogs(app.id, LOG_RETENTION_COUNT);
           if (logsData.length > 0) {
             // Transform backend log format to frontend string format (preserving ANSI codes)
-            const formattedLogs = logsData.map(log => {
+            const formattedLogs = logsData.map((log) => {
               const time = new Date(log.timestamp).toLocaleTimeString();
               return `[${time}] ${log.message}`;
             });
             setApps((currentApps) =>
-              currentApps.map((a) =>
-                a.id === app.id ? { ...a, logs: formattedLogs } : a
-              )
+              currentApps.map((a) => (a.id === app.id ? { ...a, logs: formattedLogs } : a))
             );
           }
         } catch {
@@ -209,9 +208,7 @@ export function useApps(): UseAppsReturn {
       ({ appId, status }) => {
         setApps((currentApps) =>
           currentApps.map((app) =>
-            app.id === appId
-              ? { ...app, status: status as AppStatus }
-              : app
+            app.id === appId ? { ...app, status: status as AppStatus } : app
           )
         );
       },
@@ -269,36 +266,37 @@ export function useApps(): UseAppsReturn {
     };
   }, []);
 
-  const handleStartApp = useCallback(async (id: string) => {
-    const app = apps.find((a) => a.id === id);
-    if (!app) return;
+  const handleStartApp = useCallback(
+    async (id: string) => {
+      const app = apps.find((a) => a.id === id);
+      if (!app) return;
 
-    // Set to starting
-    setApps((currentApps) =>
-      currentApps.map((a) =>
-        a.id === id ? { ...a, status: AppStatus.STARTING } : a
-      )
-    );
-
-    try {
-      // Pass the configured port to the backend
-      await startApp(id, app.path, app.startCommand || 'npm run dev', app.port);
-      // Status will be updated via SSE
-    } catch (err) {
-      console.error('Failed to start app:', err);
+      // Set to starting
       setApps((currentApps) =>
-        currentApps.map((a) =>
-          a.id === id
-            ? {
-                ...a,
-                status: AppStatus.ERROR,
-                logs: [...a.logs, `[ERROR] Failed to start: ${err}`],
-              }
-            : a
-        )
+        currentApps.map((a) => (a.id === id ? { ...a, status: AppStatus.STARTING } : a))
       );
-    }
-  }, [apps]);
+
+      try {
+        // Pass the configured port to the backend
+        await startApp(id, app.path, app.startCommand || 'npm run dev', app.port);
+        // Status will be updated via SSE
+      } catch (err) {
+        console.error('Failed to start app:', err);
+        setApps((currentApps) =>
+          currentApps.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  status: AppStatus.ERROR,
+                  logs: [...a.logs, `[ERROR] Failed to start: ${err}`],
+                }
+              : a
+          )
+        );
+      }
+    },
+    [apps]
+  );
 
   const handleStopApp = useCallback(async (id: string) => {
     try {
@@ -309,85 +307,85 @@ export function useApps(): UseAppsReturn {
     }
   }, []);
 
-  const handleRestartApp = useCallback(async (id: string) => {
-    const app = apps.find((a) => a.id === id);
-    if (!app) return;
-
-    setApps((currentApps) =>
-      currentApps.map((a) =>
-        a.id === id
-          ? {
-              ...a,
-              status: AppStatus.RESTARTING,
-              logs: [...a.logs, `[SYSTEM] Restarting process...`],
-            }
-          : a
-      )
-    );
-
-    try {
-      await restartApp(id);
-      // Status will be updated via SSE
-    } catch (err) {
-      console.error('Failed to restart app:', err);
-      setApps((currentApps) =>
-        currentApps.map((a) =>
-          a.id === id
-            ? {
-                ...a,
-                status: AppStatus.ERROR,
-                logs: [...a.logs, `[ERROR] Failed to restart: ${err}`],
-              }
-            : a
-        )
-      );
-    }
-  }, [apps]);
-
-  const handleAnalyzeApp = useCallback(async (id: string) => {
-    setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id ? { ...app, status: AppStatus.ANALYZING } : app
-      )
-    );
-
-    try {
-      // Fetch actual package.json from the backend
-      const { fileName, content } = await fetchAppPackage(id);
-
-      // Use the analyze endpoint
-      const { analyzeAppConfig } = await import('../services/geminiService');
-      const result = await analyzeAppConfig(fileName, content);
+  const handleRestartApp = useCallback(
+    async (id: string) => {
+      const app = apps.find((a) => a.id === id);
+      if (!app) return;
 
       setApps((currentApps) =>
         currentApps.map((a) =>
           a.id === id
             ? {
                 ...a,
-                status: AppStatus.STOPPED,
-                aiAnalysis: result.summary,
-                startCommand: result.command,
-                port: result.port,
-                detectedFramework: result.type,
+                status: AppStatus.RESTARTING,
+                logs: [...a.logs, `[SYSTEM] Restarting process...`],
               }
             : a
         )
       );
 
-      toast.success(`Analysis complete for ${apps.find(a => a.id === id)?.name || 'app'}`);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Unknown error';
-      console.error('Failed to analyze app:', errorMessage);
+      try {
+        await restartApp(id);
+        // Status will be updated via SSE
+      } catch (err) {
+        console.error('Failed to restart app:', err);
+        setApps((currentApps) =>
+          currentApps.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  status: AppStatus.ERROR,
+                  logs: [...a.logs, `[ERROR] Failed to restart: ${err}`],
+                }
+              : a
+          )
+        );
+      }
+    },
+    [apps]
+  );
+
+  const handleAnalyzeApp = useCallback(
+    async (id: string) => {
       setApps((currentApps) =>
-        currentApps.map((a) =>
-          a.id === id
-            ? { ...a, status: AppStatus.STOPPED }
-            : a
-        )
+        currentApps.map((app) => (app.id === id ? { ...app, status: AppStatus.ANALYZING } : app))
       );
-      toast.error(`Analysis failed: ${errorMessage}`);
-    }
-  }, [apps]);
+
+      try {
+        // Fetch actual package.json from the backend
+        const { fileName, content } = await fetchAppPackage(id);
+
+        // Use the analyze endpoint
+        const { analyzeAppConfig } = await import('../services/geminiService');
+        const result = await analyzeAppConfig(fileName, content);
+
+        setApps((currentApps) =>
+          currentApps.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  status: AppStatus.STOPPED,
+                  aiAnalysis: result.summary,
+                  startCommand: result.command,
+                  port: result.port,
+                  detectedFramework: result.type,
+                }
+              : a
+          )
+        );
+
+        toast.success(`Analysis complete for ${apps.find((a) => a.id === id)?.name || 'app'}`);
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error';
+        console.error('Failed to analyze app:', errorMessage);
+        setApps((currentApps) =>
+          currentApps.map((a) => (a.id === id ? { ...a, status: AppStatus.STOPPED } : a))
+        );
+        toast.error(`Analysis failed: ${errorMessage}`);
+      }
+    },
+    [apps]
+  );
 
   const handleOpenInBrowser = useCallback(
     async (id: string) => {
@@ -420,335 +418,360 @@ export function useApps(): UseAppsReturn {
     [apps]
   );
 
-  const handleToggleFavorite = useCallback(async (id: string) => {
-    // Optimistically update UI
-    const currentApp = apps.find((a) => a.id === id);
-    const newFavoriteState = !currentApp?.isFavorite;
+  const handleToggleFavorite = useCallback(
+    async (id: string) => {
+      // Optimistically update UI
+      const currentApp = apps.find((a) => a.id === id);
+      const newFavoriteState = !currentApp?.isFavorite;
 
-    setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id ? { ...app, isFavorite: newFavoriteState } : app
-      )
-    );
-
-    // Persist to backend
-    try {
-      await updateFavorite(id, newFavoriteState);
-    } catch (err) {
-      console.error('Failed to update favorite:', err);
-      // Revert on failure
       setApps((currentApps) =>
-        currentApps.map((app) =>
-          app.id === id ? { ...app, isFavorite: !newFavoriteState } : app
-        )
+        currentApps.map((app) => (app.id === id ? { ...app, isFavorite: newFavoriteState } : app))
       );
-      toast.error('Failed to update favorite');
-    }
-  }, [apps]);
 
-  const handleToggleArchive = useCallback(async (id: string) => {
-    // Optimistically update UI
-    const currentApp = apps.find((a) => a.id === id);
-    const newArchiveState = !currentApp?.isArchived;
+      // Persist to backend
+      try {
+        await updateFavorite(id, newFavoriteState);
+      } catch (err) {
+        console.error('Failed to update favorite:', err);
+        // Revert on failure
+        setApps((currentApps) =>
+          currentApps.map((app) =>
+            app.id === id ? { ...app, isFavorite: !newFavoriteState } : app
+          )
+        );
+        toast.error('Failed to update favorite');
+      }
+    },
+    [apps]
+  );
 
-    setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id
-          ? {
-              ...app,
-              isArchived: newArchiveState,
-              // Remove from favorites when archiving (backend does this too)
-              isFavorite: newArchiveState ? false : app.isFavorite,
-            }
-          : app
-      )
-    );
+  const handleToggleArchive = useCallback(
+    async (id: string) => {
+      // Optimistically update UI
+      const currentApp = apps.find((a) => a.id === id);
+      const newArchiveState = !currentApp?.isArchived;
 
-    // Persist to backend
-    try {
-      await updateArchive(id, newArchiveState);
-    } catch (err) {
-      console.error('Failed to update archive:', err);
-      // Revert on failure
       setApps((currentApps) =>
         currentApps.map((app) =>
           app.id === id
             ? {
                 ...app,
-                isArchived: !newArchiveState,
-                isFavorite: currentApp?.isFavorite ?? false,
+                isArchived: newArchiveState,
+                // Remove from favorites when archiving (backend does this too)
+                isFavorite: newArchiveState ? false : app.isFavorite,
               }
             : app
         )
       );
-      toast.error('Failed to update archive');
-    }
-  }, [apps]);
 
-  const handleInstallDeps = useCallback(async (id: string) => {
-    const app = apps.find((a) => a.id === id);
-    if (!app) return;
+      // Persist to backend
+      try {
+        await updateArchive(id, newArchiveState);
+      } catch (err) {
+        console.error('Failed to update archive:', err);
+        // Revert on failure
+        setApps((currentApps) =>
+          currentApps.map((app) =>
+            app.id === id
+              ? {
+                  ...app,
+                  isArchived: !newArchiveState,
+                  isFavorite: currentApp?.isFavorite ?? false,
+                }
+              : app
+          )
+        );
+        toast.error('Failed to update archive');
+      }
+    },
+    [apps]
+  );
 
-    // Use startApp with 'npm install' command
-    setApps((currentApps) =>
-      currentApps.map((a) =>
-        a.id === id
-          ? {
-              ...a,
-              status: AppStatus.STARTING,
-              logs: [...a.logs, `[SYSTEM] Installing dependencies...`],
-            }
-          : a
-      )
-    );
+  const handleInstallDeps = useCallback(
+    async (id: string) => {
+      const app = apps.find((a) => a.id === id);
+      if (!app) return;
 
-    try {
-      await startApp(id, app.path, 'npm install');
-      toast.success(`Installing dependencies for ${app.name}`);
-    } catch (err) {
-      console.error('Failed to install deps:', err);
+      // Use startApp with 'npm install' command
       setApps((currentApps) =>
         currentApps.map((a) =>
           a.id === id
             ? {
                 ...a,
-                status: AppStatus.ERROR,
-                logs: [...a.logs, `[ERROR] Failed to install: ${err}`],
+                status: AppStatus.STARTING,
+                logs: [...a.logs, `[SYSTEM] Installing dependencies...`],
               }
             : a
         )
       );
-      toast.error('Failed to install dependencies');
-    }
-  }, [apps]);
 
-  const handleSetPort = useCallback(async (id: string, port: number) => {
-    const currentApp = apps.find((a) => a.id === id);
-    const oldPort = currentApp?.port;
-
-    // Optimistically update UI
-    setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id
-          ? {
-              ...app,
-              port,
-              addresses: [`http://localhost:${port}`],
-            }
-          : app
-      )
-    );
-
-    // Persist to backend
-    try {
-      await updatePort(id, port);
-      toast.success(`Port updated to ${port}`);
-    } catch (err) {
-      console.error('Failed to update port:', err);
-      // Revert on failure
-      setApps((currentApps) =>
-        currentApps.map((app) =>
-          app.id === id
-            ? {
-                ...app,
-                port: oldPort ?? 3000,
-                addresses: oldPort ? [`http://localhost:${oldPort}`] : app.addresses,
-              }
-            : app
-        )
-      );
-      toast.error('Failed to update port');
-    }
-  }, [apps]);
-
-  const handleSetCommand = useCallback(async (id: string, command: string | null) => {
-    const currentApp = apps.find((a) => a.id === id);
-    const oldCommand = currentApp?.startCommand;
-
-    // Optimistically update UI
-    setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id
-          ? {
-              ...app,
-              startCommand: command || oldCommand,
-            }
-          : app
-      )
-    );
-
-    // Persist to backend
-    try {
-      await updateCommand(id, command);
-      if (command) {
-        toast.success('Command updated');
-      } else {
-        toast.success('Command reset to default');
+      try {
+        await startApp(id, app.path, 'npm install');
+        toast.success(`Installing dependencies for ${app.name}`);
+      } catch (err) {
+        console.error('Failed to install deps:', err);
+        setApps((currentApps) =>
+          currentApps.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  status: AppStatus.ERROR,
+                  logs: [...a.logs, `[ERROR] Failed to install: ${err}`],
+                }
+              : a
+          )
+        );
+        toast.error('Failed to install dependencies');
       }
-    } catch (err) {
-      console.error('Failed to update command:', err);
-      // Revert on failure
+    },
+    [apps]
+  );
+
+  const handleSetPort = useCallback(
+    async (id: string, port: number) => {
+      const currentApp = apps.find((a) => a.id === id);
+      const oldPort = currentApp?.port;
+
+      // Optimistically update UI
       setApps((currentApps) =>
         currentApps.map((app) =>
           app.id === id
             ? {
                 ...app,
-                startCommand: oldCommand,
+                port,
+                addresses: [`http://localhost:${port}`],
               }
             : app
         )
       );
-      toast.error('Failed to update command');
-    }
-  }, [apps]);
 
-  const handleRename = useCallback(async (id: string, newName: string) => {
-    const currentApp = apps.find((a) => a.id === id);
-    const oldName = currentApp?.name;
+      // Persist to backend
+      try {
+        await updatePort(id, port);
+        toast.success(`Port updated to ${port}`);
+      } catch (err) {
+        console.error('Failed to update port:', err);
+        // Revert on failure
+        setApps((currentApps) =>
+          currentApps.map((app) =>
+            app.id === id
+              ? {
+                  ...app,
+                  port: oldPort ?? 3000,
+                  addresses: oldPort ? [`http://localhost:${oldPort}`] : app.addresses,
+                }
+              : app
+          )
+        );
+        toast.error('Failed to update port');
+      }
+    },
+    [apps]
+  );
 
-    // Optimistically update UI
-    setApps((currentApps) =>
-      currentApps.map((app) =>
-        app.id === id ? { ...app, name: newName } : app
-      )
-    );
+  const handleSetCommand = useCallback(
+    async (id: string, command: string | null) => {
+      const currentApp = apps.find((a) => a.id === id);
+      const oldCommand = currentApp?.startCommand;
 
-    // Persist to backend
-    try {
-      await updateName(id, newName);
-      toast.success(`Renamed "${oldName}" to "${newName}"`);
-    } catch (err) {
-      console.error('Failed to rename app:', err);
-      // Revert on failure
+      // Optimistically update UI
       setApps((currentApps) =>
         currentApps.map((app) =>
-          app.id === id ? { ...app, name: oldName ?? app.name } : app
+          app.id === id
+            ? {
+                ...app,
+                startCommand: command || oldCommand,
+              }
+            : app
         )
       );
-      toast.error('Failed to rename app');
-    }
-  }, [apps]);
 
-  const handleOpenInFinder = useCallback((id: string) => {
-    const app = apps.find((a) => a.id === id);
-    if (!app) return;
-    // Use the API to open in Finder (macOS)
-    fetch(`${API_BASE_URL}/apps/${id}/open-finder`, { method: 'POST' })
-      .catch(() => {
+      // Persist to backend
+      try {
+        await updateCommand(id, command);
+        if (command) {
+          toast.success('Command updated');
+        } else {
+          toast.success('Command reset to default');
+        }
+      } catch (err) {
+        console.error('Failed to update command:', err);
+        // Revert on failure
+        setApps((currentApps) =>
+          currentApps.map((app) =>
+            app.id === id
+              ? {
+                  ...app,
+                  startCommand: oldCommand,
+                }
+              : app
+          )
+        );
+        toast.error('Failed to update command');
+      }
+    },
+    [apps]
+  );
+
+  const handleRename = useCallback(
+    async (id: string, newName: string) => {
+      const currentApp = apps.find((a) => a.id === id);
+      const oldName = currentApp?.name;
+
+      // Optimistically update UI
+      setApps((currentApps) =>
+        currentApps.map((app) => (app.id === id ? { ...app, name: newName } : app))
+      );
+
+      // Persist to backend
+      try {
+        await updateName(id, newName);
+        toast.success(`Renamed "${oldName}" to "${newName}"`);
+      } catch (err) {
+        console.error('Failed to rename app:', err);
+        // Revert on failure
+        setApps((currentApps) =>
+          currentApps.map((app) => (app.id === id ? { ...app, name: oldName ?? app.name } : app))
+        );
+        toast.error('Failed to rename app');
+      }
+    },
+    [apps]
+  );
+
+  const handleOpenInFinder = useCallback(
+    (id: string) => {
+      const app = apps.find((a) => a.id === id);
+      if (!app) return;
+      // Use the API to open in Finder (macOS)
+      fetch(`${API_BASE_URL}/apps/${id}/open-finder`, { method: 'POST' }).catch(() => {
         // Fallback: copy path to clipboard
         navigator.clipboard.writeText(app.path);
         toast.success('Path copied to clipboard');
       });
-  }, [apps]);
+    },
+    [apps]
+  );
 
-  const handleOpenInTerminal = useCallback((id: string) => {
-    const app = apps.find((a) => a.id === id);
-    if (!app) return;
-    // Use the API to open in Terminal
-    fetch(`${API_BASE_URL}/apps/${id}/open-terminal`, { method: 'POST' })
-      .catch(() => {
+  const handleOpenInTerminal = useCallback(
+    (id: string) => {
+      const app = apps.find((a) => a.id === id);
+      if (!app) return;
+      // Use the API to open in Terminal
+      fetch(`${API_BASE_URL}/apps/${id}/open-terminal`, { method: 'POST' }).catch(() => {
         // Fallback: copy path to clipboard
         navigator.clipboard.writeText(`cd "${app.path}"`);
         toast.success('Terminal command copied to clipboard');
       });
-  }, [apps]);
+    },
+    [apps]
+  );
 
-  const handleReorderFavorites = useCallback(async (newOrder: string[]) => {
-    // Store old order for rollback
-    const oldOrder = settings?.favorites || [];
+  const handleReorderFavorites = useCallback(
+    async (newOrder: string[]) => {
+      // Store old order for rollback
+      const oldOrder = settings?.favorites || [];
 
-    // Optimistically update settings
-    setSettings((prev) => prev ? { ...prev, favorites: newOrder } : null);
+      // Optimistically update settings
+      setSettings((prev) => (prev ? { ...prev, favorites: newOrder } : null));
 
-    // Persist to backend
-    try {
-      await updateFavoritesOrder(newOrder);
-    } catch (err) {
-      console.error('Failed to reorder favorites:', err);
-      // Revert on failure
-      setSettings((prev) => prev ? { ...prev, favorites: oldOrder } : null);
-      toast.error('Failed to reorder favorites');
-    }
-  }, [settings]);
+      // Persist to backend
+      try {
+        await updateFavoritesOrder(newOrder);
+      } catch (err) {
+        console.error('Failed to reorder favorites:', err);
+        // Revert on failure
+        setSettings((prev) => (prev ? { ...prev, favorites: oldOrder } : null));
+        toast.error('Failed to reorder favorites');
+      }
+    },
+    [settings]
+  );
 
-  const handleSetFavoritesSortMode = useCallback(async (mode: FavoritesSortMode) => {
-    // Store old mode for rollback
-    const oldMode = settings?.favoritesSortMode || 'manual';
+  const handleSetFavoritesSortMode = useCallback(
+    async (mode: FavoritesSortMode) => {
+      // Store old mode for rollback
+      const oldMode = settings?.favoritesSortMode || 'manual';
 
-    // Optimistically update settings
-    setSettings((prev) => prev ? { ...prev, favoritesSortMode: mode } : null);
+      // Optimistically update settings
+      setSettings((prev) => (prev ? { ...prev, favoritesSortMode: mode } : null));
 
-    // Persist to backend
-    try {
-      await updateFavoritesSortMode(mode);
-    } catch (err) {
-      console.error('Failed to update sort mode:', err);
-      // Revert on failure
-      setSettings((prev) => prev ? { ...prev, favoritesSortMode: oldMode } : null);
-      toast.error('Failed to update sort mode');
-    }
-  }, [settings]);
+      // Persist to backend
+      try {
+        await updateFavoritesSortMode(mode);
+      } catch (err) {
+        console.error('Failed to update sort mode:', err);
+        // Revert on failure
+        setSettings((prev) => (prev ? { ...prev, favoritesSortMode: oldMode } : null));
+        toast.error('Failed to update sort mode');
+      }
+    },
+    [settings]
+  );
 
-  const handleConfigureAllPorts = useCallback(async (
-    onProgress?: (current: number, total: number, percentage: number) => void
-  ) => {
-    // Check if there are any apps to configure
-    if (apps.length === 0) {
-      toast.error('No apps to configure. Please add some projects first.');
-      return;
-    }
-
-    try {
-      // Call the backend to configure all ports starting from DEFAULT_APP_START_PORT with progress tracking
-      const result = await configureAllPorts(DEFAULT_APP_START_PORT, onProgress);
-
-      // Check if any apps were actually configured
-      const configuredCount = Object.keys(result.configured).length;
-      if (configuredCount === 0) {
-        toast.info('No apps were configured. All apps may already have assigned ports.');
+  const handleConfigureAllPorts = useCallback(
+    async (onProgress?: (current: number, total: number, percentage: number) => void) => {
+      // Check if there are any apps to configure
+      if (apps.length === 0) {
+        toast.error('No apps to configure. Please add some projects first.');
         return;
       }
 
-      // Update the UI with the new port assignments
-      setApps((currentApps) =>
-        currentApps.map((app) => {
-          const newPort = result.configured[app.id];
-          if (newPort) {
+      try {
+        // Call the backend to configure all ports starting from DEFAULT_APP_START_PORT with progress tracking
+        const result = await configureAllPorts(DEFAULT_APP_START_PORT, onProgress);
+
+        // Check if any apps were actually configured
+        const configuredCount = Object.keys(result.configured).length;
+        if (configuredCount === 0) {
+          toast('No apps were configured. All apps may already have assigned ports.');
+          return;
+        }
+
+        // Update the UI with the new port assignments
+        setApps((currentApps) =>
+          currentApps.map((app) => {
+            const newPort = result.configured[app.id];
+            if (newPort) {
+              return {
+                ...app,
+                port: newPort,
+                addresses: [`http://localhost:${newPort}`],
+              };
+            }
+            return app;
+          })
+        );
+
+        // Update settings state - always update, even if settings haven't loaded yet
+        setSettings((prev) => {
+          // If prev is null, create a minimal settings object
+          // This should only happen during initial load, settings will be refreshed on next fetch
+          if (!prev) {
             return {
-              ...app,
-              port: newPort,
-              addresses: [`http://localhost:${newPort}`],
+              favorites: [],
+              archived: [],
+              customPorts: result.configured,
+              customNames: {},
+              favoritesSortMode: 'manual',
+              version: 1,
             };
           }
-          return app;
-        })
-      );
+          // Otherwise merge the new port configuration
+          return { ...prev, customPorts: { ...prev.customPorts, ...result.configured } };
+        });
 
-      // Update settings state - always update, even if settings haven't loaded yet
-      setSettings((prev) => {
-        // If prev is null, create a minimal settings object
-        // This should only happen during initial load, settings will be refreshed on next fetch
-        if (!prev) {
-          return {
-            favorites: [],
-            archived: [],
-            customPorts: result.configured,
-            customNames: {},
-            favoritesSortMode: 'manual',
-            version: 1,
-          };
-        }
-        // Otherwise merge the new port configuration
-        return { ...prev, customPorts: { ...prev.customPorts, ...result.configured } };
-      });
-
-      toast.success(`Configured ports for ${configuredCount} apps starting from port ${DEFAULT_APP_START_PORT}`);
-    } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to configure ports';
-      console.error('Failed to configure ports:', err);
-      toast.error(errorMessage);
-    }
-  }, [apps]);
+        toast.success(
+          `Configured ports for ${configuredCount} apps starting from port ${DEFAULT_APP_START_PORT}`
+        );
+      } catch (err) {
+        const errorMessage = err instanceof Error ? err.message : 'Failed to configure ports';
+        console.error('Failed to configure ports:', err);
+        toast.error(errorMessage);
+      }
+    },
+    [apps]
+  );
 
   const selectedApp = apps.find((a) => a.id === selectedAppId);
   const runningCount = apps.filter((a) => a.status === AppStatus.RUNNING).length;

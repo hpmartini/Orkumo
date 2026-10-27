@@ -229,12 +229,96 @@ export interface AgentPrLink {
   state: string | null;
 }
 
+export interface AgentPullRequest {
+  number: number;
+  title: string;
+  url: string;
+  author: string | null;
+  isDraft: boolean;
+  headRef: string;
+  baseRef: string;
+  updatedAt: string;
+  reviewDecision: 'APPROVED' | 'CHANGES_REQUESTED' | 'REVIEW_REQUIRED' | null;
+  mergeable: 'MERGEABLE' | 'CONFLICTING' | 'UNKNOWN';
+  ci: 'success' | 'failure' | 'pending' | 'none';
+  ciPassed: number;
+  ciFailed: number;
+  ciPending: number;
+  mergeReady: boolean;
+  repoSlug: string;
+}
+
+/** Real listening TCP port whose process cwd is inside the session's directory */
+export interface AgentListeningServer {
+  port: number;
+  pid: number;
+  command: string;
+  url: string;
+}
+
+/** Live resource use of a listening server process (GET /api/agents/servers/stats) */
+export interface AgentServerStats {
+  pid: number;
+  /** CPU percent of one core, as reported by ps */
+  cpu: number;
+  memMb: number;
+}
+
+export interface AgentCacheInfo {
+  /** Epoch ms of the latest assistant turn: the cache TTL counts from here */
+  lastActivityAt: number;
+  ttlMs: number;
+  /** Prompt tokens of the latest turn (cached + written + uncached) */
+  cachedTokens: number;
+  contextWindow: number;
+  /** Turns that read from the cache, out of all turns */
+  hits: number;
+  turns: number;
+  /** Cache-read share of all input tokens, 0..1 */
+  hitRatio: number;
+}
+
+export interface AgentContext {
+  /** slug = "owner/repo" from the origin remote (github) */
+  repo: {
+    name: string;
+    /** Main checkout path; the same for every subfolder and worktree of the repo */
+    root: string;
+    slug: string | null;
+    branch: string | null;
+    dirty: boolean;
+    ahead: number;
+    behind: number;
+    /** true when the session runs in a linked git worktree (not the main checkout) */
+    isWorktree: boolean;
+    /** Folder name of the linked worktree; null for the main checkout */
+    worktreeName: string | null;
+    /** Absolute path of the linked worktree; null for the main checkout */
+    worktreePath: string | null;
+  } | null;
+  /** Model of the session's latest assistant turn (e.g. "claude-opus-5-5"); null when unknown */
+  model: string | null;
+  /** Prompt-cache stats from the session transcript; null when there is no local transcript */
+  cache?: AgentCacheInfo | null;
+  /** null when gh is unavailable/unauthenticated or not a github repo */
+  issues: { open: number; url: string | null } | null;
+  pulls: { open: number; url: string | null; items: AgentPullRequest[] } | null;
+  servers: AgentListeningServer[];
+  subagents: { running: number; total: number; names: string[] };
+}
+
 export interface AgentSession {
   /** Short id (`claude attach <id>`), or `interactive-<pid>` for foreground sessions */
   id: string;
   /** Full session UUID (usable with `claude --resume`) */
   sessionId: string | null;
   kind: 'background' | 'interactive';
+  /** Client-side cloud/remote session: PTY args instead of `attach <id>` */
+  ptyArgs?: string[];
+  /** PTY command for ptyArgs (default `claude`; `ssh` for remote attach) */
+  ptyCommand?: 'claude' | 'ssh';
+  /** Tailscale device the session runs on (remote sessions only) */
+  host?: string;
   cwd: string;
   startedAt: number;
   updatedAt?: number | null;
@@ -292,6 +376,24 @@ export interface AgentsResponse {
   capabilities?: AgentCapabilities;
 }
 
+export type RemoteDeviceState = 'ok' | 'offline' | 'ssh-denied' | 'claude-missing' | 'error';
+
+export interface RemoteDevice {
+  host: string;
+  name: string;
+  os: 'macOS' | 'linux';
+  state: RemoteDeviceState;
+  reason?: string;
+  sessions: AgentSession[];
+}
+
+export interface RemoteAgentsResponse {
+  /** false: neither `tailscale` in PATH nor the macOS app binary */
+  tailscale: boolean;
+  error?: string;
+  devices: RemoteDevice[];
+}
+
 export interface AgentCapabilities {
   /** Unsafe dispatch flags need DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true on the server */
   unsafeFlagsAllowed: boolean;
@@ -299,7 +401,7 @@ export interface AgentCapabilities {
   allowedDirs: string[];
 }
 
-export type AgentGrouping = 'state' | 'directory';
+export type AgentGrouping = 'state' | 'directory' | 'project' | 'none';
 export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
 
 export interface AgentDispatchDefaults {
@@ -427,3 +529,139 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
 };
+
+// ---------------------------------------------------------------------------
+// Agent Task Board (/board, #44). Source of truth: GitHub Project (GraphQL via gh).
+// ---------------------------------------------------------------------------
+
+export interface BoardSource {
+  owner: string;
+  /** Project number, e.g. 4 for users/hpmartini/projects/4 (MACC) */
+  number: number;
+}
+
+export interface BoardStatusOption {
+  id: string;
+  name: string;
+  /** GitHub ProjectV2 color name: GRAY | BLUE | GREEN | YELLOW | ORANGE | RED | PINK | PURPLE */
+  color: string;
+}
+
+export interface BoardLabel {
+  name: string;
+  /** hex without '#' */
+  color: string;
+}
+
+export type BoardCheckState = 'success' | 'failure' | 'pending' | null;
+
+export interface BoardPullRequest {
+  /** "owner/name" */
+  repo: string;
+  number: number;
+  url: string;
+  title: string | null;
+  /** OPEN | CLOSED | MERGED */
+  state: string;
+  checks: BoardCheckState;
+}
+
+export interface BoardIssueRef {
+  /** Issue node id (I_…); set for parents read from GitHub */
+  id?: string;
+  repo: string;
+  number: number;
+  title: string;
+}
+
+export interface BoardItem {
+  /** ProjectV2 item node id (PVTI_…), used to write the status */
+  itemId: string;
+  type: 'Issue' | 'PullRequest' | 'DraftIssue';
+  /** Issue node id (I_…) for edits; null for PRs and drafts */
+  issueId: string | null;
+  /** null for draft issues */
+  number: number | null;
+  title: string;
+  url: string | null;
+  /** "owner/name"; null for draft issues */
+  repo: string | null;
+  /** OPEN | CLOSED | MERGED */
+  state: string;
+  /** COMPLETED | NOT_PLANNED | DUPLICATE | REOPENED | null */
+  stateReason: string | null;
+  statusOptionId: string | null;
+  labels: BoardLabel[];
+  milestone: string | null;
+  assignees: string[];
+  parent: BoardIssueRef | null;
+  subIssues: { total: number; completed: number };
+  /** Linked PRs (closing references for issues; the PR itself for PR items) */
+  pullRequests: BoardPullRequest[];
+  /** Full session UUIDs from `<!-- mw-board:start session=<uuid> -->` comments */
+  mwBoardSessions: string[];
+  updatedAt: string;
+  closedAt: string | null;
+}
+
+export interface BoardData {
+  source: BoardSource;
+  projectId: string;
+  title: string;
+  statusField: { id: string; options: BoardStatusOption[] };
+  items: BoardItem[];
+  /** epoch ms of the GitHub fetch behind this response */
+  fetchedAt: number;
+}
+
+/** Pickable values of a repo (GET /api/board/repo-options) */
+export interface BoardRepoOptions {
+  repositoryId: string;
+  labels: (BoardLabel & { id: string })[];
+  assignees: { id: string; login: string }[];
+  milestones: { id: string; title: string }[];
+}
+
+/** Lazily loaded issue parts (GET /api/board/issues/:issueId) */
+export interface BoardIssueDetails {
+  body: string;
+  subIssues: (BoardIssueRef & { id: string; state: string })[];
+}
+
+/** Editable issue fields by name; labels/assignees replace the whole set */
+export interface BoardIssueFields {
+  title?: string;
+  body?: string;
+  labels?: string[];
+  assignees?: string[];
+  milestone?: string | null;
+}
+
+export interface BoardIssueCreate extends BoardIssueFields {
+  repo: string;
+  title: string;
+  /** Default: "Backlog" */
+  statusOptionId?: string;
+  /** Resume: the issue exists already (failed project step), only put it on the board */
+  issueId?: string;
+}
+
+export interface BoardIssuePatch extends BoardIssueFields {
+  state?: 'OPEN' | 'CLOSED';
+  stateReason?: 'COMPLETED' | 'NOT_PLANNED' | 'DUPLICATE';
+  parent?: { repo: string; number: number } | null;
+  addSubIssue?: { repo: string; number: number };
+  /** Issue node id of the sub-issue to detach */
+  removeSubIssue?: string;
+}
+
+export type BoardSliceKind = 'repo' | 'label' | 'milestone' | 'assignee';
+export type BoardSwimlaneMode = 'parent' | 'repo' | 'none';
+
+/** Persisted board preferences. Slice keys are `${kind}:${value}`, e.g. "repo:hpmartini/DevHub". */
+export interface BoardSettings {
+  source: BoardSource;
+  favorites: string[];
+  order: string[];
+  hidden: string[];
+}

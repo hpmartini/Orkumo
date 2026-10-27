@@ -16,6 +16,9 @@ import type {
   AgentViewSettings,
   AgentSession,
   AgentNotification,
+  AgentContext,
+  RemoteAgentsResponse,
+  AgentServerStats,
 } from '../types';
 
 const API_BASE = API_BASE_URL;
@@ -70,6 +73,23 @@ export async function fetchAgentsRawJson(
   return response.text();
 }
 
+export async function fetchAgentContexts(): Promise<Record<string, AgentContext>> {
+  const { contexts } = await request<{ contexts: Record<string, AgentContext> }>('/agents/context');
+  return contexts;
+}
+
+/** CPU/memory per server pid; pids that vanished are missing from the result. */
+export async function fetchServerStats(
+  pids: number[],
+  signal?: AbortSignal
+): Promise<AgentServerStats[]> {
+  const { stats } = await request<{ stats: AgentServerStats[] }>(
+    `/agents/servers/stats${query({ pids: pids.join(',') })}`,
+    { signal }
+  );
+  return stats;
+}
+
 export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatchResult> {
   return request<AgentDispatchResult>('/agents/dispatch', {
     method: 'POST',
@@ -77,8 +97,25 @@ export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatch
   });
 }
 
+export function openCloudSession(target?: string): Promise<{ args: string[] }> {
+  return request<{ args: string[] }>('/agents/cloud-session', {
+    method: 'POST',
+    body: JSON.stringify({ target: target || null }),
+  });
+}
+
 export function fetchAgentLogs(id: string, lines = 40): Promise<AgentLogs> {
   return request<AgentLogs>(`/agents/${encodeURIComponent(id)}/logs${query({ lines })}`);
+}
+
+export function fetchRemoteAgents(): Promise<RemoteAgentsResponse> {
+  return request<RemoteAgentsResponse>('/agents/remote');
+}
+
+export function fetchRemoteAgentLogs(host: string, id: string): Promise<AgentLogs> {
+  return request<AgentLogs>(
+    `/agents/remote/${encodeURIComponent(host)}/${encodeURIComponent(id)}/logs`
+  );
 }
 
 export function replyToAgent(
@@ -156,6 +193,12 @@ export function stopAgentDaemon(options: {
 export async function fetchSubagents(cwd?: string | null): Promise<AgentSubagent[]> {
   const data = await request<{ agents: AgentSubagent[] }>(`/agents/subagents${query({ cwd })}`);
   return data.agents;
+}
+
+/** Real path of `path` if the server lets the Web-IDE open it; rejects with status 403 otherwise */
+export async function checkCodeFolder(path: string): Promise<string> {
+  const data = await request<{ path: string }>(`/code/folder${query({ path })}`);
+  return data.path;
 }
 
 export async function fetchAgentRepos(

@@ -7,16 +7,13 @@ This directory should contain the application icons for different platforms.
 To add custom application icons, place the following files in this directory:
 
 ### macOS
+
 - `icon.icns` - macOS icon file (512x512 minimum)
   - Can be generated from a 1024x1024 PNG using tools like [png2icons](https://github.com/idesis-gmbh/png2icons)
   - Or use macOS's built-in `iconutil` command
 
-### Windows
-- `icon.ico` - Windows icon file (256x256 minimum)
-  - Should contain multiple sizes: 16x16, 32x32, 48x48, 64x64, 128x128, 256x256
-  - Can be generated using online tools like [icoconvert.com](https://icoconvert.com/)
-
 ### Linux
+
 - `icon.png` - Linux icon (512x512 minimum, preferably 1024x1024)
   - Used for AppImage and desktop shortcuts
 
@@ -25,19 +22,22 @@ To add custom application icons, place the following files in this directory:
 If you have an SVG icon (like the provided `icon.svg`), you can convert it to the required formats:
 
 ### Option 1: Using electron-icon-builder (requires PNG input)
+
 ```bash
 # First convert SVG to PNG (1024x1024) using an online tool or Inkscape
 # Then run:
-npm install --save-dev electron-icon-builder
-npx electron-icon-builder --input=electron/resources/icon-1024.png --output=electron/resources --flatten
+bun add -d electron-icon-builder
+bunx electron-icon-builder --input=electron/resources/icon-1024.png --output=electron/resources --flatten
 ```
 
 ### Option 2: Using online tools
+
 1. Convert your SVG to PNG (1024x1024) using [CloudConvert](https://cloudconvert.com/svg-to-png)
 2. Convert PNG to ICNS using [png2icons](https://github.com/idesis-gmbh/png2icons)
 3. Convert PNG to ICO using [icoconvert.com](https://icoconvert.com/)
 
 ### Option 3: Using macOS iconutil
+
 ```bash
 # Create an iconset directory
 mkdir icon.iconset
@@ -67,6 +67,7 @@ To enable custom icons, simply add the three files mentioned above to this direc
 ## Design Guidelines
 
 When creating your icon:
+
 - Use a simple, recognizable design
 - Ensure it looks good at small sizes (16x16, 32x32)
 - Use high contrast for visibility
@@ -74,17 +75,18 @@ When creating your icon:
 - Test on both light and dark backgrounds
 - Consider platform-specific design guidelines:
   - macOS: Rounded corners, subtle shadows
-  - Windows: Square with transparency
   - Linux: Flexible, but keep it simple
 
 ## Provided SVG Template
 
 The `icon.svg` file in this directory provides a basic template for the DevOrbit Dashboard icon. You can:
+
 1. Use it as-is by converting to the required formats
 2. Customize it in a vector graphics editor (Inkscape, Adobe Illustrator, Figma)
 3. Replace it entirely with your own design
 
 For professional results, consider hiring a designer or using design tools like:
+
 - [Figma](https://www.figma.com/) - Free design tool
 - [Canva](https://www.canva.com/) - Easy icon creation
 - [Iconfinder](https://www.iconfinder.com/) - Icon marketplace

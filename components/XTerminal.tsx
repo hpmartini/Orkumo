@@ -7,6 +7,8 @@ import '@xterm/xterm/css/xterm.css';
 import { ClaudeTerminalModal } from './ClaudeTerminalModal';
 import { parseAnsiToReact } from '../utils/ansiParser';
 import { getWsUrl as getApiWsUrl, API_BASE_URL } from '../utils/apiConfig';
+import { DEFAULT_TERMINAL_OPTIONS, useGhosttyTheme, withGhostty } from '../hooks/useGhosttyTheme';
+import { attachTerminalKeys } from '../utils/terminalKeys';
 import type { ClaudeTerminalOptions, ClaudeCLIInfo, TerminalType } from '../types';
 
 interface TerminalTab {
@@ -122,10 +124,22 @@ export const XTerminal: React.FC<XTerminalProps> = ({
   const logsContainerRef = useRef<HTMLDivElement>(null);
   const logsEndRef = useRef<HTMLDivElement>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const ghostty = useGhosttyTheme();
+  const ghosttyRef = useRef(ghostty);
+  ghosttyRef.current = ghostty;
   const tabsRef = useRef<TerminalTab[]>([]);
+  // Cmd+W handlers are bound once per terminal; this always closes with current state
+  const closeTabRef = useRef<(tabId: string) => void>(() => {});
   const activeTabIdRef = useRef<string | null>(null);
 
   // Keep refs in sync for ResizeObserver and cleanup
+  // The Ghostty config may arrive after terminals were created
+  useEffect(() => {
+    if (!ghostty) return;
+    const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
+    tabsRef.current.forEach((t) => t.terminal && Object.assign(t.terminal.options, options));
+  }, [ghostty]);
+
   useEffect(() => {
     tabsRef.current = tabs;
   }, [tabs]);
@@ -274,34 +288,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
       // Create xterm instance with proper configuration for reflow support
       const terminal = new XTerm({
-        cursorBlink: true,
-        cursorStyle: 'bar',
-        fontSize: 13,
-        fontFamily: 'JetBrains Mono, Menlo, Monaco, "Courier New", monospace',
+        ...withGhostty(DEFAULT_TERMINAL_OPTIONS, ghosttyRef.current),
         scrollback: 5000, // Enable scrollback buffer for reflow to work properly
-        theme: {
-          background: '#0a0a0f',
-          foreground: '#e4e4e7',
-          cursor: '#60a5fa',
-          cursorAccent: '#0a0a0f',
-          selectionBackground: '#3b82f680',
-          black: '#18181b',
-          red: '#ef4444',
-          green: '#22c55e',
-          yellow: '#eab308',
-          blue: '#3b82f6',
-          magenta: '#a855f7',
-          cyan: '#06b6d4',
-          white: '#e4e4e7',
-          brightBlack: '#52525b',
-          brightRed: '#f87171',
-          brightGreen: '#4ade80',
-          brightYellow: '#facc15',
-          brightBlue: '#60a5fa',
-          brightMagenta: '#c084fc',
-          brightCyan: '#22d3ee',
-          brightWhite: '#fafafa',
-        },
         allowProposedApi: true,
       });
 
@@ -368,17 +356,13 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         }
       });
 
-      // Handle Shift+Enter to insert newline (needed for Claude Code CLI)
-      // Uses CSI u encoding: \x1b[13;2u = Shift+Enter
-      terminal.attachCustomKeyEventHandler((event) => {
-        if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
-          }
-          return false; // Prevent default handling
-        }
-        return true; // Allow all other keys
-      });
+      attachTerminalKeys(
+        terminal,
+        (data) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+        },
+        () => closeTabRef.current(tabId)
+      );
 
       // Handle terminal resize events - this fires when terminal dimensions actually change
       // This is the proper way to sync PTY dimensions with xterm
@@ -477,8 +461,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
 
   // Close a tab
   const closeTab = useCallback(
-    (tabId: string, e: React.MouseEvent) => {
-      e.stopPropagation();
+    (tabId: string, e?: React.MouseEvent) => {
+      e?.stopPropagation();
 
       // Clean up terminal resources
       const tab = tabs.find((t) => t.id === tabId);
@@ -507,6 +491,8 @@ export const XTerminal: React.FC<XTerminalProps> = ({
     },
     [tabs, activeTabId, sharedActions, setTabs, setActiveTabId, setShowLogsTab]
   );
+
+  closeTabRef.current = (tabId) => closeTab(tabId);
 
   // Switch to logs tab
   const switchToLogs = useCallback(() => {
@@ -587,16 +573,14 @@ export const XTerminal: React.FC<XTerminalProps> = ({
         }
       });
 
-      // Rebind Shift+Enter handler
-      tab.terminal.attachCustomKeyEventHandler((event) => {
-        if (event.type === 'keydown' && event.key === 'Enter' && event.shiftKey) {
-          if (ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: 'input', data: '\x1b[13;2u' }));
-          }
-          return false;
-        }
-        return true;
-      });
+      // Rebind shortcuts to the new socket
+      attachTerminalKeys(
+        tab.terminal,
+        (data) => {
+          if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type: 'input', data }));
+        },
+        () => closeTabRef.current(tabId)
+      );
     },
     [tabs, cwd]
   );
@@ -709,7 +693,9 @@ export const XTerminal: React.FC<XTerminalProps> = ({
           className={`absolute inset-0 overflow-y-auto scrollbar-hide font-mono text-xs md:text-sm p-2 ${
             showLogsTab && !activeTabId ? 'block' : 'hidden'
           }`}
-          style={{ backgroundColor: '#0a0a0f' }}
+          style={{
+            backgroundColor: ghostty?.theme.background ?? DEFAULT_TERMINAL_OPTIONS.theme.background,
+          }}
         >
           {logs.length === 0 ? (
             <div className="p-2 text-gray-600 italic">
@@ -753,7 +739,10 @@ export const XTerminal: React.FC<XTerminalProps> = ({
             key={tab.id}
             data-terminal-id={tab.id}
             className={`absolute inset-0 p-1 ${activeTabId === tab.id ? 'block' : 'hidden'}`}
-            style={{ backgroundColor: '#0a0a0f' }}
+            style={{
+              backgroundColor:
+                ghostty?.theme.background ?? DEFAULT_TERMINAL_OPTIONS.theme.background,
+            }}
           />
         ))}
       </div>

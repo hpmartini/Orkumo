@@ -5,11 +5,11 @@ import {
   Settings2,
   HelpCircle,
   RefreshCw,
-  FolderTree,
-  ListTree,
   Braces,
   AlertTriangle,
   Power,
+  Plus,
+  Search,
   X,
 } from 'lucide-react';
 import type { AgentConfigLike } from './types';
@@ -19,9 +19,19 @@ import type {
   AgentRepo,
   AgentSlashCommand,
   AgentPastSession,
-  AgentLayout,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
+import { useRemoteAgents } from '../../hooks/useRemoteAgents';
+import { buildSshAttachArgs } from '../../utils/meshHosts';
+import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
+import { useAgentContexts } from '../../hooks/useAgentContexts';
+import {
+  useRailPreferences,
+  groupNeighbour,
+  isFoldedAway,
+  FAVORITES_GROUP_KEY,
+} from '../../hooks/useRailPreferences';
+import { FOCUS_CHORD_LABEL, useAgentFocusZone } from '../../hooks/useAgentFocusZone';
 import {
   dispatchAgent,
   fetchAgentsRawJson,
@@ -35,22 +45,58 @@ import {
   replyToAgent,
   respawnAgent,
   stopAgent,
+  openCloudSession,
 } from '../../services/agentsApi';
+import { fetchRepoPath } from '../../services/boardApi';
+import { confirmDelete } from '../../utils/agentDelete';
+import { agentFolder, codeUrl } from '../../utils/codeTarget';
 import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
 import {
   groupSessions,
   flattenGroups,
   documentTitle,
+  applyQuickFilters,
+  matchesQuickFilter,
+  mergeServers,
+  collectPullRequests,
+  summarizeContext,
+  formatModelName,
+  DEFAULT_SORT,
+  QUICK_FILTERS,
+  SORT_OPTIONS,
+  AgentQuickFilter,
+  AgentSort,
   NavItem,
   SessionGroup,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
-import { DispatchInput } from './DispatchInput';
+import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
+import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
+import { PullRequestsPanel } from './PullRequestsPanel';
+import { ServersPanel, type ServerRow } from './ServersPanel';
+import {
+  TaskComposerModal,
+  useCommandPalette,
+  useRegisterCommands,
+  PALETTE_SHORTCUT,
+} from '../CommandPalette';
+import type { PaletteCommand } from '../../utils/commandPalette';
+import { CloudSessionBar } from './CloudSessionBar';
+import { RemoteAgents } from './RemoteAgents';
 import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
+import { SessionLinks } from './SessionLinks';
 import { ResumePicker } from './ResumePicker';
 import { ShortcutsHelp } from './ShortcutsHelp';
 import { AgentSettingsPanel } from './AgentSettingsPanel';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { fetchBoard } from '../../services/boardApi';
+import { deriveAgentLinks, linksByAgent } from '../../utils/board';
+import type { BoardData } from '../../types';
+import { IssueCreateModal } from '../BoardView/IssueCreateModal';
+
+/** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
+const BOARD_REFRESH_MS = 60_000;
 
 interface AgentsViewProps {
   /** Whether the view is visible (drives SSE subscription and keyboard handling) */
@@ -59,29 +105,28 @@ interface AgentsViewProps {
   apps: AgentConfigLike[];
   /** Leave the agents view (Ctrl+C twice) */
   onExit: () => void;
+  /** App navigation for the merged left rail (replaces the separate app sidebar) */
+  nav: RailNavProps;
+  /** Make this view the visible route (palette command "New task" from another page) */
+  onOpenView: () => void;
 }
 
-const WORKSPACE_STORAGE_KEY = 'devOrbitAgentWorkspace';
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
-const DELETE_CONFIRM_WINDOW = 2000;
+const SORT_STORAGE_KEY = 'devOrbitAgentSort';
+const REMOTE_STORAGE_KEY = 'devOrbitAgentRemote';
+/** Client-side id of a remote session: `<host>:<id>` (':' never occurs in a session id). */
+const remoteKey = (s: AgentSession) => `${s.host}:${s.id}`;
 
-interface WorkspaceState {
-  openIds: string[];
-  activeId: string | null;
-}
-
-function loadWorkspace(): WorkspaceState {
+function loadSort(): AgentSort {
   try {
-    const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.openIds))
-        return { openIds: parsed.openIds, activeId: parsed.activeId ?? null };
+    const parsed = JSON.parse(localStorage.getItem(SORT_STORAGE_KEY) || 'null');
+    if (SORT_OPTIONS.some((o) => o.key === parsed?.key) && /^(asc|desc)$/.test(parsed?.dir)) {
+      return parsed;
     }
   } catch {
-    // ignore
+    // unavailable or corrupt storage: use the default
   }
-  return { openIds: [], activeId: null };
+  return DEFAULT_SORT;
 }
 
 function isEditableTarget(target: EventTarget | null): target is HTMLElement {
@@ -99,7 +144,14 @@ function isInsideTerminal(target: EventTarget | null): boolean {
  * Browser counterpart of `claude agents`: session list, dispatch input, peek panel
  * and attached sessions in tabs / tiles.
  */
-export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) => {
+export const AgentsView: React.FC<AgentsViewProps> = ({
+  active,
+  apps,
+  onExit,
+  nav,
+  onOpenView,
+}) => {
+  const palette = useCommandPalette();
   const {
     sessions,
     daemon,
@@ -122,7 +174,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [peekId, setPeekId] = useState<string | null>(null);
-  const [workspace, setWorkspace] = useState<WorkspaceState>(loadWorkspace);
+  const {
+    workspace,
+    openIds: openIdSet,
+    attach: attachPane,
+    closePane,
+    prune: pruneMissing,
+    ...workspaceActions
+  } = useAgentWorkspace();
   const [expandedCompleted, setExpandedCompleted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -130,6 +189,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     open: false,
     query: '',
   });
+  const [composerOpen, setComposerOpen] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
   const [dispatching, setDispatching] = useState(false);
@@ -138,12 +198,40 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   const [repos, setRepos] = useState<AgentRepo[]>([]);
   const [commands, setCommands] = useState<AgentSlashCommand[]>([]);
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
+  // Cloud/remote PTY tabs live client-side only (not in the `claude agents` list)
+  const [cloudSessions, setCloudSessions] = useState<AgentSession[]>([]);
   const [dispatchCwd, setDispatchCwd] = useState<string | null>(() =>
     localStorage.getItem(DISPATCH_CWD_STORAGE_KEY)
   );
   const [now, setNow] = useState(Date.now());
+  const [remoteEnabled, setRemoteEnabled] = useState(() => {
+    try {
+      return localStorage.getItem(REMOTE_STORAGE_KEY) === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const toggleRemote = useCallback(() => {
+    setRemoteEnabled((prev) => {
+      try {
+        localStorage.setItem(REMOTE_STORAGE_KEY, String(!prev));
+      } catch {
+        // switch stays in memory only
+      }
+      return !prev;
+    });
+  }, []);
+  const remote = useRemoteAgents(active && remoteEnabled);
+  const remoteSessions = useMemo(
+    () => remote.data?.devices.flatMap((d) => d.sessions) ?? [],
+    [remote.data]
+  );
+  // Remote rows follow the local list in keyboard navigation
+  const remoteKeys = useMemo(
+    () => (remoteEnabled ? remoteSessions.map(remoteKey) : []),
+    [remoteEnabled, remoteSessions]
+  );
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
-  const pendingDeleteRef = useRef<{ key: string; at: number } | null>(null);
   const ctrlCRef = useRef<number>(0);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -153,13 +241,100 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
 
   const filter = useMemo(() => parseFilter(input), [input]);
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
-  const collapsed = useMemo(() => new Set(settings.collapsedGroups), [settings.collapsedGroups]);
-  const groups = useMemo(
-    () => groupSessions(visibleSessions, settings.grouping, { expandedCompleted }),
-    [visibleSessions, settings.grouping, expandedCompleted]
+  const railRef = useRef<HTMLDivElement>(null);
+  const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
+  const contexts = useAgentContexts(active);
+  const servers = useMemo(
+    () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
+    [sessions, apps, contexts]
   );
+  const lookup = useMemo(() => ({ contexts, servers }), [contexts, servers]);
+  const [panel, setPanel] = useState<'prs' | 'servers' | null>(null);
+  useEffect(() => {
+    if (!active) setPanel(null);
+  }, [active]);
+  const [prRepo, setPrRepo] = useState<string | null>(null);
+  const pullRows = useMemo(() => collectPullRequests(sessions, contexts), [sessions, contexts]);
+  const serverRows = useMemo(() => {
+    const seen = new Set<number>();
+    const rows: ServerRow[] = [];
+    for (const s of sessions) {
+      for (const server of servers.get(s.id) || []) {
+        if (!server.running || seen.has(server.port)) continue;
+        seen.add(server.port);
+        rows.push({ server, agentId: s.id, agentName: s.name });
+      }
+    }
+    return rows.sort((a, b) => a.server.port - b.server.port);
+  }, [sessions, servers]);
+  const [sort, setSortState] = useState<AgentSort>(loadSort);
+  const setSort = useCallback((next: AgentSort) => {
+    setSortState(next);
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, JSON.stringify(next));
+    } catch {
+      // sort stays in memory only
+    }
+  }, []);
+  const [quickFilters, setQuickFilters] = useState<Set<AgentQuickFilter>>(() => new Set());
+  const toggleQuickFilter = useCallback((key: AgentQuickFilter) => {
+    setQuickFilters((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+  const shownSessions = useMemo(
+    () => applyQuickFilters(visibleSessions, quickFilters, lookup),
+    [visibleSessions, quickFilters, lookup]
+  );
+  const chipCounts = useMemo(() => {
+    const result = {} as Record<AgentQuickFilter, number>;
+    for (const { key } of QUICK_FILTERS) {
+      result[key] = sessions.filter((s) => matchesQuickFilter(key, s, lookup)).length;
+    }
+    return result;
+  }, [sessions, lookup]);
+  const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
+  // An active quick filter must not hide its matches inside collapsed groups
+  const rail = useRailPreferences(settings.grouping);
+  const {
+    arrange,
+    toggleCollapsed,
+    moveGroup,
+    toggleFavoriteGroup,
+    toggleFavoriteSession,
+    favoriteGroups,
+  } = rail;
+  const collapsed = useMemo(
+    () => (quickFilters.size ? new Set<string>() : rail.collapsed),
+    [rail.collapsed, quickFilters]
+  );
+  const groups = useMemo(
+    () =>
+      arrange(
+        groupSessions(shownSessions, settings.grouping, {
+          // Filtering for Completed means the user wants all of them, not "… N more"
+          expandedCompleted: expandedCompleted || quickFilters.has('completed'),
+          sort,
+          lookup,
+          apps,
+        })
+      ),
+    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps, arrange]
+  );
+  // Session of the active workspace tab: marked and revealed in the rail
+  const activeSessionId = useMemo(() => {
+    const id = workspace.tabs.find((t) => t.id === workspace.activeTabId)?.activeSessionId;
+    return id && sessions.some((s) => s.id === id) ? id : null;
+  }, [workspace.tabs, workspace.activeTabId, sessions]);
+  const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
   const items = useMemo(() => {
-    const flat = flattenGroups(groups, collapsed, settings.grouping === 'directory');
+    const flat = flattenGroups(
+      groups,
+      collapsed,
+      settings.grouping === 'directory' || settings.grouping === 'project'
+    );
     // The interactive group only shows up when there are interactive sessions
     return flat.filter(
       (item) =>
@@ -178,19 +353,27 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         ? `more:${item.group.key}`
         : item.session.id;
 
+  const selectedRemote = remoteKeys.includes(selectedKey ?? '')
+    ? (remoteSessions.find((s) => remoteKey(s) === selectedKey) ?? null)
+    : null;
   const selectedIndex = useMemo(() => {
+    // A selected remote row leaves no local selection, so local shortcuts never hit a stand-in
+    if (selectedRemote) return -1;
     const index = items.findIndex((item) => itemKey(item) === selectedKey);
     if (index >= 0) return index;
     const firstSession = items.findIndex((item) => item.type === 'session');
     return firstSession >= 0 ? firstSession : items.length > 0 ? 0 : -1;
-  }, [items, selectedKey]);
+  }, [items, selectedKey, selectedRemote]);
   const selectedItem: NavItem | null = selectedIndex >= 0 ? items[selectedIndex] : null;
   const selectedSession = selectedItem?.type === 'session' ? selectedItem.session : null;
-  const peekSession = peekId ? sessions.find((s) => s.id === peekId) || null : null;
-  const openIdSet = useMemo(() => new Set(workspace.openIds), [workspace.openIds]);
+  const peekSession = peekId
+    ? sessions.find((s) => s.id === peekId) ||
+      remoteSessions.find((s) => remoteKey(s) === peekId) ||
+      null
+    : null;
 
   const targetCwd: string | null = useMemo(() => {
-    if (settings.grouping === 'directory' && selectedItem) {
+    if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
       if (selectedItem.type === 'group' && selectedItem.group.cwd) return selectedItem.group.cwd;
       if (selectedItem.type === 'session') return selectedItem.session.cwd;
     }
@@ -216,10 +399,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // ---------------------------------------------------------------------
   // Effects
   // ---------------------------------------------------------------------
-
-  useEffect(() => {
-    localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(workspace));
-  }, [workspace]);
 
   useEffect(() => {
     if (dispatchCwd) localStorage.setItem(DISPATCH_CWD_STORAGE_KEY, dispatchCwd);
@@ -267,24 +446,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // Drop tabs for sessions that no longer exist
   useEffect(() => {
     if (loading || sessions.length === 0) return;
-    const existing = new Set(sessions.map((s) => s.id));
-    setWorkspace((prev) => {
-      const openIds = prev.openIds.filter((id) => existing.has(id));
-      if (openIds.length === prev.openIds.length) return prev;
-      const activeId = openIds.includes(prev.activeId || '')
-        ? prev.activeId
-        : openIds[openIds.length - 1] || null;
-      return { openIds, activeId };
-    });
-  }, [sessions, loading]);
+    pruneMissing(new Set([...sessions, ...cloudSessions].map((s) => s.id)));
+  }, [sessions, cloudSessions, loading, pruneMissing]);
 
-  // Focus the dispatch input when the view becomes active
+  // Forget open row details of removed sessions; a scoped (--cwd) or failed list is incomplete
+  const { pruneExpandedSessions } = rail;
   useEffect(() => {
-    if (active) {
-      const id = requestAnimationFrame(() => inputRef.current?.focus());
-      return () => cancelAnimationFrame(id);
-    }
-  }, [active]);
+    if (loading || error || settings.scopeCwd || sessions.length === 0) return;
+    pruneExpandedSessions([...sessions, ...cloudSessions].map((s) => s.id));
+  }, [sessions, cloudSessions, loading, error, settings.scopeCwd, pruneExpandedSessions]);
 
   const showHint = useCallback(
     (text: string, tone: 'info' | 'error' | 'success' = 'info', ttl = 4000) => {
@@ -299,34 +469,110 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // Workspace (tabs)
   // ---------------------------------------------------------------------
 
-  const attach = useCallback((id: string) => {
-    setWorkspace((prev) => ({
-      openIds: prev.openIds.includes(id) ? prev.openIds : [...prev.openIds, id],
-      activeId: id,
-    }));
-    setSelectedKey(id);
-  }, []);
+  const attach = useCallback(
+    (id: string) => {
+      attachPane(id);
+      setSelectedKey(id);
+    },
+    [attachPane]
+  );
 
-  const closeTab = useCallback((id: string) => {
-    setWorkspace((prev) => {
-      const openIds = prev.openIds.filter((x) => x !== id);
-      const activeId = prev.activeId === id ? openIds[openIds.length - 1] || null : prev.activeId;
-      return { openIds, activeId };
-    });
-  }, []);
+  // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
+  const location = useLocation();
+  const navigate = useNavigate();
+  const [createIssueRepo, setCreateIssueRepo] = useState<string | null>(null);
+  const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
+  useEffect(() => {
+    if (!attachParam || loading) return;
+    if (sessions.some((s) => s.id === attachParam)) attach(attachParam);
+    else showHint(`Agent ${attachParam} not found`, 'error');
+    navigate('/agents', { replace: true });
+  }, [attachParam, loading, sessions, attach, showHint, navigate]);
 
-  const reorderTabs = useCallback((from: number, to: number) => {
-    setWorkspace((prev) => {
-      const openIds = [...prev.openIds];
-      const [moved] = openIds.splice(from, 1);
-      openIds.splice(to, 0, moved);
-      return { ...prev, openIds };
-    });
-  }, []);
+  // Board "Agent starten": composer prefill via router state, which external links cannot set
+  const prefill = active ? (location.state as { dispatch?: unknown; cwd?: unknown } | null) : null;
+  useEffect(() => {
+    if (typeof prefill?.dispatch !== 'string') return;
+    setInput(prefill.dispatch);
+    if (typeof prefill.cwd === 'string' && prefill.cwd) setDispatchCwd(prefill.cwd);
+    setComposerOpen(true);
+    navigate('/agents', { replace: true, state: null });
+  }, [prefill, navigate]);
 
-  const setLayout = useCallback(
-    (layout: AgentLayout) => updateSettings({ layout }),
-    [updateSettings]
+  // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
+  const [board, setBoard] = useState<BoardData | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    // server caches the board ~60 s, so re-activating /agents is cheap
+    const load = () =>
+      fetchBoard()
+        .then(setBoard)
+        .catch(() => {});
+    load();
+    const interval = setInterval(load, BOARD_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, [active]);
+  const issuesByAgent = useMemo(
+    () => (board ? linksByAgent(deriveAgentLinks(board.items, sessions)) : undefined),
+    [board, sessions]
+  );
+
+  const openCloud = useCallback(
+    async (target?: string) => {
+      const { args } = await openCloudSession(target);
+      const id = `cloud-${Date.now()}`;
+      const session: AgentSession = {
+        id,
+        sessionId: null,
+        kind: 'interactive',
+        cwd: targetCwd || '',
+        startedAt: Date.now(),
+        name: target ? `Cloud ${target.slice(-8)}` : 'Cloud-Sessions',
+        state: null,
+        ptyArgs: args,
+        pinned: false,
+        order: null,
+        links: [],
+        displayState: 'idle',
+      };
+      setCloudSessions((prev) => [...prev, session]);
+      attach(id);
+    },
+    [targetCwd, attach]
+  );
+
+  // Remote panes join the client-side PTY tabs, so a flaky device poll never prunes them
+  const attachRemote = useCallback(
+    (session: AgentSession) => {
+      if (!session.host) return;
+      const host = session.host;
+      const key = remoteKey(session);
+      setCloudSessions((prev) =>
+        prev.some((s) => s.id === key)
+          ? prev
+          : [
+              ...prev,
+              {
+                ...session,
+                // namespaced so a remote id never collides with a local session/pane
+                id: key,
+                name: `${session.name} · ${host.split('.')[0]}`,
+                ptyCommand: 'ssh',
+                ptyArgs: buildSshAttachArgs(host, session.id),
+              },
+            ]
+      );
+      attach(key);
+    },
+    [attach]
+  );
+
+  const closeAnyPane = useCallback(
+    (id: string) => {
+      setCloudSessions((prev) => prev.filter((s) => s.id !== id));
+      closePane(id);
+    },
+    [closePane]
   );
 
   // ---------------------------------------------------------------------
@@ -339,14 +585,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     setSelectedKey(session.id);
   }, []);
 
+  // Single click on an already attached agent: switch to its tab/pane and put the cursor in the terminal
+  const focusOpen = useCallback(
+    (id: string) => {
+      attach(id);
+      requestAnimationFrame(() => moveFocus('terminal'));
+    },
+    [attach, moveFocus]
+  );
+
   const toggleGroup = useCallback(
     (group: SessionGroup) => {
-      const next = collapsed.has(group.key)
-        ? settings.collapsedGroups.filter((k) => k !== group.key)
-        : [...settings.collapsedGroups, group.key];
-      updateSettings({ collapsedGroups: next });
+      // Quick filters force all groups open, so a toggle would change nothing visible
+      if (quickFilters.size > 0) showHint('Clear the filters to collapse groups', 'info');
+      else toggleCollapsed(group.key);
     },
-    [collapsed, settings.collapsedGroups, updateSettings]
+    [toggleCollapsed, quickFilters, showHint]
   );
 
   const activateItem = useCallback(
@@ -359,6 +613,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       else attach(item.session.id);
     },
     [toggleGroup, attach, showHint]
+  );
+
+  const activateRemote = useCallback(
+    (session: AgentSession) => {
+      if (session.kind === 'interactive')
+        showHint('Interactive sessions run in their own terminal', 'info');
+      else attachRemote(session);
+    },
+    [attachRemote, showHint]
   );
 
   const doDispatch = useCallback(
@@ -387,6 +650,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           cwd,
         });
         setInput('');
+        setComposerOpen(false);
         setHighlightedId(result.id);
         setSelectedKey(result.id);
         showHint(
@@ -422,6 +686,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           const model = !args || args === 'default' ? null : args;
           await updateSettings({ dispatch: { ...settings.dispatch, model } });
           setInput('');
+          setComposerOpen(false);
           showHint(model ? `Dispatch model: ${model}` : 'Dispatch model: default', 'success');
           return;
         }
@@ -429,6 +694,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           const effort = !args || args === 'default' ? null : args;
           await updateSettings({ dispatch: { ...settings.dispatch, effort } });
           setInput('');
+          setComposerOpen(false);
           showHint(effort ? `Dispatch effort: ${effort}` : 'Dispatch effort: default', 'success');
           return;
         }
@@ -450,8 +716,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       const parsed = parseDispatchInput(input, { subagents, repos });
       switch (parsed.kind) {
         case 'empty':
+          showHint('Describe the task first', 'error');
+          return;
         case 'filter':
-          activateItem(selectedItem);
+          // The list filter follows `input`; keep it and let the user see the narrowed list
+          setComposerOpen(false);
           return;
         case 'select-pr': {
           const match = sessions.find((s) =>
@@ -467,6 +736,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           }
           setSelectedKey(match.id);
           setInput('');
+          setComposerOpen(false);
           if (attachAfter) attach(match.id);
           return;
         }
@@ -491,18 +761,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           return;
       }
     },
-    [
-      input,
-      subagents,
-      repos,
-      activateItem,
-      selectedItem,
-      sessions,
-      showHint,
-      attach,
-      handleCommand,
-      doDispatch,
-    ]
+    [input, subagents, repos, sessions, showHint, attach, handleCommand, doDispatch]
   );
 
   const handleRename = useCallback(
@@ -534,7 +793,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     [refresh, showHint]
   );
 
-  const deleteSession = useCallback(
+  const removeSession = useCallback(
     async (
       session: AgentSession,
       options: { discardUnpushed?: string | null; forceRemoveWorktree?: string | null } = {}
@@ -546,13 +805,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
             result.hints?.discardUnpushed &&
             window.confirm(`${result.message}\n\nDiscard the unpushed commits and delete anyway?`)
           ) {
-            return deleteSession(session, { discardUnpushed: result.hints.discardUnpushed });
+            return removeSession(session, { discardUnpushed: result.hints.discardUnpushed });
           }
           if (
             result.hints?.forceRemoveWorktree &&
             window.confirm(`${result.message}\n\nForce-remove the worktree directory and delete?`)
           ) {
-            return deleteSession(session, {
+            return removeSession(session, {
               forceRemoveWorktree: result.hints.forceRemoveWorktree,
             });
           }
@@ -560,14 +819,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           return;
         }
         toast.success(`Deleted ${session.name}`);
-        closeTab(session.id);
+        closePane(session.id);
         if (peekId === session.id) setPeekId(null);
         refresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Delete failed');
       }
     },
-    [closeTab, peekId, refresh]
+    [closePane, peekId, refresh]
+  );
+
+  const deleteSession = useCallback(
+    (session: AgentSession) => confirmDelete(session.name, () => removeSession(session)),
+    [removeSession]
   );
 
   const handleStopOrDelete = useCallback(
@@ -579,39 +843,31 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         );
         if (list.length === 0) return;
         if (!window.confirm(`Delete all ${list.length} sessions in "${item.group.title}"?`)) return;
-        for (const session of list) await deleteSession(session);
+        for (const session of list) await removeSession(session);
         return;
       }
       if (item.type !== 'session' || item.session.kind !== 'background') return;
-      const session = item.session;
-      const pending = pendingDeleteRef.current;
-      const nowMs = Date.now();
-      if (pending && pending.key === session.id && nowMs - pending.at < DELETE_CONFIRM_WINDOW) {
-        pendingDeleteRef.current = null;
-        setHint(null);
-        await deleteSession(session);
-        return;
-      }
-      pendingDeleteRef.current = { key: session.id, at: nowMs };
-      showHint(
-        `Press Ctrl+X again within 2 s to delete ${session.name}`,
-        'info',
-        DELETE_CONFIRM_WINDOW
-      );
-      if (session.state === 'working' || session.state === 'blocked') {
-        try {
-          await stopAgent(session.id);
-          refresh();
-        } catch (err) {
-          toast.error(err instanceof Error ? err.message : 'Stop failed');
-        }
-      }
+      await deleteSession(item.session);
     },
-    [deleteSession, showHint, refresh]
+    [deleteSession, removeSession]
   );
 
   const handleReorder = useCallback(
     async (direction: 'up' | 'down') => {
+      if (selectedItem?.type === 'group') {
+        // Same rule as the group menu: favorites stay a block of their own
+        const key: string = selectedItem.group.key;
+        const keys = items.flatMap((i) =>
+          i.type === 'group' && (i.group.key as string) !== FAVORITES_GROUP_KEY
+            ? [i.group.key as string]
+            : []
+        );
+        const target =
+          key !== 'all' &&
+          groupNeighbour(keys, [...favoriteGroups], key, direction === 'up' ? -1 : 1);
+        if (target) moveGroup(key, target, keys);
+        return;
+      }
       if (!selectedItem || selectedItem.type !== 'session') return;
       const group = selectedItem.group;
       const ids = group.sessions.map((s) => s.id);
@@ -626,7 +882,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         toast.error(err instanceof Error ? err.message : 'Reorder failed');
       }
     },
-    [selectedItem, refresh]
+    [selectedItem, items, favoriteGroups, moveGroup, refresh]
   );
 
   const handleReply = useCallback(
@@ -638,7 +894,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   );
 
   const toggleGrouping = useCallback(() => {
-    updateSettings({ grouping: settings.grouping === 'state' ? 'directory' : 'state' });
+    const order = ['project', 'state', 'directory', 'none'] as const;
+    updateSettings({ grouping: order[(order.indexOf(settings.grouping) + 1) % order.length] });
   }, [settings.grouping, updateSettings]);
 
   const copyJson = useCallback(async () => {
@@ -654,7 +911,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   const attachNth = useCallback(
     (n: number) => {
       let pool: AgentSession[];
-      if (settings.grouping === 'directory' && selectedItem) {
+      if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
         pool = selectedItem.group.sessions;
       } else {
         pool = items
@@ -669,14 +926,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
 
   const moveSelection = useCallback(
     (direction: 'up' | 'down') => {
-      if (items.length === 0) return;
-      const next =
-        direction === 'up'
-          ? Math.max(0, selectedIndex - 1)
-          : Math.min(items.length - 1, selectedIndex + 1);
-      setSelectedKey(itemKey(items[next]));
+      const keys = [...items.map(itemKey), ...remoteKeys];
+      if (keys.length === 0) return;
+      const at = selectedRemote ? keys.indexOf(remoteKey(selectedRemote)) : selectedIndex;
+      const next = direction === 'up' ? Math.max(0, at - 1) : Math.min(keys.length - 1, at + 1);
+      setSelectedKey(keys[next]);
     },
-    [items, selectedIndex]
+    [items, selectedIndex, remoteKeys, selectedRemote]
   );
 
   // ---------------------------------------------------------------------
@@ -686,16 +942,29 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   useEffect(() => {
     if (!active) return;
     const handler = (e: KeyboardEvent) => {
-      const modalOpen = showSettings || showHelp || resumePicker.open || editorOpen || pickDirOpen;
+      const modalOpen =
+        showSettings ||
+        showHelp ||
+        resumePicker.open ||
+        editorOpen ||
+        pickDirOpen ||
+        composerOpen ||
+        palette.isOpen ||
+        panel !== null;
       if (modalOpen) return;
       if (isInsideTerminal(e.target)) return;
       const target = e.target as HTMLElement | null;
-      const inDispatch = target === inputRef.current;
-      const inOtherInput = isEditableTarget(target) && !inDispatch;
+      // Explicit type: an inferred alias would narrow `target` to never below
+      const inOtherInput: boolean = isEditableTarget(target);
       const key = e.key.toLowerCase();
       const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
 
-      // Global (also inside the dispatch input)
+      // Global (also inside text inputs)
+      if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyN') {
+        e.preventDefault();
+        setComposerOpen(true);
+        return;
+      }
       if (ctrl && key === 's' && !e.shiftKey) {
         e.preventDefault();
         toggleGrouping();
@@ -724,26 +993,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       if (inOtherInput) return; // peek reply / rename inputs handle their own keys
 
       if (ctrl && key === 'x' && !e.shiftKey) {
-        const el = inputRef.current;
-        const hasSelection = inDispatch && el && el.selectionStart !== el.selectionEnd;
-        if (hasSelection) return; // let the browser cut
         e.preventDefault();
         handleStopOrDelete(selectedItem);
         return;
       }
       if (ctrl && key === 'c') {
-        if (
-          inDispatch &&
-          inputRef.current &&
-          inputRef.current.selectionStart !== inputRef.current.selectionEnd
-        )
-          return; // copy
         e.preventDefault();
-        if (input) {
-          setInput('');
-          ctrlCRef.current = 0;
-          return;
-        }
         const nowMs = Date.now();
         if (nowMs - ctrlCRef.current < 1200) {
           ctrlCRef.current = 0;
@@ -759,21 +1014,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         handleReorder(e.key === 'ArrowUp' ? 'up' : 'down');
         return;
       }
-      if (e.key === '?' && !input && !e.ctrlKey && !e.metaKey) {
+      if (e.key === '?' && !e.ctrlKey && !e.metaKey) {
         e.preventDefault();
         setShowHelp(true);
         return;
       }
-      if (inDispatch) {
-        if (e.key === 'ArrowRight' && !input) {
-          e.preventDefault();
-          if (selectedSession) attach(selectedSession.id);
-        } else if (e.key === 'ArrowLeft' && !input && peekId) {
-          e.preventDefault();
-          setPeekId(null);
-        }
-        return; // remaining keys are handled by DispatchInput itself
-      }
+
+      // Rail, tab strip and popover controls keep their own Enter/Space/arrow behaviour
+      if (
+        target?.closest('button, a, [role="dialog"], [role="tab"], [role="tablist"], [role="menu"]')
+      )
+        return;
 
       // List / body context
       switch (e.key) {
@@ -788,15 +1039,36 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         case 'Enter':
         case 'ArrowRight':
           e.preventDefault();
-          activateItem(selectedItem);
+          if (selectedRemote) activateRemote(selectedRemote);
+          else activateItem(selectedItem);
           break;
         case ' ':
           e.preventDefault();
-          togglePeek(selectedSession);
+          if (selectedRemote) {
+            // `claude logs` only knows background sessions, not `interactive-<pid>`
+            if (selectedRemote.kind === 'background')
+              togglePeek({ ...selectedRemote, id: remoteKey(selectedRemote) });
+            else showHint('Interactive sessions run in their own terminal', 'info');
+          } else if (selectedItem?.type === 'group') toggleGroup(selectedItem.group);
+          else togglePeek(selectedSession);
           break;
         case 'Escape':
           if (peekId) setPeekId(null);
-          else inputRef.current?.focus();
+          break;
+        case 'n':
+          if (e.ctrlKey || e.metaKey || e.altKey) break;
+          e.preventDefault();
+          setComposerOpen(true);
+          break;
+        case 'F': // Shift+F: plain F is the app-wide "open favorites" shortcut
+          if (e.ctrlKey || e.metaKey || e.altKey || !selectedItem) break;
+          if (selectedItem.type === 'group') {
+            const key: string = selectedItem.group.key;
+            if (key !== FAVORITES_GROUP_KEY && key !== 'all') toggleFavoriteGroup(key);
+          } else if (selectedItem.type === 'session') {
+            toggleFavoriteSession(selectedItem.session.id);
+          }
+          e.preventDefault();
           break;
         default:
           break;
@@ -811,9 +1083,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     resumePicker.open,
     editorOpen,
     pickDirOpen,
-    input,
+    composerOpen,
+    palette.isOpen,
+    panel,
     selectedItem,
     selectedSession,
+    selectedRemote,
     peekId,
     toggleGrouping,
     handlePin,
@@ -821,8 +1096,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
     attachNth,
     handleStopOrDelete,
     handleReorder,
+    toggleFavoriteGroup,
+    toggleFavoriteSession,
     moveSelection,
     activateItem,
+    activateRemote,
+    toggleGroup,
     togglePeek,
     attach,
     onExit,
@@ -840,6 +1119,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       return [
         { id: 'attach', label: 'Attach in tab', disabled: !bg, onSelect: () => attach(session.id) },
         { id: 'peek', label: 'Peek / reply', onSelect: () => togglePeek(session) },
+        {
+          id: 'code',
+          label: 'Open in Code',
+          disabled: !agentFolder(session, contexts[session.id]),
+          onSelect: () => {
+            const folder = agentFolder(session, contexts[session.id]);
+            if (folder) navigate(codeUrl(folder));
+          },
+        },
         {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
@@ -882,7 +1170,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         },
       ];
     },
-    [attach, togglePeek, handlePin, handleRename, refresh, deleteSession]
+    [attach, togglePeek, handlePin, handleRename, refresh, deleteSession, contexts, navigate]
   );
 
   const groupActions = useCallback(
@@ -892,6 +1180,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         label: collapsed.has(group.key) ? 'Expand' : 'Collapse',
         onSelect: () => toggleGroup(group),
       },
+      ...(group.appId
+        ? [
+            {
+              id: 'open-project',
+              label: 'Open project',
+              onSelect: () => nav.onOpenProject(group.appId!),
+            },
+          ]
+        : []),
       ...(group.cwd
         ? [
             {
@@ -908,7 +1205,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         onSelect: () => handleStopOrDelete({ type: 'group', group }),
       },
     ],
-    [collapsed, toggleGroup, handleStopOrDelete]
+    [collapsed, toggleGroup, handleStopOrDelete, nav]
   );
 
   // ---------------------------------------------------------------------
@@ -916,12 +1213,167 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   // ---------------------------------------------------------------------
 
   const disabled = settings.disabled;
+  // ---------------------------------------------------------------------
+  // Command palette entries
+  // ---------------------------------------------------------------------
+
+  const paletteCommands = useMemo<PaletteCommand[]>(() => {
+    const newTask: PaletteCommand = {
+      id: 'agents.new-task',
+      title: 'New agent task',
+      group: 'Agents',
+      scope: 'command',
+      keywords: 'dispatch compose prompt session create',
+      shortcut: 'N',
+      run: () => {
+        onOpenView();
+        setComposerOpen(true);
+      },
+      runWithText: (text) => {
+        onOpenView();
+        setInput(text);
+        setComposerOpen(true);
+      },
+    };
+    // The rest acts on the visible view only; the task composer works from every page
+    if (!active) return [newTask];
+
+    const cmd = (
+      id: string,
+      title: string,
+      group: string,
+      run: () => void,
+      extra: Partial<PaletteCommand> = {}
+    ): PaletteCommand => ({ id: `agents.${id}`, title, group, scope: 'command', run, ...extra });
+
+    const list: PaletteCommand[] = [newTask];
+    if (selectedSession) {
+      for (const action of rowActions(selectedSession)) {
+        if (action.disabled) continue;
+        list.push(
+          cmd(
+            `selected.${action.id}`,
+            `${action.label}: ${selectedSession.name}`,
+            'Selected agent',
+            action.onSelect
+          )
+        );
+      }
+    }
+    for (const mode of ['project', 'state', 'directory', 'none'] as const) {
+      if (mode === settings.grouping) continue;
+      list.push(
+        cmd(`group.${mode}`, `Group agents by ${mode === 'state' ? 'status' : mode}`, 'Rail', () =>
+          updateSettings({ grouping: mode })
+        )
+      );
+    }
+    for (const option of SORT_OPTIONS) {
+      list.push(
+        cmd(`sort.${option.key}`, `Sort agents by ${option.label.toLowerCase()}`, 'Rail', () =>
+          setSort({ key: option.key, dir: option.dir })
+        )
+      );
+    }
+    for (const filterOption of QUICK_FILTERS) {
+      const on = quickFilters.has(filterOption.key);
+      list.push(
+        cmd(
+          `filter.${filterOption.key}`,
+          `${on ? 'Remove' : 'Add'} filter: ${filterOption.label}`,
+          'Rail',
+          () => toggleQuickFilter(filterOption.key),
+          { keywords: filterOption.title }
+        )
+      );
+    }
+    if (quickFilters.size > 0 || filter) {
+      list.push(
+        cmd('filter.clear', 'Clear all filters', 'Rail', () => {
+          setQuickFilters(new Set());
+          setInput('');
+        })
+      );
+    }
+    const activeTab = workspace.tabs.find((t) => t.id === workspace.activeTabId);
+    if (activeTab && activeTab.panes.length > 1) {
+      for (const layout of ['columns', 'rows', 'grid'] as const) {
+        if (layout === activeTab.layout) continue;
+        list.push(
+          cmd(`layout.${layout}`, `Split layout: ${layout}`, 'Workspace', () =>
+            workspaceActions.setLayout(activeTab.id, layout)
+          )
+        );
+      }
+    }
+    if (activeTab) {
+      list.push(
+        cmd('tab.close', 'Close current tab', 'Workspace', () =>
+          workspaceActions.closeTab(activeTab.id)
+        )
+      );
+    }
+    list.push(
+      cmd('panel.prs', 'Show pull requests', 'Panels', () => {
+        setPrRepo(null);
+        setPanel('prs');
+      }),
+      cmd('panel.servers', 'Show running servers', 'Panels', () => setPanel('servers')),
+      cmd('settings', 'Dispatch defaults and settings', 'Agents', () => setShowSettings(true)),
+      cmd('shortcuts', 'Show keyboard shortcuts', 'Agents', () => setShowHelp(true), {
+        shortcut: '?',
+      }),
+      cmd('refresh', 'Refresh agent list', 'Agents', refresh),
+      cmd('copy-json', 'Copy claude agents --json', 'Agents', copyJson),
+      cmd('exit', 'Leave agents view', 'Agents', onExit)
+    );
+    for (const session of sessions) {
+      list.push({
+        id: `agent.${session.id}`,
+        title: session.name,
+        group: session.cwd.split('/').pop() || 'Agent',
+        scope: 'agent',
+        keywords: session.state ?? undefined,
+        run: () =>
+          session.kind === 'background' ? attach(session.id) : setSelectedKey(session.id),
+      });
+    }
+    return list;
+  }, [
+    active,
+    onOpenView,
+    onExit,
+    selectedSession,
+    rowActions,
+    settings.grouping,
+    updateSettings,
+    setSort,
+    quickFilters,
+    filter,
+    toggleQuickFilter,
+    workspace.tabs,
+    workspace.activeTabId,
+    workspaceActions,
+    refresh,
+    copyJson,
+    sessions,
+    attach,
+  ]);
+  useRegisterCommands('agents', paletteCommands);
+
   const defaultModel = settings.dispatch.model || userSettings?.model || 'default';
+  // Model of the open agent; the dispatch default only stands in when it is unknown
+  const activeModel = formatModelName(activeSessionId ? contexts[activeSessionId]?.model : null);
+  const modelLabel =
+    activeModel ?? (defaultModel === 'default' ? 'default' : `default: ${defaultModel}`);
+  const modelTitle = activeModel
+    ? 'Model of the open agent (from its session)'
+    : 'Dispatch model for new agents (/model)';
 
   if (disabled) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 text-gray-400">
-        <Power size={32} className="text-gray-600" />
+        <Power size={32} className="text-gray-500" />
         <div>The agent view is turned off.</div>
         <button
           onClick={() => updateSettings({ disabled: false })}
@@ -947,7 +1399,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         </pre>
         <button
           onClick={refresh}
-          className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-sm text-gray-200"
+          className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200"
         >
           Check again
         </button>
@@ -958,25 +1410,75 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
   return (
     <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-2 border-b border-gray-800 shrink-0">
-        <Bot size={18} className="text-blue-400" />
-        <div className="min-w-0">
+      <div className="relative flex items-center gap-3 px-4 py-1.5 border-b border-gray-800 shrink-0">
+        <Bot size={18} className="text-blue-300" />
+        <div className="min-w-0 flex items-center gap-3">
           <div className="text-sm font-semibold leading-tight">Agents</div>
-          <div className="text-[11px] text-gray-500 font-mono truncate">
-            <span className={counts.awaitingInput > 0 ? 'text-yellow-400' : ''}>
-              {counts.awaitingInput} awaiting input
-            </span>
-            {' · '}
-            {counts.working} working · {counts.completed} completed
-            {counts.failed > 0 && <span className="text-red-400"> · {counts.failed} failed</span>}
-            {lastCompleted && Date.now() - lastCompleted.at < 5000 && (
-              <span className="text-emerald-400"> · ← {lastCompleted.count} done</span>
-            )}
-          </div>
+          <AgentSummaryBar
+            counts={{ ...counts, completed: chipCounts.completed }}
+            openPrs={totals.openPrs}
+            runningServers={totals.runningServers}
+            daemon={daemon}
+            justCompleted={
+              lastCompleted && Date.now() - lastCompleted.at < 5000 ? lastCompleted.count : 0
+            }
+            active={quickFilters}
+            onToggle={toggleQuickFilter}
+            panel={panel}
+            onOpenPrs={() => {
+              setPrRepo(null);
+              setPanel((p) => (p === 'prs' ? null : 'prs'));
+            }}
+            onOpenServers={() => setPanel((p) => (p === 'servers' ? null : 'servers'))}
+          />
         </div>
+        {panel === 'prs' && (
+          <PullRequestsPanel
+            rows={pullRows}
+            sessions={sessions}
+            contexts={contexts}
+            repoFilter={prRepo}
+            onClearRepo={() => setPrRepo(null)}
+            onSelectAgent={attach}
+            onOpenCode={async ({ pr, agents }) => {
+              // Agents on the PR's head branch sit in its worktree; else the repo's checkout
+              const folder =
+                agents.map((a) => agentFolder(a, contexts[a.id])).find(Boolean) ??
+                (await fetchRepoPath(pr.repoSlug).catch(() => null));
+              if (folder) navigate(codeUrl(folder));
+              else toast.error(`No local checkout of ${pr.repoSlug}`);
+            }}
+            onClose={() => setPanel(null)}
+          />
+        )}
+        {panel === 'servers' && (
+          <ServersPanel rows={serverRows} onSelectAgent={attach} onClose={() => setPanel(null)} />
+        )}
         <div className="flex-1" />
-        <div className="hidden lg:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
-          <span title="Dispatch model (/model)">model {defaultModel}</span>
+        <div
+          className="hidden md:flex items-center gap-1.5 text-[11px] text-gray-300"
+          role="status"
+          title="Switch with F6 or Ctrl+Alt+Left / Right"
+        >
+          <span
+            className={`px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
+              focusZone === 'terminal' ? 'bg-blue-300 text-gray-950' : 'bg-gray-700 text-gray-100'
+            }`}
+          >
+            {focusZone === 'terminal'
+              ? 'Keys: terminal'
+              : focusZone === 'rail'
+                ? 'Keys: agent list'
+                : 'Keys: page'}
+          </span>
+          <kbd className="kbd">{FOCUS_CHORD_LABEL}</kbd>
+          <span className="text-gray-400 hidden xl:inline">switches</span>
+        </div>
+        <span className="text-[11px] text-gray-500 font-mono" title={modelTitle}>
+          model {modelLabel}
+          <span className="sr-only"> ({modelTitle})</span>
+        </span>
+        <div className="hidden xl:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
           {settings.dispatch.effort && (
             <span title="Dispatch effort (/effort)">effort {settings.dispatch.effort}</span>
           )}
@@ -985,25 +1487,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
             <span className="text-orange-400">bypass permissions</span>
           )}
           {settings.scopeCwd && <span title="Scope (--cwd)">cwd {settings.scopeCwd}</span>}
-          <span
-            className={`flex items-center gap-1 ${daemon?.running ? 'text-emerald-400' : 'text-gray-500'}`}
-            title={daemon?.raw || 'supervisor status unknown'}
-          >
-            <span
-              className={`w-1.5 h-1.5 rounded-full ${daemon?.running ? 'bg-emerald-500' : 'bg-gray-600'}`}
-            />
-            supervisor {daemon?.running ? 'running' : 'idle'}
-            {daemon?.versionMismatch && <AlertTriangle size={11} className="text-yellow-400" />}
-          </span>
           {!connected && <span className="text-yellow-500">reconnecting…</span>}
         </div>
-        <button
-          onClick={toggleGrouping}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title={`Group by ${settings.grouping === 'state' ? 'directory' : 'state'} (Ctrl+S)`}
-        >
-          {settings.grouping === 'state' ? <FolderTree size={15} /> : <ListTree size={15} />}
-        </button>
         <button
           onClick={copyJson}
           className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
@@ -1043,13 +1528,71 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
       {/* Body */}
       <div className="flex-1 flex min-h-0">
         {/* Session list + dispatch input */}
-        <div className="w-full md:w-[380px] lg:w-[420px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40">
+        <div
+          ref={railRef}
+          tabIndex={-1}
+          data-focus-zone="rail"
+          data-rail-focused={focusZone === 'rail'}
+          className={`w-full md:w-[340px] xl:w-[440px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+        >
+          {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
+          {focusZone === 'rail' && (
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 z-10 border-2 border-blue-300/80"
+            />
+          )}
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
+            <button
+              type="button"
+              onClick={() => setComposerOpen(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
+              title="New task (N or Alt+N)"
+            >
+              <Plus size={14} aria-hidden /> New task
+            </button>
+            <button
+              type="button"
+              onClick={palette.open}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
+              title="Command palette"
+              aria-label={`Command palette (${PALETTE_SHORTCUT})`}
+            >
+              <Search size={13} aria-hidden />
+              <kbd className="font-mono">{PALETTE_SHORTCUT}</kbd>
+            </button>
+          </div>
+          <RailNav
+            nav={nav}
+            grouping={settings.grouping}
+            onGrouping={(grouping) => updateSettings({ grouping })}
+            onCollapseAll={() =>
+              rail.collapseAll([FAVORITES_GROUP_KEY, ...groups.map((g) => g.key)])
+            }
+            onExpandAll={() => rail.expandAll()}
+            collapseDisabled={quickFilters.size > 0}
+          />
+          <AgentFilterBar
+            sort={sort}
+            onSort={setSort}
+            active={quickFilters}
+            onToggle={toggleQuickFilter}
+            chipCounts={chipCounts}
+            shown={shownSessions.length}
+            total={sessions.length}
+            filtered={quickFilters.size > 0 || !!filter}
+            onClear={() => {
+              setQuickFilters(new Set());
+              if (filter) setInput('');
+            }}
+          />
           {loading && sessions.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
               <RefreshCw size={14} className="animate-spin mr-2" /> Loading sessions…
             </div>
           ) : (
             <AgentList
+              railFocused={focusZone === 'rail'}
               items={items}
               selectedIndex={selectedIndex}
               onSelectIndex={(index) => setSelectedKey(itemKey(items[index]))}
@@ -1057,11 +1600,63 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
               onTogglePeek={togglePeek}
               peekId={peekId}
               openIds={openIdSet}
+              onFocusOpen={focusOpen}
               now={now}
               grouping={settings.grouping}
+              contexts={contexts}
+              servers={servers}
+              filtered={quickFilters.size > 0 || !!filter}
+              onOpenPrs={(repo) => {
+                setPrRepo(repo);
+                setPanel('prs');
+              }}
               rowActions={rowActions}
               groupActions={groupActions}
               highlightedId={highlightedId}
+              collapsedKeys={collapsed}
+              activeSessionId={activeSessionId}
+              onRevealActive={(id) => {
+                rail.revealSession(groups, id);
+                if (isFoldedAway(groups, id)) setExpandedCompleted(true);
+              }}
+              onToggleGroup={toggleCollapsed}
+              favoriteGroupKeys={rail.favoriteGroups}
+              favoriteSessionIds={rail.favoriteSessions}
+              expandedSessionIds={rail.expandedSessions}
+              onToggleExpanded={rail.toggleExpandedSession}
+              onToggleFavoriteGroup={rail.toggleFavoriteGroup}
+              onToggleFavoriteSession={rail.toggleFavoriteSession}
+              onMoveGroup={rail.moveGroup}
+              appsById={appsById}
+              nav={nav}
+              issuesByAgent={issuesByAgent}
+              onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+              onCreateIssue={setCreateIssueRepo}
+              bottom={
+                remoteEnabled ? (
+                  <RemoteAgents
+                    data={remote.data}
+                    error={remote.error}
+                    loading={remote.loading}
+                    now={now}
+                    peekId={peekId}
+                    selectedKey={selectedRemote ? remoteKey(selectedRemote) : null}
+                    railFocused={focusZone === 'rail'}
+                    onSelect={(s) => setSelectedKey(remoteKey(s))}
+                    onAttach={attachRemote}
+                    onPeek={(s) => togglePeek({ ...s, id: remoteKey(s) })}
+                  />
+                ) : undefined
+              }
+              top={
+                settings.grouping === 'state' ? (
+                  <ProjectsSection
+                    apps={apps}
+                    nav={nav}
+                    filtered={quickFilters.size > 0 || !!filter}
+                  />
+                ) : undefined
+              }
             />
           )}
           {filter && (
@@ -1076,49 +1671,74 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
               </button>
             </div>
           )}
-          <DispatchInput
-            value={input}
-            onChange={setInput}
-            onSubmit={handleSubmit}
-            onNavigate={moveSelection}
-            onEscape={() => {
-              if (peekId) setPeekId(null);
-              else if (input) setInput('');
-              else inputRef.current?.blur();
-            }}
-            onSpace={() => {
-              if (selectedSession) {
-                togglePeek(selectedSession);
-                return true;
-              }
-              return false;
-            }}
-            onOpenEditor={() => setEditorOpen(true)}
-            onPickDirectory={() => setPickDirOpen(true)}
-            targetCwd={targetCwd}
-            hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
-            hintTone={hint?.tone}
-            disabled={dispatching}
-            subagents={subagents}
-            repos={repos}
-            commands={commands}
-            inputRef={inputRef}
-          />
+          <div className="flex items-center gap-2 px-3 py-1.5 border-t border-gray-800 text-xs text-gray-300">
+            <span id="remote-agents-label">Remote-Agents</span>
+            <span className="text-gray-500 truncate">via Tailscale + SSH</span>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={remoteEnabled}
+              aria-labelledby="remote-agents-label"
+              onClick={toggleRemote}
+              className={`ml-auto relative w-8 h-4 rounded-full transition-colors motion-reduce:transition-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-300 ${
+                remoteEnabled ? 'bg-blue-500' : 'bg-gray-700'
+              }`}
+            >
+              <span
+                className={`absolute top-0.5 left-0.5 w-3 h-3 rounded-full bg-white transition-transform motion-reduce:transition-none ${
+                  remoteEnabled ? 'translate-x-4' : ''
+                }`}
+              />
+            </button>
+          </div>
+          <CloudSessionBar onOpen={openCloud} />
+          {/* Feedback for actions started outside the composer (the composer shows its own) */}
+          <div role="status" aria-live="polite">
+            {!composerOpen && (hint || dispatching) && (
+              <p
+                className={`px-3 py-2 text-xs border-t border-gray-700 ${
+                  hint?.tone === 'error'
+                    ? 'text-red-300'
+                    : hint?.tone === 'success'
+                      ? 'text-emerald-300'
+                      : 'text-gray-200'
+                }`}
+              >
+                {hint?.text || 'Dispatching…'}
+              </p>
+            )}
+          </div>
         </div>
 
         {/* Workspace */}
-        <div className="flex-1 min-w-0 hidden md:flex">
-          <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 min-h-0 hidden md:flex overflow-hidden">
+          <div className="flex-1 min-w-0 min-h-0">
             <AgentWorkspace
-              sessions={sessions}
-              openIds={workspace.openIds}
-              activeId={workspace.activeId}
-              layout={settings.layout}
-              onSelect={(id) => setWorkspace((prev) => ({ ...prev, activeId: id }))}
-              onClose={closeTab}
-              onReorder={reorderTabs}
-              onLayoutChange={setLayout}
+              sessions={[...sessions, ...cloudSessions]}
+              workspace={workspace}
+              onActivateTab={workspaceActions.activateTab}
+              onFocusPane={workspaceActions.focusPane}
+              onClosePane={closeAnyPane}
+              onCloseTab={workspaceActions.closeTab}
+              onMoveTab={workspaceActions.moveTab}
+              onSplit={workspaceActions.split}
+              onDetach={workspaceActions.detach}
+              onSetLayout={workspaceActions.setLayout}
               onPeek={(id) => setPeekId(id)}
+              focusZone={focusZone}
+              renderPaneMeta={(s) => (
+                <SessionLinks
+                  session={s}
+                  ctx={contexts[s.id]}
+                  servers={(servers.get(s.id) || []).filter((srv) => srv.running)}
+                  issueKeys={issuesByAgent?.get(s.id) || []}
+                  onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+                  onOpenPrs={(repo) => {
+                    setPrRepo(repo);
+                    setPanel('prs');
+                  }}
+                />
+              )}
             />
           </div>
           {peekSession && (
@@ -1126,7 +1746,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
               <PeekPanel
                 session={peekSession}
                 onClose={() => setPeekId(null)}
-                onAttach={() => attach(peekSession.id)}
+                onAttach={() =>
+                  peekSession.host ? attachRemote(peekSession) : attach(peekSession.id)
+                }
                 onReply={(text) => handleReply(peekSession, text)}
               />
             </div>
@@ -1140,7 +1762,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
           <PeekPanel
             session={peekSession}
             onClose={() => setPeekId(null)}
-            onAttach={() => attach(peekSession.id)}
+            onAttach={() => (peekSession.host ? attachRemote(peekSession) : attach(peekSession.id))}
             onReply={(text) => handleReply(peekSession, text)}
           />
         </div>
@@ -1148,6 +1770,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
 
       {/* Modals */}
       <ShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
+      {createIssueRepo && (
+        <IssueCreateModal
+          repo={createIssueRepo}
+          onClose={() => setCreateIssueRepo(null)}
+          onCreated={(item) => {
+            const key = `${item.repo}#${item.number}`;
+            toast(
+              (t) => (
+                <span className="text-xs">
+                  {key} angelegt
+                  <button
+                    onClick={() => {
+                      toast.dismiss(t.id);
+                      navigate(`/board?item=${encodeURIComponent(key)}`);
+                    }}
+                    className="ml-3 text-cursor hover:underline underline-offset-2"
+                  >
+                    Im Board öffnen
+                  </button>
+                </span>
+              ),
+              { duration: 8000 }
+            );
+          }}
+        />
+      )}
       <AgentSettingsPanel
         open={showSettings}
         onClose={() => setShowSettings(false)}
@@ -1158,6 +1806,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({ active, apps, onExit }) 
         repos={directoryChoices as AgentRepo[]}
         capabilities={capabilities}
         onRefresh={refresh}
+      />
+      <TaskComposerModal
+        open={composerOpen}
+        onClose={() => setComposerOpen(false)}
+        value={input}
+        onChange={setInput}
+        onSubmit={handleSubmit}
+        onOpenEditor={() => setEditorOpen(true)}
+        onPickDirectory={() => setPickDirOpen(true)}
+        targetCwd={targetCwd}
+        hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
+        hintTone={hint?.tone}
+        disabled={dispatching}
+        subagents={subagents}
+        repos={repos}
+        commands={commands}
+        inputRef={inputRef}
       />
       <ResumePicker
         open={resumePicker.open}
@@ -1293,7 +1958,7 @@ const DirectoryPicker: React.FC<{
             >
               <span className="text-sm text-gray-100">{choice.name}</span>
               <span className="text-xs text-gray-500 font-mono truncate">{choice.path}</span>
-              <span className="ml-auto text-[10px] uppercase text-gray-600">{choice.source}</span>
+              <span className="ml-auto text-[10px] text-gray-500">{choice.source}</span>
             </button>
           ))}
           {filtered.length === 0 && (
