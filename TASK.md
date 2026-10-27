@@ -448,3 +448,14 @@ The following existing tasks are related to the new features above:
   - Solution: kein Code nötig, `main` ab `b5d2888` enthält beides. App von `main` neu bauen.
   - Verified: installierte App (18:24) mit Finder-PATH `/usr/bin:/bin:/usr/sbin:/sbin` → `repo-options` und `items` liefern ENOENT. `main` in Electron (unpackaged, gleicher Minimal-PATH, eigenes `--user-data-dir`, `SERVER_PORT=3491`, per CDP bedient): Board „+“ in Todo mit `mw:dynamic` → #113. Mit Shell-PATH zusätzlich: `/agents` „+“ an DevHub mit `mw:go` → #112 (Backlog), Panel: Label `mw:build` gesetzt und entfernt (#111). `gh issue view` bestätigt. Testissues #110–#113 geschlossen. vitest 508/508, tsc sauber.
   - #106 („Mindestens in der Electron-App keine Issues anlegen“) betrifft denselben Build (gemeldet 21:45, App 18:24 ohne PATH-Fix), vermutlich dieselbe Ursache. Der Wortlaut „falsches Verzeichnis“ passt eher zu `agentService.js` (Agent-Start außerhalb der Projektordner); nach dem Neubau gegenprüfen.
+
+---
+
+### App startet weder als Electron- noch als Web-App (2026-10-27)
+
+- [x] **[FIX]** Default-Ports 3000/3001 kollidierten mit den Projekten, die DevOrbit selbst verwaltet
+  - Issue: Gepackte App (`/Applications/DevOrbitDashboard.app`) brach mit „Port 3001 is already in use“ ab; die Web-App ohne lokale Overrides hätte dieselben Ports (3000/3001) gebraucht. Dort liefen `next-server` (3000) und eine bun-API (3001).
+  - Approach: `bun run dev`, `electron:dev`, `build`, `bundle:server` und die installierte App einzeln gestartet und die Ausgabe gelesen. Dev lief nur, weil `.env.local` `VITE_PORT`/`SERVER_PORT` auf 3098/3099 überschreibt; die gepackte App liest `.env.local` nicht.
+  - Solution: `PORTS.devhub`/`PORTS.server` in `config/defaults.{js,ts}` auf 3098/3099 (wie Docker); `vite.config.ts` nutzt `PORTS` statt eigener Literale. `appStart` (Startport verwalteter Apps) bleibt 3001.
+- Verifikation: vitest 508/508, Build und Server-Bundle grün; App mit `bun run electron:build:mac` neu gebaut, in `/Applications` ersetzt, startet und lauscht auf 3099 (`/api/health` ok).
+- Offen: `code-server` im Dev-Skript scheitert mit EADDRINUSE auf 8080, solange eine andere code-server-Instanz läuft (die übrigen Prozesse laufen weiter).
