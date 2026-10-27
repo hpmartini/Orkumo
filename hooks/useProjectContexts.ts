@@ -56,6 +56,8 @@ export function useProjectContexts(onSwitched: () => void) {
   listRef.current = list;
   const onSwitchedRef = useRef(onSwitched);
   onSwitchedRef.current = onSwitched;
+  // One switch at a time: a later reply must not be overtaken by an earlier one
+  const switching = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -82,10 +84,16 @@ export function useProjectContexts(onSwitched: () => void) {
 
   /** Loads `id`'s ui; `from` is the context the local entries belong to */
   const load = useCallback(async (id: string, from: string) => {
-    const { activeContextId, ui } = await api.activateContext(id, readContextUi(), from);
-    writeContextUi(ui, activeContextId);
-    setList((l) => l && { ...l, activeContextId });
-    onSwitchedRef.current();
+    if (switching.current) return;
+    switching.current = true;
+    try {
+      const { activeContextId, ui } = await api.activateContext(id, readContextUi(), from);
+      writeContextUi(ui, activeContextId);
+      setList((l) => l && { ...l, activeContextId });
+      onSwitchedRef.current();
+    } finally {
+      switching.current = false;
+    }
   }, []);
 
   const switchTo = useCallback(

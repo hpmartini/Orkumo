@@ -525,6 +525,14 @@ class SettingsService {
     // Clean up favorites
     settings.favorites = settings.favorites.filter((id) => validSet.has(id));
 
+    // Clean up context members and parked favorites of inactive contexts
+    settings.contexts = settings.contexts.map((c) =>
+      c.appIds ? { ...c, appIds: c.appIds.filter((id) => validSet.has(id)) } : c
+    );
+    for (const parked of Object.values(settings.contextState || {})) {
+      if (parked.favorites) parked.favorites = parked.favorites.filter((id) => validSet.has(id));
+    }
+
     // Clean up archived
     settings.archived = settings.archived.filter((id) => validSet.has(id));
 

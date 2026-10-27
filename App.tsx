@@ -685,8 +685,27 @@ function AppContent() {
             <CodeView active={activeTab === 'code'} apps={contextApps} />
           </div>
 
-          {activeTab === 'apps' && selectedApp && (
-            <div className="flex flex-col min-h-0 absolute inset-0 z-10">
+          {/* Stays mounted on other routes so the Web-IDE and browser iframes survive navigation;
+              hidden off-screen with a clip because iframes bleed through visibility tricks */}
+          {selectedApp && (
+            <div
+              className={`flex flex-col min-h-0 ${
+                activeTab === 'apps' ? 'absolute inset-0 z-10' : 'fixed pointer-events-none'
+              }`}
+              style={
+                activeTab === 'apps'
+                  ? undefined
+                  : {
+                      left: '-200vw',
+                      top: 0,
+                      width: '100vw',
+                      height: '100vh',
+                      clipPath: 'inset(0 100% 100% 0)',
+                      visibility: 'hidden',
+                    }
+              }
+              aria-hidden={activeTab !== 'apps'}
+            >
               <AppDetail
                 key={selectedApp.id}
                 app={selectedApp}

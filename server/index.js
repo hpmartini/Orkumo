@@ -3531,8 +3531,15 @@ const contextFieldsSchema = z.object({
   appIds: z.array(idSchema).max(1000).nullable(),
   boardFilter: boardSliceKeys,
 });
-// Client localStorage entries (key -> raw value) of the context being left
-const contextUiSchema = z.record(z.string().max(100), z.string().max(500_000).nullable());
+// Client localStorage entries of the context being left (UI_KEYS in hooks/useProjectContexts.ts)
+const contextUiValue = z.string().max(300_000).nullable().optional();
+const contextUiSchema = z
+  .object({
+    'devOrbitAgentWorkspace.v2': contextUiValue,
+    devOrbitAgentWorkspace: contextUiValue,
+    'devOrbitAgentRail.v1': contextUiValue,
+  })
+  .strict();
 
 app.get('/api/contexts', (req, res) => {
   try {
