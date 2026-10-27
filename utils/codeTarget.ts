@@ -6,6 +6,15 @@ import type { AgentContext, AgentRepo, AgentSession } from '../types';
 /** Route of the Code mode for `path` */
 export const codeUrl = (path: string) => `/code?path=${encodeURIComponent(path)}`;
 
+/** Route of the Kanban board, filtered to a repo (slug or folder name) and/or an agent's issues */
+export function boardUrl({ repo, agent }: { repo?: string | null; agent?: string | null }) {
+  const params = new URLSearchParams();
+  if (repo) params.set('repo', repo);
+  if (agent) params.set('agent', agent);
+  const query = params.toString();
+  return query ? `/board?${query}` : '/board';
+}
+
 /** An agent works in its worktree; its cwd is the worktree (or a folder in it) otherwise */
 export function agentFolder(
   session: Pick<AgentSession, 'cwd'> | undefined,
