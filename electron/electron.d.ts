@@ -10,21 +10,6 @@ export interface PlatformInfo {
   version: string;
 }
 
-export interface UpdateCheckResult {
-  success: boolean;
-  updateAvailable?: boolean;
-  version?: string;
-  message?: string;
-  error?: string;
-}
-
-export interface DownloadProgress {
-  bytesPerSecond: number;
-  percent: number;
-  transferred: number;
-  total: number;
-}
-
 export interface IpcResult<T = any> {
   success: boolean;
   error?: string;
@@ -41,8 +26,6 @@ export interface OpenDialogResult extends IpcResult {
 }
 
 export interface ExternalUrlResult extends IpcResult {}
-
-export interface InstallUpdateResult extends IpcResult {}
 
 export interface BrowserViewBounds {
   x: number;
@@ -82,11 +65,6 @@ export interface ElectronAPI {
   // Native dialogs
   showMessageBox: (options: MessageBoxOptions) => Promise<MessageBoxResult>;
   showOpenDialog: (options: OpenDialogOptions) => Promise<OpenDialogResult>;
-
-  // Auto-updates
-  checkForUpdates: () => Promise<UpdateCheckResult>;
-  installUpdate: () => Promise<InstallUpdateResult>;
-  onDownloadProgress: (callback: (progress: DownloadProgress) => void) => () => void;
 
   // Environment
   isElectron: boolean;

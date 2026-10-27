@@ -28,19 +28,6 @@ contextBridge.exposeInMainWorld('electronAPI', {
   showMessageBox: (options) => ipcRenderer.invoke('show-message-box', options),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
 
-  // Auto-updates
-  checkForUpdates: () => ipcRenderer.invoke('check-for-updates'),
-  installUpdate: () => ipcRenderer.invoke('install-update'),
-  onDownloadProgress: (callback) => {
-    if (typeof callback !== 'function') {
-      throw new TypeError('Callback must be a function');
-    }
-    const handler = (event, progress) => callback(progress);
-    ipcRenderer.on('download-progress', handler);
-    // Return cleanup function to remove the listener
-    return () => ipcRenderer.removeListener('download-progress', handler);
-  },
-
   // BrowserView API for embedded browser preview with real Chrome DevTools
   browserView: {
     create: (viewId, bounds) => ipcRenderer.invoke('browser-view-create', { viewId, bounds }),
