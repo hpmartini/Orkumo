@@ -305,6 +305,60 @@ describe('groupSessions (project)', () => {
       ['project:api', 'api', 2],
     ]);
   });
+
+  const repoCtx = (root: string, slug: string | null) =>
+    ({ repo: { name: root.split('/').pop(), root, slug } }) as unknown as NonNullable<
+      SessionLookup['contexts']
+    >[string];
+
+  it('merges root and subfolder sessions of one repo into an app matched case-insensitively', () => {
+    // Issue #96: app stored as ~/projects/..., sessions run in ~/PROJECTS/... and a subfolder
+    const sessions = [
+      session({ id: 'r', cwd: '/Users/h/PROJECTS/MindApp' }),
+      session({ id: 's', cwd: '/Users/h/PROJECTS/MindApp/MindApp_v1' }),
+    ];
+    const lookup: SessionLookup = {
+      contexts: {
+        r: repoCtx('/Users/h/PROJECTS/MindApp', 'hpmartini/glen'),
+        s: repoCtx('/Users/h/PROJECTS/MindApp', 'hpmartini/glen'),
+      },
+    };
+    const mh = [{ id: 'mh', name: 'glen-monorepo', path: '/Users/h/projects/MindApp' }];
+    const groups = groupSessions(sessions, 'project', { apps: mh, lookup });
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:mh', 'glen (MindApp)', 2],
+    ]);
+  });
+
+  it('groups unmatched subfolder sessions by repo root once contexts load', () => {
+    const sessions = [
+      session({ id: 'r', cwd: '/tmp/proj' }),
+      session({ id: 's', cwd: '/tmp/proj/sub' }),
+    ];
+    // Before contexts: path-based keys, stable and deterministic
+    expect(groupSessions(sessions, 'project').map((g) => g.key)).toEqual([
+      'project:dir:/tmp/proj',
+      'project:dir:/tmp/proj/sub',
+    ]);
+    const lookup: SessionLookup = {
+      contexts: { r: repoCtx('/tmp/proj', null), s: repoCtx('/tmp/proj', null) },
+    };
+    const groups = groupSessions(sessions, 'project', { lookup });
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:dir:/tmp/proj', 'proj', 2],
+    ]);
+  });
+
+  it('titles by the GitHub repo name, folder in parentheses only when it differs', () => {
+    const sessions = [session({ id: 'a', cwd: '/x/web' }), session({ id: 'b', cwd: '/x/old' })];
+    const lookup: SessionLookup = {
+      contexts: { a: repoCtx('/x/web', 'me/Web'), b: repoCtx('/x/old', 'me/new-name') },
+    };
+    expect(groupSessions(sessions, 'project', { lookup }).map((g) => g.title)).toEqual([
+      'new-name (old)',
+      'Web',
+    ]);
+  });
 });
 
 describe('repoName / mainRepoPath', () => {
