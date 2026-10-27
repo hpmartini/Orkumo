@@ -193,6 +193,13 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
 
   const selectedNode = layout.nodes.find((n) => n.id === selected);
   const selectedCards = (selected && byNode.get(selected)) || [];
+
+  useEffect(() => {
+    if (!selected) return;
+    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && setSelected(null);
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selected]);
   const showTypes = view === 'all' || view === 'pipeline';
 
   return (
@@ -301,6 +308,46 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
           arrived={arrived}
           pulses={pulses}
           reducedMotion={reducedMotion}
+          popover={
+            selectedNode && (
+              <>
+                <div className="mb-2 flex items-center gap-2 px-0.5">
+                  <h2 className="text-[13px] font-semibold">{selectedNode.label}</h2>
+                  <span className="tabular-nums text-[12px] text-gray-400">
+                    {selectedCards.length}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setSelected(null)}
+                    className="ml-auto rounded p-1 text-gray-400 hover:bg-gray-900 hover:text-gray-100"
+                    aria-label="Schließen"
+                  >
+                    <X size={14} />
+                  </button>
+                </div>
+                {selectedCards.length ? (
+                  <div className="flex flex-col gap-2">
+                    {selectedCards.map((card) => (
+                      <WorkflowCard
+                        key={card.key}
+                        card={card}
+                        session={sessionOf(card)}
+                        expanded={expanded.has(card.key)}
+                        moved={moved.has(card.key)}
+                        onToggle={() => toggle(card.key)}
+                        onGo={() => go(card)}
+                        nav={nav}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <p className="px-0.5 pb-1 text-[12px] text-gray-400">
+                    Kein Issue an dieser Station.
+                  </p>
+                )}
+              </>
+            )
+          }
         />
         {!loading && data && allCards.length === 0 && (
           <p className="sticky left-0 mt-6 px-5 text-[13px] text-gray-400">
@@ -309,42 +356,6 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
           </p>
         )}
       </div>
-
-      <section
-        aria-label="Issues an der Station"
-        className="max-h-[46%] min-h-[88px] shrink-0 overflow-auto border-t border-gray-850 bg-gray-950 px-5 py-3"
-      >
-        {selectedNode ? (
-          <>
-            <h2 className="mb-2.5 text-[13px] font-semibold">
-              {selectedNode.label}
-              <span className="ml-2 tabular-nums text-gray-400">{selectedCards.length}</span>
-            </h2>
-            {selectedCards.length ? (
-              <div className="grid grid-cols-[repeat(auto-fill,minmax(280px,1fr))] items-start gap-2.5">
-                {selectedCards.map((card) => (
-                  <WorkflowCard
-                    key={card.key}
-                    card={card}
-                    session={sessionOf(card)}
-                    expanded={expanded.has(card.key)}
-                    moved={moved.has(card.key)}
-                    onToggle={() => toggle(card.key)}
-                    onGo={() => go(card)}
-                    nav={nav}
-                  />
-                ))}
-              </div>
-            ) : (
-              <p className="text-[12px] text-gray-400">Kein Issue an dieser Station.</p>
-            )}
-          </>
-        ) : (
-          <p className="text-[12px] text-gray-400">
-            Station anklicken, um die Issues dort zu sehen.
-          </p>
-        )}
-      </section>
 
       {doc && (
         <aside

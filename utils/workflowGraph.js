@@ -89,22 +89,31 @@ const END = [
   { id: 'ended', label: 'Session entfernt' },
 ];
 
-export const COL_W = 176;
-export const ROW_H = 160;
-export const PAD_X = 96;
-export const PAD_Y = 96;
+export const LANE_W = 260;
+export const ROW_H = 60;
+export const STEP_X = 168;
+export const PAD_X = 40;
+export const PAD_Y = 48;
+/** extra room above the lanes (lane labels, fan-out) and below them (fan-in to PR) */
+const LANE_GAP = 32;
+const END_GAP = 40;
 
 /**
- * Nodes and edges of the whole graph (`view` 'all') or of one mode. Coordinates are node centers
- * in px; shared start and end sit in the vertical middle of the lanes.
+ * Nodes and edges of the whole graph (`view` 'all') or of one mode, top to bottom: start as a
+ * row on top, one column per lane, the end stations as a row at the bottom. Coordinates are node
+ * centers in px.
  * @param {'all' | GraphMode} view
  * @returns {{ nodes: GraphNode[], edges: GraphEdge[], width: number, height: number }}
  */
 export function layoutGraph(view) {
   const modes = view === 'all' ? GRAPH_MODES : [view];
   const longest = Math.max(...modes.map((m) => LANES[m].nodes.length));
-  const midY = PAD_Y + ((modes.length - 1) * ROW_H) / 2;
-  const at = (/** @type {number} */ col) => PAD_X + col * COL_W;
+  const span = Math.max((modes.length - 1) * LANE_W, (END.length - 1) * STEP_X) + NODE_W;
+  const width = span + PAD_X * 2;
+  const midX = width / 2;
+  const row = (/** @type {number} */ x0, /** @type {number} */ i) => x0 + i * STEP_X;
+  const laneTop = PAD_Y + ROW_H + LANE_GAP;
+  const endY = laneTop + longest * ROW_H + END_GAP;
   /** @type {GraphNode[]} */
   const nodes = [];
   /** @type {GraphEdge[]} */
@@ -112,19 +121,31 @@ export function layoutGraph(view) {
   const edge = (/** @type {string} */ from, /** @type {string} */ to, back = false, label) =>
     edges.push({ id: `${from}>${to}${back ? '~' : ''}`, from, to, back, label });
 
-  START.forEach((s, i) => nodes.push({ ...s, lane: 'shared', col: i, x: at(i), y: midY }));
+  const startX = midX - ((START.length - 1) * STEP_X) / 2;
+  START.forEach((s, i) =>
+    nodes.push({ ...s, lane: 'shared', col: i, x: row(startX, i), y: PAD_Y })
+  );
   edge('go', 'picked');
   const endCol = 2 + longest;
+  const endX = midX - ((END.length - 1) * STEP_X) / 2;
   END.forEach((s, i) =>
-    nodes.push({ ...s, lane: 'shared', col: endCol + i, x: at(endCol + i), y: midY })
+    nodes.push({ ...s, lane: 'shared', col: endCol + i, x: row(endX, i), y: endY })
   );
   END.slice(1).forEach((s, i) => edge(END[i].id, s.id));
 
   modes.forEach((m, li) => {
-    const y = PAD_Y + li * ROW_H;
+    const x = midX + (li - (modes.length - 1) / 2) * LANE_W;
     const { nodes: ns, back } = LANES[m];
     ns.forEach((n, i) =>
-      nodes.push({ id: n.id, label: n.label, lane: m, col: 2 + i, x: at(2 + i), y, types: n.types })
+      nodes.push({
+        id: n.id,
+        label: n.label,
+        lane: m,
+        col: 2 + i,
+        x,
+        y: laneTop + i * ROW_H,
+        types: n.types,
+      })
     );
     edge('picked', ns[0].id);
     ns.slice(1).forEach((n, i) => edge(ns[i].id, n.id));
@@ -132,12 +153,7 @@ export function layoutGraph(view) {
     for (const [a, b, label] of back) edge(`${m}.${a}`, `${m}.${b}`, true, label);
   });
 
-  return {
-    nodes,
-    edges,
-    width: at(endCol + END.length - 1) + PAD_X,
-    height: PAD_Y * 2 + (modes.length - 1) * ROW_H,
-  };
+  return { nodes, edges, width, height: endY + PAD_Y };
 }
 
 /** Whether a pipeline station exists in this type's chain (others are dimmed) */
@@ -246,13 +262,15 @@ export function deriveNode(item, state, run, statusName) {
 }
 
 export const NODE_W = 136;
-export const NODE_H = 52;
+export const NODE_H = 44;
 const CURVE_STEPS = 32;
+/** a long drop runs straight down its lane and only bends in this last stretch */
+const BEND = 64;
 
 /**
  * Curve of one edge: SVG path, sampled points (for the WebGL layer) and the label anchor.
- * Forward edges run from the right side of a node to the left side of the next; loops arc
- * above the lane, a self-loop is a small bow over its node.
+ * Forward edges run from the bottom of a node to the top of the next (side to side within a
+ * row); loops bow out to the right of the lane, a self-loop is a small bow beside its node.
  * @param {GraphEdge} edge
  * @param {Map<string, GraphNode>} nodes
  * @returns {{ d: string, pts: [number, number][], mid: [number, number] }}
@@ -262,25 +280,40 @@ export function edgeGeometry(edge, nodes) {
   const b = /** @type {GraphNode} */ (nodes.get(edge.to));
   /** @type {[number, number][]} */
   let p;
-  if (!edge.back) {
+  /** @type {[number, number] | null} start of the straight drop before the curve */
+  let lead = null;
+  if (!edge.back && a.y === b.y) {
     const [x0, x1] = [a.x + NODE_W / 2, b.x - NODE_W / 2];
-    const dx = Math.max(24, (x1 - x0) / 2);
+    const dx = (x1 - x0) / 3;
     p = [
       [x0, a.y],
       [x0 + dx, a.y],
       [x1 - dx, b.y],
       [x1, b.y],
     ];
-  } else {
-    const top = a.y - NODE_H / 2;
-    const self = a === b;
-    const rise = self ? 58 : Math.min(112, 30 + 24 * Math.abs(a.col - b.col));
-    const [x0, x1] = self ? [a.x - 24, a.x + 24] : [a.x, b.x];
+  } else if (!edge.back) {
+    const [y0, y1] = [a.y + NODE_H / 2, b.y - NODE_H / 2];
+    const yb = Math.max(y0, y1 - BEND);
+    if (yb > y0) lead = [a.x, y0];
+    const dy = (y1 - yb) / 2;
     p = [
-      [x0, top],
-      [x0 + (self ? -30 : 0), top - rise],
-      [x1 + (self ? 30 : 0), top - rise],
-      [x1, top],
+      [a.x, yb],
+      [a.x, yb + dy],
+      [b.x, y1 - dy],
+      [b.x, y1],
+    ];
+  } else {
+    const right = a.x + NODE_W / 2;
+    const self = a === b;
+    // control points sit 4/3 out so the bow's apex lands at `rise`
+    const rise = self ? 24 : Math.min(56, 14 * Math.abs(a.col - b.col) - 2);
+    const [y0, y1] = self ? [a.y - 10, a.y + 10] : [a.y, b.y];
+    const c = right + (rise * 4) / 3;
+    p = [
+      [right, y0],
+      [c, self ? y0 - 14 : y0],
+      [c, self ? y1 + 14 : y1],
+      [right, y1],
     ];
   }
   const at = (/** @type {number} */ t) => {
@@ -292,7 +325,8 @@ export function edgeGeometry(edge, nodes) {
       )
     );
   };
-  const pts = Array.from({ length: CURVE_STEPS + 1 }, (_, i) => at(i / CURVE_STEPS));
-  const d = `M${p[0]} C${p[1]} ${p[2]} ${p[3]}`;
+  const curve = Array.from({ length: CURVE_STEPS + 1 }, (_, i) => at(i / CURVE_STEPS));
+  const pts = lead ? [lead, ...curve] : curve;
+  const d = `M${lead ?? p[0]} ${lead ? `L${p[0]} ` : ''}C${p[1]} ${p[2]} ${p[3]}`;
   return { d, pts, mid: at(0.5) };
 }

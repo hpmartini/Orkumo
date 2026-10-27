@@ -3,6 +3,7 @@ import {
   deriveNode,
   graphPath,
   inChain,
+  edgeGeometry,
   layoutGraph,
   pipelineType,
 } from '../utils/workflowGraph.js';
@@ -35,6 +36,20 @@ describe('layoutGraph', () => {
       'Fix-Runde',
       'Goal-Schleife',
     ]);
+  });
+});
+
+describe('edgeGeometry', () => {
+  it('forward edges run top to bottom, loops bow out right of the lane', () => {
+    const g = layoutGraph('all');
+    const ids = new Map(g.nodes.map((n) => [n.id, n]));
+    for (const e of g.edges) {
+      const { pts } = edgeGeometry(e, ids);
+      const [a, b] = [pts[0], pts.at(-1)];
+      if (!e.back) expect(a[1]).toBeLessThanOrEqual(b[1]);
+      else expect(Math.min(...pts.map((p) => p[0]))).toBeGreaterThanOrEqual(ids.get(e.from).x);
+    }
+    expect(Math.max(...g.nodes.map((n) => n.x))).toBeLessThan(g.width);
   });
 });
 
