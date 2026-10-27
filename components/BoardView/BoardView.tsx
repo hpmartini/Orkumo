@@ -15,15 +15,13 @@ import {
   linksByIssue,
   matchesContextFilter,
   matchesQuery,
-  moveSliceKey,
-  type SliceEntry,
+  resolveRepoSlice,
 } from '../../utils/board';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { fetchRepoPath } from '../../services/boardApi';
 import { fetchAgentContexts } from '../../services/agentsApi';
 import { codeUrl, linkedAgentFolder } from '../../utils/codeTarget';
 import { undoToast, useBoard } from './useBoard';
-import { BoardRail, type RailAgent } from './BoardRail';
 import { BoardGrid } from './BoardGrid';
 import { BoardItemPanel } from './BoardItemPanel';
 import { IssueCreateModal, lastIssueRepo } from './IssueCreateModal';
@@ -68,9 +66,6 @@ function loadView(): ViewPrefs {
   return DEFAULT_VIEW;
 }
 
-const toggleIn = (list: string[], key: string) =>
-  list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
-
 /**
  * Kanban board over a GitHub Project (status columns, parent swimlanes),
  * linked to the Claude agents working on its issues.
@@ -78,17 +73,8 @@ const toggleIn = (list: string[], key: string) =>
 export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const {
-    data,
-    settings,
-    loading,
-    error,
-    refresh,
-    updateSettings,
-    moveItem,
-    upsertItem,
-    editIssue,
-  } = useBoard(active);
+  const { data, settings, loading, error, refresh, moveItem, upsertItem, editIssue } =
+    useBoard(active);
   // Column whose "+ Issue" was clicked (status option id, '' = default)
   const [createIn, setCreateIn] = useState<string | null>(null);
   const { sessions } = useAgentSessions({ active });
@@ -147,10 +133,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
   );
 
   const slices = useMemo(() => buildSlices(items, sliceKind, prefs), [items, sliceKind, prefs]);
-  const allCount = useMemo(
-    () => filterItems(items, { kind: sliceKind, selected: null, hidden: prefs.hidden }).length,
-    [items, sliceKind, prefs.hidden]
-  );
   const scoped = useMemo(
     () => filterItems(items, { kind: sliceKind, selected, hidden: prefs.hidden }),
     [items, sliceKind, selected, prefs.hidden]
@@ -175,21 +157,6 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
   // Done window is measured from the GitHub fetch, so it moves with polling
   const now = data?.fetchedAt ?? 0;
 
-  // Agents with an issue in the current slice (plus the filtered one)
-  const railAgents = useMemo<RailAgent[]>(() => {
-    const inScope = new Set(scoped.map(itemKey));
-    return [...issuesByAgent]
-      .filter(([jobId, keys]) => jobId === agentFilter || keys.some((k) => inScope.has(k)))
-      .map(([jobId, keys]) => ({ jobId, session: sessionsById.get(jobId), issueKeys: keys }))
-      .sort(
-        (a, b) =>
-          Number(!!b.session) - Number(!!a.session) ||
-          (b.session?.updatedAt ?? b.session?.startedAt ?? 0) -
-            (a.session?.updatedAt ?? a.session?.startedAt ?? 0) ||
-          a.jobId.localeCompare(b.jobId)
-      );
-  }, [scoped, issuesByAgent, agentFilter, sessionsById]);
-
   const openItem = openKey ? items.find((i) => itemKey(i) === openKey) : undefined;
   const missingWarned = useRef<string | null>(null);
   useEffect(() => {
@@ -198,57 +165,26 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
     toast(`${openKey} ist nicht auf dem Board`);
   }, [openKey, data, openItem]);
 
-  const closePanel = useCallback(() => setParam('item', null), [setParam]);
+  // ?repo=<slug or folder name> (View board on a project): select that repo's slice once
+  const repoParam = active ? searchParams.get('repo') : null;
+  const repoApplied = useRef<string | null>(null);
+  useEffect(() => {
+    if (!repoParam) repoApplied.current = null;
+    if (!repoParam || !data || repoApplied.current === repoParam) return;
+    repoApplied.current = repoParam;
+    const slice = resolveRepoSlice(repos, repoParam);
+    if (slice) updateView({ sliceKind: 'repo', selected: slice });
+    else toast(`${repoParam} hat keine Items auf dem Board`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- updateView only wraps setView
+  }, [repoParam, data, repos]);
 
-  // --- Slice list actions (persisted server-side) ---
-  const allKeys = [...slices.favorites, ...slices.others].map((e) => e.key);
-  const onToggleFavorite = (entry: SliceEntry) =>
-    updateSettings({ favorites: toggleIn(prefs.favorites, entry.key) });
-  const onHide = (entry: SliceEntry) => {
-    const before = { hidden: prefs.hidden, favorites: prefs.favorites };
-    updateSettings({
-      hidden: [...prefs.hidden, entry.key],
-      favorites: prefs.favorites.filter((k) => k !== entry.key),
-    });
-    if (selected === entry.value) updateView({ selected: null });
-    undoToast(`${entry.value} ausgeblendet`, () => updateSettings(before));
-  };
-  const onUnhide = (entry: SliceEntry) =>
-    updateSettings({ hidden: prefs.hidden.filter((k) => k !== entry.key) });
-  // Dropping on a favourite pins, dropping on a normal row unpins
-  const onReorder = (key: string, before: SliceEntry) => {
-    const isFav = prefs.favorites.includes(key);
-    updateSettings({
-      order: moveSliceKey(prefs.order, allKeys, key, before.key),
-      ...(isFav !== before.favorite ? { favorites: toggleIn(prefs.favorites, key) } : {}),
-    });
-  };
+  const closePanel = useCallback(() => setParam('item', null), [setParam]);
 
   const onAgent = (jobId: string) => setParam('agent', agentFilter === jobId ? null : jobId);
   const filterAgent = agentFilter ? (sessionsById.get(agentFilter)?.name ?? agentFilter) : null;
 
   return (
     <div className="relative flex flex-1 h-full min-h-0 bg-gray-900">
-      <BoardRail
-        onOpenDashboard={() => navigate('/')}
-        onOpenAgents={() => navigate('/agents')}
-        onOpenCode={() => navigate('/code')}
-        sliceKind={sliceKind}
-        onSliceKind={(kind) => updateView({ sliceKind: kind, selected: null })}
-        slices={slices}
-        allCount={allCount}
-        selected={selected}
-        onSelect={(value) => updateView({ selected: value })}
-        onToggleFavorite={onToggleFavorite}
-        onHide={onHide}
-        onUnhide={onUnhide}
-        onReorder={onReorder}
-        agents={railAgents}
-        agentFilter={agentFilter}
-        onAgent={onAgent}
-        onOpenIssue={(key) => setParam('item', key)}
-      />
-
       <main className="flex-1 min-w-0 flex flex-col">
         <header className="flex items-center gap-3 px-4 h-12 border-b border-gray-700 bg-gray-900 shrink-0">
           <h1 className="text-[15px] font-semibold text-white flex items-center gap-2 min-w-0">
@@ -268,6 +204,36 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
             </button>
           )}
           <div className="flex-1" />
+          <label className="flex items-center gap-1.5 text-xs text-gray-400">
+            Slice
+            <select
+              value={sliceKind}
+              onChange={(e) =>
+                updateView({ sliceKind: e.target.value as BoardSliceKind, selected: null })
+              }
+              aria-label="Slice-Art"
+              className="bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs"
+            >
+              {SLICE_KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+            <select
+              value={selected ?? ''}
+              onChange={(e) => updateView({ selected: e.target.value || null })}
+              aria-label="Slice"
+              className="bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs max-w-48"
+            >
+              <option value="">Alle</option>
+              {[...slices.favorites, ...slices.others].map((e) => (
+                <option key={e.key} value={e.value}>
+                  {e.value} ({e.count})
+                </option>
+              ))}
+            </select>
+          </label>
           {error && data && (
             <span className="flex items-center gap-1 text-xs text-red-300" title={error}>
               <AlertTriangle size={12} /> Aktualisierung fehlgeschlagen
