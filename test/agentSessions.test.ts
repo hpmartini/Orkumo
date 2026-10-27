@@ -15,6 +15,7 @@ import {
   summarizeContext,
   mainRepoPath,
   repoName,
+  displayRepo,
   formatModelName,
   type SessionLookup,
 } from '../utils/agentSessions';
@@ -378,6 +379,29 @@ describe('repoName / mainRepoPath', () => {
     expect(repoName(s)).toBe('proj');
     expect(repoName(s, { contexts: { s: ctx('Real') } })).toBe('Real');
     expect(repoName(session({ id: 't', cwd: '/a/plain' }))).toBe('plain');
+  });
+});
+
+describe('displayRepo', () => {
+  it('falls back to a worktree hint from the session when the context has no repo', () => {
+    const s = session({
+      cwd: '/a/proj/.claude/worktrees/feat',
+      worktree: '/a/proj/.claude/worktrees/feat',
+    });
+    expect(displayRepo(s)).toMatchObject({
+      name: 'proj',
+      branch: null,
+      isWorktree: true,
+      worktreeName: 'feat',
+      worktreePath: '/a/proj/.claude/worktrees/feat',
+    });
+  });
+
+  it('prefers the context repo and shows nothing without context or worktree', () => {
+    const repo = { name: 'Real', branch: 'main', isWorktree: false };
+    const ctx = { repo } as unknown as Parameters<typeof displayRepo>[1];
+    expect(displayRepo(session({ worktree: '/a/proj/.claude/worktrees/feat' }), ctx)).toBe(repo);
+    expect(displayRepo(session({ cwd: '/a/plain' }))).toBeNull();
   });
 });
 
