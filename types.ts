@@ -282,6 +282,8 @@ export interface AgentContext {
   /** slug = "owner/repo" from the origin remote (github) */
   repo: {
     name: string;
+    /** Main checkout path; the same for every subfolder and worktree of the repo */
+    root: string;
     slug: string | null;
     branch: string | null;
     dirty: boolean;

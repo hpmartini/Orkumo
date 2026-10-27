@@ -529,7 +529,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                             ? selectedClass(railFocused)
                             : `bg-gray-800 text-gray-300 hover:text-white ${collapsed ? '' : 'border-b border-gray-700'}`
                         }`}
-                        title={grouping === 'directory' ? item.group.title : undefined}
+                        title={grouping === 'directory' ? item.group.title : item.group.cwd}
                       >
                         <button
                           aria-expanded={!collapsed}

@@ -74,20 +74,25 @@ export function deriveSubagents(state) {
 /**
  * Repo identity from `git rev-parse --path-format=absolute --git-common-dir --git-dir --show-toplevel`.
  * A linked worktree has a git-dir below the common dir; its repo name is the MAIN checkout's
- * (dirname of the common dir, or the bare repo folder without ".git").
+ * (dirname of the common dir, or the bare repo folder without ".git"). `root` is that main
+ * checkout's path, shared by every subfolder and worktree of the repo.
  */
 export function resolveRepoIdentity({ top, gitDir, commonDir }) {
   const isWorktree =
     Boolean(commonDir && gitDir) && path.resolve(commonDir) !== path.resolve(gitDir);
   if (!isWorktree) {
-    return { name: path.basename(top), isWorktree: false, worktreeName: null, worktreePath: null };
+    return {
+      name: path.basename(top),
+      root: top,
+      isWorktree: false,
+      worktreeName: null,
+      worktreePath: null,
+    };
   }
   const common = path.resolve(commonDir);
-  const name =
-    path.basename(common) === '.git'
-      ? path.basename(path.dirname(common))
-      : path.basename(common).replace(/\.git$/, '');
-  return { name, isWorktree: true, worktreeName: path.basename(top), worktreePath: top };
+  const root = path.basename(common) === '.git' ? path.dirname(common) : common;
+  const name = path.basename(root).replace(/\.git$/, '');
+  return { name, root, isWorktree: true, worktreeName: path.basename(top), worktreePath: top };
 }
 
 export async function gitInfo(dir) {

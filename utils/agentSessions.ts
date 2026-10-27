@@ -161,7 +161,8 @@ export interface ProjectApp {
 
 /**
  * One cluster per DevOrbit app (most specific app path wins); sessions outside every app
- * cluster by repo/directory name after the apps.
+ * cluster by repo root (subfolders and worktrees join their main checkout) after the apps.
+ * Titled by the GitHub repo name when known, with the local folder in parentheses if it differs.
  */
 function projectGroups(
   sessions: AgentSession[],
@@ -170,15 +171,17 @@ function projectGroups(
   lookup?: SessionLookup
 ): SessionGroup[] {
   const bySpecificity = [...apps].sort((a, b) => b.path.length - a.path.length);
-  const clusters = new Map<string, SessionGroup & { matched: boolean }>();
+  const clusters = new Map<string, SessionGroup & { matched: boolean; fallback: string }>();
   for (const session of sessions) {
+    const root = lookup?.contexts?.[session.id]?.repo?.root;
     const dirs = [session.worktree, session.cwd].filter((d): d is string => !!d);
     // Worktrees group with their main checkout, also before contexts have loaded
-    const mains = dirs.map(mainRepoPath);
+    const mains = [...(root ? [root] : []), ...dirs.map(mainRepoPath)];
+    // App paths may differ in case from session paths (case-insensitive macOS file system)
     const app = bySpecificity.find(
-      (a) => a.path && [...dirs, ...mains].some((d) => isUnder(a.path, d))
+      (a) =>
+        a.path && [...dirs, ...mains].some((d) => isUnder(a.path.toLowerCase(), d.toLowerCase()))
     );
-    const name = app ? app.name : repoName(session, lookup);
     const mainDir = mains[0];
     // Keyed by path, not display name: the name changes once contexts load and can collide
     const key: GroupKey = app ? `project:${app.id}` : `project:dir:${mainDir}`;
@@ -186,7 +189,8 @@ function projectGroups(
     if (!cluster) {
       cluster = {
         key,
-        title: name,
+        title: '',
+        fallback: app ? app.name : repoName(session, lookup),
         cwd: app ? app.path : mainDir,
         appId: app?.id,
         sessions: [],
@@ -197,9 +201,24 @@ function projectGroups(
     }
     cluster.sessions.push(session);
   }
+  for (const cluster of clusters.values()) {
+    const slug = cluster.sessions
+      .map((s) => lookup?.contexts?.[s.id]?.repo?.slug)
+      .find((s): s is string => !!s);
+    const github = slug?.split('/')[1];
+    const folder = lastSegment(cluster.cwd || '');
+    cluster.title = !github
+      ? cluster.fallback
+      : github.toLowerCase() === folder.toLowerCase()
+        ? github
+        : `${github} (${folder})`;
+  }
   return [...clusters.values()]
     .sort((a, b) => Number(b.matched) - Number(a.matched) || a.title.localeCompare(b.title))
-    .map(({ matched: _matched, ...group }) => ({ ...group, sessions: order(group.sessions) }));
+    .map(({ matched: _matched, fallback: _fallback, ...group }) => ({
+      ...group,
+      sessions: order(group.sessions),
+    }));
 }
 
 // ---------------------------------------------------------------------
