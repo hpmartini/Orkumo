@@ -18,8 +18,8 @@ import os from 'os';
 import fs from 'fs';
 import crypto from 'crypto';
 
-const PORT = process.env.PTY_HOST_PORT || 3098;
-const HTTP_PORT = process.env.PTY_HOST_HTTP_PORT || 3099;
+const PORT = process.env.PTY_HOST_PORT || 3096;
+const HTTP_PORT = process.env.PTY_HOST_HTTP_PORT || 3097;
 const HTTP_TOKEN = process.env.PTY_HOST_HTTP_TOKEN || '';
 // Loopback only: Docker Desktop reaches it via host.docker.internal. Widen deliberately, never by default.
 const BIND_HOST = process.env.PTY_HOST_BIND || '127.0.0.1';

@@ -58,11 +58,11 @@ services:
       - SCAN_DIRECTORIES=/projects
       # Docker detection and PTY host service URL
       - RUNNING_IN_DOCKER=true
-      - PTY_HOST_URL=ws://host.docker.internal:3098
+      - PTY_HOST_URL=ws://host.docker.internal:3096
       # Delegate non-interactive CLI calls (like `claude agents --json`) to
       # the PTY-Host running on the host machine so we don't need to run the
       # macOS-only `claude` binary inside the Linux API container.
-      - PTY_HOST_HTTP_URL=http://host.docker.internal:3099
+      - PTY_HOST_HTTP_URL=http://host.docker.internal:3097
       # Optional shared secret for the PTY-Host HTTP endpoint. Set in .env to
       # require authentication (recommended when the host is on a shared LAN).
       - PTY_HOST_HTTP_TOKEN=${PTY_HOST_HTTP_TOKEN:-}

@@ -93,7 +93,7 @@ const isRunningInDocker = (() => {
 })();
 
 // Host PTY service URL (for Docker mode)
-const PTY_HOST_URL = process.env.PTY_HOST_URL || 'ws://host.docker.internal:3098';
+const PTY_HOST_URL = process.env.PTY_HOST_URL || 'ws://host.docker.internal:3096';
 
 console.log(`[Server] Running in Docker: ${isRunningInDocker}`);
 if (isRunningInDocker) {
