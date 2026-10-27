@@ -71,6 +71,8 @@ The console output in the details view is a real webbased terminal emulator, sup
   - `server/services/agentService.js` - wraps the `claude` CLI (`--bg`, `agents --json`, `logs`, `stop`, `respawn`, `rm`, `daemon`) and `~/.claude/jobs` state; routes under `/api/agents/*`
   - `utils/agentInput.ts` (dispatch syntax) and `utils/agentSessions.ts` (grouping) are pure and unit-tested
 
+- Unified left panel: the Agents rail (`AgentsView`) is the only left panel on every route. Its right pane (`main` slot, wired in `App.tsx`) shows the Dashboard (start view: TitleBar rocket / robot icon in the rail header), the agent workspace, the Kanban board (`/board?repo=&agent=`), Code mode or app details. Project headers have View code / View board; agent cards have Show on board.
+
 - On details view add a “sub view” for coding with this elements as side-by-side view:
   - Terminals (reuse the terminals from the default details view)
   - Web-IDE (VS-Code) einbauen

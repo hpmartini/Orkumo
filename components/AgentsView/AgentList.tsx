@@ -8,6 +8,7 @@ import {
   GitBranch,
   GitBranchPlus,
   GitPullRequest,
+  Kanban,
   MoreHorizontal,
   Pin,
   Plus,
@@ -29,7 +30,7 @@ import {
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
-import { AppPowerButton, AppStatusDot, RailNavProps } from './ProjectsRail';
+import { AppPowerButton, AppStatusDot, ProjectViewButtons, RailNavProps } from './ProjectsRail';
 import { SessionLinks } from './SessionLinks';
 import { CacheBadge } from './CacheBadge';
 import { isCacheWarning } from '../../utils/agentCache';
@@ -100,6 +101,8 @@ interface AgentListProps {
   /** Board issue keys ("owner/name#12") per session id, derived from the GitHub project */
   issuesByAgent?: Map<string, string[]>;
   onOpenIssue?: (issueKey: string) => void;
+  /** Row button: board filtered to the agent's project and linked issues */
+  onShowOnBoard?: (session: AgentSession) => void;
 }
 
 /** Selected row/header: filled while the rail has focus, outline only while it does not */
@@ -173,6 +176,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   onToggleExpanded,
   onToggleFavoriteGroup,
   onCreateIssue,
+  onShowOnBoard,
   onToggleFavoriteSession,
   onMoveGroup,
   issuesByAgent,
@@ -626,7 +630,8 @@ export const AgentList: React.FC<AgentListProps> = ({
                           )
                         )}
                         {app && nav && (
-                          <span className="shrink-0">
+                          <span className="shrink-0 flex">
+                            <ProjectViewButtons app={app} nav={nav} />
                             <AppPowerButton app={app} nav={nav} />
                           </span>
                         )}
@@ -866,6 +871,19 @@ export const AgentList: React.FC<AgentListProps> = ({
                         >
                           <MoreHorizontal size={12} />
                         </button>
+                        {onShowOnBoard && (
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onShowOnBoard(session);
+                            }}
+                            className="opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                            title="Show on board"
+                            aria-label="Show on board"
+                          >
+                            <Kanban size={12} />
+                          </button>
+                        )}
                         {onToggleFavoriteSession && (
                           <FavoriteButton
                             active={isFav}

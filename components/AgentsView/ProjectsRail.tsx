@@ -7,7 +7,6 @@ import {
   ChevronsUpDown,
   Code2,
   Kanban,
-  LayoutDashboard,
   Play,
   Settings,
   Square,
@@ -18,10 +17,14 @@ import type { AgentConfigLike } from './types';
 /** App-level navigation and actions the merged rail needs from App.tsx */
 export interface RailNavProps {
   onOpenDashboard: () => void;
+  onOpenAgents: () => void;
   onOpenBoard?: () => void;
   onOpenCode?: () => void;
   onOpenSettings: () => void;
   onOpenProject: (appId: string) => void;
+  /** Code mode / board filtered to the project */
+  onOpenProjectCode: (appId: string) => void;
+  onOpenProjectBoard: (appId: string) => void;
   onStartApp: (appId: string) => void;
   onStopApp: (appId: string) => void;
 }
@@ -64,7 +67,7 @@ export const AppPowerButton: React.FC<{
         e.stopPropagation();
         (running ? nav.onStopApp : nav.onStartApp)(app.id);
       }}
-      className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+      className={iconButtonClass}
       title={running ? `Stop ${app.name}` : `Start ${app.name}`}
       aria-label={running ? `Stop ${app.name}` : `Start ${app.name}`}
     >
@@ -72,6 +75,59 @@ export const AppPowerButton: React.FC<{
     </button>
   );
 };
+
+const iconButtonClass =
+  'p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
+
+/** View code / view board for a project, used by project headers and the Projects section */
+export const ProjectViewButtons: React.FC<{
+  app: AgentConfigLike;
+  nav: RailNavProps;
+}> = ({ app, nav }) => (
+  <>
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        nav.onOpenProjectCode(app.id);
+      }}
+      className={iconButtonClass}
+      title={`View code of ${app.name}`}
+      aria-label={`View code of ${app.name}`}
+    >
+      <Code2 size={11} />
+    </button>
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        nav.onOpenProjectBoard(app.id);
+      }}
+      className={iconButtonClass}
+      title={`View board of ${app.name}`}
+      aria-label={`View board of ${app.name}`}
+    >
+      <Kanban size={11} />
+    </button>
+  </>
+);
+
+/** Which route the right pane shows; marks the matching nav button */
+export type RailCurrent = 'agents' | 'board' | 'code' | 'other';
+
+const NavButton: React.FC<{
+  current: boolean;
+  onClick: () => void;
+  children: React.ReactNode;
+}> = ({ current, onClick, children }) => (
+  <button
+    onClick={onClick}
+    aria-current={current ? 'page' : undefined}
+    className={`flex items-center gap-1.5 px-2 py-1 rounded hover:text-white hover:bg-gray-800 ${
+      current ? 'bg-gray-800 text-white' : 'text-gray-400'
+    }`}
+  >
+    {children}
+  </button>
+);
 
 /** Slim top navigation plus the group-mode switch */
 export const RailNav: React.FC<{
@@ -83,37 +139,23 @@ export const RailNav: React.FC<{
   onExpandAll?: () => void;
   /** A quick filter forces every group open: the buttons would have no visible effect */
   collapseDisabled?: boolean;
-}> = ({ nav, grouping, onGrouping, onCollapseAll, onExpandAll, collapseDisabled }) => (
+  current: RailCurrent;
+}> = ({ nav, grouping, onGrouping, onCollapseAll, onExpandAll, collapseDisabled, current }) => (
   <div className="px-3 py-2 border-b border-gray-700 space-y-2 shrink-0">
     <div className="flex items-center gap-1 text-xs">
-      <button
-        onClick={nav.onOpenDashboard}
-        className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-      >
-        <LayoutDashboard size={13} /> Dashboard
-      </button>
       {nav.onOpenBoard && (
-        <button
-          onClick={nav.onOpenBoard}
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-        >
+        <NavButton current={current === 'board'} onClick={nav.onOpenBoard}>
           <Kanban size={13} /> Board
-        </button>
+        </NavButton>
       )}
       {nav.onOpenCode && (
-        <button
-          onClick={nav.onOpenCode}
-          className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-        >
+        <NavButton current={current === 'code'} onClick={nav.onOpenCode}>
           <Code2 size={13} /> Code
-        </button>
+        </NavButton>
       )}
-      <span
-        className="flex items-center gap-1.5 px-2 py-1 rounded bg-gray-800 text-white"
-        aria-current="page"
-      >
+      <NavButton current={current === 'agents'} onClick={() => nav.onOpenAgents()}>
         <Bot size={13} /> Agents
-      </span>
+      </NavButton>
       <div className="flex-1" />
       <button
         onClick={nav.onOpenSettings}
@@ -226,7 +268,8 @@ export const ProjectsSection: React.FC<{
               >
                 {app.name}
               </button>
-              <span className="opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+              <span className="flex opacity-0 group-hover:opacity-100 focus-within:opacity-100">
+                <ProjectViewButtons app={app} nav={nav} />
                 <AppPowerButton app={app} nav={nav} />
               </span>
             </div>

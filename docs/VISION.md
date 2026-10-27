@@ -22,7 +22,7 @@ Issue ↔ Agent(en) ↔ Worktree/Branch ↔ Pull Request ↔ Code
 
 ## Modi
 
-Alle Modi leben unter **einer einheitlichen Shell/UI** (gemeinsame Navigation, Sidebar, Command-Palette, Kontext-Leiste).
+Alle Modi leben unter **einer einheitlichen Shell/UI** (ein linkes Panel – die Agents-Rail mit Projekten und Agents –, Command-Palette, Kontext-Leiste). Die rechte Seite zeigt je nach Auswahl Dashboard (Startansicht über Rakete / Roboter-Icon), Agent, Code oder Board.
 
 | Modus     | Zweck                                                                                                   | Heute                               |
 | :-------- | :------------------------------------------------------------------------------------------------------ | :---------------------------------- |
