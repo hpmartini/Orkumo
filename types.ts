@@ -519,7 +519,7 @@ export const DEFAULT_AGENT_DISPATCH_DEFAULTS: AgentDispatchDefaults = {
 };
 
 export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
-  grouping: 'state',
+  grouping: 'project',
   layout: 'tabs',
   scopeCwd: null,
   collapsedGroups: [],

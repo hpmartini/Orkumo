@@ -17,7 +17,8 @@ import {
   keepKnown,
 } from '../hooks/useRailPreferences';
 import type { SessionGroup } from '../utils/agentSessions';
-import type { AgentSession } from '../types';
+import { DEFAULT_AGENT_VIEW_SETTINGS, type AgentSession } from '../types';
+import { DEFAULT_AGENT_VIEW_SETTINGS as SERVER_DEFAULTS } from '../server/services/settingsService.js';
 
 const session = (id: string) => ({ id }) as AgentSession;
 const group = (key: string, ids: string[] = [], hidden: string[] = []) =>
@@ -147,6 +148,25 @@ describe('useRailPreferences expanded rows', () => {
     expect(JSON.parse(localStorage.getItem('devOrbitAgentRail.v1')!).expandedSessions).toEqual([
       'alive',
     ]);
+  });
+
+  it('keeps the manual group order per grouping across a reload', () => {
+    localStorage.removeItem('devOrbitAgentRail.v1');
+    const groups = [group('a'), group('b'), group('c')];
+    const keys = (gs: SessionGroup[]) => gs.map((g) => g.key);
+    const first = renderHook(() => useRailPreferences('project'));
+    act(() => first.result.current.moveGroup('c', 'a', ['a', 'b', 'c']));
+    first.unmount();
+
+    const reloaded = renderHook(() => useRailPreferences('project'));
+    expect(keys(reloaded.result.current.arrange(groups))).toEqual(['c', 'a', 'b']);
+    const otherMode = renderHook(() => useRailPreferences('state'));
+    expect(keys(otherMode.result.current.arrange(groups))).toEqual(['a', 'b', 'c']);
+  });
+
+  it('starts in the project grouping on client and server', () => {
+    expect(DEFAULT_AGENT_VIEW_SETTINGS.grouping).toBe('project');
+    expect(SERVER_DEFAULTS.grouping).toBe('project');
   });
 
   it('keepKnown returns the same array when nothing is dropped', () => {
