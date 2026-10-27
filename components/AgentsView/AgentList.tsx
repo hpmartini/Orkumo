@@ -5,9 +5,11 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
+  Code2,
   GitBranch,
   GitBranchPlus,
   GitPullRequest,
+  Kanban,
   MoreHorizontal,
   Pin,
   Plus,
@@ -136,6 +138,26 @@ const FavoriteButton: React.FC<{
     <Star size={11} className={active ? 'fill-current' : ''} />
   </button>
 );
+
+/** Hover button for one menu action (same entry as in the context menu); hidden when unavailable */
+const ActionButton: React.FC<{
+  action?: AgentRowAction;
+  icon: React.ReactNode;
+  className?: string;
+}> = ({ action, icon, className = 'p-0.5' }) =>
+  action && !action.disabled ? (
+    <button
+      onClick={(e) => {
+        e.stopPropagation();
+        action.onSelect();
+      }}
+      className={`shrink-0 rounded text-gray-400 hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${className}`}
+      title={action.label}
+      aria-label={action.label}
+    >
+      {icon}
+    </button>
+  ) : null;
 
 /**
  * Session list with group headers, keyboard selection and per-row menus.
@@ -485,6 +507,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                             .find(Boolean) || null
                         : null;
                     const groupFav = isFavGroup(groupKey);
+                    const headerActions = isFavSection ? [] : groupActions(item.group);
                     const groupSessions = [...item.group.sessions, ...item.group.hidden];
                     const attachedCount = groupSessions.filter((s) => openIds.has(s.id)).length;
                     const groupHasActive =
@@ -601,6 +624,14 @@ export const AgentList: React.FC<AgentListProps> = ({
                             {groupIssues.open}
                           </a>
                         )}
+                        <ActionButton
+                          action={headerActions.find((a) => a.id === 'view-code')}
+                          icon={<Code2 size={12} />}
+                        />
+                        <ActionButton
+                          action={headerActions.find((a) => a.id === 'view-board')}
+                          icon={<Kanban size={12} />}
+                        />
                         {groupRepo && (
                           <button
                             onClick={(e) => {
@@ -866,6 +897,11 @@ export const AgentList: React.FC<AgentListProps> = ({
                         >
                           <MoreHorizontal size={12} />
                         </button>
+                        <ActionButton
+                          action={rowActions(session).find((a) => a.id === 'board')}
+                          icon={<Kanban size={12} />}
+                          className="p-1.5"
+                        />
                         {onToggleFavoriteSession && (
                           <FavoriteButton
                             active={isFav}

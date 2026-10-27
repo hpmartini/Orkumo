@@ -203,6 +203,16 @@ export function matchesQuery(item: BoardItem, query: string): boolean {
   return `${item.repo ?? ''}#${item.number ?? ''} ${item.title}`.toLowerCase().includes(q);
 }
 
+/** `?repo=owner/name` overrides the stored slice: repo slice with that repo selected. */
+export function sliceFromRepoParam(
+  view: { sliceKind: BoardSliceKind; selected: string | null },
+  repo: string | null
+): { sliceKind: BoardSliceKind; selected: string | null } {
+  return repo
+    ? { sliceKind: 'repo', selected: repo }
+    : { sliceKind: view.sliceKind, selected: view.selected };
+}
+
 /** Moves `key` before `beforeKey` (null = to the end). Keys of other kinds in `order` are kept. */
 export function moveSliceKey(
   order: string[],

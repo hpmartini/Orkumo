@@ -49,7 +49,7 @@ import {
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
-import { agentFolder, codeUrl } from '../../utils/codeTarget';
+import { agentFolder, boardUrl, codeUrl } from '../../utils/codeTarget';
 import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
 import {
   groupSessions,
@@ -61,6 +61,7 @@ import {
   collectPullRequests,
   summarizeContext,
   formatModelName,
+  groupRepoSlug,
   DEFAULT_SORT,
   QUICK_FILTERS,
   SORT_OPTIONS,
@@ -99,7 +100,7 @@ import { IssueCreateModal } from '../BoardView/IssueCreateModal';
 const BOARD_REFRESH_MS = 60_000;
 
 interface AgentsViewProps {
-  /** Whether the view is visible (drives SSE subscription and keyboard handling) */
+  /** Whether the agents route is shown (keyboard handling, workspace); the rail itself is always live */
   active: boolean;
   /** Discovered apps - offered as dispatch directories */
   apps: AgentConfigLike[];
@@ -109,6 +110,8 @@ interface AgentsViewProps {
   nav: RailNavProps;
   /** Make this view the visible route (palette command "New task" from another page) */
   onOpenView: () => void;
+  /** Main area of the other routes (dashboard, board, code, ...): replaces the workspace while not active */
+  children?: React.ReactNode;
 }
 
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
@@ -150,6 +153,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   onExit,
   nav,
   onOpenView,
+  children,
 }) => {
   const palette = useCommandPalette();
   const {
@@ -166,7 +170,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     counts,
     lastCompleted,
     refresh,
-  } = useAgentSessions({ active });
+  } = useAgentSessions({ active: true });
 
   const [input, setInput] = useState('');
   const [hint, setHint] = useState<{ text: string; tone: 'info' | 'error' | 'success' } | null>(
@@ -243,7 +247,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
   const railRef = useRef<HTMLDivElement>(null);
   const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
-  const contexts = useAgentContexts(active);
+  const contexts = useAgentContexts(true);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
     [sessions, apps, contexts]
@@ -407,10 +411,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   // Tick for ages
   useEffect(() => {
-    if (!active) return;
     const interval = setInterval(() => setNow(Date.now()), 10000);
     return () => clearInterval(interval);
-  }, [active]);
+  }, []);
 
   // Browser tab title
   useEffect(() => {
@@ -502,8 +505,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
   const [board, setBoard] = useState<BoardData | null>(null);
   useEffect(() => {
-    if (!active) return;
-    // server caches the board ~60 s, so re-activating /agents is cheap
+    // server caches the board ~60 s
     const load = () =>
       fetchBoard()
         .then(setBoard)
@@ -511,7 +513,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     load();
     const interval = setInterval(load, BOARD_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [active]);
+  }, []);
   const issuesByAgent = useMemo(
     () => (board ? linksByAgent(deriveAgentLinks(board.items, sessions)) : undefined),
     [board, sessions]
@@ -1129,6 +1131,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           },
         },
         {
+          id: 'board',
+          label: 'Show on Board',
+          disabled: !contexts[session.id]?.repo?.slug,
+          onSelect: () => {
+            const slug = contexts[session.id]?.repo?.slug;
+            if (slug) navigate(boardUrl(slug, session.id));
+          },
+        },
+        {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
           disabled: !bg,
@@ -1192,6 +1203,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       ...(group.cwd
         ? [
             {
+              id: 'view-code',
+              label: 'View Code',
+              onSelect: () => navigate(codeUrl(group.cwd!)),
+            },
+          ]
+        : []),
+      ...(groupRepoSlug(group, contexts)
+        ? [
+            {
+              id: 'view-board',
+              label: 'View Board',
+              onSelect: () => navigate(boardUrl(groupRepoSlug(group, contexts)!)),
+            },
+          ]
+        : []),
+      ...(group.cwd
+        ? [
+            {
               id: 'dispatch-here',
               label: 'Dispatch into this directory',
               onSelect: () => setDispatchCwd(group.cwd || null),
@@ -1205,7 +1234,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onSelect: () => handleStopOrDelete({ type: 'group', group }),
       },
     ],
-    [collapsed, toggleGroup, handleStopOrDelete, nav]
+    [collapsed, toggleGroup, handleStopOrDelete, nav, navigate, contexts]
   );
 
   // ---------------------------------------------------------------------
@@ -1213,6 +1242,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // ---------------------------------------------------------------------
 
   const disabled = settings.disabled;
+  // The rail stays visible on other routes; its keyboard focus marks only count on /agents
+  const railFocused = active && focusZone === 'rail';
   // ---------------------------------------------------------------------
   // Command palette entries
   // ---------------------------------------------------------------------
@@ -1370,6 +1401,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     ? 'Model of the open agent (from its session)'
     : 'Dispatch model for new agents (/model)';
 
+  // Other routes keep their main area when the agent view cannot show its rail
+  if ((disabled || cliInstalled === false) && !active) {
+    return <div className="h-full relative">{children}</div>;
+  }
+
   if (disabled) {
     return (
       <div className="h-full flex flex-col items-center justify-center gap-4 text-gray-400">
@@ -1409,9 +1445,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   return (
     <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
-      {/* Header */}
-      <div className="relative flex items-center gap-3 px-4 py-1.5 border-b border-gray-800 shrink-0">
-        <Bot size={18} className="text-blue-300" />
+      {/* Header; small screens show it on /agents only, other routes have the app header */}
+      <div
+        className={`relative ${active ? 'flex' : 'hidden md:flex'} items-center gap-3 px-4 py-1.5 border-b border-gray-800 shrink-0`}
+      >
+        <button
+          onClick={nav.onOpenDashboard}
+          className="p-1 -m-1 rounded text-blue-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+          title="Dashboard"
+          aria-label="Open dashboard"
+        >
+          <Bot size={18} />
+        </button>
         <div className="min-w-0 flex items-center gap-3">
           <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
@@ -1456,7 +1501,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         )}
         <div className="flex-1" />
         <div
-          className="hidden md:flex items-center gap-1.5 text-[11px] text-gray-300"
+          className={`hidden ${active ? 'md:flex' : ''} items-center gap-1.5 text-[11px] text-gray-300`}
           role="status"
           title="Switch with F6 or Ctrl+Alt+Left / Right"
         >
@@ -1532,11 +1577,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           ref={railRef}
           tabIndex={-1}
           data-focus-zone="rail"
-          data-rail-focused={focusZone === 'rail'}
-          className={`w-full md:w-[340px] xl:w-[440px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+          data-rail-focused={railFocused}
+          // On small screens the rail is the agents page; other routes show their main area instead
+          className={`${active ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
         >
           {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
-          {focusZone === 'rail' && (
+          {railFocused && (
             <div
               aria-hidden="true"
               className="pointer-events-none absolute inset-0 z-10 border-2 border-blue-300/80"
@@ -1592,7 +1638,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             </div>
           ) : (
             <AgentList
-              railFocused={focusZone === 'rail'}
+              railFocused={railFocused}
               items={items}
               selectedIndex={selectedIndex}
               onSelectIndex={(index) => setSelectedKey(itemKey(items[index]))}
@@ -1641,7 +1687,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     now={now}
                     peekId={peekId}
                     selectedKey={selectedRemote ? remoteKey(selectedRemote) : null}
-                    railFocused={focusZone === 'rail'}
+                    railFocused={railFocused}
                     onSelect={(s) => setSelectedKey(remoteKey(s))}
                     onAttach={attachRemote}
                     onPeek={(s) => togglePeek({ ...s, id: remoteKey(s) })}
@@ -1710,8 +1756,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           </div>
         </div>
 
+        {/* Main area of the other routes; the workspace below stays mounted so terminals survive */}
+        <div className={active ? 'hidden' : 'flex-1 min-w-0 min-h-0 relative'}>{children}</div>
+
         {/* Workspace */}
-        <div className="flex-1 min-w-0 min-h-0 hidden md:flex overflow-hidden">
+        <div
+          className={`flex-1 min-w-0 min-h-0 ${active ? 'hidden md:flex' : 'hidden'} overflow-hidden`}
+        >
           <div className="flex-1 min-w-0 min-h-0">
             <AgentWorkspace
               sessions={[...sessions, ...cloudSessions]}
