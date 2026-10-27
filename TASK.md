@@ -459,3 +459,13 @@ The following existing tasks are related to the new features above:
   - Solution: `PORTS.devhub`/`PORTS.server` in `config/defaults.{js,ts}` auf 3098/3099 (wie Docker); `vite.config.ts` nutzt `PORTS` statt eigener Literale. `appStart` (Startport verwalteter Apps) bleibt 3001.
 - Verifikation: vitest 508/508, Build und Server-Bundle grün; App mit `bun run electron:build:mac` neu gebaut, in `/Applications` ersetzt, startet und lauscht auf 3099 (`/api/health` ok).
 - Offen: `code-server` im Dev-Skript scheitert mit EADDRINUSE auf 8080, solange eine andere code-server-Instanz läuft (die übrigen Prozesse laufen weiter).
+
+---
+
+### TS-Fehler in `utils/agentSessions.ts:314`: `root` fehlt (2026-10-27)
+
+- [x] **[FIX]** `displayRepo` lieferte ein Repo-Objekt ohne das Pflichtfeld `root`
+  - Issue: `tsc --noEmit` meldete TS2741 („Property 'root' is missing“). Vite baute trotzdem, weil es keine Typen prüft.
+  - Root cause: #96 (`5f86df1`) hat `AgentContext['repo']` um `root` (Pfad des Haupt-Checkouts, vom Server über `resolveRepoIdentity`) erweitert. Der Worktree-Fallback in `displayRepo` (#53), der greift, bevor der Server-Kontext geladen ist, bekam das Feld nicht.
+  - Solution: Der Fallback setzt `root = mainRepoPath(session.worktree)` und leitet `name` daraus ab, wie der Server. Der Test zu `displayRepo` prüft jetzt auch `root`.
+- Verifikation: tsc 0 Fehler, `test/agentSessions.test.ts` 42/42, Build grün.

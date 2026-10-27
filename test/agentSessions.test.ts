@@ -391,6 +391,7 @@ describe('displayRepo', () => {
     });
     expect(displayRepo(s)).toMatchObject({
       name: 'proj',
+      root: '/a/proj',
       branch: null,
       isWorktree: true,
       worktreeName: 'feat',

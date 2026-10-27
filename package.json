@@ -54,7 +54,6 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.3",
     "drizzle-orm": "^0.45.1",
-    "electron-updater": "^6.7.3",
     "express": "^5.2.1",
     "express-rate-limit": "^8.2.1",
     "js-yaml": "^4.1.1",

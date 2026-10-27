@@ -5,8 +5,6 @@ import { fork } from 'child_process';
 import * as fs from 'fs';
 import { createServer } from 'net';
 import dotenv from 'dotenv';
-import electronUpdater from 'electron-updater';
-const { autoUpdater } = electronUpdater;
 import { isValidExternalUrl, validateDialogOptions } from './validation.js';
 import { APP_NAME } from './constants.js';
 import { PORTS } from '../config/defaults.js';
@@ -637,43 +635,6 @@ function setupIpcHandlers() {
     };
   });
 
-  // Check for updates manually
-  ipcMain.handle('check-for-updates', async () => {
-    if (isDev) {
-      return {
-        success: true,
-        updateAvailable: false,
-        message: 'Update checking is disabled in development mode',
-      };
-    }
-
-    try {
-      const result = await autoUpdater.checkForUpdates();
-      return {
-        success: true,
-        updateAvailable: result && result.updateInfo,
-        version: result?.updateInfo?.version,
-      };
-    } catch (error) {
-      console.error('[Electron] Update check failed:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
-  // Install update and restart
-  ipcMain.handle('install-update', () => {
-    if (isDev) {
-      return { success: false, error: 'Update installation is disabled in development mode' };
-    }
-    try {
-      autoUpdater.quitAndInstall(false, true);
-      return { success: true };
-    } catch (error) {
-      console.error('[Electron] Update installation failed:', error);
-      return { success: false, error: error.message };
-    }
-  });
-
   // ============================================
   // BrowserView IPC Handlers for embedded browser preview
   // ============================================
@@ -888,121 +849,6 @@ function setupIpcHandlers() {
 }
 
 /**
- * Setup auto-updater
- */
-function setupAutoUpdater() {
-  // Don't check for updates in development
-  if (isDev) {
-    console.log('[Electron] Auto-update disabled in development mode');
-    return;
-  }
-
-  // Configure auto-updater
-  autoUpdater.autoDownload = false; // Don't download automatically, ask user first
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  // Update available
-  autoUpdater.on('update-available', (info) => {
-    console.log('[Electron] Update available:', info.version);
-
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      dialog
-        .showMessageBox(mainWindow, {
-          type: 'info',
-          title: 'Update Available',
-          message: `A new version (${info.version}) is available!`,
-          detail:
-            'Would you like to download it now? The update will be installed when you restart the application.',
-          buttons: ['Download', 'Later'],
-          defaultId: 0,
-          cancelId: 1,
-        })
-        .then((result) => {
-          if (result.response === 0) {
-            // User clicked "Download"
-            autoUpdater.downloadUpdate();
-          }
-        });
-    }
-  });
-
-  // Update not available
-  autoUpdater.on('update-not-available', (info) => {
-    console.log('[Electron] No update available:', info.version);
-  });
-
-  // Update download progress
-  autoUpdater.on('download-progress', (progressObj) => {
-    const logMessage = `Download speed: ${progressObj.bytesPerSecond} - Downloaded ${progressObj.percent}%`;
-    console.log('[Electron]', logMessage);
-
-    // Send progress to renderer if needed
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('download-progress', progressObj);
-    }
-  });
-
-  // Update downloaded
-  autoUpdater.on('update-downloaded', (info) => {
-    console.log('[Electron] Update downloaded:', info.version);
-
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      dialog
-        .showMessageBox(mainWindow, {
-          type: 'info',
-          title: 'Update Ready',
-          message: 'Update downloaded successfully!',
-          detail:
-            'The update will be installed when you restart the application. Would you like to restart now?',
-          buttons: ['Restart Now', 'Later'],
-          defaultId: 0,
-          cancelId: 1,
-        })
-        .then((result) => {
-          if (result.response === 0) {
-            // User clicked "Restart Now"
-            autoUpdater.quitAndInstall(false, true);
-          }
-        });
-    }
-  });
-
-  // Update error
-  autoUpdater.on('error', (error) => {
-    console.error('[Electron] Update error:', error);
-
-    // Don't show dialog for expected errors (no releases, network issues, missing config on dev builds)
-    const ignoredErrors = [
-      'No published versions on GitHub',
-      'net::ERR_INTERNET_DISCONNECTED',
-      'net::ERR_NETWORK_CHANGED',
-      'ENOENT', // Missing app-update.yml (dev/local builds)
-      'app-update.yml', // Missing update config file
-      'Cannot find channel',
-    ];
-    const shouldIgnore = ignoredErrors.some((msg) => error.message?.includes(msg));
-
-    if (!shouldIgnore && mainWindow && !mainWindow.isDestroyed()) {
-      dialog.showMessageBox(mainWindow, {
-        type: 'error',
-        title: 'Update Error',
-        message: 'Failed to check for updates',
-        detail: error.message,
-        buttons: ['OK'],
-      });
-    }
-  });
-
-  // Check for updates on startup (after a delay to let the app settle)
-  setTimeout(() => {
-    console.log('[Electron] Checking for updates...');
-    autoUpdater.checkForUpdates().catch((error) => {
-      console.error('[Electron] Failed to check for updates:', error);
-    });
-  }, 5000); // Check 5 seconds after app starts
-}
-
-/**
  * App lifecycle
  */
 
@@ -1017,9 +863,6 @@ app.whenReady().then(async () => {
 
     // Create main window
     createWindow();
-
-    // Setup auto-updater (after window is created)
-    setupAutoUpdater();
 
     // On macOS, recreate window when dock icon is clicked
     app.on('activate', () => {
