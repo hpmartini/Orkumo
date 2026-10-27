@@ -21,6 +21,16 @@ import crypto from 'crypto';
 const PORT = process.env.PTY_HOST_PORT || 3098;
 const HTTP_PORT = process.env.PTY_HOST_HTTP_PORT || 3099;
 const HTTP_TOKEN = process.env.PTY_HOST_HTTP_TOKEN || '';
+// Loopback only: Docker Desktop reaches it via host.docker.internal. Widen deliberately, never by default.
+const BIND_HOST = process.env.PTY_HOST_BIND || '127.0.0.1';
+// The API only ever delegates the Claude CLI; anything else must not run through this host.
+const ALLOWED_COMMANDS = new Set(['claude']);
+
+function tokenMatches(provided) {
+  if (typeof provided !== 'string') return false;
+  const digest = (value) => crypto.createHash('sha256').update(value).digest();
+  return crypto.timingSafeEqual(digest(provided), digest(`Bearer ${HTTP_TOKEN}`));
+}
 
 // Detect user's default shell
 const defaultShell = (() => {
@@ -42,7 +52,7 @@ console.log(`[PTY-Host] Default shell: ${defaultShell}`);
 console.log(`[PTY-Host] Platform: ${os.platform()}`);
 console.log(`[PTY-Host] User: ${process.env.USER || 'unknown'}`);
 
-const wss = new WebSocketServer({ port: PORT });
+const wss = new WebSocketServer({ port: PORT, host: BIND_HOST });
 
 // Store active PTY sessions
 const sessions = new Map();
@@ -57,6 +67,12 @@ wss.on('connection', (ws, req) => {
   // Optional custom command (e.g. "claude") + args (e.g. ["attach", "84f4be24"])
   // forwarded by the API when proxying in Docker mode. Defaults to a login shell.
   const customCommand = url.searchParams.get('command');
+  // Browsers always send Origin; the API's ws client never does (blocks cross-site WebSocket hijacking).
+  if (req.headers.origin || (customCommand && !ALLOWED_COMMANDS.has(customCommand))) {
+    console.warn(`[PTY-Host] Rejected connection (origin=${req.headers.origin || '-'}, command=${customCommand || '-'})`);
+    ws.close(1008, 'Forbidden');
+    return;
+  }
   let customArgs = [];
   const argsParam = url.searchParams.get('args');
   if (argsParam) {
@@ -238,14 +254,10 @@ function resolveBinary(name) {
 }
 
 const httpServer = http.createServer(async (req, res) => {
-  // CORS for browser-side tooling during local development
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Pty-Host-Token');
-
-  if (req.method === 'OPTIONS') {
-    res.writeHead(204);
-    res.end();
+  // Server-to-server only: no CORS, and any browser request (Origin header) is refused.
+  if (req.headers.origin) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Forbidden' }));
     return;
   }
 
@@ -261,17 +273,15 @@ const httpServer = http.createServer(async (req, res) => {
     return;
   }
 
-  if (HTTP_TOKEN) {
-    const provided = req.headers['x-pty-host-token'];
-    const expected = `Bearer ${HTTP_TOKEN}`;
-    if (
-      typeof provided !== 'string' ||
-      !crypto.timingSafeEqual(Buffer.from(provided), Buffer.from(expected))
-    ) {
-      res.writeHead(401, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Unauthorized' }));
-      return;
-    }
+  if (!HTTP_TOKEN) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Set PTY_HOST_HTTP_TOKEN to enable /exec' }));
+    return;
+  }
+  if (!tokenMatches(req.headers['x-pty-host-token'])) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized' }));
+    return;
   }
 
   let raw = '';
@@ -291,10 +301,10 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
-    const { command, args = [], cwd, timeout = 60000, env } = body || {};
-    if (typeof command !== 'string' || !command.trim()) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Missing `command` string' }));
+    const { command, args = [], cwd, timeout = 60000 } = body || {};
+    if (typeof command !== 'string' || !ALLOWED_COMMANDS.has(command)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Command not allowed' }));
       return;
     }
     if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
@@ -310,7 +320,6 @@ const httpServer = http.createServer(async (req, res) => {
     const result = await execFileAsync(bin, args, {
       cwd: resolvedCwd,
       timeout,
-      env,
     });
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -321,9 +330,9 @@ const httpServer = http.createServer(async (req, res) => {
   });
 });
 
-httpServer.listen(HTTP_PORT, () => {
-  const auth = HTTP_TOKEN ? ' (token-protected)' : ' (no token, localhost only)';
-  console.log(`[PTY-Host] HTTP /exec listening on http://localhost:${HTTP_PORT}${auth}`);
+httpServer.listen(HTTP_PORT, BIND_HOST, () => {
+  const auth = HTTP_TOKEN ? 'token-protected' : 'DISABLED, set PTY_HOST_HTTP_TOKEN';
+  console.log(`[PTY-Host] HTTP /exec on http://${BIND_HOST}:${HTTP_PORT} (${auth})`);
 });
 
 // Graceful shutdown
