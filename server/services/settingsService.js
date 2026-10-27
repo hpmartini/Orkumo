@@ -28,7 +28,7 @@ const defaultSettings = {
  * Default Claude Code agent view preferences
  */
 export const DEFAULT_AGENT_VIEW_SETTINGS = {
-  grouping: 'state', // 'state' | 'directory'
+  grouping: 'project', // 'project' | 'state' | 'directory' | 'none'
   layout: 'tabs', // 'tabs' | 'columns' | 'rows' | 'grid'
   scopeCwd: null, // Only show sessions started under this path (claude agents --cwd)
   collapsedGroups: [],
