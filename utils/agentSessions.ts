@@ -286,6 +286,25 @@ export function repoName(session: AgentSession, lookup?: SessionLookup): string 
   );
 }
 
+/**
+ * Repository shown in the rail: the server context, else a worktree hint from the session's
+ * job state alone (context not loaded yet or git lookup failed). Branch stays unknown then.
+ */
+export function displayRepo(session: AgentSession, ctx?: AgentContext): AgentContext['repo'] {
+  if (ctx?.repo || !session.worktree) return ctx?.repo ?? null;
+  return {
+    name: lastSegment(mainRepoPath(session.worktree)),
+    slug: null,
+    branch: null,
+    dirty: false,
+    ahead: 0,
+    behind: 0,
+    isWorktree: true,
+    worktreeName: lastSegment(session.worktree),
+    worktreePath: session.worktree,
+  };
+}
+
 const MODEL_RE = /^claude-([a-z]+)-(\d+)(?:-(\d{1,2}))?(?:-\d{8})?$/;
 const LEGACY_MODEL_RE = /^claude-(\d+)(?:-(\d{1,2}))?-([a-z]+)(?:-\d{8})?$/;
 
