@@ -48,7 +48,9 @@ export const CacheBadge: React.FC<{ cache: AgentCacheInfo }> = ({ cache }) => {
           style={{ width: `${percent}%` }}
         />
       </span>
-      <span>{formatTokens(cache.cachedTokens)}</span>
+      <span>
+        {formatTokens(cache.cachedTokens)} · {percent}%
+      </span>
       <span className="text-gray-500">·</span>
       <span>{cache.hits} hits</span>
     </span>

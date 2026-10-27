@@ -391,7 +391,12 @@ describe('agentContextService - prompt cache usage', () => {
   });
 
   it('derives the context window', () => {
-    expect(contextWindowFor('claude-opus-5-5', 150_000)).toBe(200_000);
+    expect(contextWindowFor('claude-opus-5-5', 150_000)).toBe(1_000_000);
+    expect(contextWindowFor('claude-fable-5-1', 10)).toBe(1_000_000);
+    expect(contextWindowFor('claude-opus-4-7', 10)).toBe(1_000_000);
+    expect(contextWindowFor('claude-opus-4-6', 150_000)).toBe(200_000);
+    expect(contextWindowFor('claude-sonnet-4-5-20250929', 150_000)).toBe(200_000);
+    expect(contextWindowFor('claude-opus-4-6[1m]', 10)).toBe(1_000_000);
     expect(contextWindowFor('claude-opus-5-5[1m]', 10)).toBe(1_000_000);
     expect(contextWindowFor(null, 300_000)).toBe(1_000_000);
   });
