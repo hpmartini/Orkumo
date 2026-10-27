@@ -105,31 +105,10 @@ When running in development mode (`bun run electron:dev`):
 - DevTools are automatically opened
 - Backend server runs with live reloading
 - Logs are printed to the terminal
-- Auto-update is disabled
 
-### Auto-Updates
+### Updates
 
-The desktop application includes automatic update functionality:
-
-**How it works:**
-
-- The app checks for updates 5 seconds after startup
-- Updates are checked against GitHub Releases
-- You'll be notified when a new version is available
-- You can choose to download the update or postpone it
-- Updates download in the background
-- After download, you can install immediately or wait until next restart
-- Updates are installed automatically when you quit the app (if downloaded)
-
-**Manual Update Check:**
-You can manually check for updates through the application menu or by calling:
-
-```javascript
-window.electronAPI?.checkForUpdates();
-```
-
-**Development Mode:**
-Auto-update is disabled when running in development mode (`bun run electron:dev`).
+The app has no auto-updater (removed in #125). Install a new version from the [Releases](https://github.com/hpmartini/DevHub/releases) page. What a working auto-updater would need is tracked in #126.
 
 ## Architecture
 
@@ -288,7 +267,6 @@ None - the app works out of the box!
 ✅ Native system integration (menus, notifications, dialogs)
 ✅ Better terminal performance (native modules)
 ✅ Offline-capable (no internet required after installation)
-✅ Auto-updates (when available)
 
 ### Limitations
 
@@ -324,7 +302,6 @@ Planned features for the desktop application:
 - [ ] Deep linking (`devorbit://` protocol)
 - [ ] Global keyboard shortcuts
 - [ ] Multi-window support (separate windows per project)
-- [ ] Auto-update UI improvements
 - [ ] Themes and appearance customization
 - [ ] Export/import settings
 
