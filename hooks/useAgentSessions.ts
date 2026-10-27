@@ -20,13 +20,18 @@ import { summarizeSessions } from '../utils/agentSessions';
 interface UseAgentSessionsOptions {
   /** When false, no SSE subscription is opened (view not visible) */
   active?: boolean;
+  /** When false, notifications (toasts, desktop) are left to another instance */
+  notify?: boolean;
 }
 
 /**
  * Loads the agent view settings, keeps the session list live via SSE and
  * surfaces notifications (needs input / completed / failed).
  */
-export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}) {
+export function useAgentSessions({
+  active = true,
+  notify: notifyEnabled = true,
+}: UseAgentSessionsOptions = {}) {
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [daemon, setDaemon] = useState<AgentDaemonStatus | null>(null);
   const [userSettings, setUserSettings] = useState<ClaudeUserSettings | null>(null);
@@ -161,12 +166,12 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
         );
         setLoading(false);
       },
-      onNotify: notify,
+      onNotify: notifyEnabled ? notify : undefined,
       onError: (message) => setError(message),
       onConnectionChange: setConnected,
     });
     return unsubscribe;
-  }, [active]);
+  }, [active, notifyEnabled]);
 
   const counts = summarizeSessions(sessions);
 

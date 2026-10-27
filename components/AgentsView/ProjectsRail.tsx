@@ -10,6 +10,7 @@ import {
   Play,
   Settings,
   Square,
+  Workflow,
 } from 'lucide-react';
 import type { AgentGrouping } from '../../types';
 import type { AgentConfigLike } from './types';
@@ -20,6 +21,7 @@ export interface RailNavProps {
   onOpenAgents: () => void;
   onOpenBoard?: () => void;
   onOpenCode?: () => void;
+  onOpenWorkflows?: () => void;
   onOpenSettings: () => void;
   onOpenProject: (appId: string) => void;
   /** Code mode / board filtered to the project */
@@ -111,7 +113,7 @@ export const ProjectViewButtons: React.FC<{
 );
 
 /** Which route the right pane shows; marks the matching nav button */
-export type RailCurrent = 'agents' | 'board' | 'code' | 'other';
+export type RailCurrent = 'agents' | 'board' | 'code' | 'workflows' | 'other';
 
 const NavButton: React.FC<{
   current: boolean;
@@ -142,7 +144,7 @@ export const RailNav: React.FC<{
   current: RailCurrent;
 }> = ({ nav, grouping, onGrouping, onCollapseAll, onExpandAll, collapseDisabled, current }) => (
   <div className="px-3 py-2 border-b border-gray-700 space-y-2 shrink-0">
-    <div className="flex items-center gap-1 text-xs">
+    <div className="flex flex-wrap items-center gap-1 text-xs">
       {nav.onOpenBoard && (
         <NavButton current={current === 'board'} onClick={nav.onOpenBoard}>
           <Kanban size={13} /> Board
@@ -156,6 +158,11 @@ export const RailNav: React.FC<{
       <NavButton current={current === 'agents'} onClick={() => nav.onOpenAgents()}>
         <Bot size={13} /> Agents
       </NavButton>
+      {nav.onOpenWorkflows && (
+        <NavButton current={current === 'workflows'} onClick={nav.onOpenWorkflows}>
+          <Workflow size={13} /> Workflows
+        </NavButton>
+      )}
       <div className="flex-1" />
       <button
         onClick={nav.onOpenSettings}

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { AlertTriangle, RefreshCw, Search, X } from 'lucide-react';
 import type { AgentSession, BoardItem, BoardSliceKind, BoardSwimlaneMode } from '../../types';
@@ -73,11 +73,22 @@ function loadView(): ViewPrefs {
 export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { data, settings, loading, error, refresh, moveItem, upsertItem, editIssue } =
-    useBoard(active);
+  const location = useLocation();
+  const {
+    data,
+    settings,
+    loading,
+    error,
+    refresh,
+    moveItem,
+    upsertItem,
+    editIssue,
+    updateSettings,
+  } = useBoard(active);
   // Column whose "+ Issue" was clicked (status option id, '' = default)
   const [createIn, setCreateIn] = useState<string | null>(null);
-  const { sessions } = useAgentSessions({ active });
+  // The always-mounted rail already raises the agent notifications
+  const { sessions } = useAgentSessions({ active, notify: false });
   const [view, setView] = useState<ViewPrefs>(loadView);
   const [query, setQuery] = useState('');
 
@@ -165,18 +176,19 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
     toast(`${openKey} ist nicht auf dem Board`);
   }, [openKey, data, openItem]);
 
-  // ?repo=<slug or folder name> (View board on a project): select that repo's slice once
+  // ?repo=<slug or folder name> (View board on a project): select that repo's slice once per
+  // navigation, so a repeated View board resets a slice the user changed by hand
   const repoParam = active ? searchParams.get('repo') : null;
   const repoApplied = useRef<string | null>(null);
   useEffect(() => {
     if (!repoParam) repoApplied.current = null;
-    if (!repoParam || !data || repoApplied.current === repoParam) return;
-    repoApplied.current = repoParam;
+    if (!repoParam || !data || repoApplied.current === location.key) return;
+    repoApplied.current = location.key;
     const slice = resolveRepoSlice(repos, repoParam);
     if (slice) updateView({ sliceKind: 'repo', selected: slice });
     else toast(`${repoParam} hat keine Items auf dem Board`);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- updateView only wraps setView
-  }, [repoParam, data, repos]);
+  }, [repoParam, location.key, data, repos]);
 
   const closePanel = useCallback(() => setParam('item', null), [setParam]);
 
@@ -234,6 +246,15 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
               ))}
             </select>
           </label>
+          {prefs.hidden.length > 0 && (
+            <button
+              onClick={() => updateSettings({ hidden: [] })}
+              className="text-xs text-gray-400 hover:text-white underline underline-offset-2"
+              title="Die Auswahl blendet Slices aus; zurücksetzen"
+            >
+              {prefs.hidden.length} ausgeblendet · alle zeigen
+            </button>
+          )}
           {error && data && (
             <span className="flex items-center gap-1 text-xs text-red-300" title={error}>
               <AlertTriangle size={12} /> Aktualisierung fehlgeschlagen

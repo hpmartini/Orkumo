@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
+  ArrowLeft,
   Bot,
   Settings2,
   HelpCircle,
@@ -487,8 +488,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     (id: string) => {
       attachPane(id);
       setSelectedKey(id);
+      // The workspace is hidden behind other routes: bring it forward
+      if (!active) onOpenView();
     },
-    [attachPane]
+    [attachPane, active, onOpenView]
   );
 
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
@@ -592,11 +595,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Session actions
   // ---------------------------------------------------------------------
 
-  const togglePeek = useCallback((session: AgentSession | null) => {
-    if (!session) return;
-    setPeekId((current) => (current === session.id ? null : session.id));
-    setSelectedKey(session.id);
-  }, []);
+  const togglePeek = useCallback(
+    (session: AgentSession | null) => {
+      if (!session) return;
+      setPeekId((current) => (current === session.id ? null : session.id));
+      setSelectedKey(session.id);
+      if (!active) onOpenView();
+    },
+    [active, onOpenView]
+  );
 
   // Single click on an already attached agent: switch to its tab/pane and put the cursor in the terminal
   const focusOpen = useCallback(
@@ -1416,48 +1423,92 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     ? 'Model of the open agent (from its session)'
     : 'Dispatch model for new agents (/model)';
 
-  // The right pane must stay usable when the agent view itself is off or unavailable
-  const mainOnly =
-    main && !active ? <div className="h-full flex flex-col min-h-0">{main}</div> : null;
+  // Phone width: the rail and the right pane take turns, since there is no room for both
+  const railLayout = `${main && !active ? 'hidden md:flex' : 'flex'} flex-col w-full md:w-[340px] xl:w-[440px] shrink-0 min-h-0 border-r border-gray-800 bg-gray-950/40`;
+  // Dashboard, board, code, ... Behind the workspace it is clipped off-screen instead of
+  // display:none because iframes (Web-IDE, browser) bleed through visibility tricks
+  const mainPane = main && (
+    <div
+      className={
+        active ? 'fixed pointer-events-none' : 'flex-1 min-w-0 min-h-0 flex flex-col relative'
+      }
+      style={active ? OFFSCREEN_STYLE : undefined}
+      aria-hidden={active}
+    >
+      {!active && (
+        <button
+          type="button"
+          onClick={nav.onOpenAgents}
+          className="md:hidden shrink-0 flex items-center gap-1.5 px-3 py-2 text-sm text-gray-200 bg-gray-950/60 border-b border-gray-800"
+        >
+          <ArrowLeft size={14} aria-hidden /> Agents
+        </button>
+      )}
+      <div className="flex-1 min-h-0 overflow-auto relative flex flex-col">{main}</div>
+    </div>
+  );
 
-  if (disabled) {
-    return (
-      mainOnly ?? (
-        <div className="h-full flex flex-col items-center justify-center gap-4 text-gray-400">
-          <Power size={32} className="text-gray-500" />
-          <div>The agent view is turned off.</div>
-          <button
-            onClick={() => updateSettings({ disabled: false })}
-            className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
-          >
-            Turn on again
-          </button>
-        </div>
-      )
-    );
-  }
+  // Off or unavailable: keep the rail (navigation, projects) and say so where the agents would be
+  const unavailable = disabled ? (
+    <div className="flex flex-col items-center gap-3 p-6 text-center text-gray-400">
+      <Power size={28} className="text-gray-500" />
+      <div>The agent view is turned off.</div>
+      <button
+        onClick={() => updateSettings({ disabled: false })}
+        className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
+      >
+        Turn on again
+      </button>
+    </div>
+  ) : cliInstalled === false ? (
+    <div className="flex flex-col items-center gap-3 p-6 text-center text-gray-400">
+      <AlertTriangle size={28} className="text-yellow-500" />
+      <div className="text-gray-200 font-medium">Claude Code CLI not found</div>
+      <div className="text-sm">
+        Install it on the machine running the DevOrbit server, then run{' '}
+        <code className="text-blue-300">claude</code> once to sign in.
+      </div>
+      <pre className="text-xs bg-gray-950 border border-gray-800 rounded p-3">
+        npm install -g @anthropic-ai/claude-code
+      </pre>
+      <button
+        onClick={refresh}
+        className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200"
+      >
+        Check again
+      </button>
+    </div>
+  ) : null;
 
-  if (cliInstalled === false) {
+  if (unavailable) {
     return (
-      mainOnly ?? (
-        <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-400 p-8 text-center">
-          <AlertTriangle size={32} className="text-yellow-500" />
-          <div className="text-gray-200 font-medium">Claude Code CLI not found</div>
-          <div className="text-sm">
-            Install it on the machine running the DevOrbit server, then run{' '}
-            <code className="text-blue-300">claude</code> once to sign in.
+      <div className="h-full flex min-h-0 bg-gray-900 text-gray-100" data-agents-view>
+        <div className={railLayout}>
+          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
+            <button
+              type="button"
+              onClick={nav.onOpenDashboard}
+              className="p-0.5 rounded text-blue-300 hover:text-white hover:bg-gray-800"
+              title="Dashboard"
+              aria-label="Dashboard"
+            >
+              <Bot size={18} />
+            </button>
+            <div className="text-sm font-semibold">Agents</div>
           </div>
-          <pre className="text-xs bg-gray-950 border border-gray-800 rounded p-3">
-            npm install -g @anthropic-ai/claude-code
-          </pre>
-          <button
-            onClick={refresh}
-            className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200"
-          >
-            Check again
-          </button>
+          <RailNav
+            nav={nav}
+            grouping={settings.grouping}
+            onGrouping={(grouping) => updateSettings({ grouping })}
+            current={current}
+          />
+          <div className="flex-1 min-h-0 overflow-auto">
+            <ProjectsSection apps={apps} nav={nav} filtered={false} />
+            {unavailable}
+          </div>
         </div>
-      )
+        {mainPane}
+      </div>
     );
   }
 
@@ -1595,7 +1646,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           tabIndex={-1}
           data-focus-zone="rail"
           data-rail-focused={focusZone === 'rail'}
-          className={`w-full md:w-[340px] xl:w-[440px] shrink-0 flex flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+          className={`${railLayout} outline-none relative`}
         >
           {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
           {focusZone === 'rail' && (
@@ -1772,21 +1823,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           </div>
         </div>
 
-        {/* Other routes (dashboard, board, code, ...). Behind the workspace it is clipped off-screen
-            instead of display:none because iframes (Web-IDE, browser) bleed through visibility tricks */}
-        {main && (
-          <div
-            className={
-              active
-                ? 'fixed pointer-events-none'
-                : 'flex-1 min-w-0 min-h-0 hidden md:flex flex-col overflow-auto relative'
-            }
-            style={active ? OFFSCREEN_STYLE : undefined}
-            aria-hidden={active}
-          >
-            {main}
-          </div>
-        )}
+        {mainPane}
 
         {/* Workspace: stays mounted behind `main` so attached terminals survive */}
         <div
