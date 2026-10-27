@@ -311,8 +311,10 @@ export function repoName(session: AgentSession, lookup?: SessionLookup): string 
  */
 export function displayRepo(session: AgentSession, ctx?: AgentContext): AgentContext['repo'] {
   if (ctx?.repo || !session.worktree) return ctx?.repo ?? null;
+  const root = mainRepoPath(session.worktree);
   return {
-    name: lastSegment(mainRepoPath(session.worktree)),
+    name: lastSegment(root),
+    root,
     slug: null,
     branch: null,
     dirty: false,
