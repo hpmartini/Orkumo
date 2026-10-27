@@ -14,8 +14,8 @@ const Skeleton: React.FC<{ className?: string }> = ({ className = '' }) => (
 export const LoadingSkeleton: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 flex">
-      {/* Sidebar Skeleton */}
-      <div className="w-64 bg-gray-800 border-r border-gray-700 p-4 flex flex-col gap-4">
+      {/* Agents rail skeleton */}
+      <div className="w-[340px] xl:w-[440px] shrink-0 bg-gray-800 border-r border-gray-700 p-4 flex flex-col gap-4">
         {/* Logo */}
         <div className="flex items-center gap-3 px-2 py-3">
           <Skeleton className="w-8 h-8 rounded-lg" />

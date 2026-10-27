@@ -21,7 +21,7 @@ import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { fetchRepoPath } from '../../services/boardApi';
 import { fetchAgentContexts } from '../../services/agentsApi';
 import { codeUrl, linkedAgentFolder } from '../../utils/codeTarget';
-import { undoToast, useBoard } from './useBoard';
+import { useBoard } from './useBoard';
 import { BoardGrid } from './BoardGrid';
 import { BoardItemPanel } from './BoardItemPanel';
 import { IssueCreateModal, lastIssueRepo } from './IssueCreateModal';

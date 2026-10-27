@@ -49,7 +49,7 @@ import {
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
-import { agentFolder, codeUrl } from '../../utils/codeTarget';
+import { agentFolder, boardUrl, codeUrl } from '../../utils/codeTarget';
 import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
 import {
   groupSessions,
@@ -70,7 +70,7 @@ import {
   SessionGroup,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
-import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
+import { RailNav, ProjectsSection, RailCurrent, RailNavProps } from './ProjectsRail';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
 import { ServersPanel, type ServerRow } from './ServersPanel';
@@ -91,7 +91,7 @@ import { ShortcutsHelp } from './ShortcutsHelp';
 import { AgentSettingsPanel } from './AgentSettingsPanel';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchBoard } from '../../services/boardApi';
-import { deriveAgentLinks, linksByAgent } from '../../utils/board';
+import { deriveAgentLinks, linksByAgent, shortRepo } from '../../utils/board';
 import type { BoardData } from '../../types';
 import { IssueCreateModal } from '../BoardView/IssueCreateModal';
 
@@ -99,8 +99,14 @@ import { IssueCreateModal } from '../BoardView/IssueCreateModal';
 const BOARD_REFRESH_MS = 60_000;
 
 interface AgentsViewProps {
-  /** Whether the view is visible (drives SSE subscription and keyboard handling) */
+  /** Whether the agent workspace is visible (keyboard handling, palette commands, route params).
+   *  The rail itself stays live on every route. */
   active: boolean;
+  /** Route shown in the right pane; marks the matching rail nav button */
+  current: RailCurrent;
+  /** Right pane for the other routes (dashboard, board, code, ...). Stays mounted off-screen while
+   *  the agent workspace is active, and the workspace stays mounted while `main` shows. */
+  main?: React.ReactNode;
   /** Discovered apps - offered as dispatch directories */
   apps: AgentConfigLike[];
   /** Leave the agents view (Ctrl+C twice) */
@@ -111,6 +117,14 @@ interface AgentsViewProps {
   onOpenView: () => void;
 }
 
+const OFFSCREEN_STYLE: React.CSSProperties = {
+  left: '-200vw',
+  top: 0,
+  width: '100vw',
+  height: '100vh',
+  clipPath: 'inset(0 100% 100% 0)',
+  visibility: 'hidden',
+};
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
 const REMOTE_STORAGE_KEY = 'devOrbitAgentRemote';
@@ -146,6 +160,8 @@ function isInsideTerminal(target: EventTarget | null): boolean {
  */
 export const AgentsView: React.FC<AgentsViewProps> = ({
   active,
+  current,
+  main,
   apps,
   onExit,
   nav,
@@ -166,7 +182,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     counts,
     lastCompleted,
     refresh,
-  } = useAgentSessions({ active });
+  } = useAgentSessions();
 
   const [input, setInput] = useState('');
   const [hint, setHint] = useState<{ text: string; tone: 'info' | 'error' | 'success' } | null>(
@@ -221,7 +237,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       return !prev;
     });
   }, []);
-  const remote = useRemoteAgents(active && remoteEnabled);
+  const remote = useRemoteAgents(remoteEnabled);
   const remoteSessions = useMemo(
     () => remote.data?.devices.flatMap((d) => d.sessions) ?? [],
     [remote.data]
@@ -243,7 +259,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
   const railRef = useRef<HTMLDivElement>(null);
   const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
-  const contexts = useAgentContexts(active);
+  const contexts = useAgentContexts(true);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
     [sessions, apps, contexts]
@@ -407,10 +423,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   // Tick for ages
   useEffect(() => {
-    if (!active) return;
     const interval = setInterval(() => setNow(Date.now()), 10000);
     return () => clearInterval(interval);
-  }, [active]);
+  }, []);
 
   // Browser tab title
   useEffect(() => {
@@ -424,7 +439,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   // Discovery data (subagents, repos, slash commands) follows the scope
   useEffect(() => {
-    if (!active) return;
     let cancelled = false;
     const scope = settings.scopeCwd;
     Promise.all([
@@ -441,7 +455,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     return () => {
       cancelled = true;
     };
-  }, [active, settings.scopeCwd, sessions.length]);
+  }, [settings.scopeCwd, sessions.length]);
 
   // Drop tabs for sessions that no longer exist
   useEffect(() => {
@@ -502,8 +516,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
   const [board, setBoard] = useState<BoardData | null>(null);
   useEffect(() => {
-    if (!active) return;
-    // server caches the board ~60 s, so re-activating /agents is cheap
+    // server caches the board ~60 s
     const load = () =>
       fetchBoard()
         .then(setBoard)
@@ -511,7 +524,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     load();
     const interval = setInterval(load, BOARD_REFRESH_MS);
     return () => clearInterval(interval);
-  }, [active]);
+  }, []);
   const issuesByAgent = useMemo(
     () => (board ? linksByAgent(deriveAgentLinks(board.items, sessions)) : undefined),
     [board, sessions]
@@ -1112,6 +1125,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Row / group menus
   // ---------------------------------------------------------------------
 
+  // Slug when the agent's repo is known, else the folder name (resolved by the board)
+  const showOnBoard = useCallback(
+    (session: AgentSession) =>
+      navigate(
+        boardUrl({
+          repo: contexts[session.id]?.repo?.slug ?? shortRepo(session.cwd),
+          agent: session.id,
+        })
+      ),
+    [contexts, navigate]
+  );
+
   const rowActions = useCallback(
     (session: AgentSession): AgentRowAction[] => {
       const bg = session.kind === 'background';
@@ -1128,6 +1153,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             if (folder) navigate(codeUrl(folder));
           },
         },
+        { id: 'show-on-board', label: 'Show on board', onSelect: () => showOnBoard(session) },
         {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
@@ -1170,7 +1196,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         },
       ];
     },
-    [attach, togglePeek, handlePin, handleRename, refresh, deleteSession, contexts, navigate]
+    [
+      attach,
+      togglePeek,
+      handlePin,
+      handleRename,
+      refresh,
+      deleteSession,
+      contexts,
+      navigate,
+      showOnBoard,
+    ]
   );
 
   const groupActions = useCallback(
@@ -1186,6 +1222,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               id: 'open-project',
               label: 'Open project',
               onSelect: () => nav.onOpenProject(group.appId!),
+            },
+            {
+              id: 'view-code',
+              label: 'View code',
+              onSelect: () => nav.onOpenProjectCode(group.appId!),
+            },
+            {
+              id: 'view-board',
+              label: 'View board',
+              onSelect: () => nav.onOpenProjectBoard(group.appId!),
             },
           ]
         : []),
@@ -1370,40 +1416,48 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     ? 'Model of the open agent (from its session)'
     : 'Dispatch model for new agents (/model)';
 
+  // The right pane must stay usable when the agent view itself is off or unavailable
+  const mainOnly =
+    main && !active ? <div className="h-full flex flex-col min-h-0">{main}</div> : null;
+
   if (disabled) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-4 text-gray-400">
-        <Power size={32} className="text-gray-500" />
-        <div>The agent view is turned off.</div>
-        <button
-          onClick={() => updateSettings({ disabled: false })}
-          className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
-        >
-          Turn on again
-        </button>
-      </div>
+      mainOnly ?? (
+        <div className="h-full flex flex-col items-center justify-center gap-4 text-gray-400">
+          <Power size={32} className="text-gray-500" />
+          <div>The agent view is turned off.</div>
+          <button
+            onClick={() => updateSettings({ disabled: false })}
+            className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white text-sm"
+          >
+            Turn on again
+          </button>
+        </div>
+      )
     );
   }
 
   if (cliInstalled === false) {
     return (
-      <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-400 p-8 text-center">
-        <AlertTriangle size={32} className="text-yellow-500" />
-        <div className="text-gray-200 font-medium">Claude Code CLI not found</div>
-        <div className="text-sm">
-          Install it on the machine running the DevOrbit server, then run{' '}
-          <code className="text-blue-300">claude</code> once to sign in.
+      mainOnly ?? (
+        <div className="h-full flex flex-col items-center justify-center gap-3 text-gray-400 p-8 text-center">
+          <AlertTriangle size={32} className="text-yellow-500" />
+          <div className="text-gray-200 font-medium">Claude Code CLI not found</div>
+          <div className="text-sm">
+            Install it on the machine running the DevOrbit server, then run{' '}
+            <code className="text-blue-300">claude</code> once to sign in.
+          </div>
+          <pre className="text-xs bg-gray-950 border border-gray-800 rounded p-3">
+            npm install -g @anthropic-ai/claude-code
+          </pre>
+          <button
+            onClick={refresh}
+            className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200"
+          >
+            Check again
+          </button>
         </div>
-        <pre className="text-xs bg-gray-950 border border-gray-800 rounded p-3">
-          npm install -g @anthropic-ai/claude-code
-        </pre>
-        <button
-          onClick={refresh}
-          className="px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 hover:text-white text-sm text-gray-200"
-        >
-          Check again
-        </button>
-      </div>
+      )
     );
   }
 
@@ -1411,7 +1465,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
       {/* Header */}
       <div className="relative flex items-center gap-3 px-4 py-1.5 border-b border-gray-800 shrink-0">
-        <Bot size={18} className="text-blue-300" />
+        <button
+          type="button"
+          onClick={nav.onOpenDashboard}
+          className="p-0.5 -m-0.5 rounded text-blue-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+          title="Dashboard"
+          aria-label="Dashboard"
+        >
+          <Bot size={18} />
+        </button>
         <div className="min-w-0 flex items-center gap-3">
           <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
@@ -1456,7 +1518,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         )}
         <div className="flex-1" />
         <div
-          className="hidden md:flex items-center gap-1.5 text-[11px] text-gray-300"
+          className={`${active ? 'hidden md:flex' : 'hidden'} items-center gap-1.5 text-[11px] text-gray-300`}
           role="status"
           title="Switch with F6 or Ctrl+Alt+Left / Right"
         >
@@ -1571,6 +1633,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             }
             onExpandAll={() => rail.expandAll()}
             collapseDisabled={quickFilters.size > 0}
+            current={current}
           />
           <AgentFilterBar
             sort={sort}
@@ -1632,6 +1695,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               issuesByAgent={issuesByAgent}
               onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
               onCreateIssue={setCreateIssueRepo}
+              onShowOnBoard={showOnBoard}
               bottom={
                 remoteEnabled ? (
                   <RemoteAgents
@@ -1649,13 +1713,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 ) : undefined
               }
               top={
-                settings.grouping === 'state' ? (
-                  <ProjectsSection
-                    apps={apps}
-                    nav={nav}
-                    filtered={quickFilters.size > 0 || !!filter}
-                  />
-                ) : undefined
+                <ProjectsSection
+                  apps={apps}
+                  nav={nav}
+                  filtered={quickFilters.size > 0 || !!filter}
+                />
               }
             />
           )}
@@ -1710,8 +1772,26 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           </div>
         </div>
 
-        {/* Workspace */}
-        <div className="flex-1 min-w-0 min-h-0 hidden md:flex overflow-hidden">
+        {/* Other routes (dashboard, board, code, ...). Behind the workspace it is clipped off-screen
+            instead of display:none because iframes (Web-IDE, browser) bleed through visibility tricks */}
+        {main && (
+          <div
+            className={
+              active
+                ? 'fixed pointer-events-none'
+                : 'flex-1 min-w-0 min-h-0 hidden md:flex flex-col overflow-auto relative'
+            }
+            style={active ? OFFSCREEN_STYLE : undefined}
+            aria-hidden={active}
+          >
+            {main}
+          </div>
+        )}
+
+        {/* Workspace: stays mounted behind `main` so attached terminals survive */}
+        <div
+          className={`flex-1 min-w-0 min-h-0 overflow-hidden ${!main || active ? 'hidden md:flex' : 'hidden'}`}
+        >
           <div className="flex-1 min-w-0 min-h-0">
             <AgentWorkspace
               sessions={[...sessions, ...cloudSessions]}
