@@ -20,7 +20,7 @@
     "format": "prettier --write \"**/*.{ts,tsx,js,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,json,md}\"",
     "pty-host": "node pty-host/index.js",
-    "pty-host:install": "cd pty-host && npm install",
+    "pty-host:install": "cd pty-host && env -u npm_config_allow_scripts npm install",
     "dev:infra": "docker compose -f docker-compose.dev.yml up -d",
     "dev:full": "npm run dev:infra && npm run dev",
     "dev:stop": "docker compose -f docker-compose.dev.yml down",

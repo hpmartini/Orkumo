@@ -3292,9 +3292,20 @@ const wsProxyMap = new Map();
 /**
  * Handle PTY connection in Docker mode - proxy to host PTY service
  */
-function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows) {
-  // Build URL to host PTY service
-  const hostPtyUrl = `${PTY_HOST_URL}?sessionId=${encodeURIComponent(sessionId)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
+function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows, options = {}) {
+  // Build URL to host PTY service. Forward command/args (e.g. "claude attach <id>")
+  // so the PTY-Host can spawn the right binary instead of a default shell.
+  const params = new URLSearchParams({
+    sessionId,
+    cwd,
+    cols: String(cols),
+    rows: String(rows),
+  });
+  if (options.command) params.set('command', options.command);
+  if (Array.isArray(options.args) && options.args.length > 0) {
+    params.set('args', JSON.stringify(options.args));
+  }
+  const hostPtyUrl = `${PTY_HOST_URL}?${params.toString()}`;
 
   console.log(`[PTY-Proxy] Connecting to host PTY service: ${hostPtyUrl}`);
 
@@ -3571,8 +3582,9 @@ wss.on('connection', (ws, req) => {
   );
 
   if (isRunningInDocker) {
-    // In Docker: proxy to host PTY service
-    handleDockerPtyConnection(ws, sessionId, cwd, cols, rows);
+    // In Docker: proxy to host PTY service (forward command/args so
+    // `claude attach <id>` works instead of always spawning a shell)
+    handleDockerPtyConnection(ws, sessionId, cwd, cols, rows, options);
   } else {
     // On host: spawn PTY directly
     handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options);

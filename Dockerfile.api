@@ -9,14 +9,16 @@ RUN apk add --no-cache python3 make g++ linux-headers curl bash
 # Copy package files
 COPY package*.json ./
 
-# Install production dependencies only
-RUN npm ci --only=production
+# Install production dependencies only (skip postinstall scripts - patch-node-pty is Electron-only)
+RUN npm ci --only=production --ignore-scripts
 
 # Rebuild node-pty for the container's architecture
 RUN npm rebuild node-pty
 
 # Copy server files ONLY (no frontend)
 COPY server ./server
+# Copy config directory (referenced by server as '../config/defaults.js')
+COPY config ./config
 
 # Create directories for persistent data
 RUN mkdir -p /app/data /app/sessions
