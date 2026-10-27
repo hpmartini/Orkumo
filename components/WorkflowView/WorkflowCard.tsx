@@ -8,7 +8,12 @@ import { formatAge } from '../../utils/agentSessions';
 import { AgentGlyph, CheckIcon, LabelChip } from '../BoardView/BoardCard';
 import { WorkflowDetails, type WorkflowNav } from './WorkflowDetails';
 
-export const MODE_LABEL = { default: 'Standard', orchestrate: 'Orchestrate', pipeline: 'Pipeline' };
+export const MODE_LABEL = {
+  default: 'Standard',
+  orchestrate: 'Orchestrate',
+  pipeline: 'Pipeline',
+  image: 'Bild',
+};
 
 const WAITING: Record<string, { text: string; className: string }> = {
   hape: { text: 'Wartet auf dich', className: 'text-amber-200' },

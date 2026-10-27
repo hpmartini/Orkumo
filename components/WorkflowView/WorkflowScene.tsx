@@ -1,27 +1,51 @@
 import React, { useEffect, useRef } from 'react';
 import * as THREE from 'three';
 
-export interface StagePulse {
-  /** unique per stage change, so a repeated move pulses again */
+type Pt = [number, number];
+
+export interface ScenePulse {
+  /** unique per station change, so a repeated move pulses again */
   id: string;
-  from: number;
-  to: number;
+  /** polyline from the old to the new station */
+  pts: Pt[];
+}
+
+export interface SceneEdge {
+  id: string;
+  pts: Pt[];
+  back: boolean;
+  /** issues on the edge's source station: drives the particle stream */
+  active: number;
+}
+
+export interface SceneNode {
+  x: number;
+  y: number;
+  count: number;
 }
 
 interface WorkflowSceneProps {
-  /** issues per stage, drives each station's glow */
-  counts: number[];
-  /** px from the top of the scene to the light track (the stage header row) */
-  trackY: number;
-  pulses: StagePulse[];
+  width: number;
+  height: number;
+  edges: SceneEdge[];
+  nodes: SceneNode[];
+  pulses: ScenePulse[];
   reducedMotion: boolean;
+}
+
+/** Whether a WebGL context can be created; without it the graph draws its edges as SVG */
+export function supportsWebGL(): boolean {
+  try {
+    return !!document.createElement('canvas').getContext('webgl');
+  } catch {
+    return false;
+  }
 }
 
 const CURSOR = new THREE.Color('#8fd0ff');
 const DIM = new THREE.Color('#4f67a0');
-const FLOW_COUNT = 260;
-const DUST_COUNT = 140;
-const PULSE_MS = 1400;
+const PER_EDGE = 7;
+const PULSE_MS = 1500;
 
 /** Soft round sprite so points read as light, not squares */
 function glowTexture(): THREE.Texture {
@@ -37,18 +61,45 @@ function glowTexture(): THREE.Texture {
   return new THREE.CanvasTexture(c);
 }
 
+/** Length table of a polyline and a sampler for 0..1 along it */
+function polyline(pts: Pt[]) {
+  const cum = [0];
+  for (let i = 1; i < pts.length; i++)
+    cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]));
+  const total = cum[cum.length - 1] || 1;
+  return (u: number): Pt => {
+    const s = Math.min(1, Math.max(0, u)) * total;
+    let i = 1;
+    while (i < cum.length - 1 && cum[i] < s) i++;
+    const k = (s - cum[i - 1]) / (cum[i] - cum[i - 1] || 1);
+    return [
+      pts[i - 1][0] + (pts[i][0] - pts[i - 1][0]) * k,
+      pts[i - 1][1] + (pts[i][1] - pts[i - 1][1]) * k,
+    ];
+  };
+}
+
 /**
- * Ambient WebGL layer behind the stage columns: a light track through one station per stage,
- * a particle stream flowing towards "Fertig", and a comet for every stage change.
- * Pixel-space orthographic camera, so stations sit exactly over the HTML columns.
- * Renders nothing without WebGL; with reduced motion it draws one still frame.
+ * WebGL layer under the HTML stations: the edges as light lines (loops dashed), a particle stream
+ * along every forward edge, a glow per station and a comet for every station change.
+ * Pixel-space orthographic camera, so everything sits exactly under the HTML nodes.
+ * With reduced motion it draws one still frame.
  */
-const WorkflowScene: React.FC<WorkflowSceneProps> = ({ counts, trackY, pulses, reducedMotion }) => {
+const WorkflowScene: React.FC<WorkflowSceneProps> = ({
+  width,
+  height,
+  edges,
+  nodes,
+  pulses,
+  reducedMotion,
+}) => {
   const hostRef = useRef<HTMLDivElement>(null);
-  const countsRef = useRef(counts);
-  const pulsesRef = useRef<{ p: StagePulse; start: number }[]>([]);
+  const nodesRef = useRef(nodes);
+  const edgesRef = useRef(edges);
+  const pulsesRef = useRef<{ p: ScenePulse; start: number }[]>([]);
   const seen = useRef(new Set<string>());
-  countsRef.current = counts;
+  nodesRef.current = nodes;
+  edgesRef.current = edges;
 
   useEffect(() => {
     for (const p of pulses) {
@@ -58,6 +109,8 @@ const WorkflowScene: React.FC<WorkflowSceneProps> = ({ counts, trackY, pulses, r
     }
   }, [pulses]);
 
+  // Rebuilt when the layout changes; counts and activity are read from refs every frame
+  const layoutKey = `${width}x${height}:${edges.map((e) => e.id).join()}`;
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
@@ -65,157 +118,140 @@ const WorkflowScene: React.FC<WorkflowSceneProps> = ({ counts, trackY, pulses, r
     try {
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     } catch {
-      return; // no WebGL: the HTML track carries everything
+      return; // the SVG fallback carries the edges
     }
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(width, height, false);
     host.appendChild(renderer.domElement);
-    renderer.domElement.style.display = 'block';
+    Object.assign(renderer.domElement.style, {
+      display: 'block',
+      width: `${width}px`,
+      height: `${height}px`,
+    });
 
     const scene = new THREE.Scene();
-    const camera = new THREE.OrthographicCamera(0, 1, 0, -1, -10, 10);
+    const camera = new THREE.OrthographicCamera(0, width, 0, -height, -10, 10);
     const sprite = glowTexture();
-    const n = countsRef.current.length;
-    let w = 1;
-    let h = 1;
+    const v = (p: Pt, z = 0) => new THREE.Vector3(p[0], -p[1], z);
 
-    const stationX = (i: number) => ((i + 0.5) / n) * w;
-    // Track: gentle wave through the stations, y in pixels below the top edge
-    const trackAt = (t: number) =>
-      new THREE.Vector3(t * w, -trackY + Math.sin(t * Math.PI * 3) * 6, 0);
+    for (const e of edgesRef.current) {
+      const line = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(e.pts.map((p) => v(p))),
+        e.back
+          ? new THREE.LineDashedMaterial({
+              color: DIM,
+              dashSize: 6,
+              gapSize: 5,
+              transparent: true,
+              opacity: 0.8,
+            })
+          : new THREE.LineBasicMaterial({ color: DIM, transparent: true, opacity: 0.7 })
+      );
+      line.computeLineDistances();
+      scene.add(line);
+    }
 
-    const trackGeo = new THREE.BufferGeometry();
-    const trackMat = new THREE.LineBasicMaterial({
-      color: DIM,
-      transparent: true,
-      opacity: 0.85,
-    });
-    const track = new THREE.Line(trackGeo, trackMat);
-    scene.add(track);
-
-    const stationGeo = new THREE.BufferGeometry();
-    const stationPos = new Float32Array(n * 3);
-    const stationCol = new Float32Array(n * 3);
-    stationGeo.setAttribute('position', new THREE.BufferAttribute(stationPos, 3));
-    stationGeo.setAttribute('color', new THREE.BufferAttribute(stationCol, 3));
-    const stationMat = new THREE.PointsMaterial({
-      map: sprite,
-      size: 34,
-      sizeAttenuation: false,
-      vertexColors: true,
-      transparent: true,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-    });
-    const stations = new THREE.Points(stationGeo, stationMat);
-    scene.add(stations);
-
-    const flowSeeds = Float32Array.from({ length: FLOW_COUNT }, () => Math.random());
+    const paths = edgesRef.current.map((e) => polyline(e.pts));
+    const streamed = edgesRef.current.map((e) => !e.back);
+    const flowCount = edgesRef.current.length * PER_EDGE;
+    const flowPos = new Float32Array(flowCount * 3);
+    const flowCol = new Float32Array(flowCount * 3);
     const flowGeo = new THREE.BufferGeometry();
-    const flowPos = new Float32Array(FLOW_COUNT * 3);
     flowGeo.setAttribute('position', new THREE.BufferAttribute(flowPos, 3));
-    const flow = new THREE.Points(
-      flowGeo,
-      new THREE.PointsMaterial({
-        map: sprite,
-        size: 5,
-        sizeAttenuation: false,
-        color: CURSOR,
-        transparent: true,
-        opacity: 0.55,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
+    flowGeo.setAttribute('color', new THREE.BufferAttribute(flowCol, 3));
+    scene.add(
+      new THREE.Points(
+        flowGeo,
+        new THREE.PointsMaterial({
+          map: sprite,
+          size: 6,
+          sizeAttenuation: false,
+          vertexColors: true,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      )
     );
-    scene.add(flow);
 
-    const dustGeo = new THREE.BufferGeometry();
-    const dustPos = new Float32Array(DUST_COUNT * 3);
-    const dustSeeds = Float32Array.from({ length: DUST_COUNT * 2 }, () => Math.random());
-    dustGeo.setAttribute('position', new THREE.BufferAttribute(dustPos, 3));
-    const dust = new THREE.Points(
-      dustGeo,
-      new THREE.PointsMaterial({
-        map: sprite,
-        size: 3,
-        sizeAttenuation: false,
-        color: DIM,
-        transparent: true,
-        opacity: 0.35,
-        depthWrite: false,
-      })
+    const nodeCount = nodesRef.current.length;
+    const glowPos = new Float32Array(nodeCount * 3);
+    const glowCol = new Float32Array(nodeCount * 3);
+    const glowGeo = new THREE.BufferGeometry();
+    glowGeo.setAttribute('position', new THREE.BufferAttribute(glowPos, 3));
+    glowGeo.setAttribute('color', new THREE.BufferAttribute(glowCol, 3));
+    scene.add(
+      new THREE.Points(
+        glowGeo,
+        new THREE.PointsMaterial({
+          map: sprite,
+          size: 96,
+          sizeAttenuation: false,
+          vertexColors: true,
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      )
     );
-    scene.add(dust);
 
+    const cometPos = new Float32Array(30 * 3);
     const cometGeo = new THREE.BufferGeometry();
-    const cometPos = new Float32Array(24 * 3);
     cometGeo.setAttribute('position', new THREE.BufferAttribute(cometPos, 3));
-    const comets = new THREE.Points(
-      cometGeo,
-      new THREE.PointsMaterial({
-        map: sprite,
-        size: 14,
-        sizeAttenuation: false,
-        color: new THREE.Color('#ffffff'),
-        transparent: true,
-        depthWrite: false,
-        blending: THREE.AdditiveBlending,
-      })
+    scene.add(
+      new THREE.Points(
+        cometGeo,
+        new THREE.PointsMaterial({
+          map: sprite,
+          size: 16,
+          sizeAttenuation: false,
+          color: new THREE.Color('#ffffff'),
+          transparent: true,
+          depthWrite: false,
+          blending: THREE.AdditiveBlending,
+        })
+      )
     );
-    scene.add(comets);
-
-    const layout = () => {
-      w = Math.max(1, host.clientWidth);
-      h = Math.max(1, host.clientHeight);
-      renderer.setSize(w, h, false);
-      renderer.domElement.style.width = `${w}px`;
-      renderer.domElement.style.height = `${h}px`;
-      camera.right = w;
-      camera.bottom = -h;
-      camera.updateProjectionMatrix();
-      trackGeo.setFromPoints(Array.from({ length: 121 }, (_, i) => trackAt(i / 120)));
-    };
 
     const frame = (now: number) => {
-      const t = now / 1000;
-      const cs = countsRef.current;
-      const max = Math.max(1, ...cs);
-      cs.slice(0, n).forEach((c, i) => {
-        const p = trackAt(stationX(i) / w);
-        stationPos.set([p.x, p.y, 1], i * 3);
-        const k = c ? 0.45 + 0.55 * (c / max) : 0.18;
-        const pulse = reducedMotion ? 1 : 0.85 + 0.15 * Math.sin(t * 2 + i);
-        const color = DIM.clone().lerp(CURSOR, k).multiplyScalar(pulse);
-        stationCol.set([color.r, color.g, color.b], i * 3);
+      const t = reducedMotion ? 0 : now / 1000;
+      const max = Math.max(1, ...nodesRef.current.map((n) => n.count));
+      nodesRef.current.forEach((n, i) => {
+        // empty stations leave the layer: black additive points would smudge the alpha
+        glowPos.set([n.count ? n.x : -1000, -n.y, -1], i * 3);
+        const k = n.count ? 0.2 + 0.28 * (n.count / max) : 0;
+        glowCol.set([DIM.r * k, DIM.g * k, DIM.b * k], i * 3);
       });
-      stationGeo.attributes.position.needsUpdate = true;
-      stationGeo.attributes.color.needsUpdate = true;
+      glowGeo.attributes.position.needsUpdate = true;
+      glowGeo.attributes.color.needsUpdate = true;
 
-      for (let i = 0; i < FLOW_COUNT; i++) {
-        const u = (flowSeeds[i] + t * 0.035 * (0.6 + flowSeeds[(i * 7) % FLOW_COUNT])) % 1;
-        const p = trackAt(u);
-        const spread = (flowSeeds[(i * 13) % FLOW_COUNT] - 0.5) * 18;
-        flowPos.set([p.x, p.y + spread, 0], i * 3);
-      }
+      edgesRef.current.forEach((e, ei) => {
+        for (let j = 0; j < PER_EDGE; j++) {
+          const o = (ei * PER_EDGE + j) * 3;
+          if (!streamed[ei]) {
+            flowCol.fill(0, o, o + 3);
+            continue;
+          }
+          const p = paths[ei]((j / PER_EDGE + t * 0.12) % 1);
+          flowPos.set([p[0], -p[1], 0], o);
+          const k = e.active ? 0.9 : 0.22;
+          flowCol.set([CURSOR.r * k, CURSOR.g * k, CURSOR.b * k], o);
+        }
+      });
       flowGeo.attributes.position.needsUpdate = true;
+      flowGeo.attributes.color.needsUpdate = true;
 
-      for (let i = 0; i < DUST_COUNT; i++) {
-        const x = ((dustSeeds[i] + t * 0.004) % 1) * w;
-        const y = -dustSeeds[DUST_COUNT + i] * h + Math.sin(t * 0.3 + i) * 4;
-        dustPos.set([x, y, -1], i * 3);
-      }
-      dustGeo.attributes.position.needsUpdate = true;
-
-      // Comets: head plus a short tail, eased from the old to the new station
+      // Comets: head plus a short tail along the path from the old to the new station
       pulsesRef.current = pulsesRef.current.filter((c) => now - c.start < PULSE_MS);
       cometPos.fill(0);
       let k = 0;
       for (const c of pulsesRef.current.slice(0, 3)) {
+        const at = polyline(c.p.pts);
         const prog = Math.min(1, (now - c.start) / PULSE_MS);
         for (let s = 0; s < 8; s++) {
-          const e = 1 - Math.pow(1 - Math.max(0, prog - s * 0.025), 3);
-          const x = stationX(c.p.from) + (stationX(c.p.to) - stationX(c.p.from)) * e;
-          const p = trackAt(x / w);
-          cometPos.set([p.x, p.y, 2], k++ * 3);
+          const e = 1 - Math.pow(1 - Math.max(0, prog - s * 0.02), 3);
+          const p = at(e);
+          cometPos.set([p[0], -p[1], 2], k++ * 3);
         }
       }
       cometGeo.setDrawRange(0, k);
@@ -223,13 +259,6 @@ const WorkflowScene: React.FC<WorkflowSceneProps> = ({ counts, trackY, pulses, r
 
       renderer.render(scene, camera);
     };
-
-    layout();
-    const ro = new ResizeObserver(() => {
-      layout();
-      if (reducedMotion) frame(0);
-    });
-    ro.observe(host);
 
     let raf = 0;
     const loop = (now: number) => {
@@ -241,7 +270,6 @@ const WorkflowScene: React.FC<WorkflowSceneProps> = ({ counts, trackY, pulses, r
 
     return () => {
       cancelAnimationFrame(raf);
-      ro.disconnect();
       scene.traverse((o) => {
         const obj = o as THREE.Points;
         obj.geometry?.dispose();
@@ -251,11 +279,12 @@ const WorkflowScene: React.FC<WorkflowSceneProps> = ({ counts, trackY, pulses, r
       renderer.dispose();
       renderer.domElement.remove();
     };
-    // A still frame (reduced motion) is redrawn by rebuilding when the counts change
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [trackY, reducedMotion, counts.length, reducedMotion ? counts.join() : '']);
+  }, [layoutKey, reducedMotion]);
 
-  return <div ref={hostRef} className="absolute inset-0 pointer-events-none" aria-hidden="true" />;
+  return (
+    <div ref={hostRef} className="pointer-events-none absolute left-0 top-0" aria-hidden="true" />
+  );
 };
 
 export default WorkflowScene;

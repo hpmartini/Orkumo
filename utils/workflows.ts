@@ -3,6 +3,7 @@
  */
 import type { BoardItem, BoardStatusOption, WorkflowRunInfo } from '../types';
 import { itemKey, withinDoneWindow } from './board';
+import { deriveNode } from './workflowGraph.js';
 import {
   WORKFLOW_STAGES,
   deriveWorkflowState,
@@ -16,6 +17,8 @@ export interface WorkflowCard {
   item: BoardItem;
   run: WorkflowRunInfo | null;
   state: WorkflowState;
+  /** graph station and, inside a loop, its round */
+  node: { id: string; round: string | null };
 }
 
 export const stageIndex = (id: WorkflowStageId) => WORKFLOW_STAGES.findIndex((s) => s.id === id);
@@ -34,7 +37,8 @@ export function buildWorkflowCards(
       const key = itemKey(item);
       const run = runs[key] ?? null;
       const status = item.statusOptionId ? (statusName.get(item.statusOptionId) ?? null) : null;
-      return { key, item, run, state: deriveWorkflowState(item, status, run) };
+      const state = deriveWorkflowState(item, status, run);
+      return { key, item, run, state, node: deriveNode(item, state, run, status) };
     })
     .filter((c) => c.state.stage !== 'done' || withinDoneWindow(c.item, now))
     .sort(
@@ -46,17 +50,14 @@ export function buildWorkflowCards(
 
 export interface StageMove {
   key: string;
-  from: number;
-  to: number;
+  from: string;
+  to: string;
 }
 
-/** Cards whose stage changed since `prev` (key -> stage index); new cards are no move */
-export function stageMoves(prev: Map<string, number>, cards: WorkflowCard[]): StageMove[] {
-  const moves: StageMove[] = [];
-  for (const c of cards) {
+/** Cards whose graph station changed since `prev` (key -> node id); new cards are no move */
+export function stageMoves(prev: Map<string, string>, cards: WorkflowCard[]): StageMove[] {
+  return cards.flatMap((c) => {
     const from = prev.get(c.key);
-    const to = stageIndex(c.state.stage);
-    if (from !== undefined && from !== to) moves.push({ key: c.key, from, to });
-  }
-  return moves;
+    return from !== undefined && from !== c.node.id ? [{ key: c.key, from, to: c.node.id }] : [];
+  });
 }

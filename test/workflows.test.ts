@@ -63,6 +63,8 @@ describe('buildWorkflowCards', () => {
 describe('stageMoves', () => {
   it('reports changed stages only, not new cards', () => {
     const cards = buildWorkflowCards([item(1), item(5)], options, {}, NOW);
-    expect(stageMoves(new Map([['o/r#1', 2]]), cards)).toEqual([{ key: 'o/r#1', from: 2, to: 0 }]);
+    expect(stageMoves(new Map([['o/r#1', 'default.impl']]), cards)).toEqual([
+      { key: 'o/r#1', from: 'default.impl', to: 'go' },
+    ]);
   });
 });

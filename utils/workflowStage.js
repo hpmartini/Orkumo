@@ -5,7 +5,7 @@
  */
 
 /** @typedef {'released'|'briefing'|'awaiting'|'building'|'review'|'done'} WorkflowStageId */
-/** @typedef {'default'|'orchestrate'|'pipeline'} WorkflowMode */
+/** @typedef {'default'|'orchestrate'|'pipeline'|'image'} WorkflowMode */
 /** @typedef {{ kind: string, attrs: Record<string, string>, at: string }} MwMarker */
 /**
  * @typedef {{ phase: string, result: string, at: string, role?: string, model?: string }} RunPhase
@@ -85,9 +85,9 @@ export function workflowMode(item, run) {
   const markers = item.mwMarkers ?? [];
   const start = markers[lastIndex(markers, 'start')];
   const fromMarker = start?.attrs.mode;
-  if (fromMarker === 'orchestrate' || fromMarker === 'pipeline' || fromMarker === 'default')
-    return fromMarker;
+  if (['orchestrate', 'pipeline', 'default', 'image'].includes(fromMarker)) return fromMarker;
   const names = item.labels.map((l) => l.name);
+  if (names.includes('mw:image')) return 'image';
   if (names.includes('mw:pipeline') || run?.mode === 'pipeline') return 'pipeline';
   if (names.includes('mw:orchestrate')) return 'orchestrate';
   return 'default';
