@@ -75,6 +75,7 @@ The project follows a monorepo-like structure with a unified backend and fronten
 - **`server/`**: Express backend handling API requests, websocket terminals, and OS interactions.
 - **`services/`**: Core logic for AI analysis, port management, and file system scanning.
 - **`docker/`**: Infrastructure configuration.
+- **Optional modules**: the server loads extra features from a directory if present, see [docs/MODULES.md](docs/MODULES.md).
 
 ## 🤖 Claude Code Agents View
 

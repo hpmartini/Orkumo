@@ -26,6 +26,7 @@ import {
   LoadingSkeleton,
   AgentsView,
 } from './components';
+import { ModuleSlot } from './components/ModuleSlot';
 import { useApps, usePerAppState } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
@@ -802,6 +803,8 @@ function AppContent() {
         onClose={() => setAdminPanelOpen(false)}
         onConfigChange={refreshApps}
       />
+
+      <ModuleSlot />
     </div>
   );
 }
