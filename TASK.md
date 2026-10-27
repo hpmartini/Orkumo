@@ -437,3 +437,12 @@ The following existing tasks are related to the new features above:
 - [x] **[FIX]** Review 3: Close/Reopen und Parent-Entfernen entscheiden nach frisch gelesenem Zustand (`ISSUE_STATE_QUERY`), nicht nach dem Cache.
 - [x] **[FIX]** Befunde aus dem Gegen-Review: Docker-Images kopieren `utils/boardWrites.js` und `config/defaults.js` (der Server importiert beide, `config/` fehlte schon vorher); Dialog sperrt im Fortsetzen-Modus alle Felder außer Status (sonst stillschweigend verworfen); `PUT /api/board/settings` leert den Cache nur bei echtem Quellwechsel (sonst ginge der Schutz für frisch angelegte Items verloren).
 - Verifikation: vitest 463/463, tsc/lint sauber, Build grün; Race gegen GitHub nachgestellt (Refresh startet während des Anlegens, dauert 10 s → Issue in Antwort und Cache); UI: anlegen, sofort neu laden → Karte bleibt. Testissues #84–#86 geschlossen.
+
+### App startet weder als Electron- noch als Web-App (2026-10-27)
+
+- [x] **[FIX]** Default-Ports 3000/3001 kollidierten mit den Projekten, die DevOrbit selbst verwaltet
+  - Issue: Gepackte App (`/Applications/DevOrbitDashboard.app`) brach mit „Port 3001 is already in use“ ab; die Web-App ohne lokale Overrides hätte dieselben Ports (3000/3001) gebraucht. Dort liefen `next-server` (3000) und eine bun-API (3001).
+  - Approach: `bun run dev`, `electron:dev`, `build`, `bundle:server` und die installierte App einzeln gestartet und die Ausgabe gelesen. Dev lief nur, weil `.env.local` `VITE_PORT`/`SERVER_PORT` auf 3098/3099 überschreibt; die gepackte App liest `.env.local` nicht.
+  - Solution: `PORTS.devhub`/`PORTS.server` in `config/defaults.{js,ts}` auf 3098/3099 (wie Docker); `vite.config.ts` nutzt `PORTS` statt eigener Literale. `appStart` (Startport verwalteter Apps) bleibt 3001.
+- Verifikation: vitest 508/508, Build und Server-Bundle grün. Die installierte App muss neu gebaut werden (`bun run electron:build:mac`), um die Änderung zu bekommen.
+- Offen/ungeprüft: Start der gepackten App mit den neuen Defaults nicht getestet (kein Rebuild); `code-server` im Dev-Skript scheitert mit EADDRINUSE auf 8080, solange eine andere code-server-Instanz läuft (bricht die übrigen Prozesse nicht ab).
