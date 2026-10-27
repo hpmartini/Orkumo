@@ -48,6 +48,18 @@ export function buildWorkflowCards(
     );
 }
 
+/** Cards of one repo ("owner/name") and/or one agent (job id = first 8 chars of the session) */
+export function scopeWorkflowCards(
+  cards: WorkflowCard[],
+  { repo, agent }: { repo?: string | null; agent?: string | null }
+): WorkflowCard[] {
+  return cards.filter(
+    (c) =>
+      (!repo || c.item.repo?.toLowerCase() === repo.toLowerCase()) &&
+      (!agent || c.state.sessionId?.slice(0, 8) === agent)
+  );
+}
+
 export interface StageMove {
   key: string;
   from: string;

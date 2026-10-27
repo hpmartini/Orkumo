@@ -49,7 +49,7 @@ import {
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
-import { agentFolder, boardUrl, codeUrl } from '../../utils/codeTarget';
+import { agentFolder, boardUrl, codeUrl, workflowsUrl } from '../../utils/codeTarget';
 import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
 import {
   groupSessions,
@@ -1143,6 +1143,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           },
         },
         {
+          id: 'workflow',
+          label: 'Show Workflow',
+          // Only agents started for a board issue run through mw
+          disabled: !contexts[session.id]?.repo?.slug || !issuesByAgent?.get(session.id)?.length,
+          onSelect: () => {
+            const slug = contexts[session.id]?.repo?.slug;
+            if (slug) navigate(workflowsUrl(slug, session.id));
+          },
+        },
+        {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
           disabled: !bg,
@@ -1184,7 +1194,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         },
       ];
     },
-    [attach, togglePeek, handlePin, handleRename, refresh, deleteSession, contexts, navigate]
+    [
+      attach,
+      togglePeek,
+      handlePin,
+      handleRename,
+      refresh,
+      deleteSession,
+      contexts,
+      navigate,
+      issuesByAgent,
+    ]
   );
 
   const groupActions = useCallback(
@@ -1218,6 +1238,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               id: 'view-board',
               label: 'View Board',
               onSelect: () => navigate(boardUrl(groupRepoSlug(group, contexts)!)),
+            },
+            {
+              id: 'view-workflows',
+              label: 'View Workflows',
+              onSelect: () => navigate(workflowsUrl(groupRepoSlug(group, contexts)!)),
             },
           ]
         : []),

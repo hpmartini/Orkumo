@@ -16,6 +16,7 @@ import {
   SquareTerminal,
   Star,
   Timer,
+  Workflow,
 } from 'lucide-react';
 import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
 import {
@@ -139,7 +140,7 @@ const FavoriteButton: React.FC<{
   </button>
 );
 
-/** Hover button for one menu action (same entry as in the context menu); hidden when unavailable */
+/** Hover button for one menu action (same entry as in the context menu); takes no room until hovered, keyboard uses the menu */
 const ActionButton: React.FC<{
   action?: AgentRowAction;
   icon: React.ReactNode;
@@ -151,7 +152,7 @@ const ActionButton: React.FC<{
         e.stopPropagation();
         action.onSelect();
       }}
-      className={`shrink-0 rounded text-gray-400 hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${className}`}
+      className={`shrink-0 rounded text-gray-400 hover:text-white hover:bg-gray-700 hidden group-hover:flex [@media(hover:none)]:flex focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${className}`}
       title={action.label}
       aria-label={action.label}
     >
@@ -698,6 +699,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                     (item.group.key as string) === FAVORITES_GROUP_KEY;
                   const runningSubagents = ctx?.subagents.running || 0;
                   const cacheWarning = isCacheWarning(ctx?.cache, now);
+                  const actions = rowActions(session);
                   const hasDetails =
                     !!label ||
                     issueKeys.length > 0 ||
@@ -898,8 +900,13 @@ export const AgentList: React.FC<AgentListProps> = ({
                           <MoreHorizontal size={12} />
                         </button>
                         <ActionButton
-                          action={rowActions(session).find((a) => a.id === 'board')}
+                          action={actions.find((a) => a.id === 'board')}
                           icon={<Kanban size={12} />}
+                          className="p-1.5"
+                        />
+                        <ActionButton
+                          action={actions.find((a) => a.id === 'workflow')}
+                          icon={<Workflow size={12} />}
                           className="p-1.5"
                         />
                         {onToggleFavoriteSession && (

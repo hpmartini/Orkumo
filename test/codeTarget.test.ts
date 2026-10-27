@@ -5,6 +5,7 @@ import {
   codeFolders,
   codeUrl,
   linkedAgentFolder,
+  workflowsUrl,
 } from '../utils/codeTarget';
 import type { AgentContext } from '../types';
 
@@ -19,6 +20,7 @@ describe('codeTarget', () => {
   it('boardUrl filters by repo and optionally by agent', () => {
     expect(boardUrl('o/r')).toBe('/board?repo=o%2Fr');
     expect(boardUrl('o/r', 'job1')).toBe('/board?repo=o%2Fr&agent=job1');
+    expect(workflowsUrl('o/r', 'job1')).toBe('/workflows?repo=o%2Fr&agent=job1');
   });
 
   it('agentFolder prefers the worktree over the cwd', () => {
