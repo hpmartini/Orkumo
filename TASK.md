@@ -437,3 +437,14 @@ The following existing tasks are related to the new features above:
 - [x] **[FIX]** Review 3: Close/Reopen und Parent-Entfernen entscheiden nach frisch gelesenem Zustand (`ISSUE_STATE_QUERY`), nicht nach dem Cache.
 - [x] **[FIX]** Befunde aus dem Gegen-Review: Docker-Images kopieren `utils/boardWrites.js` und `config/defaults.js` (der Server importiert beide, `config/` fehlte schon vorher); Dialog sperrt im Fortsetzen-Modus alle Felder außer Status (sonst stillschweigend verworfen); `PUT /api/board/settings` leert den Cache nur bei echtem Quellwechsel (sonst ginge der Schutz für frisch angelegte Items verloren).
 - Verifikation: vitest 463/463, tsc/lint sauber, Build grün; Race gegen GitHub nachgestellt (Refresh startet während des Anlegens, dauert 10 s → Issue in Antwort und Cache); UI: anlegen, sofort neu laden → Karte bleibt. Testissues #84–#86 geschlossen.
+
+---
+
+### #95: Issues anlegen / Labels vergeben in der Desktop-App (2026-10-27)
+
+- [x] **[VERIFY]** #72-Funktionen fehlten in der installierten App
+  - Issue: Board und `/agents` boten in `/Applications/DevOrbitDashboard.app` kein „Neues Issue“ und keine Label-Bearbeitung.
+  - Root cause: Zwei veraltete Builds. Die App vom 26.10. 10:43 war aus `chore/drop-native-windows` gebaut (31 Commits hinter `main`, ohne #82: `/api/board/issues`, `repo-options` fehlten). Der Neubau vom 26.10. 18:24 hat #82, aber noch nicht `b5d2888` (Homebrew-PATH): Aus Finder/Dock gestartet findet der Server `gh` nicht (`gh failed: spawn gh ENOENT`), Board und Anlegen scheitern.
+  - Solution: kein Code nötig, `main` ab `b5d2888` enthält beides. App von `main` neu bauen.
+  - Verified: installierte App (18:24) mit Finder-PATH `/usr/bin:/bin:/usr/sbin:/sbin` → `repo-options` und `items` liefern ENOENT. `main` in Electron (unpackaged, gleicher Minimal-PATH, eigenes `--user-data-dir`, `SERVER_PORT=3491`, per CDP bedient): Board „+“ in Todo mit `mw:dynamic` → #113. Mit Shell-PATH zusätzlich: `/agents` „+“ an DevHub mit `mw:go` → #112 (Backlog), Panel: Label `mw:build` gesetzt und entfernt (#111). `gh issue view` bestätigt. Testissues #110–#113 geschlossen. vitest 508/508, tsc sauber.
+  - #106 („Mindestens in der Electron-App keine Issues anlegen“) betrifft denselben Build (gemeldet 21:45, App 18:24 ohne PATH-Fix), vermutlich dieselbe Ursache. Der Wortlaut „falsches Verzeichnis“ passt eher zu `agentService.js` (Agent-Start außerhalb der Projektordner); nach dem Neubau gegenprüfen.
