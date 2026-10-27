@@ -447,7 +447,16 @@ The following existing tasks are related to the new features above:
   - Root cause: Zwei veraltete Builds. Die App vom 26.10. 10:43 war aus `chore/drop-native-windows` gebaut (31 Commits hinter `main`, ohne #82: `/api/board/issues`, `repo-options` fehlten). Der Neubau vom 26.10. 18:24 hat #82, aber noch nicht `b5d2888` (Homebrew-PATH): Aus Finder/Dock gestartet findet der Server `gh` nicht (`gh failed: spawn gh ENOENT`), Board und Anlegen scheitern.
   - Solution: kein Code nötig, `main` ab `b5d2888` enthält beides. App von `main` neu bauen.
   - Verified: installierte App (18:24) mit Finder-PATH `/usr/bin:/bin:/usr/sbin:/sbin` → `repo-options` und `items` liefern ENOENT. `main` in Electron (unpackaged, gleicher Minimal-PATH, eigenes `--user-data-dir`, `SERVER_PORT=3491`, per CDP bedient): Board „+“ in Todo mit `mw:dynamic` → #113. Mit Shell-PATH zusätzlich: `/agents` „+“ an DevHub mit `mw:go` → #112 (Backlog), Panel: Label `mw:build` gesetzt und entfernt (#111). `gh issue view` bestätigt. Testissues #110–#113 geschlossen. vitest 508/508, tsc sauber.
-  - #106 („Mindestens in der Electron-App keine Issues anlegen“) betrifft denselben Build (gemeldet 21:45, App 18:24 ohne PATH-Fix), vermutlich dieselbe Ursache. Der Wortlaut „falsches Verzeichnis“ passt eher zu `agentService.js` (Agent-Start außerhalb der Projektordner); nach dem Neubau gegenprüfen.
+  - #106 („Mindestens in der Electron-App keine Issues anlegen“, Meldung „falsches Verzeichnis“): siehe unten.
+
+### #106: Issues anlegen in der Desktop-App, Meldung „falsches Verzeichnis“ (2026-10-27)
+
+- [x] **[FIX]** Meldung `gh failed: spawn gh ENOENT` wurde als „falsches Verzeichnis“ gelesen
+  - Root cause: wie #95. Der installierte Build (26.10. 18:24) hat `b5d2888` (Homebrew im PATH) nicht; aus dem Dock gestartet findet der Server `gh` nicht. Nachgestellt: dessen `dist-server` mit Finder-PATH → `POST /api/board/issues` und `repo-options` antworten `{"error":"gh failed: spawn gh ENOENT"}`. ENOENT („no such file or directory“) liest sich wie ein Verzeichnisfehler. Im Anlegen-Pfad gibt es sonst keine Verzeichnis-Meldung.
+  - Solution: `ghGraphql` (`server/services/boardService.js`) meldet bei ENOENT „GitHub CLI (gh) nicht gefunden …“ samt Server-PATH. App von `main` neu bauen.
+  - Verified: `main` in Electron (unpackaged, Finder-PATH, eigenes `--user-data-dir`, Ports 3591/3592, per CDP): Board „+“ in Todo → #122, `/agents` „+“ an DevHub → #123, beide auf MACC (`gh issue view`). Testissues geschlossen. vitest 577/577, Build grün.
+
+- Alt: #106 betrifft denselben Build (gemeldet 21:45, App 18:24 ohne PATH-Fix), vermutlich dieselbe Ursache. Der Wortlaut „falsches Verzeichnis“ passt eher zu `agentService.js` (Agent-Start außerhalb der Projektordner); nach dem Neubau gegenprüfen.
 
 ---
 

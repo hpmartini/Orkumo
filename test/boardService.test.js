@@ -602,4 +602,15 @@ describe('boardService - writes vs. board fetches (#72)', () => {
     expect(err.details.item).toMatchObject({ itemId: 'PVTI_i', title: 'New' });
     expect((await getBoard(source)).items[0].title).toBe('New');
   });
+
+  it('gh missing from PATH: names the CLI instead of a bare ENOENT (#106)', async () => {
+    clearCache();
+    const enoent = Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' });
+    routeGh([['', enoent]]);
+    const err = await createIssue(source, { repo: 'hpmartini/DevHub', title: 'new' }).catch(
+      (e) => e
+    );
+    expect(err.status).toBe(502);
+    expect(err.message).toMatch(/GitHub CLI \(gh\) nicht gefunden/);
+  });
 });
