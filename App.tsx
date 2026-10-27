@@ -158,6 +158,8 @@ function AppContent() {
   }, [projectId, apps, loading, isAgentsRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
 
   const handleSelectDashboard = () => navigate('/');
+  // Stable: AgentsView's attach callback depends on it
+  const openAgentsView = useCallback(() => navigate('/agents'), [navigate]);
 
   const handleSelectApp = (id: string) => {
     const app = apps.find((a) => a.id === id);
@@ -299,6 +301,7 @@ function AppContent() {
     ...(onAppsPage
       ? [
           command('coding', 'Toggle details / coding view', 'View', handleToggleDetailsView),
+          command('tabbar', 'Show / hide view tab bar', 'View', handleToggleViewTabBar),
           command(
             'start',
             'Start selected app',
@@ -393,16 +396,25 @@ function AppContent() {
               key={contexts.active?.id}
               active={activeTab === 'agents'}
               current={
-                isAgentsRoute ? 'agents' : isBoardRoute ? 'board' : isCodeRoute ? 'code' : 'other'
+                isAgentsRoute
+                  ? 'agents'
+                  : isBoardRoute
+                    ? 'board'
+                    : isCodeRoute
+                      ? 'code'
+                      : isWorkflowsRoute
+                        ? 'workflows'
+                        : 'other'
               }
               apps={apps}
               onExit={() => navigate('/')}
-              onOpenView={() => navigate('/agents')}
+              onOpenView={openAgentsView}
               nav={{
                 onOpenDashboard: handleSelectDashboard,
                 onOpenAgents: () => navigate('/agents'),
                 onOpenBoard: () => navigate('/board'),
                 onOpenCode: () => navigate('/code'),
+                onOpenWorkflows: () => navigate('/workflows'),
                 onOpenSettings: () => setAdminPanelOpen(true),
                 onOpenProject: handleSelectApp,
                 onOpenProjectCode: (id) => {
