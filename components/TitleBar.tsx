@@ -1,43 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { Terminal, Globe, Rocket } from 'lucide-react';
-import { AppTabs } from './AppTabs';
-import { AppStatus } from '../types';
+import { ContextTabs } from './ContextTabs';
 import { isElectron } from '../utils/apiConfig';
 
-interface AppTab {
-  appId: string;
-  name: string;
-  status: AppStatus;
-  port?: number;
-}
-
-interface TitleBarProps {
-  tabs: AppTab[];
-  activeTabId: string | null;
-  onSelectTab: (id: string) => void;
-  onCloseTab: (id: string) => void;
-  onReorderTabs?: (fromIndex: number, toIndex: number) => void;
-  onOpenNewTab?: () => void;
+type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
   // Pane visibility controls (only shown when in app/coding view)
   showPaneControls?: boolean;
   isTerminalVisible?: boolean;
   isBrowserVisible?: boolean;
   onToggleTerminal?: () => void;
   onToggleBrowser?: () => void;
-}
+};
 
 export const TitleBar: React.FC<TitleBarProps> = ({
-  tabs,
-  activeTabId,
-  onSelectTab,
-  onCloseTab,
-  onReorderTabs,
-  onOpenNewTab,
   showPaneControls = false,
   isTerminalVisible = true,
   isBrowserVisible = true,
   onToggleTerminal,
   onToggleBrowser,
+  ...tabs
 }) => {
   // Track fullscreen state to hide traffic light spacer when in fullscreen
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -73,14 +54,6 @@ export const TitleBar: React.FC<TitleBarProps> = ({
     };
   }, []);
 
-  // In non-Electron (browser) mode, only show the titlebar when tabs are present
-  // and don't include the traffic light spacer
-
-  // For browser mode without tabs, don't show anything
-  if (!isElectron && tabs.length === 0) {
-    return null;
-  }
-
   // Show traffic light spacer only in Electron and NOT in fullscreen
   const showTrafficLightSpacer = isElectron && !isFullscreen;
 
@@ -105,28 +78,14 @@ export const TitleBar: React.FC<TitleBarProps> = ({
         <Rocket size={18} />
       </div>
 
-      {/* Tabs area - takes remaining space, not draggable so tabs are clickable */}
+      {/* Context tabs - not draggable so tabs are clickable; the free space after them drags */}
       <div
-        className="flex-1 flex items-center h-full min-w-0 overflow-hidden"
+        className="flex items-center h-full min-w-0 overflow-hidden"
         style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
       >
-        {tabs.length > 0 ? (
-          <AppTabs
-            tabs={tabs}
-            activeTabId={activeTabId}
-            onSelectTab={onSelectTab}
-            onCloseTab={onCloseTab}
-            onReorderTabs={onReorderTabs}
-            onOpenNewTab={onOpenNewTab}
-            isInTitleBar
-          />
-        ) : (
-          // Empty state - just show app name in center when no tabs
-          <div className="flex-1 flex items-center justify-center text-gray-500 text-sm font-medium">
-            DevOrbit Dashboard
-          </div>
-        )}
+        <ContextTabs {...tabs} />
       </div>
+      <div className="flex-1 h-full" />
 
       {/* Pane controls - right side, like VS Code */}
       {showPaneControls && (

@@ -14,6 +14,8 @@ import {
   buildSlices,
   filterItems,
   matchesQuery,
+  matchesContextFilter,
+  parseContextFilter,
   moveSliceKey,
   buildLanes,
   deriveAgentLinks,
@@ -529,5 +531,29 @@ describe('parseIssueRef', () => {
     expect(parseIssueRef('foo', 'a/b')).toBeNull();
     expect(parseIssueRef('#0', 'a/b')).toBeNull();
     expect(parseIssueRef('https://github.com/o/r/pull/9', null)).toBeNull();
+  });
+
+  describe('context filter', () => {
+    const bug = { name: 'bug', color: '0' };
+    const epic = { name: 'epic-a', color: '0' };
+    const x = item({ labels: [bug, epic], milestone: 'v2' });
+    const y = item({ repo: 'hpmartini/zeta', labels: [bug] });
+
+    it('keeps everything without a filter', () => {
+      expect(matchesContextFilter(x, [])).toBe(true);
+    });
+
+    it('ORs values of one kind and ANDs across kinds', () => {
+      expect(matchesContextFilter(y, ['label:epic-a', 'label:bug'])).toBe(true);
+      expect(matchesContextFilter(x, ['label:epic-a', 'milestone:v2'])).toBe(true);
+      expect(matchesContextFilter(y, ['label:bug', 'milestone:v2'])).toBe(false);
+      expect(matchesContextFilter(y, ['repo:hpmartini/DevHub'])).toBe(false);
+    });
+
+    it('parses comma-separated keys and drops unknown kinds', () => {
+      expect(
+        parseContextFilter(' label:epic-a, foo:bar, milestone:, repo:o/r,label:epic-a')
+      ).toEqual(['label:epic-a', 'repo:o/r']);
+    });
   });
 });

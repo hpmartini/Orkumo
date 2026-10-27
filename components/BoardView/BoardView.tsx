@@ -13,6 +13,7 @@ import {
   itemKey,
   linksByAgent,
   linksByIssue,
+  matchesContextFilter,
   matchesQuery,
   moveSliceKey,
   type SliceEntry,
@@ -32,6 +33,8 @@ interface BoardViewProps {
   active: boolean;
   /** Make this view the visible route */
   onOpenView?: () => void;
+  /** Board filter of the active project context (slice keys) */
+  contextFilter?: string[];
 }
 
 interface ViewPrefs {
@@ -72,7 +75,7 @@ const toggleIn = (list: string[], key: string) =>
  * Kanban board over a GitHub Project (status columns, parent swimlanes),
  * linked to the Claude agents working on its issues.
  */
-export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
+export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) => {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const {
@@ -116,7 +119,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ active }) => {
     [setSearchParams]
   );
 
-  const items = useMemo(() => data?.items ?? [], [data]);
+  const items = useMemo(
+    () => (data?.items ?? []).filter((i) => matchesContextFilter(i, contextFilter ?? [])),
+    [data, contextFilter]
+  );
   const options = useMemo(() => data?.statusField.options ?? [], [data]);
   const repos = useMemo(
     () => [...new Set(items.flatMap((i) => (i.repo ? [i.repo] : [])))].sort(),

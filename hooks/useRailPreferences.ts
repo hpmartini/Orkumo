@@ -5,7 +5,7 @@ import type { SessionGroup, GroupKey } from '../utils/agentSessions';
 /** Key of the synthetic group holding favorite agents (always first, not reorderable) */
 export const FAVORITES_GROUP_KEY = 'favorites';
 
-const STORAGE_KEY = 'devOrbitAgentRail.v1';
+export const STORAGE_KEY = 'devOrbitAgentRail.v1';
 
 interface ModePrefs {
   collapsed: string[];

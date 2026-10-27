@@ -22,12 +22,13 @@ import {
   ErrorBoundary,
   AdminPanel,
   TitleBar,
-  useAppTabs,
+  ContextDialog,
   LoadingSkeleton,
   AgentsView,
 } from './components';
 import { useApps, usePerAppState } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
+import { useProjectContexts } from './hooks/useProjectContexts';
 import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
 import type { PaletteCommand } from './utils/commandPalette';
 import { generateProjectUrl } from './utils/routing';
@@ -55,7 +56,7 @@ function AppContent() {
     loading,
     error: _error,
     selectedAppId,
-    selectedApp: _selectedApp,
+    selectedApp,
     settings,
     setSelectedAppId,
     handleStartApp,
@@ -78,8 +79,17 @@ function AppContent() {
     totalCpu,
   } = useApps();
 
-  // App tabs management
-  const { tabs, activeTabId, closeTab, reorderTabs, selectTab } = useAppTabs(apps);
+  // Project contexts (#97): title bar tabs, each with its own favorites, board slices, agent tabs
+  const contexts = useProjectContexts(refreshApps);
+  const { contexts: contextList, switchTo: switchContext } = contexts;
+  const contextAppIds = contexts.active?.appIds;
+  const contextApps = useMemo(() => {
+    if (!contextAppIds) return apps;
+    const members = new Set(contextAppIds);
+    return apps.filter((app) => members.has(app.id));
+  }, [apps, contextAppIds]);
+  // Context id being edited in the dialog; 'new' creates one
+  const [editingContext, setEditingContext] = useState<string | null>(null);
 
   // Per-app view state management (terminals, editor type, devtools, etc.)
   const { createAppStateHelpers, getAppState, updateAppState } = usePerAppState();
@@ -123,16 +133,14 @@ function AppContent() {
   }, []);
 
   // Use refs to avoid re-running the effect when callbacks change
-  const selectTabRef = useRef(selectTab);
   const setSelectedAppIdRef = useRef(setSelectedAppId);
   const navigateRef = useRef(navigate);
 
   // Keep refs up to date
   useEffect(() => {
-    selectTabRef.current = selectTab;
     setSelectedAppIdRef.current = setSelectedAppId;
     navigateRef.current = navigate;
-  }, [selectTab, setSelectedAppId, navigate]);
+  }, [setSelectedAppId, navigate]);
 
   // Sync URL params with selected app
   useEffect(() => {
@@ -144,7 +152,6 @@ function AppContent() {
       const projectExists = apps.find((app) => app.id === projectId);
       if (projectExists) {
         setSelectedAppIdRef.current(projectId);
-        selectTabRef.current(projectId);
         setActiveTab('apps');
       } else {
         // Invalid/stale project ID - redirect to dashboard
@@ -235,35 +242,6 @@ function AppContent() {
     setMobileMenuOpen(false);
   };
 
-  const handleTabSelect = (id: string) => {
-    selectTab(id); // Update activeTabId for visual sync
-    const app = apps.find((a) => a.id === id);
-    if (app) {
-      navigate(generateProjectUrl(app.name, id));
-    }
-  };
-
-  const handleTabClose = (id: string) => {
-    // Calculate remaining tabs BEFORE calling closeTab to avoid race condition
-    // (tabs state won't update until after this function completes)
-    const remainingTabs = tabs.filter((t) => t.appId !== id);
-
-    // Close the tab
-    closeTab(id);
-
-    // If closing the active tab, switch to dashboard or another tab
-    if (selectedAppId === id) {
-      if (remainingTabs.length > 0) {
-        const nextApp = apps.find((a) => a.id === remainingTabs[remainingTabs.length - 1].appId);
-        if (nextApp) {
-          navigate(generateProjectUrl(nextApp.name, nextApp.id));
-        }
-      } else {
-        navigate('/');
-      }
-    }
-  };
-
   // Rename handler that prompts for the new name
   const handleRenamePrompt = useCallback(
     (id: string) => {
@@ -290,42 +268,11 @@ function AppContent() {
       { id: 'openFavorites' as keyof KeyboardShortcuts, handler: handleToggleFavoritesPopup },
       { id: 'openProjects' as keyof KeyboardShortcuts, handler: handleToggleProjectsPopup },
       { id: 'openAgents' as keyof KeyboardShortcuts, handler: () => navigate('/agents') },
-      {
-        id: 'goToTab1' as keyof KeyboardShortcuts,
-        handler: () => tabs[0] && handleTabSelect(tabs[0].appId),
-      },
-      {
-        id: 'goToTab2' as keyof KeyboardShortcuts,
-        handler: () => tabs[1] && handleTabSelect(tabs[1].appId),
-      },
-      {
-        id: 'goToTab3' as keyof KeyboardShortcuts,
-        handler: () => tabs[2] && handleTabSelect(tabs[2].appId),
-      },
-      {
-        id: 'goToTab4' as keyof KeyboardShortcuts,
-        handler: () => tabs[3] && handleTabSelect(tabs[3].appId),
-      },
-      {
-        id: 'goToTab5' as keyof KeyboardShortcuts,
-        handler: () => tabs[4] && handleTabSelect(tabs[4].appId),
-      },
-      {
-        id: 'goToTab6' as keyof KeyboardShortcuts,
-        handler: () => tabs[5] && handleTabSelect(tabs[5].appId),
-      },
-      {
-        id: 'goToTab7' as keyof KeyboardShortcuts,
-        handler: () => tabs[6] && handleTabSelect(tabs[6].appId),
-      },
-      {
-        id: 'goToTab8' as keyof KeyboardShortcuts,
-        handler: () => tabs[7] && handleTabSelect(tabs[7].appId),
-      },
-      {
-        id: 'goToTab9' as keyof KeyboardShortcuts,
-        handler: () => tabs[8] && handleTabSelect(tabs[8].appId),
-      },
+      // Cmd+1..9 switch to the n-th context
+      ...Array.from({ length: 9 }, (_, i) => ({
+        id: `goToTab${i + 1}` as keyof KeyboardShortcuts,
+        handler: () => contextList[i] && switchContext(contextList[i].id),
+      })),
       // App control shortcuts
       {
         id: 'startApp' as keyof KeyboardShortcuts,
@@ -373,8 +320,8 @@ function AppContent() {
     [
       handleToggleSidebarCollapse,
       navigate,
-      tabs,
-      handleTabSelect,
+      contextList,
+      switchContext,
       handleToggleDetailsView,
       handleToggleFavoritesPopup,
       handleToggleProjectsPopup,
@@ -445,7 +392,13 @@ function AppContent() {
           ),
         ]
       : []),
-    ...apps
+    ...contexts.contexts.map((c) =>
+      command(`context.${c.id}`, `Switch to context: ${c.name}`, 'Context', () =>
+        contexts.switchTo(c.id)
+      )
+    ),
+    command('context.new', 'New context', 'Context', () => setEditingContext('new')),
+    ...contextApps
       .filter((a) => !a.isArchived)
       .map(
         (a): PaletteCommand => ({
@@ -459,7 +412,7 @@ function AppContent() {
   ];
   useRegisterCommands('app', paletteCommands);
 
-  if (loading) {
+  if (loading || !contexts.ready) {
     return <LoadingSkeleton />;
   }
 
@@ -497,11 +450,12 @@ function AppContent() {
 
       {/* TitleBar - custom titlebar with tabs and pane controls */}
       <TitleBar
-        tabs={tabs}
-        activeTabId={activeTabId}
-        onSelectTab={handleTabSelect}
-        onCloseTab={handleTabClose}
-        onReorderTabs={reorderTabs}
+        contexts={contexts.contexts}
+        activeId={contexts.active?.id ?? null}
+        onSelect={contexts.switchTo}
+        onReorder={contexts.reorder}
+        onEdit={setEditingContext}
+        onCreate={() => setEditingContext('new')}
         showPaneControls={activeTab === 'apps' && detailsViewMode === 'coding' && !!selectedAppId}
         isTerminalVisible={selectedAppId ? !getAppState(selectedAppId).isTerminalHidden : true}
         isBrowserVisible={selectedAppId ? !getAppState(selectedAppId).isBrowserHidden : true}
@@ -522,7 +476,7 @@ function AppContent() {
       {/* Sidebar - fixed position below titlebar (when present), doesn't scroll with content */}
       <div
         className={`
-          fixed ${isElectron || tabs.length > 0 ? 'top-10' : 'top-0'} bottom-0 left-0 z-40
+          fixed top-10 bottom-0 left-0 z-40
           transform transition-all duration-300 ease-in-out
           ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
           ${hasOwnRail ? 'md:hidden' : ''}
@@ -530,7 +484,7 @@ function AppContent() {
         style={{ width: actualSidebarWidth }}
       >
         <Sidebar
-          apps={apps}
+          apps={contextApps}
           selectedAppId={selectedAppId}
           activeTab={activeTab}
           isCollapsed={sidebarCollapsed}
@@ -602,14 +556,11 @@ function AppContent() {
         className={`flex-1 flex flex-col relative ml-0 ${
           // The agents and board views merge the sidebar into their own rail and scroll internally
           hasOwnRail ? 'overflow-hidden' : 'md:ml-[var(--sidebar-width)] overflow-auto'
-        } ${
-          // TitleBar is shown in Electron OR when tabs exist in browser mode
-          isElectron || tabs.length > 0 ? 'mt-10' : ''
-        }`}
+        } mt-10`}
       >
         {/* Mobile header - only shown on small screens */}
         <header
-          className={`fixed ${isElectron || tabs.length > 0 ? 'top-10' : 'top-0'} right-0 left-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 py-3 flex items-center gap-3 md:hidden`}
+          className={`fixed top-10 right-0 left-0 z-20 bg-gray-900/80 backdrop-blur-md border-b border-gray-800 px-4 py-3 flex items-center gap-3 md:hidden`}
         >
           <button
             onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -625,20 +576,17 @@ function AppContent() {
 
         {/* Content container - relative positioning for multi-tab absolute children */}
         <div
-          className={`relative ${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} ${
-            // On mobile: add extra margin for the mobile header
-            isElectron || tabs.length > 0 ? 'mt-14 md:mt-0' : 'mt-14 md:mt-0'
-          }`}
+          className={`relative ${activeTab === 'dashboard' ? 'p-4 md:p-8 max-w-7xl mx-auto pb-20' : 'flex-1 flex flex-col min-h-0'} mt-14 md:mt-0`}
         >
           {/* Dashboard View */}
           <div
             className={`${activeTab === 'dashboard' ? 'block' : 'hidden'} space-y-8 animate-in fade-in duration-500`}
           >
             <DashboardOverview
-              totalApps={apps.length}
+              totalApps={contextApps.length}
               runningCount={runningCount}
               totalCpu={totalCpu}
-              apps={apps}
+              apps={contextApps}
             />
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
               <div className="lg:col-span-2 space-y-6">
@@ -647,7 +595,7 @@ function AppContent() {
                 </div>
                 {/* Favorites Section */}
                 <FavoritesList
-                  apps={apps}
+                  apps={contextApps}
                   selectedAppId={selectedAppId}
                   favoritesOrder={settings?.favorites || []}
                   favoritesSortMode={settings?.favoritesSortMode || 'manual'}
@@ -663,7 +611,7 @@ function AppContent() {
                 />
                 {/* All Applications */}
                 <AppList
-                  apps={apps.filter((app) => !app.isArchived && !app.isFavorite)}
+                  apps={contextApps.filter((app) => !app.isArchived && !app.isFavorite)}
                   selectedAppId={selectedAppId}
                   onSelectApp={handleSelectApp}
                   onRefresh={refreshApps}
@@ -681,7 +629,7 @@ function AppContent() {
               </div>
 
               <div className="space-y-6">
-                <Recommendations apps={apps} onAnalyzeApp={handleAnalyzeApp} />
+                <Recommendations apps={contextApps} onAnalyzeApp={handleAnalyzeApp} />
                 <SystemHealth onRestartApp={handleRestartApp} onInstallDeps={handleInstallDeps} />
               </div>
             </div>
@@ -695,6 +643,7 @@ function AppContent() {
             aria-hidden={activeTab !== 'agents'}
           >
             <AgentsView
+              key={contexts.active?.id}
               active={activeTab === 'agents'}
               apps={apps}
               onExit={() => navigate('/')}
@@ -718,7 +667,12 @@ function AppContent() {
             }
             aria-hidden={activeTab !== 'board'}
           >
-            <BoardView active={activeTab === 'board'} onOpenView={() => navigate('/board')} />
+            <BoardView
+              key={contexts.active?.id}
+              active={activeTab === 'board'}
+              onOpenView={() => navigate('/board')}
+              contextFilter={contexts.active?.boardFilter}
+            />
           </div>
 
           {/* Code mode - kept mounted so the Web-IDE iframe survives navigation */}
@@ -728,73 +682,53 @@ function AppContent() {
             }
             aria-hidden={activeTab !== 'code'}
           >
-            <CodeView active={activeTab === 'code'} apps={apps} />
+            <CodeView active={activeTab === 'code'} apps={contextApps} />
           </div>
 
-          {/* Multi-tab rendering: Render ALL open tabs simultaneously, show only the active one.
-              This preserves iframe state (VS Code Server, Browser Preview) when switching tabs.
-              Previously conditional rendering caused iframes to reload on every tab switch.
-
-              IMPORTANT: We use clip-path and position:fixed with left:-200vw to truly hide inactive tabs.
-              Simple visibility:hidden or translateX doesn't work for iframes - they can "bleed through"
-              because iframes create their own stacking context. */}
-          {tabs.map((tab) => {
-            const tabApp = apps.find((a) => a.id === tab.appId);
-            const isActive = activeTab === 'apps' && tab.appId === selectedAppId;
-
-            return (
-              <div
-                key={tab.appId}
-                className={`flex flex-col min-h-0 ${
-                  isActive ? 'absolute inset-0 z-10' : 'fixed pointer-events-none'
-                }`}
-                style={
-                  isActive
-                    ? {
-                        // Active tab: normal positioning (no extra top since main has mt-10 for titlebar)
-                        top: 0,
-                      }
-                    : {
-                        // Inactive tab: truly hide off-screen with clip to prevent iframe bleed-through
-                        // Using fixed position + left:-200vw ensures the iframe is completely off-viewport
-                        // clip-path ensures nothing renders even if browser tries to optimize
-                        left: '-200vw',
-                        top: 0,
-                        width: '100vw',
-                        height: '100vh',
-                        clipPath: 'inset(0 100% 100% 0)', // Clips the entire element
-                        visibility: 'hidden' as const,
-                      }
-                }
-                aria-hidden={!isActive}
-              >
-                <AppDetail
-                  app={tabApp ?? null}
-                  onStart={handleStartApp}
-                  onStop={handleStopApp}
-                  onRestart={handleRestartApp}
-                  onAnalyze={handleAnalyzeApp}
-                  onOpenInBrowser={handleOpenInBrowser}
-                  onInstallDeps={handleInstallDeps}
-                  onSetPort={handleSetPort}
-                  onSetCommand={handleSetCommand}
-                  onRename={handleRename}
-                  onToggleFavorite={handleToggleFavorite}
-                  onToggleArchive={handleToggleArchive}
-                  onOpenInFinder={handleOpenInFinder}
-                  onOpenInTerminal={handleOpenInTerminal}
-                  preferredIDE={(tabApp && settings?.preferredIDEs?.[tabApp.id]) || null}
-                  isViewTabBarHidden={isViewTabBarHidden}
-                  onToggleViewTabBar={handleToggleViewTabBar}
-                  activeView={detailsViewMode}
-                  onViewChange={setDetailsViewMode}
-                  perAppState={tabApp ? createAppStateHelpers(tabApp.id) : undefined}
-                />
-              </div>
-            );
-          })}
+          {activeTab === 'apps' && selectedApp && (
+            <div className="flex flex-col min-h-0 absolute inset-0 z-10">
+              <AppDetail
+                key={selectedApp.id}
+                app={selectedApp}
+                onStart={handleStartApp}
+                onStop={handleStopApp}
+                onRestart={handleRestartApp}
+                onAnalyze={handleAnalyzeApp}
+                onOpenInBrowser={handleOpenInBrowser}
+                onInstallDeps={handleInstallDeps}
+                onSetPort={handleSetPort}
+                onSetCommand={handleSetCommand}
+                onRename={handleRename}
+                onToggleFavorite={handleToggleFavorite}
+                onToggleArchive={handleToggleArchive}
+                onOpenInFinder={handleOpenInFinder}
+                onOpenInTerminal={handleOpenInTerminal}
+                preferredIDE={settings?.preferredIDEs?.[selectedApp.id] || null}
+                isViewTabBarHidden={isViewTabBarHidden}
+                onToggleViewTabBar={handleToggleViewTabBar}
+                activeView={detailsViewMode}
+                onViewChange={setDetailsViewMode}
+                perAppState={createAppStateHelpers(selectedApp.id)}
+              />
+            </div>
+          )}
         </div>
       </main>
+
+      {editingContext && (
+        <ContextDialog
+          context={contexts.contexts.find((c) => c.id === editingContext) ?? null}
+          apps={apps}
+          canDelete={contexts.contexts.length > 1}
+          onSave={(input) =>
+            editingContext === 'new'
+              ? contexts.create(input)
+              : contexts.update(editingContext, input)
+          }
+          onDelete={() => contexts.remove(editingContext)}
+          onClose={() => setEditingContext(null)}
+        />
+      )}
 
       {/* Admin Panel Modal */}
       <AdminPanel
