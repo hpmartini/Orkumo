@@ -15,9 +15,9 @@ import {
   type Workspace,
 } from '../utils/agentWorkspace';
 
-const STORAGE_KEY = 'devOrbitAgentWorkspace.v2';
+export const STORAGE_KEY = 'devOrbitAgentWorkspace.v2';
 /** Pre-tabs/panes shape `{openIds, activeId}`; read once as a migration source */
-const LEGACY_STORAGE_KEY = 'devOrbitAgentWorkspace';
+export const LEGACY_STORAGE_KEY = 'devOrbitAgentWorkspace';
 
 function load(): Workspace {
   try {

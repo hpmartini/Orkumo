@@ -3,14 +3,34 @@
  * PTY Host Service - Runs on the HOST machine to spawn shells
  * This service must run on the host, not inside Docker
  * The Docker container proxies WebSocket connections to this service
+ *
+ * Also exposes a small HTTP /exec endpoint so the API container can run
+ * non-interactive commands (like `claude agents --json`) on the host, since
+ * the API runs in a Linux container that cannot execute the macOS-only
+ * Claude Code binary directly.
  */
 
 import { WebSocketServer } from 'ws';
 import * as pty from 'node-pty';
+import http from 'http';
+import { execFile as execFileCb } from 'child_process';
 import os from 'os';
 import fs from 'fs';
+import crypto from 'crypto';
 
-const PORT = process.env.PTY_HOST_PORT || 3098;
+const PORT = process.env.PTY_HOST_PORT || 3096;
+const HTTP_PORT = process.env.PTY_HOST_HTTP_PORT || 3097;
+const HTTP_TOKEN = process.env.PTY_HOST_HTTP_TOKEN || '';
+// Loopback only: Docker Desktop reaches it via host.docker.internal. Widen deliberately, never by default.
+const BIND_HOST = process.env.PTY_HOST_BIND || '127.0.0.1';
+// The API only ever delegates the Claude CLI; anything else must not run through this host.
+const ALLOWED_COMMANDS = new Set(['claude']);
+
+function tokenMatches(provided) {
+  if (typeof provided !== 'string') return false;
+  const digest = (value) => crypto.createHash('sha256').update(value).digest();
+  return crypto.timingSafeEqual(digest(provided), digest(`Bearer ${HTTP_TOKEN}`));
+}
 
 // Detect user's default shell
 const defaultShell = (() => {
@@ -32,7 +52,7 @@ console.log(`[PTY-Host] Default shell: ${defaultShell}`);
 console.log(`[PTY-Host] Platform: ${os.platform()}`);
 console.log(`[PTY-Host] User: ${process.env.USER || 'unknown'}`);
 
-const wss = new WebSocketServer({ port: PORT });
+const wss = new WebSocketServer({ port: PORT, host: BIND_HOST });
 
 // Store active PTY sessions
 const sessions = new Map();
@@ -44,7 +64,33 @@ wss.on('connection', (ws, req) => {
   const cols = parseInt(url.searchParams.get('cols') || '80', 10);
   const rows = parseInt(url.searchParams.get('rows') || '24', 10);
 
-  console.log(`[PTY-Host] New connection: ${sessionId}, cwd: ${cwd}`);
+  // Optional custom command (e.g. "claude") + args (e.g. ["attach", "84f4be24"])
+  // forwarded by the API when proxying in Docker mode. Defaults to a login shell.
+  const customCommand = url.searchParams.get('command');
+  // Browsers always send Origin; the API's ws client never does (blocks cross-site WebSocket hijacking).
+  if (req.headers.origin || (customCommand && !ALLOWED_COMMANDS.has(customCommand))) {
+    console.warn(
+      `[PTY-Host] Rejected connection (origin=${req.headers.origin || '-'}, command=${customCommand || '-'})`
+    );
+    ws.close(1008, 'Forbidden');
+    return;
+  }
+  let customArgs = [];
+  const argsParam = url.searchParams.get('args');
+  if (argsParam) {
+    try {
+      const parsed = JSON.parse(argsParam);
+      if (Array.isArray(parsed) && parsed.every((a) => typeof a === 'string')) {
+        customArgs = parsed;
+      }
+    } catch {
+      // ignore malformed args, fall back to default shell
+    }
+  }
+
+  console.log(
+    `[PTY-Host] New connection: ${sessionId}, cwd=${cwd}, command=${customCommand || defaultShell}${customArgs.length ? ` args=${JSON.stringify(customArgs)}` : ''}`
+  );
 
   // Validate CWD exists
   let workingDir = cwd;
@@ -54,10 +100,23 @@ wss.on('connection', (ws, req) => {
   }
 
   try {
-    const shellArgs =
-      defaultShell.includes('zsh') || defaultShell.includes('bash') ? ['--login'] : [];
+    let spawnBin;
+    let spawnArgs;
+    let spawnedShell;
 
-    const ptyProcess = pty.spawn(defaultShell, shellArgs, {
+    if (customCommand) {
+      // Resolve absolute path so things like `~/.local/bin/claude` work even
+      // when the API caller's PATH doesn't include them.
+      spawnBin = resolveBinary(customCommand) || customCommand;
+      spawnArgs = customArgs;
+      spawnedShell = customCommand;
+    } else {
+      spawnedShell = defaultShell;
+      spawnBin = defaultShell;
+      spawnArgs = defaultShell.includes('zsh') || defaultShell.includes('bash') ? ['--login'] : [];
+    }
+
+    const ptyProcess = pty.spawn(spawnBin, spawnArgs, {
       name: 'xterm-256color',
       cols,
       rows,
@@ -75,7 +134,7 @@ wss.on('connection', (ws, req) => {
     ws.send(
       JSON.stringify({
         type: 'connected',
-        shell: defaultShell,
+        shell: spawnedShell,
         pid: ptyProcess.pid,
         cwd: workingDir,
       })
@@ -143,6 +202,143 @@ wss.on('listening', () => {
   console.log(`[PTY-Host] WebSocket server listening on ws://localhost:${PORT}`);
 });
 
+// ---------------------------------------------------------------------------
+// HTTP /exec endpoint - lets the API container run commands on the host
+// ---------------------------------------------------------------------------
+
+const execFileAsync = (bin, args, options) =>
+  new Promise((resolve) => {
+    execFileCb(
+      bin,
+      args,
+      {
+        cwd: options.cwd,
+        timeout: options.timeout,
+        maxBuffer: 8 * 1024 * 1024,
+        env: { ...process.env, ...(options.env || {}) },
+      },
+      (error, stdout, stderr) => {
+        resolve({
+          code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
+          stdout: String(stdout || ''),
+          stderr: String(stderr || '') + (error && error.killed ? '\n(timed out)' : ''),
+        });
+      }
+    );
+  });
+
+/**
+ * Resolve a binary by name the same way `resolveClaudeBinary` does on the
+ * server side, so the host can find `claude` installed under ~/.local/bin
+ * even when the caller's PATH is not loaded.
+ */
+function resolveBinary(name) {
+  const home = process.env.HOME || os.homedir();
+  const candidates = [
+    process.env.CLAUDE_CLI_PATH,
+    `${home}/.bun/bin/${name}`,
+    `${home}/.local/bin/${name}`,
+    '/opt/homebrew/bin/' + name,
+    '/usr/local/bin/' + name,
+    '/usr/bin/' + name,
+  ].filter(Boolean);
+  const pathDirs = (process.env.PATH || '').split(':').filter(Boolean);
+  for (const dir of pathDirs) candidates.push(`${dir}/${name}`);
+  for (const candidate of candidates) {
+    try {
+      fs.accessSync(candidate, fs.constants.X_OK);
+      return candidate;
+    } catch {
+      // try next
+    }
+  }
+  return null;
+}
+
+const httpServer = http.createServer(async (req, res) => {
+  // Server-to-server only: no CORS, and any browser request (Origin header) is refused.
+  if (req.headers.origin) {
+    res.writeHead(403, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Forbidden' }));
+    return;
+  }
+
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, service: 'pty-host' }));
+    return;
+  }
+
+  if (req.method !== 'POST' || req.url !== '/exec') {
+    res.writeHead(404, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Not found' }));
+    return;
+  }
+
+  if (!HTTP_TOKEN) {
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Set PTY_HOST_HTTP_TOKEN to enable /exec' }));
+    return;
+  }
+  if (!tokenMatches(req.headers['x-pty-host-token'])) {
+    res.writeHead(401, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ error: 'Unauthorized' }));
+    return;
+  }
+
+  let raw = '';
+  req.on('data', (chunk) => {
+    raw += chunk;
+    if (raw.length > 256 * 1024) {
+      req.destroy();
+    }
+  });
+  req.on('end', async () => {
+    let body;
+    try {
+      body = JSON.parse(raw || '{}');
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Invalid JSON body' }));
+      return;
+    }
+
+    const { command, args = [], cwd, timeout = 60000 } = body || {};
+    if (typeof command !== 'string' || !ALLOWED_COMMANDS.has(command)) {
+      res.writeHead(403, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Command not allowed' }));
+      return;
+    }
+    if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '`args` must be a string array' }));
+      return;
+    }
+
+    const bin = resolveBinary(command) || command;
+    const resolvedCwd =
+      typeof cwd === 'string' && cwd.trim() && fs.existsSync(cwd)
+        ? cwd
+        : process.env.HOME || os.homedir();
+
+    const result = await execFileAsync(bin, args, {
+      cwd: resolvedCwd,
+      timeout,
+    });
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify(result));
+  });
+  req.on('error', () => {
+    // client disconnected
+  });
+});
+
+httpServer.listen(HTTP_PORT, BIND_HOST, () => {
+  const auth = HTTP_TOKEN ? 'token-protected' : 'DISABLED, set PTY_HOST_HTTP_TOKEN';
+  console.log(`[PTY-Host] HTTP /exec on http://${BIND_HOST}:${HTTP_PORT} (${auth})`);
+});
+
 // Graceful shutdown
 process.on('SIGINT', () => {
   console.log('[PTY-Host] Shutting down...');
@@ -154,6 +350,7 @@ process.on('SIGINT', () => {
     }
   }
   wss.close();
+  httpServer.close();
   process.exit(0);
 });
 

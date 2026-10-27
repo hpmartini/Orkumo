@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "PTY Host Service - runs on host machine to spawn shells for DevOrbit Dashboard",
   "type": "module",
+  "trustedDependencies": [
+    "node-pty"
+  ],
   "main": "index.js",
   "scripts": {
     "start": "node index.js"

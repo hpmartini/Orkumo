@@ -1,5 +1,7 @@
 import fs from 'fs';
+import { randomUUID } from 'crypto';
 import { getDataFilePath, ensureDataDirectory } from './dataPath.js';
+import * as projectContexts from './projectContexts.js';
 
 // Settings file path - stored in persistent data directory
 const SETTINGS_FILE = getDataFilePath('settings.json');
@@ -21,6 +23,9 @@ const defaultSettings = {
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides
   agentView: {}, // Claude Code agent view preferences (grouping, layout, dispatch defaults)
   board: {}, // Agent task board: GitHub project source + slice favorites/order/hidden
+  contexts: projectContexts.DEFAULT_CONTEXTS, // Project contexts (#97), see projectContexts.js
+  activeContextId: projectContexts.DEFAULT_CONTEXT_ID,
+  contextState: {}, // Parked per-context values of the inactive contexts
   version: 1, // Settings schema version for future migrations
 };
 
@@ -28,7 +33,7 @@ const defaultSettings = {
  * Default Claude Code agent view preferences
  */
 export const DEFAULT_AGENT_VIEW_SETTINGS = {
-  grouping: 'state', // 'state' | 'directory'
+  grouping: 'project', // 'project' | 'state' | 'directory' | 'none'
   layout: 'tabs', // 'tabs' | 'columns' | 'rows' | 'grid'
   scopeCwd: null, // Only show sessions started under this path (claude agents --cwd)
   collapsedGroups: [],
@@ -520,6 +525,14 @@ class SettingsService {
     // Clean up favorites
     settings.favorites = settings.favorites.filter((id) => validSet.has(id));
 
+    // Clean up context members and parked favorites of inactive contexts
+    settings.contexts = settings.contexts.map((c) =>
+      c.appIds ? { ...c, appIds: c.appIds.filter((id) => validSet.has(id)) } : c
+    );
+    for (const parked of Object.values(settings.contextState || {})) {
+      if (parked.favorites) parked.favorites = parked.favorites.filter((id) => validSet.has(id));
+    }
+
     // Clean up archived
     settings.archived = settings.archived.filter((id) => validSet.has(id));
 
@@ -810,6 +823,50 @@ class SettingsService {
     settings.board = next;
     writeSettings(settings);
     return next;
+  }
+
+  /** @returns {{contexts: object[], activeContextId: string}} */
+  getContexts() {
+    return projectContexts.listContexts(readSettings());
+  }
+
+  /** @param {{name: string, appIds?: string[]|null, boardFilter?: string[]}} input */
+  createContext(input) {
+    const { settings, context } = projectContexts.createContext(
+      readSettings(),
+      input,
+      randomUUID()
+    );
+    writeSettings(settings);
+    return context;
+  }
+
+  updateContext(id, patch) {
+    const { settings, context } = projectContexts.updateContext(readSettings(), id, patch);
+    writeSettings(settings);
+    return context;
+  }
+
+  reorderContexts(ids) {
+    const settings = projectContexts.reorderContexts(readSettings(), ids);
+    writeSettings(settings);
+    return projectContexts.listContexts(settings);
+  }
+
+  deleteContext(id) {
+    const settings = projectContexts.deleteContext(readSettings(), id);
+    writeSettings(settings);
+    return projectContexts.listContexts(settings);
+  }
+
+  /**
+   * Switches the active context, parking the client's ui state (agent tabs, rail prefs)
+   * @returns {{activeContextId: string, ui: object|null}} ui of the now active context
+   */
+  activateContext(id, ui, from) {
+    const result = projectContexts.activateContext(readSettings(), id, ui, from);
+    writeSettings(result.settings);
+    return { activeContextId: result.settings.activeContextId, ui: result.ui };
   }
 }
 

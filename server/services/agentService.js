@@ -21,6 +21,95 @@ import { EventEmitter } from 'events';
 import * as nodePty from 'node-pty';
 import { getConfig } from './configService.js';
 
+/**
+ * When the API runs inside Docker the `claude` binary on the host cannot be
+ * executed directly (it's a Mach-O arm64 binary and the container is Linux).
+ * We delegate every non-interactive CLI call to the PTY-Host running on the
+ * host machine via HTTP. PTY_HOST_HTTP_URL is set in docker-compose.yml.
+ *
+ * In a non-Docker setup (bare `node server/index.js`) PTY_HOST_HTTP_URL is
+ * unset and we fall back to the previous local-exec behaviour.
+ */
+const PTY_HOST_HTTP_URL = process.env.PTY_HOST_HTTP_URL || '';
+const PTY_HOST_HTTP_TOKEN = process.env.PTY_HOST_HTTP_TOKEN || '';
+
+/**
+ * Run a command on the host via the PTY-Host HTTP endpoint. Falls back to a
+ * local execFile when PTY_HOST_HTTP_URL is not configured.
+ *
+ * @param {string} command - binary name (e.g. "claude") or absolute path
+ * @param {string[]} args
+ * @param {{cwd?: string, timeout?: number, env?: object}} options
+ */
+export async function runOnHost(command, args, options = {}) {
+  if (!PTY_HOST_HTTP_URL) {
+    return runLocal(command, args, options);
+  }
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), options.timeout ?? CLI_TIMEOUT);
+  try {
+    const headers = { 'Content-Type': 'application/json' };
+    if (PTY_HOST_HTTP_TOKEN) {
+      headers['X-Pty-Host-Token'] = `Bearer ${PTY_HOST_HTTP_TOKEN}`;
+    }
+    const res = await fetch(`${PTY_HOST_HTTP_URL.replace(/\/$/, '')}/exec`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        command,
+        args,
+        cwd: options.cwd,
+        timeout: options.timeout ?? CLI_TIMEOUT,
+        env: options.env,
+      }),
+      signal: ctrl.signal,
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(`PTY-Host /exec ${res.status}: ${text}`);
+    }
+    const body = await res.json();
+    return {
+      code: typeof body.code === 'number' ? body.code : 1,
+      stdout: String(body.stdout || ''),
+      stderr: String(body.stderr || ''),
+    };
+  } catch (err) {
+    if (err.name === 'AbortError') {
+      return { code: 124, stdout: '', stderr: '\n(timed out)' };
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Local fallback for running a command directly. Used when the API is started
+ * outside Docker (bare `node server/index.js`).
+ */
+function runLocal(command, args, options = {}) {
+  return new Promise((resolve) => {
+    execFile(
+      command,
+      args,
+      {
+        cwd: options.cwd,
+        timeout: options.timeout ?? CLI_TIMEOUT,
+        maxBuffer: 8 * 1024 * 1024,
+        env: { ...process.env, ...(options.env || {}) },
+      },
+      (error, stdout, stderr) => {
+        resolve({
+          code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
+          stdout: String(stdout || ''),
+          stderr: String(stderr || '') + (error && error.killed ? '\n(timed out)' : ''),
+        });
+      }
+    );
+  });
+}
+
 export const agentEvents = new EventEmitter();
 
 const CLAUDE_HOME = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
@@ -100,6 +189,11 @@ let cachedClaudeBin = null;
  * @returns {string|null}
  */
 export function resolveClaudeBinary() {
+  // When delegating to the PTY-Host on the host machine the binary does not
+  // need to exist inside this container - the host has its own PATH lookup.
+  if (PTY_HOST_HTTP_URL) {
+    return cachedClaudeBin || (cachedClaudeBin = 'claude (via PTY-Host)');
+  }
   if (cachedClaudeBin && fs.existsSync(cachedClaudeBin)) return cachedClaudeBin;
   const home = os.homedir();
   const candidates = [
@@ -129,11 +223,24 @@ export function resolveClaudeBinary() {
 
 /**
  * Run the claude CLI with an argument array.
+ *
+ * When the API runs in Docker (PTY_HOST_HTTP_URL is set) the call is delegated
+ * to the PTY-Host HTTP endpoint so the macOS-native `claude` binary on the
+ * host machine is used. Otherwise the binary is resolved locally and invoked
+ * with execFile as before.
+ *
  * @param {string[]} args
  * @param {{cwd?: string, timeout?: number, env?: object}} options
  * @returns {Promise<{code: number, stdout: string, stderr: string}>}
  */
 export function runClaude(args, options = {}) {
+  const env = { FORCE_HYPERLINK: '0', NO_COLOR: '1', ...(options.env || {}) };
+
+  if (PTY_HOST_HTTP_URL) {
+    const cwd = options.cwd && fs.existsSync(options.cwd) ? options.cwd : null;
+    return runOnHost('claude', args, { ...options, cwd, env });
+  }
+
   const bin = resolveClaudeBinary();
   if (!bin) {
     return Promise.reject(
@@ -143,25 +250,7 @@ export function runClaude(args, options = {}) {
     );
   }
   const cwd = options.cwd && fs.existsSync(options.cwd) ? options.cwd : os.homedir();
-  return new Promise((resolve) => {
-    execFile(
-      bin,
-      args,
-      {
-        cwd,
-        timeout: options.timeout ?? CLI_TIMEOUT,
-        maxBuffer: 8 * 1024 * 1024,
-        env: { ...process.env, ...options.env, FORCE_HYPERLINK: '0', NO_COLOR: '1' },
-      },
-      (error, stdout, stderr) => {
-        resolve({
-          code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
-          stdout: String(stdout || ''),
-          stderr: String(stderr || '') + (error && error.killed ? '\n(timed out)' : ''),
-        });
-      }
-    );
-  });
+  return runLocal(bin, args, { ...options, cwd, env });
 }
 
 // ---------------------------------------------------------------------------

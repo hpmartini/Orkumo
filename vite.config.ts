@@ -1,14 +1,15 @@
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { PORTS } from './config/defaults.js';
 
 export default defineConfig(({ mode }) => {
   // Load env file based on mode
   const env = loadEnv(mode, process.cwd(), '');
 
   // Port configuration from environment or defaults
-  const VITE_PORT = parseInt(env.VITE_PORT || '3000', 10);
-  const SERVER_PORT = parseInt(env.SERVER_PORT || '3001', 10);
+  const VITE_PORT = parseInt(env.VITE_PORT || String(PORTS.devhub), 10);
+  const SERVER_PORT = parseInt(env.SERVER_PORT || String(PORTS.server), 10);
 
   return {
     // Use relative paths for Electron file:// protocol

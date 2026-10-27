@@ -379,6 +379,8 @@ async function startBackendServer() {
     `${homeDir}/.asdf/shims`,
     `${homeDir}/.bun/bin`,
     `${homeDir}/Library/pnpm`,
+    '/opt/homebrew/bin', // gh, tailscale: Finder/Dock launch inherits only /usr/bin:/bin:/usr/sbin:/sbin
+    '/opt/homebrew/sbin',
     '/usr/local/bin',
     '/usr/bin',
     '/bin',

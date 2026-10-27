@@ -33,3 +33,6 @@ data/
 
 # Claude Code worktrees
 .claude/worktrees/
+
+# Symlink regression test temp dirs
+test/fixtures/tmp-*

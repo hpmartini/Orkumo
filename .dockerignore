@@ -8,6 +8,7 @@ coverage
 
 # Build
 dist
+dist-electron
 build
 .next
 out
@@ -43,6 +44,9 @@ docker-compose*.yml
 # Git
 .git
 .gitignore
+
+# Private module code
+data/modules
 
 # Documentation
 README.md

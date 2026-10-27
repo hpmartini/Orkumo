@@ -15,6 +15,7 @@ import {
   summarizeContext,
   mainRepoPath,
   repoName,
+  displayRepo,
   formatModelName,
   type SessionLookup,
 } from '../utils/agentSessions';
@@ -305,6 +306,60 @@ describe('groupSessions (project)', () => {
       ['project:api', 'api', 2],
     ]);
   });
+
+  const repoCtx = (root: string, slug: string | null) =>
+    ({ repo: { name: root.split('/').pop(), root, slug } }) as unknown as NonNullable<
+      SessionLookup['contexts']
+    >[string];
+
+  it('merges root and subfolder sessions of one repo into an app matched case-insensitively', () => {
+    // Issue #96: app stored as ~/projects/..., sessions run in ~/PROJECTS/... and a subfolder
+    const sessions = [
+      session({ id: 'r', cwd: '/Users/h/PROJECTS/MindApp' }),
+      session({ id: 's', cwd: '/Users/h/PROJECTS/MindApp/MindApp_v1' }),
+    ];
+    const lookup: SessionLookup = {
+      contexts: {
+        r: repoCtx('/Users/h/PROJECTS/MindApp', 'hpmartini/glen'),
+        s: repoCtx('/Users/h/PROJECTS/MindApp', 'hpmartini/glen'),
+      },
+    };
+    const mh = [{ id: 'mh', name: 'glen-monorepo', path: '/Users/h/projects/MindApp' }];
+    const groups = groupSessions(sessions, 'project', { apps: mh, lookup });
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:mh', 'glen (MindApp)', 2],
+    ]);
+  });
+
+  it('groups unmatched subfolder sessions by repo root once contexts load', () => {
+    const sessions = [
+      session({ id: 'r', cwd: '/tmp/proj' }),
+      session({ id: 's', cwd: '/tmp/proj/sub' }),
+    ];
+    // Before contexts: path-based keys, stable and deterministic
+    expect(groupSessions(sessions, 'project').map((g) => g.key)).toEqual([
+      'project:dir:/tmp/proj',
+      'project:dir:/tmp/proj/sub',
+    ]);
+    const lookup: SessionLookup = {
+      contexts: { r: repoCtx('/tmp/proj', null), s: repoCtx('/tmp/proj', null) },
+    };
+    const groups = groupSessions(sessions, 'project', { lookup });
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:dir:/tmp/proj', 'proj', 2],
+    ]);
+  });
+
+  it('titles by the GitHub repo name, folder in parentheses only when it differs', () => {
+    const sessions = [session({ id: 'a', cwd: '/x/web' }), session({ id: 'b', cwd: '/x/old' })];
+    const lookup: SessionLookup = {
+      contexts: { a: repoCtx('/x/web', 'me/Web'), b: repoCtx('/x/old', 'me/new-name') },
+    };
+    expect(groupSessions(sessions, 'project', { lookup }).map((g) => g.title)).toEqual([
+      'new-name (old)',
+      'Web',
+    ]);
+  });
 });
 
 describe('repoName / mainRepoPath', () => {
@@ -324,6 +379,29 @@ describe('repoName / mainRepoPath', () => {
     expect(repoName(s)).toBe('proj');
     expect(repoName(s, { contexts: { s: ctx('Real') } })).toBe('Real');
     expect(repoName(session({ id: 't', cwd: '/a/plain' }))).toBe('plain');
+  });
+});
+
+describe('displayRepo', () => {
+  it('falls back to a worktree hint from the session when the context has no repo', () => {
+    const s = session({
+      cwd: '/a/proj/.claude/worktrees/feat',
+      worktree: '/a/proj/.claude/worktrees/feat',
+    });
+    expect(displayRepo(s)).toMatchObject({
+      name: 'proj',
+      branch: null,
+      isWorktree: true,
+      worktreeName: 'feat',
+      worktreePath: '/a/proj/.claude/worktrees/feat',
+    });
+  });
+
+  it('prefers the context repo and shows nothing without context or worktree', () => {
+    const repo = { name: 'Real', branch: 'main', isWorktree: false };
+    const ctx = { repo } as unknown as Parameters<typeof displayRepo>[1];
+    expect(displayRepo(session({ worktree: '/a/proj/.claude/worktrees/feat' }), ctx)).toBe(repo);
+    expect(displayRepo(session({ cwd: '/a/plain' }))).toBeNull();
   });
 });
 

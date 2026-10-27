@@ -37,7 +37,7 @@ import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
-import { initializeDatabase, isDatabaseConnected } from './db/index.js';
+import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
 import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
@@ -59,6 +59,7 @@ import {
   sameGo,
 } from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
+import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
   getProcessStats as getServerProcessStats,
   parsePids,
@@ -100,7 +101,7 @@ const isRunningInDocker = (() => {
 })();
 
 // Host PTY service URL (for Docker mode)
-const PTY_HOST_URL = process.env.PTY_HOST_URL || 'ws://host.docker.internal:3098';
+const PTY_HOST_URL = process.env.PTY_HOST_URL || 'ws://host.docker.internal:3096';
 
 console.log(`[Server] Running in Docker: ${isRunningInDocker}`);
 if (isRunningInDocker) {
@@ -172,6 +173,13 @@ app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
 app.use('/api/terminal/ghostty', ghosttyRoutes);
+
+// Optional modules (docs/MODULES.md). Mounted now, filled by load() in startServer(),
+// so it sits before the 404 handler at the end of this file.
+const moduleHost = createModuleHost({
+  services: { agentService, boardService, db: { getDb, isDatabaseConnected } },
+});
+app.use('/api/modules', moduleHost.router);
 
 // ============================================
 // Input Validation Schemas (Zod)
@@ -3652,6 +3660,93 @@ app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
   }
 });
 
+// ============================================
+// Project contexts (#97): title bar tabs with their own favorites, board slices, agent tabs
+// ============================================
+
+const contextIdSchema = z.string().regex(/^[A-Za-z0-9-]{1,64}$/);
+const contextFieldsSchema = z.object({
+  name: z.string().trim().min(1).max(60),
+  // null = every project (the default "Alle" context)
+  appIds: z.array(idSchema).max(1000).nullable(),
+  boardFilter: boardSliceKeys,
+});
+// Client localStorage entries of the context being left (UI_KEYS in hooks/useProjectContexts.ts)
+const contextUiValue = z.string().max(300_000).nullable().optional();
+const contextUiSchema = z
+  .object({
+    'devOrbitAgentWorkspace.v2': contextUiValue,
+    devOrbitAgentWorkspace: contextUiValue,
+    'devOrbitAgentRail.v1': contextUiValue,
+  })
+  .strict();
+
+app.get('/api/contexts', (req, res) => {
+  try {
+    res.json(settingsService.getContexts());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post(
+  '/api/contexts',
+  validate(contextFieldsSchema.partial({ appIds: true, boardFilter: true }).strict()),
+  (req, res) => {
+    try {
+      res.status(201).json(settingsService.createContext(req.body));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.put(
+  '/api/contexts/order',
+  validate(z.object({ ids: z.array(contextIdSchema).max(100) }).strict()),
+  (req, res) => {
+    try {
+      res.json(settingsService.reorderContexts(req.body.ids));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.patch(
+  '/api/contexts/:id',
+  validateParams(contextIdSchema),
+  validate(contextFieldsSchema.partial().strict()),
+  (req, res) => {
+    try {
+      res.json(settingsService.updateContext(req.params.id, req.body));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.delete('/api/contexts/:id', validateParams(contextIdSchema), (req, res) => {
+  try {
+    res.json(settingsService.deleteContext(req.params.id));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post(
+  '/api/contexts/:id/activate',
+  validateParams(contextIdSchema),
+  validate(z.object({ ui: contextUiSchema.nullable(), from: contextIdSchema.optional() }).strict()),
+  (req, res) => {
+    try {
+      res.json(settingsService.activateContext(req.params.id, req.body.ui, req.body.from));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
 /**
  * Agent view preferences (grouping, layout, dispatch defaults, scope)
  */
@@ -3705,9 +3800,20 @@ const wsProxyMap = new Map();
 /**
  * Handle PTY connection in Docker mode - proxy to host PTY service
  */
-function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows) {
-  // Build URL to host PTY service
-  const hostPtyUrl = `${PTY_HOST_URL}?sessionId=${encodeURIComponent(sessionId)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
+function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows, options = {}) {
+  // Build URL to host PTY service. Forward command/args (e.g. "claude attach <id>")
+  // so the PTY-Host can spawn the right binary instead of a default shell.
+  const params = new URLSearchParams({
+    sessionId,
+    cwd,
+    cols: String(cols),
+    rows: String(rows),
+  });
+  if (options.command) params.set('command', options.command);
+  if (Array.isArray(options.args) && options.args.length > 0) {
+    params.set('args', JSON.stringify(options.args));
+  }
+  const hostPtyUrl = `${PTY_HOST_URL}?${params.toString()}`;
 
   console.log(`[PTY-Proxy] Connecting to host PTY service: ${hostPtyUrl}`);
 
@@ -3999,8 +4105,9 @@ wss.on('connection', (ws, req) => {
     );
 
     if (isRunningInDocker) {
-      // In Docker: proxy to host PTY service
-      handleDockerPtyConnection(ws, sessionId, cwd, cols, rows);
+      // In Docker: proxy to host PTY service (forward command/args so
+      // `claude attach <id>` works instead of always spawning a shell)
+      handleDockerPtyConnection(ws, sessionId, cwd, cols, rows, options);
     } else {
       // On host: spawn PTY directly
       handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options);
@@ -4060,6 +4167,7 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
 async function startServer() {
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
+  const modules = await moduleHost.load(getModulesDir());
 
   // A failure to bind is fatal and must be reported as such. Without this the
   // error reaches `uncaughtException` -> cleanup() -> exit code 0, which makes
@@ -4082,6 +4190,7 @@ async function startServer() {
     console.log(
       `   Database: ${dbConnected ? '✅ Connected' : '⚠️  Not connected (using file storage)'}`
     );
+    console.log(`   Modules: ${modules.length ? modules.map((m) => m.id).join(', ') : 'none'}`);
     console.log(`   WebSocket PTY: ws://localhost:${PORT}/api/pty`);
     console.log(`   Endpoints:`);
     console.log(`   - GET  /api/apps            - List discovered apps`);
@@ -4091,6 +4200,7 @@ async function startServer() {
     console.log(`   - POST /api/apps/:id/start  - Start an app`);
     console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
     console.log(`   - GET  /api/events          - SSE for real-time updates`);
+    console.log(`   - GET  /api/modules         - List loaded modules`);
     console.log(`   - WS   /api/pty             - WebSocket for terminal`);
   });
 }

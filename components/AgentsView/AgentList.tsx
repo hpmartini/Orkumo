@@ -25,6 +25,7 @@ import {
   sessionAgeMs,
   formatAge,
   shortenPath,
+  displayRepo,
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
@@ -529,7 +530,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                             ? selectedClass(railFocused)
                             : `bg-gray-800 text-gray-300 hover:text-white ${collapsed ? '' : 'border-b border-gray-700'}`
                         }`}
-                        title={grouping === 'directory' ? item.group.title : undefined}
+                        title={grouping === 'directory' ? item.group.title : item.group.cwd}
                       >
                         <button
                           aria-expanded={!collapsed}
@@ -656,6 +657,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                   const isActive = activeSessionId === session.id;
                   const isFav = !!favoriteSessionIds?.has(session.id);
                   const ctx = contexts[session.id];
+                  const repo = displayRepo(session, ctx);
                   // Stopped DevOrbit apps only carry their configured port: not worth a row entry
                   const sessionServers = (servers.get(session.id) || []).filter((s) => s.running);
                   const issueKeys = (onOpenIssue && issuesByAgent?.get(session.id)) || [];
@@ -770,61 +772,65 @@ export const AgentList: React.FC<AgentListProps> = ({
                         <div className="flex items-center gap-1.5 mt-0.5 h-5 text-[11px] text-gray-400 min-w-0">
                           {/* Repository + branch */}
                           <span className="flex-1 min-w-0 flex items-center gap-1">
-                            {ctx?.repo && (
+                            {repo && (
                               <span
                                 className="flex items-center gap-1 min-w-0 max-w-full overflow-hidden"
                                 title={[
-                                  ctx.repo.slug || ctx.repo.name,
-                                  ctx.repo.branch ? `branch ${ctx.repo.branch}` : 'detached HEAD',
-                                  ctx.repo.isWorktree ? worktreeTitle(ctx.repo) : null,
-                                  ctx.repo.dirty ? 'uncommitted changes' : null,
-                                  ctx.repo.ahead ? `${ctx.repo.ahead} ahead of upstream` : null,
-                                  ctx.repo.behind ? `${ctx.repo.behind} behind upstream` : null,
+                                  repo.slug || repo.name,
+                                  repo.branch
+                                    ? `branch ${repo.branch}`
+                                    : ctx?.repo
+                                      ? 'detached HEAD'
+                                      : null,
+                                  repo.isWorktree ? worktreeTitle(repo) : null,
+                                  repo.dirty ? 'uncommitted changes' : null,
+                                  repo.ahead ? `${repo.ahead} ahead of upstream` : null,
+                                  repo.behind ? `${repo.behind} behind upstream` : null,
                                 ]
                                   .filter(Boolean)
                                   .join('\n')}
                               >
-                                {ctx.repo.isWorktree ? (
+                                {repo.isWorktree ? (
                                   <GitBranchPlus size={10} className="shrink-0 text-sky-300" />
                                 ) : (
                                   <GitBranch size={10} className="shrink-0 text-gray-500" />
                                 )}
                                 {showRepoName && (
                                   <span className="truncate text-gray-300 min-w-[3.5rem] shrink-0 max-w-[60%]">
-                                    {ctx.repo.name}
+                                    {repo.name}
                                   </span>
                                 )}
-                                {ctx.repo.branch && (
+                                {repo.branch && (
                                   <span
                                     className={`truncate min-w-0 shrink-[2] ${showRepoName ? 'text-gray-500' : 'text-gray-300'}`}
                                   >
-                                    {ctx.repo.branch}
+                                    {repo.branch}
                                   </span>
                                 )}
-                                {ctx.repo.isWorktree && (
+                                {repo.isWorktree && (
                                   <span
                                     className="shrink-0 rounded border border-sky-300/40 px-1 text-[11px] leading-4 text-sky-300"
-                                    title={`Git ${worktreeTitle(ctx.repo)}`}
+                                    title={`Git ${worktreeTitle(repo)}`}
                                   >
                                     worktree
                                   </span>
                                 )}
-                                {ctx.repo.dirty && (
+                                {repo.dirty && (
                                   <span
                                     className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
                                     aria-label="Uncommitted changes"
                                   />
                                 )}
-                                {ctx.repo.ahead > 0 && (
+                                {repo.ahead > 0 && (
                                   <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
                                     <ArrowUp size={9} />
-                                    {ctx.repo.ahead}
+                                    {repo.ahead}
                                   </span>
                                 )}
-                                {ctx.repo.behind > 0 && (
+                                {repo.behind > 0 && (
                                   <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
                                     <ArrowDown size={9} />
-                                    {ctx.repo.behind}
+                                    {repo.behind}
                                   </span>
                                 )}
                               </span>
