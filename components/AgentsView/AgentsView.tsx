@@ -479,8 +479,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     (id: string) => {
       attachPane(id);
       setSelectedKey(id);
+      // From board/code/workflows/dashboard: the tab only shows on the agents route
+      if (!active) onOpenView();
     },
-    [attachPane]
+    [attachPane, active, onOpenView]
   );
 
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
@@ -1528,6 +1530,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           <ServersPanel rows={serverRows} onSelectAgent={attach} onClose={() => setPanel(null)} />
         )}
         <div className="flex-1" />
+        {!active && (
+          <button
+            onClick={onOpenView}
+            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+            title="Close this view and return to the agent tabs"
+            aria-label="Close view"
+          >
+            <X size={14} /> Close
+          </button>
+        )}
         <div
           className={`hidden ${active ? 'md:flex' : ''} items-center gap-1.5 text-[11px] text-gray-300`}
           role="status"

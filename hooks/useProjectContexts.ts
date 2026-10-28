@@ -9,8 +9,10 @@ import {
 } from './useAgentWorkspace';
 import { STORAGE_KEY as RAIL_KEY } from './useRailPreferences';
 
-/** localStorage entries that belong to the active context: attached agent tabs, rail prefs */
-const UI_KEYS = [WORKSPACE_KEY, WORKSPACE_LEGACY_KEY, RAIL_KEY];
+/** Last route (path + query) of a context, so board/workflows stay in the context they were opened in */
+export const ROUTE_KEY = 'devOrbitContextRoute';
+/** localStorage entries that belong to the active context: attached agent tabs, rail prefs, route */
+const UI_KEYS = [WORKSPACE_KEY, WORKSPACE_LEGACY_KEY, RAIL_KEY, ROUTE_KEY];
 /** Context the local UI_KEYS belong to; differs from the server's after another device switched */
 const MARKER_KEY = 'devOrbitContextId';
 

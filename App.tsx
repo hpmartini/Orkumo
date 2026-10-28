@@ -29,7 +29,7 @@ import {
 import { ModuleSlot } from './components/ModuleSlot';
 import { useApps, usePerAppState } from './hooks';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
-import { useProjectContexts } from './hooks/useProjectContexts';
+import { useProjectContexts, ROUTE_KEY } from './hooks/useProjectContexts';
 import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
 import type { PaletteCommand } from './utils/commandPalette';
 import { generateProjectUrl } from './utils/routing';
@@ -157,7 +157,33 @@ function AppContent() {
     }
   }, [projectId, apps, loading, isDashboardRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
 
+  // Each context keeps its own route (#97): it is parked with the context's ui on a switch
+  const route = location.pathname + location.search;
+  useEffect(() => {
+    try {
+      localStorage.setItem(ROUTE_KEY, route);
+    } catch {
+      // storage unavailable: the route just isn't remembered per context
+    }
+  }, [route]);
+  const activeContextId = contexts.active?.id;
+  const prevContextId = useRef(activeContextId);
+  useEffect(() => {
+    const prev = prevContextId.current;
+    prevContextId.current = activeContextId;
+    if (!prev || !activeContextId || prev === activeContextId) return;
+    let target: string | null = null;
+    try {
+      target = localStorage.getItem(ROUTE_KEY);
+    } catch {
+      // storage unavailable: fall back to the agents view
+    }
+    navigateRef.current(target || '/agents');
+  }, [activeContextId]);
+
   const handleSelectDashboard = () => navigate('/dashboard');
+  // Stable: AgentsView's attach callbacks depend on it
+  const openAgentsView = useCallback(() => navigate('/agents'), [navigate]);
 
   const handleSelectApp = (id: string) => {
     const app = apps.find((a) => a.id === id);
@@ -417,7 +443,7 @@ function AppContent() {
               active={activeTab === 'agents'}
               apps={apps}
               onExit={handleSelectDashboard}
-              onOpenView={() => navigate('/agents')}
+              onOpenView={openAgentsView}
               nav={{
                 onOpenDashboard: handleSelectDashboard,
                 onOpenWorkflows: () => navigate('/workflows'),

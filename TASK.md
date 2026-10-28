@@ -478,3 +478,14 @@ The following existing tasks are related to the new features above:
   - Root cause: #96 (`5f86df1`) hat `AgentContext['repo']` um `root` (Pfad des Haupt-Checkouts, vom Server über `resolveRepoIdentity`) erweitert. Der Worktree-Fallback in `displayRepo` (#53), der greift, bevor der Server-Kontext geladen ist, bekam das Feld nicht.
   - Solution: Der Fallback setzt `root = mainRepoPath(session.worktree)` und leitet `name` daraus ab, wie der Server. Der Test zu `displayRepo` prüft jetzt auch `root`.
 - Verifikation: tsc 0 Fehler, `test/agentSessions.test.ts` 42/42, Build grün.
+
+---
+
+### Dashboard, Board, Code, Workflows nicht schließbar; Board/Workflows in allen Kontexten (2026-10-28)
+
+- [x] **[FIX]** Kein Weg zurück zu den Agent-Tabs; die Route galt global statt pro Kontext
+  - Issue: Auf `/dashboard`, `/board`, `/code`, `/workflows` war der Workspace ausgeblendet. Ein Rail-Klick hängte die Session nur unsichtbar an, das Bot-Icon führte zum Dashboard. Ein Kontextwechsel ließ Board/Workflows offen.
+  - Approach: Routing in `App.tsx` und `AgentsView` gelesen. Mit Playwright gegen eine isolierte Server-Instanz geprüft (`DEVORBIT_DATA_PATH`, Ports 3198/3199).
+  - Solution: Close-Button in der Agents-Leiste außerhalb von `/agents`. `attach` öffnet `/agents`, wenn die Ansicht nicht aktiv ist. Die Route (`devOrbitContextRoute`) gehört jetzt zu den Kontext-UI-Daten (`UI_KEYS`, Server-Schema `contextUiSchema`) und wird nach einem Wechsel wiederhergestellt, ohne gemerkte Route `/agents`.
+- Verifikation: tsc 0 Fehler. Browser: Close auf allen vier Views → `/agents`; Rail-Doppelklick aus `/workflows` → `/agents`; Alpha `/board` / Beta `/workflows` bleiben beim Hin- und Herwechseln getrennt.
+- Offen: vitest 129 Fehlschläge (`React.act is not a function`), schon vor dem Fix vorhanden.

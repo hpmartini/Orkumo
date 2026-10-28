@@ -3678,6 +3678,7 @@ const contextUiSchema = z
     'devOrbitAgentWorkspace.v2': contextUiValue,
     devOrbitAgentWorkspace: contextUiValue,
     'devOrbitAgentRail.v1': contextUiValue,
+    devOrbitContextRoute: contextUiValue,
   })
   .strict();
 
