@@ -85,7 +85,9 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
     let fullBody = body;
     if (images.length && !orphan) {
       try {
-        const urls = await Promise.all(images.map((f) => uploadIssueImage(repo, f)));
+        // One after another: parallel commits to issue-assets collide (409/422)
+        const urls: string[] = [];
+        for (const f of images) urls.push(await uploadIssueImage(repo, f));
         // Uploaded once: a retry after a failed create must not upload them again
         fullBody = bodyWithImages(body, urls);
         setBody(fullBody);

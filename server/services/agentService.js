@@ -561,17 +561,6 @@ export function assertAllowedPath(target, allowedDirs, label = 'Directory') {
   return real;
 }
 
-function isHomeDir(target) {
-  try {
-    return (
-      typeof target === 'string' &&
-      fs.realpathSync(path.resolve(target)) === fs.realpathSync(os.homedir())
-    );
-  } catch {
-    return false;
-  }
-}
-
 /**
  * Validate dispatch options coming from a client:
  * - cwd and every --add-dir must be inside the allowed directories
@@ -598,11 +587,8 @@ export function sanitizeDispatchOptions(opts, context) {
       `Option(s) ${requested.join(', ')} are disabled on this server. Start it with DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true to enable them.`
     );
   }
-  // The home directory itself is the default of "New agent" (#105); its subfolders still
-  // need to be configured
-  const cwd = isHomeDir(opts.cwd)
-    ? fs.realpathSync(os.homedir())
-    : assertAllowedPath(opts.cwd, allowedDirs, 'Working directory');
+  // "New agent" in ~ opens an interactive PTY instead (claude refuses --bg in an untrusted home)
+  const cwd = assertAllowedPath(opts.cwd, allowedDirs, 'Working directory');
   const addDirs = (Array.isArray(opts.addDirs) ? opts.addDirs : [])
     .filter((dir) => typeof dir === 'string' && dir.trim())
     .map((dir) =>
@@ -737,7 +723,7 @@ export async function dispatch(opts = {}, context = {}) {
   const prompt = typeof opts.prompt === 'string' ? opts.prompt.trim() : '';
   const exec = typeof opts.exec === 'string' ? opts.exec.trim() : '';
   // `idle`: "New agent" starts a session without a prompt (`claude --bg` waits for input)
-  if (!exec && !opts.resume && !(opts.idle && !prompt) && prompt.length < MIN_PROMPT_LENGTH) {
+  if (!exec && !opts.resume && !opts.idle && prompt.length < MIN_PROMPT_LENGTH) {
     const error = new Error('Too short');
     error.status = 400;
     throw error;
