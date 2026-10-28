@@ -11,6 +11,7 @@ import {
   Plus,
   Search,
   X,
+  ArrowLeft,
 } from 'lucide-react';
 import type { AgentConfigLike } from './types';
 import type {
@@ -487,10 +488,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Workspace (tabs)
   // ---------------------------------------------------------------------
 
+  // Small screens show either the session list or the workspace; attaching switches to the workspace
+  const [narrowWorkspace, setNarrowWorkspace] = useState(false);
   const attach = useCallback(
     (id: string) => {
       attachPane(id);
       setSelectedKey(id);
+      setNarrowWorkspace(true);
       // From board/code/workflows/dashboard: the tab only shows on the agents route
       if (!active) onOpenView();
     },
@@ -1631,7 +1635,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           data-focus-zone="rail"
           data-rail-focused={railFocused}
           // On small screens the rail is the agents page; other routes show their main area instead
-          className={`${active ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+          className={`${active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
         >
           {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
           {railFocused && (
@@ -1813,8 +1817,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
         {/* Workspace */}
         <div
-          className={`flex-1 min-w-0 min-h-0 ${active ? 'hidden md:flex' : 'hidden'} overflow-hidden`}
+          className={`flex-1 min-w-0 min-h-0 ${active ? (narrowWorkspace ? 'flex flex-col' : 'hidden md:flex') : 'hidden'} md:flex-row overflow-hidden`}
         >
+          <button
+            type="button"
+            onClick={() => setNarrowWorkspace(false)}
+            className="md:hidden flex items-center gap-1.5 px-3 py-2 text-sm text-blue-300 border-b border-gray-800 shrink-0"
+          >
+            <ArrowLeft size={16} aria-hidden /> Agents
+          </button>
           <div className="flex-1 min-w-0 min-h-0">
             {/* One workspace per context visited, keyed by context: a switch moves the left one to
                 `parked` (hidden, terminals stay connected) without remounting it */}

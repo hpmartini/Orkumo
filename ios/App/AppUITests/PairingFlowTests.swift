@@ -3,7 +3,8 @@ import XCTest
 /// End-to-end check for the iOS app (Issue #120) against a running DevOrbit server.
 /// Inputs come from the environment (xcodebuild: TEST_RUNNER_<NAME>=…):
 /// PAIR_LINK (devorbit://pair?…), TERMINAL_PATH (app route with a shell terminal),
-/// MARKER (file the typed shell command creates), SCREENSHOT_DIR (where PNGs go).
+/// MARKER (file the typed shell command creates), ATTACH_ID + ATTACH_PROMPT (agent session to attach and what to send, optional),
+/// SCREENSHOT_DIR (where PNGs go).
 @available(iOS 16.4, *)
 final class PairingFlowTests: XCTestCase {
     private let env = ProcessInfo.processInfo.environment
@@ -55,6 +56,19 @@ final class PairingFlowTests: XCTestCase {
             pressReturn()
             sleep(3)
             shot("04-terminal")
+        }
+
+        if let agent = env["ATTACH_ID"] {
+            // Attach to a running agent session and send it a prompt through the attached terminal.
+            open("devorbit://open?path=%2Fagents%3Fattach%3D\(agent)")
+            sleep(10)
+            shot("05a-attach-open")
+            app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
+            sleep(1)
+            app.typeText(env["ATTACH_PROMPT"] ?? "Antworte nur mit OK")
+            pressReturn()
+            sleep(25)
+            shot("05-attach")
         }
     }
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Copy, Smartphone } from 'lucide-react';
+import QRCode from 'qrcode';
 import { API_BASE_URL, isNativeApp } from '../utils/apiConfig';
 
 interface PairingInfo {
@@ -12,6 +13,7 @@ interface PairingInfo {
 /** Admin panel: what the iOS app needs to pair with this Mac (Issue #120). Local only. */
 export function RemotePairingSection() {
   const [info, setInfo] = useState<PairingInfo | null>(null);
+  const [qr, setQr] = useState('');
 
   useEffect(() => {
     if (isNativeApp) return;
@@ -20,6 +22,14 @@ export function RemotePairingSection() {
       .then(setInfo)
       .catch(() => setInfo(null));
   }, []);
+
+  // The iPhone camera opens devorbit:// links from a QR code straight in the app.
+  useEffect(() => {
+    if (!info?.link) return;
+    QRCode.toDataURL(info.link, { margin: 1, width: 200 })
+      .then(setQr)
+      .catch(() => setQr(''));
+  }, [info?.link]);
 
   if (!info) return null;
 
@@ -52,9 +62,16 @@ export function RemotePairingSection() {
             {row('Adresse', info.url ?? 'Tailscale nicht gefunden: DEVORBIT_REMOTE_URL setzen')}
             {info.token && row('Token', info.token)}
             {info.link && row('Link', info.link)}
+            {qr && (
+              <img
+                src={qr}
+                alt="Pairing-QR-Code für die iOS-App"
+                className="mx-auto h-40 w-40 rounded bg-white p-1"
+              />
+            )}
             <p className="text-xs text-gray-500">
-              Link auf dem iPhone/iPad öffnen (z.B. per AirDrop oder Notiz) oder Adresse und Token
-              in der App eingeben.
+              QR-Code mit der iPhone/iPad-Kamera scannen, den Link öffnen (AirDrop, Notiz) oder
+              Adresse und Token in der App eingeben.
             </p>
           </>
         ) : (
