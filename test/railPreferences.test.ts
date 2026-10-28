@@ -164,6 +164,22 @@ describe('useRailPreferences expanded rows', () => {
     expect(keys(otherMode.result.current.arrange(groups))).toEqual(['a', 'b', 'c']);
   });
 
+  it('keeps favorite groups and agents on top across a reload', () => {
+    localStorage.removeItem('devOrbitAgentRail.v1');
+    const groups = [group('a', ['s1']), group('b', ['s2', 's3'])];
+    const first = renderHook(() => useRailPreferences('project'));
+    act(() => first.result.current.toggleFavoriteGroup('b'));
+    act(() => first.result.current.toggleFavoriteSession('s1'));
+    first.unmount();
+
+    const reloaded = renderHook(() => useRailPreferences('project'));
+    const arranged = reloaded.result.current.arrange(groups);
+    expect(arranged.map((g) => g.key)).toEqual([FAVORITES_GROUP_KEY, 'b', 'a']);
+    expect(arranged[0].sessions.map((s) => s.id)).toEqual(['s1']);
+    expect(reloaded.result.current.favoriteGroups.has('b')).toBe(true);
+    expect(reloaded.result.current.favoriteSessions.has('s1')).toBe(true);
+  });
+
   it('starts in the project grouping on client and server', () => {
     expect(DEFAULT_AGENT_VIEW_SETTINGS.grouping).toBe('project');
     expect(SERVER_DEFAULTS.grouping).toBe('project');
