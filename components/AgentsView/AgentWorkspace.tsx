@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import { X, Columns2, Rows2, LayoutGrid, Bot } from 'lucide-react';
+import { X, Columns2, Rows2, LayoutGrid, Bot, Globe, Maximize2 } from 'lucide-react';
 import type { AgentSession } from '../../types';
 import { stateGlyph } from '../../utils/agentSessions';
 import {
   AGENT_TAB_MIME,
+  browserUrl,
   dropZone,
   insertPosition,
   stepIndices,
@@ -16,6 +17,7 @@ import {
   type WorkspaceTab,
 } from '../../utils/agentWorkspace';
 import { AgentTerminal } from './AgentTerminal';
+import { BrowserPreviewPanel } from '../CodingView/BrowserPreviewPanel';
 import type { FocusZone } from '../../hooks/useAgentFocusZone';
 
 interface AgentWorkspaceProps {
@@ -30,6 +32,8 @@ interface AgentWorkspaceProps {
   onDetach: (sessionId: string) => void;
   onSetLayout: (tabId: string, layout: PaneLayout) => void;
   onPeek: (sessionId: string) => void;
+  /** Cmd/Ctrl-click on a terminal link: show it in a browser pane next to `fromId` */
+  onOpenLink?: (fromId: string, url: string) => void;
   /** Where keyboard focus is; only the active pane of the visible tab can show as focused */
   focusZone: FocusZone;
   /** Extra header content per pane (linked PRs, issues, processes) */
@@ -66,6 +70,81 @@ const ZONE_HIGHLIGHT: Record<DropZone, string> = {
 
 /** Panes narrower than this are unreadable terminals: stack them instead */
 const MIN_PANE_PX = 400;
+
+/** Stand-in session for a browser pane, so tab strip, titles and drag treat it like any pane */
+function browserSession(id: string): AgentSession | null {
+  const url = browserUrl(id);
+  if (url === null) return null;
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {
+    // keep the raw url as the name
+  }
+  return {
+    id,
+    sessionId: null,
+    kind: 'background',
+    cwd: url,
+    startedAt: 0,
+    name: host,
+    state: null,
+    pinned: false,
+    order: null,
+    links: [],
+    displayState: 'idle',
+  };
+}
+
+/** Built-in browser next to the agent terminals; reuses the Coding view's preview */
+const BrowserPane: React.FC<{
+  url: string;
+  active: boolean;
+  onFocus: () => void;
+  onClose: () => void;
+  onMaximize?: () => void;
+  headerProps?: React.HTMLAttributes<HTMLDivElement>;
+}> = ({ url, active, onFocus, onClose, onMaximize, headerProps }) => (
+  <div
+    className={`h-full flex flex-col min-h-0 rounded border ${active ? 'border-blue-500/60' : 'border-gray-800'} bg-gray-900`}
+    onMouseDownCapture={onFocus}
+  >
+    <div
+      {...headerProps}
+      className={`flex items-center gap-2 h-8 px-2 shrink-0 border-b border-gray-800 text-xs text-gray-400 ${
+        headerProps?.draggable ? 'cursor-grab active:cursor-grabbing' : ''
+      } ${headerProps?.className ?? ''}`}
+    >
+      <Globe size={12} aria-hidden="true" />
+      <span className="truncate" title={url}>
+        {url}
+      </span>
+      <div className="flex-1" />
+      {onMaximize && (
+        <button
+          onClick={onMaximize}
+          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+          title="Own tab"
+          aria-label="Move browser to its own tab"
+        >
+          <Maximize2 size={12} />
+        </button>
+      )}
+      <button
+        onClick={onClose}
+        className="p-1.5 rounded text-gray-400 hover:text-red-300 hover:bg-gray-800"
+        title="Close"
+        aria-label="Close browser"
+      >
+        <X size={12} />
+      </button>
+    </div>
+    <div className="flex-1 min-h-0">
+      {/* No app id: the preview's logger injection is per managed app */}
+      <BrowserPreviewPanel url={url} appId="" onHide={onClose} />
+    </div>
+  </div>
+);
 
 const isAgentDrag = (e: React.DragEvent) => e.dataTransfer.types.includes(AGENT_TAB_MIME);
 
@@ -121,6 +200,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   onDetach,
   onSetLayout,
   onPeek,
+  onOpenLink,
   focusZone,
   renderPaneMeta,
   hidden = false,
@@ -141,9 +221,11 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   const tabs: ResolvedTab[] = workspace.tabs
     .map((tab) => ({
       tab,
-      sessions: tab.panes.map((id) => byId.get(id)).filter((s): s is AgentSession => !!s),
+      sessions: tab.panes
+        .map((id) => byId.get(id) ?? browserSession(id))
+        .filter((s): s is AgentSession => !!s),
     }))
-    .filter((t) => t.sessions.length > 0);
+    .filter((t) => t.sessions.some((s) => browserUrl(s.id) === null));
   const order = tabs.map((t) => t.tab.id);
   const activeTabId = order.includes(workspace.activeTabId ?? '')
     ? workspace.activeTabId
@@ -194,7 +276,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     };
   }, [drag]);
   useEffect(() => {
-    if (drag && !byId.has(drag.sessionId)) finishDrag();
+    if (drag && !byId.has(drag.sessionId) && browserUrl(drag.sessionId) === null) finishDrag();
   }, [drag, sessions]);
 
   const dragProps = (state: DragState) => ({
@@ -236,30 +318,50 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     visible: boolean
   ) => {
     const multi = panes.length > 1;
+    const url = browserUrl(session.id);
     return (
       <div className="relative h-full min-h-0">
-        <AgentTerminal
-          session={session}
-          visible={visible}
-          active={session.id === tab.activeSessionId}
-          focused={visible && focusZone === 'terminal' && session.id === tab.activeSessionId}
-          onFocus={() => onFocusPane(session.id)}
-          onClose={() => onClosePane(session.id)}
-          onPeek={() => onPeek(session.id)}
-          onMaximize={multi ? () => onDetach(session.id) : undefined}
-          solo={!multi}
-          meta={renderPaneMeta?.(session)}
-          headerProps={
-            multi
-              ? {
-                  ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
-                  className: drag?.id === session.id ? 'opacity-50' : '',
-                  title:
-                    'Drag onto a pane edge to rearrange, or onto the tab strip for its own tab',
-                }
-              : undefined
-          }
-        />
+        {url !== null ? (
+          <BrowserPane
+            url={url}
+            active={session.id === tab.activeSessionId}
+            onFocus={() => onFocusPane(session.id)}
+            onClose={() => onClosePane(session.id)}
+            onMaximize={multi ? () => onDetach(session.id) : undefined}
+            headerProps={
+              multi
+                ? {
+                    ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
+                    className: drag?.id === session.id ? 'opacity-50' : '',
+                  }
+                : undefined
+            }
+          />
+        ) : (
+          <AgentTerminal
+            session={session}
+            visible={visible}
+            active={session.id === tab.activeSessionId}
+            focused={visible && focusZone === 'terminal' && session.id === tab.activeSessionId}
+            onFocus={() => onFocusPane(session.id)}
+            onClose={() => onClosePane(session.id)}
+            onPeek={() => onPeek(session.id)}
+            onMaximize={multi ? () => onDetach(session.id) : undefined}
+            solo={!multi}
+            meta={renderPaneMeta?.(session)}
+            onOpenLink={onOpenLink && ((link) => onOpenLink(session.id, link))}
+            headerProps={
+              multi
+                ? {
+                    ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
+                    className: drag?.id === session.id ? 'opacity-50' : '',
+                    title:
+                      'Drag onto a pane edge to rearrange, or onto the tab strip for its own tab',
+                  }
+                : undefined
+            }
+          />
+        )}
         {drag && drag.sessionId !== session.id && visible && (
           <SplitOverlay
             onDropZone={(zone) => (onSplit(drag.sessionId, session.id, zone), finishDrag())}

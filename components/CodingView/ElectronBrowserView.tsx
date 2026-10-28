@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useRef, useCallback, useState, useId } from 'react';
 import {
   RefreshCw,
   ExternalLink,
@@ -31,7 +31,9 @@ const VIEWPORTS: Record<Viewport, { width: number | null; label: string; icon: L
  */
 export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const viewIdRef = useRef<string>(`browser-view-${appId}`);
+  // Views without an app (agent workspace browser panes) still need a unique native view id
+  const fallbackId = useId();
+  const viewIdRef = useRef<string>(`browser-view-${appId || fallbackId}`);
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [currentUrl, setCurrentUrl] = useState(url);
   const [urlError, setUrlError] = useState<string | null>(null);
