@@ -119,6 +119,8 @@ interface AgentsViewProps {
   children?: React.ReactNode;
 }
 
+const noop = () => {};
+
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
 const REMOTE_STORAGE_KEY = 'devOrbitAgentRemote';
@@ -187,6 +189,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [peekId, setPeekId] = useState<string | null>(null);
   const {
     workspace,
+    parked,
     openIds: openIdSet,
     attach: attachPane,
     closePane,
@@ -1813,33 +1816,45 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           className={`flex-1 min-w-0 min-h-0 ${active ? 'hidden md:flex' : 'hidden'} overflow-hidden`}
         >
           <div className="flex-1 min-w-0 min-h-0">
-            <AgentWorkspace
-              sessions={[...sessions, ...cloudSessions]}
-              workspace={workspace}
-              onActivateTab={workspaceActions.activateTab}
-              onFocusPane={workspaceActions.focusPane}
-              onClosePane={closeAnyPane}
-              onCloseTab={workspaceActions.closeTab}
-              onMoveTab={workspaceActions.moveTab}
-              onSplit={workspaceActions.split}
-              onDetach={workspaceActions.detach}
-              onSetLayout={workspaceActions.setLayout}
-              onPeek={(id) => setPeekId(id)}
-              focusZone={focusZone}
-              renderPaneMeta={(s) => (
-                <SessionLinks
-                  session={s}
-                  ctx={contexts[s.id]}
-                  servers={(servers.get(s.id) || []).filter((srv) => srv.running)}
-                  issueKeys={issuesByAgent?.get(s.id) || []}
-                  onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
-                  onOpenPrs={(repo) => {
-                    setPrRepo(repo);
-                    setPanel('prs');
-                  }}
-                />
-              )}
-            />
+            {/* One workspace per context visited, keyed by context: a switch moves the left one to
+                `parked` (hidden, terminals stay connected) without remounting it */}
+            {[...Object.entries(parked), [contextId ?? '', workspace] as const].map(([id, ws]) => {
+              const live = id === (contextId ?? '');
+              const allSessions = [...sessions, ...cloudSessions];
+              return (
+                <div key={id} className={live ? 'h-full' : 'hidden'}>
+                  <AgentWorkspace
+                    hidden={!live}
+                    // A session open in the live workspace attaches there only, not twice
+                    sessions={live ? allSessions : allSessions.filter((x) => !openIdSet.has(x.id))}
+                    workspace={ws}
+                    onActivateTab={live ? workspaceActions.activateTab : noop}
+                    onFocusPane={live ? workspaceActions.focusPane : noop}
+                    onClosePane={live ? closeAnyPane : noop}
+                    onCloseTab={live ? workspaceActions.closeTab : noop}
+                    onMoveTab={live ? workspaceActions.moveTab : noop}
+                    onSplit={live ? workspaceActions.split : noop}
+                    onDetach={live ? workspaceActions.detach : noop}
+                    onSetLayout={live ? workspaceActions.setLayout : noop}
+                    onPeek={live ? (sid) => setPeekId(sid) : noop}
+                    focusZone={focusZone}
+                    renderPaneMeta={(x) => (
+                      <SessionLinks
+                        session={x}
+                        ctx={contexts[x.id]}
+                        servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
+                        issueKeys={issuesByAgent?.get(x.id) || []}
+                        onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+                        onOpenPrs={(repo) => {
+                          setPrRepo(repo);
+                          setPanel('prs');
+                        }}
+                      />
+                    )}
+                  />
+                </div>
+              );
+            })}
           </div>
           {peekSession && (
             <div className="w-[400px] xl:w-[460px] shrink-0 min-h-0">

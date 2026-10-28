@@ -511,4 +511,16 @@ The following existing tasks are related to the new features above:
   - Approach: Playwright gegen eine isolierte Instanz: Marker am `[data-agents-view]`-Knoten, MutationObserver auf sein Verschwinden, Requests beim Wechsel mitgeschnitten.
   - Solution: `refreshApps` setzt `loading` nicht mehr auf `true`. `loading` gilt nur für den ersten Start (Startwert `true`), jeder spätere Refresh läuft im Hintergrund.
 - Verifikation: tsc 0 Fehler, vitest 591/591. Browser: Nach zwei Wechseln derselbe `AgentsView`-Knoten, 0 Unmounts. Beim Wechsel nur noch `/api/apps`, `/api/settings`, `/api/settings/agent-view`, kein `/api/agents`, `/api/agents/context`, `/api/agents/stream` mehr.
-- Offen: Angehängte Terminals des verlassenen Kontexts werden weiter ausgehängt und beim Zurückwechseln neu verbunden. Das kommt aus dem eigenen Workspace pro Kontext (#97), nicht aus dem Lade-Skelett. Abhilfe wäre, die Terminals aller Kontexte versteckt gemountet zu lassen.
+- Offen: Angehängte Terminals des verlassenen Kontexts werden weiter ausgehängt und beim Zurückwechseln neu verbunden. Das kommt aus dem eigenen Workspace pro Kontext (#97), nicht aus dem Lade-Skelett. Abhilfe wäre, die Terminals aller Kontexte versteckt gemountet zu lassen. Gelöst im nächsten Eintrag.
+
+---
+
+### Attachte Terminals verbinden sich nach einem Kontextwechsel neu (2026-10-28)
+
+- [x] **[FIX]** Terminals des verlassenen Kontexts wurden ausgehängt
+  - Issue: Wechsel A → B → A baute die angehängten Terminals von A ab und verband sie bei der Rückkehr neu (neuer WebSocket, neues `claude attach`).
+  - Root cause: `useAgentWorkspace` ersetzte beim Wechsel den Workspace (`setWorkspace(load())`), und `AgentWorkspace` rendert nur die Tabs des aktuellen Workspace. Jeder Kontext hat seit #97 eigene Tabs.
+  - Approach: Playwright gegen die isolierte Instanz: Marker am `.xterm`-Knoten, neue WebSockets während der Wechsel mitgezählt.
+  - Solution: `useAgentWorkspace` parkt den Workspace des verlassenen Kontexts (`parked`), und zwar im selben Render, damit nichts zwischendurch abgebaut wird. `AgentsView` rendert pro besuchtem Kontext ein `AgentWorkspace`, geschlüsselt nach `contextId`. So wandert ein Workspace zwischen live und geparkt, ohne neu gemountet zu werden. Geparkte Workspaces sind versteckt (`hidden`: kein Terminal gilt als sichtbar, also kein Fokus und kein Resize) und haben No-op-Handler. Sessions, die im Live-Workspace offen sind, hängen dort nur einmal an.
+- Verifikation: tsc 0 Fehler, vitest 592/592 (neu: `test/useAgentWorkspace.test.ts`). Browser: Nach A → B → A derselbe `.xterm`-Knoten, 0 neue WebSockets, in B kein Terminal sichtbar, Fokus bleibt in der Agents-View.
+- Grenzen: Geparkte Terminals bleiben bis zum Neuladen der Seite verbunden, auch für einen inzwischen gelöschten Kontext. Ist eine Session in A und B offen, verbindet sie sich beim Wechsel neu, damit sie nicht doppelt anhängt.

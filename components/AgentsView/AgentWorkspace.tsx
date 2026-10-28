@@ -34,6 +34,8 @@ interface AgentWorkspaceProps {
   focusZone: FocusZone;
   /** Extra header content per pane (linked PRs, issues, processes) */
   renderPaneMeta?: (session: AgentSession) => React.ReactNode;
+  /** Parked workspace of another context: terminals stay connected but never count as visible */
+  hidden?: boolean;
 }
 
 /** What is being dragged: a whole tab (moves its active session on split) or one pane */
@@ -121,6 +123,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   onPeek,
   focusZone,
   renderPaneMeta,
+  hidden = false,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
   const [dropTarget, setDropTarget] = useState<{ id: string; position: InsertPosition } | null>(
@@ -549,7 +552,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
       <div ref={bodyRef} className="relative flex-1 min-h-0">
         {tabs.map((resolved) => {
           const { tab } = resolved;
-          const visible = tab.id === activeTabId;
+          const visible = !hidden && tab.id === activeTabId;
           return (
             <div
               key={tab.id}
