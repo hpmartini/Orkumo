@@ -4209,7 +4209,9 @@ async function startServer() {
     process.exit(1);
   });
 
-  server.listen(PORT, () => {
+  // Remote access goes through `tailscale serve` → loopback; never expose the remote mode on all interfaces.
+  const host = remoteAccess.isRemoteEnabled() ? '127.0.0.1' : undefined;
+  server.listen(PORT, host, () => {
     console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
     console.log(`   AI Features: ${getApiKey() ? '✅ Enabled' : '❌ Disabled (no API key)'}`);
     console.log(

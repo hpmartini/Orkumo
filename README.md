@@ -106,14 +106,14 @@ Die iOS-App ist eine Capacitor-Hülle um denselben React-Build (`ios/`). Sie ist
 
 ```bash
 DEVORBIT_REMOTE=true bun run server          # oder DEVORBIT_REMOTE=true in .env.local
-tailscale serve --bg --https=8443 http://127.0.0.1:3001   # HTTPS nur im Tailnet
+tailscale serve --bg --https=8443 http://127.0.0.1:3099   # HTTPS nur im Tailnet (3099 = Standard-SERVER_PORT)
 ```
 
-- Mit `DEVORBIT_REMOTE=true` braucht jede Anfrage, die nicht direkt von localhost kommt (auch über `tailscale serve`), den Pairing-Token. Er liegt in `<data>/remote-token` (Modus 600) und wird beim ersten Start erzeugt.
+- Mit `DEVORBIT_REMOTE=true` braucht jede Anfrage, die nicht direkt von localhost kommt (auch über `tailscale serve`), den Pairing-Token. Er liegt in `<data>/remote-token` (Modus 600) und wird beim ersten Start erzeugt. Der Server lauscht dann nur auf `127.0.0.1`; von außen kommt man ausschließlich über `tailscale serve` heran.
 - HTTPS ist Pflicht: WKWebView blockt `http`-Fetch und -WebSocket aus der App (`capacitor://`) als Mixed Content. Bind an die Tailnet-IP mit http reicht daher nicht.
 - Läuft `tailscale serve` auf einem anderen Port als 443 oder unter anderem Namen: `DEVORBIT_REMOTE_URL=https://<mac>.<tailnet>.ts.net:8443` setzen, sonst nimmt die Pairing-Anzeige `https://<MagicDNS-Name>`.
 
-**2. Koppeln:** Admin Panel → „iOS-App“ zeigt Adresse, Token und den Link `devorbit://pair?…`. Den Link auf iPhone/iPad öffnen (AirDrop, Notiz) oder Adresse und Token in der App eingeben. Lehnt der Server den Token ab, fragt die App neu danach.
+**2. Koppeln:** Admin Panel → „iOS-App“ zeigt Adresse, Token, den Link `devorbit://pair?…` und denselben Link als QR-Code. QR-Code mit der Kamera-App scannen, den Link auf iPhone/iPad öffnen (AirDrop, Notiz) oder Adresse und Token in der App eingeben. Lehnt der Server den Token ab, fragt die App neu danach.
 
 **3. App bauen und installieren** (Xcode, kostenloses Personal Team reicht)
 
