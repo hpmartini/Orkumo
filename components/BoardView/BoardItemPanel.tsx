@@ -307,7 +307,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           </dd>
         </dl>
 
-        {editable && <FlowControls item={item} repoOptions={repoOptions} onSave={save} />}
+        {editable && <FlowControls labels={item.labels} repoOptions={repoOptions} onSave={save} />}
 
         {editable && <IssueBody body={details?.body ?? null} error={detailsError} onSave={save} />}
 

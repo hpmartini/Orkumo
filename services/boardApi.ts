@@ -11,6 +11,7 @@ import type {
   BoardRepoOptions,
   BoardSettings,
   IssueComment,
+  IssueSummary,
   WorkflowDetails,
   WorkflowRunInfo,
 } from '../types';
@@ -79,12 +80,17 @@ export async function addIssueComment(issueId: string, body: string): Promise<Is
   return comments;
 }
 
-/** Node id of an issue by repo and number (for issues not on the board) */
-export async function fetchIssueId(repo: string, number: number): Promise<string> {
-  const { issueId } = await request<{ issueId: string }>(
-    `/board/issue-id?repo=${encodeURIComponent(repo)}&number=${number}`
-  );
-  return issueId;
+/** Title, body and labels of an issue by repo and number (for issues not on the board) */
+export function fetchIssueSummary(repo: string, number: number): Promise<IssueSummary> {
+  return request<IssueSummary>(`/board/issue?repo=${encodeURIComponent(repo)}&number=${number}`);
+}
+
+/** Replaces the label set of an issue that is not on the board */
+export function setIssueLabels(issueId: string, labels: string[]): Promise<IssueSummary> {
+  return request<IssueSummary>(`/board/issues/${encodeURIComponent(issueId)}/labels`, {
+    method: 'PUT',
+    body: JSON.stringify({ labels }),
+  });
 }
 
 /** Creates the issue and adds it to the board project; returns the new board item */

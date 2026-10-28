@@ -1,5 +1,5 @@
 import React from 'react';
-import type { BoardItem, BoardRepoOptions } from '../../types';
+import type { BoardLabel, BoardRepoOptions } from '../../types';
 import {
   BUILD_LABEL,
   DYNAMIC_LABEL,
@@ -30,11 +30,11 @@ const btnState = (on: boolean) =>
 
 /** mw-board control labels as buttons; a label missing in the repo disables its button */
 export const FlowControls: React.FC<{
-  item: BoardItem;
+  labels: BoardLabel[];
   repoOptions: BoardRepoOptions | null;
   onSave: IssueSave;
-}> = ({ item, repoOptions, onSave }) => {
-  const names = item.labels.map((l) => l.name);
+}> = ({ labels, repoOptions, onSave }) => {
+  const names = labels.map((l) => l.name);
   const exists = (label: string) => !!repoOptions?.labels.some((l) => l.name === label);
   const apply = (next: string[]) =>
     onSave({ labels: next }, { labels: labelsFor(next, repoOptions) });

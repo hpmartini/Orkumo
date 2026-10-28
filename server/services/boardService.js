@@ -412,6 +412,35 @@ export async function issueNodeId(repo, number) {
   return id;
 }
 
+const ISSUE_SUMMARY_QUERY = `query($id:ID!){node(id:$id){... on Issue{
+  id number title body url state repository{nameWithOwner} labels(first:50){nodes{name color}}
+}}}`;
+
+/** Title, body and labels of an issue by node id (issue modal for issues not on the board) */
+export async function getIssueSummary(issueId) {
+  const node = (await ghGraphql(ISSUE_SUMMARY_QUERY, { id: issueId }))?.node;
+  if (!node?.id) throw httpError('Issue not found', 404);
+  return {
+    issueId: node.id,
+    repo: node.repository?.nameWithOwner ?? '',
+    number: node.number,
+    title: node.title,
+    body: node.body ?? '',
+    url: node.url,
+    state: node.state,
+    labels: (node.labels?.nodes || [])
+      .filter(Boolean)
+      .map((l) => ({ name: l.name, color: l.color })),
+  };
+}
+
+/** Replaces the label set of an issue that is not on the board; the repo comes from GitHub */
+export async function setIssueLabels(issueId, labels) {
+  const { repo } = await getIssueSummary(issueId);
+  await applyIssuePatch({ issueId, repo }, { labels });
+  return getIssueSummary(issueId);
+}
+
 /** Body and full sub-issue list of an issue (loaded when its panel opens, not with the board). */
 export async function getIssueDetails(issueId) {
   const node = (await ghGraphql(ISSUE_DETAILS_QUERY, { id: issueId }))?.node;

@@ -13,7 +13,8 @@ const api = vi.hoisted(() => ({
   fetchIssueDetails: vi.fn(),
   fetchIssueComments: vi.fn(),
   addIssueComment: vi.fn(),
-  fetchIssueId: vi.fn(),
+  fetchIssueSummary: vi.fn(),
+  setIssueLabels: vi.fn(),
   fetchRepoPath: vi.fn(),
   errorDetails: () => ({}),
 }));
@@ -177,15 +178,38 @@ describe('IssueModal (#104)', () => {
     expect((screen.getByRole('radio', { name: 'Image' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('issue not on the board: comments via resolved id, board button disabled', async () => {
-    api.fetchIssueId.mockResolvedValue('I_9');
+  it('issue not on the board: title, body, labels, control buttons and comments', async () => {
+    const summary = {
+      issueId: 'I_9',
+      repo: 'o/r',
+      number: 99,
+      title: 'Fremdes Issue',
+      body: 'Text',
+      url: 'https://github.com/o/r/issues/99',
+      state: 'OPEN',
+      labels: [{ name: 'bug', color: 'ff0000' }],
+    };
+    api.fetchIssueSummary.mockResolvedValue(summary);
+    api.setIssueLabels.mockImplementation(async (_id, names: string[]) => ({
+      ...summary,
+      labels: names.map((name) => ({ name, color: '000000' })),
+    }));
     renderModal('o/r#99');
+    expect(await screen.findByText('Fremdes Issue')).toBeTruthy();
+    expect(screen.getByText('Text')).toBeTruthy();
     expect(await screen.findByText('Rückfrage?')).toBeTruthy();
-    expect(api.fetchIssueId).toHaveBeenCalledWith('o/r', 99);
+    expect(api.fetchIssueSummary).toHaveBeenCalledWith('o/r', 99);
     expect(api.fetchIssueComments).toHaveBeenCalledWith('I_9');
     expect((screen.getByRole('button', { name: /Board/ }) as HTMLButtonElement).disabled).toBe(
       true
     );
+    const build = screen.getByRole('button', { name: 'Umsetzen' }) as HTMLButtonElement;
+    await waitFor(() => expect(build.disabled).toBe(false));
+    fireEvent.click(build);
+    await waitFor(() =>
+      expect(api.setIssueLabels).toHaveBeenCalledWith('I_9', ['bug', 'mw:build'])
+    );
+    await waitFor(() => expect(build.getAttribute('aria-pressed')).toBe('true'));
   });
 
   it('Escape closes', async () => {

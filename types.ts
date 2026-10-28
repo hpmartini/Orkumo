@@ -652,7 +652,6 @@ export interface BoardRepoOptions {
   milestones: { id: string; title: string }[];
 }
 
-/** Lazily loaded issue parts (GET /api/board/issues/:issueId) */
 export interface IssueComment {
   id: string;
   author: string;
@@ -661,6 +660,19 @@ export interface IssueComment {
   url: string;
 }
 
+/** Issue that is not on the board, as the issue modal shows it (GET /api/board/issue) */
+export interface IssueSummary {
+  issueId: string;
+  repo: string;
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: 'OPEN' | 'CLOSED';
+  labels: BoardLabel[];
+}
+
+/** Lazily loaded issue parts (GET /api/board/issues/:issueId) */
 export interface BoardIssueDetails {
   body: string;
   subIssues: (BoardIssueRef & { id: string; state: string })[];

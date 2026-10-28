@@ -20,6 +20,8 @@ const {
   createIssue,
   getIssueComments,
   addIssueComment,
+  getIssueSummary,
+  setIssueLabels,
 } = await import('../server/services/boardService.js');
 const { CREATE_GRACE_MS } = await import('../utils/boardWrites.js');
 
@@ -669,5 +671,64 @@ describe('boardService - issue comments (#104)', () => {
     expect(calls[0]).toContain('body=Hallo\n> zitat');
     expect(calls[0]).toContain('id=I_1');
     expect(comments.map((c) => c.id)).toEqual(['C9']);
+  });
+
+  it("off-board issue: summary by id, label set resolved against the issue's own repo", async () => {
+    let labels = [{ name: 'bug', color: 'f00' }];
+    const summary = () =>
+      JSON.stringify({
+        data: {
+          node: {
+            id: 'I_5',
+            number: 5,
+            title: 'T',
+            body: null,
+            url: 'u',
+            state: 'OPEN',
+            repository: { nameWithOwner: 'o/offboard' },
+            labels: { nodes: labels },
+          },
+        },
+      });
+    const calls = routeGh([
+      ['labels(first:50)', summary],
+      [
+        'labels(first:100',
+        JSON.stringify({
+          data: {
+            repository: {
+              id: 'R',
+              labels: {
+                nodes: [
+                  { id: 'LA_b', name: 'bug', color: 'f00' },
+                  { id: 'LA_m', name: 'mw:build', color: '0f0' },
+                ],
+              },
+              assignableUsers: { nodes: [] },
+              milestones: { nodes: [] },
+            },
+          },
+        }),
+      ],
+      [
+        'updateIssue',
+        () => {
+          labels = [...labels, { name: 'mw:build', color: '0f0' }];
+          return '{"data":{"updateIssue":{"issue":{"id":"I_5"}}}}';
+        },
+      ],
+    ]);
+    expect(await getIssueSummary('I_5')).toMatchObject({ repo: 'o/offboard', body: '', number: 5 });
+    const after = await setIssueLabels('I_5', ['bug', 'mw:build']);
+    const update = calls.find((a) => String(a[3]).includes('updateIssue'));
+    expect(update).toContain('labelIds[]=LA_b');
+    expect(update).toContain('labelIds[]=LA_m');
+    expect(calls.some((a) => a.includes('owner=o') && a.includes('name=offboard'))).toBe(true);
+    expect(after.labels.map((l) => l.name)).toEqual(['bug', 'mw:build']);
+  });
+
+  it('off-board summary 404s for an unknown node', async () => {
+    routeGh([['labels(first:50)', '{"data":{"node":null}}']]);
+    await expect(getIssueSummary('I_x')).rejects.toMatchObject({ status: 404 });
   });
 });
