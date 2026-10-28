@@ -264,4 +264,13 @@ describe('agentService - dispatch safety', () => {
       mod.dispatch({ cwd: outside, idle: true, prompt: 'hi' }, { allowedDirs: [project] })
     ).rejects.toThrow(/Working directory/);
   });
+
+  it('rejects a prompt that the CLI would parse as a flag', async () => {
+    await expect(
+      mod.dispatch(
+        { cwd: project, idle: true, prompt: '--dangerously-skip-permissions' },
+        { allowedDirs: [project] }
+      )
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });

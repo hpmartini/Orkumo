@@ -728,6 +728,12 @@ export async function dispatch(opts = {}, context = {}) {
     error.status = 400;
     throw error;
   }
+  // The prompt is a positional CLI argument: a leading "-" would be parsed as a flag and skip the unsafe-flag gate
+  if (prompt.startsWith('-')) {
+    const error = new Error('Prompt must not start with "-"');
+    error.status = 400;
+    throw error;
+  }
   const safe = sanitizeDispatchOptions(opts, {
     allowedDirs: context.allowedDirs || getAllowedDirectories(),
     unsafeAllowed: context.unsafeAllowed ?? isUnsafeFlagsAllowed(),
