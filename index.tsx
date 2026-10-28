@@ -23,14 +23,25 @@ if (!rootElement) {
 }
 
 // iOS app: deep links pair the device (devorbit://pair?…) or open a view (devorbit://open?path=…).
+let lastLink = '';
 function handleLink(link: string) {
+  // appUrlOpen and getLaunchUrl() can both deliver the same link
+  if (link === lastLink) return;
+  lastLink = link;
   const paired = parsePairingLink(link);
   // getLaunchUrl() repeats the launch link after the reload below; an unchanged pairing is a no-op.
   const changed = paired && (paired.url !== pairing?.url || paired.token !== pairing?.token);
-  if (paired && changed && !isRejectedToken(paired.token)) {
+  // Any app can open a devorbit:// link, so a pairing is only applied after the user confirms the host.
+  if (
+    paired &&
+    changed &&
+    !isRejectedToken(paired.token) &&
+    window.confirm(`Mit DevOrbit-Server ${new URL(paired.url).host} verbinden?`)
+  ) {
     savePairing(paired);
     window.location.hash = '#/agents';
-    window.location.reload();
+    // WKWebView drops a reload issued while the confirm alert is still closing
+    setTimeout(() => window.location.reload(), 300);
     return;
   }
   if (paired) return;

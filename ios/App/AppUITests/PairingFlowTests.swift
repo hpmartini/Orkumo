@@ -25,6 +25,11 @@ final class PairingFlowTests: XCTestCase {
         shot("01-pairing")
 
         open(env["PAIR_LINK"]!)
+        // The app asks before it pairs with the host named in the link.
+        let confirm = app.alerts.firstMatch
+        XCTAssertTrue(confirm.waitForExistence(timeout: 10))
+        shot("01b-confirm")
+        confirm.buttons["Ok"].tap()
         XCTAssertTrue(app.webViews.firstMatch.staticTexts["Agents"].waitForExistence(timeout: 20))
         sleep(4)
         shot("02-agents")

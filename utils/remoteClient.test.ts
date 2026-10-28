@@ -17,12 +17,14 @@ const PAIRING = { url: 'https://mac.tail1.ts.net', token: 'secret' };
 describe('normalizeServerUrl', () => {
   it('defaults to https and strips paths', () => {
     expect(normalizeServerUrl(' mac.tail1.ts.net/foo ')).toBe('https://mac.tail1.ts.net');
-    expect(normalizeServerUrl('http://100.64.0.1:3001')).toBe('http://100.64.0.1:3001');
+    expect(normalizeServerUrl('http://localhost:3001')).toBe('http://localhost:3001');
   });
   it('rejects empty and non-http input', () => {
     expect(normalizeServerUrl('')).toBeNull();
     expect(normalizeServerUrl('javascript:alert(1)')).toBeNull();
     expect(normalizeServerUrl('ftp://mac')).toBeNull();
+    // WKWebView blocks http from capacitor:// anyway; only the local dev server may use it
+    expect(normalizeServerUrl('http://100.64.0.1:3001')).toBeNull();
   });
 });
 

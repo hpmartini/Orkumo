@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach, afterEach } from
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { createServer } from 'http';
+import { createServer, request } from 'http';
 import express from 'express';
 import cors from 'cors';
 import { WebSocketServer, WebSocket } from 'ws';
@@ -80,6 +80,22 @@ describe('remote access token', () => {
 
   it('lets a direct localhost request through without token', async () => {
     expect((await get('/api/ping')).status).toBe(200);
+  });
+
+  it('treats loopback with a foreign Host as remote (tailscale serve, DNS rebinding)', async () => {
+    const status = (host) =>
+      new Promise((resolve, reject) => {
+        const [hostname, port] = base.split(':');
+        request({ hostname, port, path: '/api/ping', headers: { Host: host } }, (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        })
+          .on('error', reject)
+          .end();
+      });
+    expect(await status('mac.tail1.ts.net')).toBe(401);
+    expect(await status('evil.example:1234')).toBe(401);
+    expect(await status(`localhost:${base.split(':')[1]}`)).toBe(200);
   });
 
   it('changes nothing when remote access is off', async () => {

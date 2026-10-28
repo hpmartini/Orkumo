@@ -27,9 +27,24 @@ const FORWARD_HEADERS = [
   'tailscale-user-login',
 ];
 
-/** Direct request from this machine, not relayed by a proxy on its behalf. */
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
+
+const hostName = (host) => {
+  try {
+    return new URL(`http://${host}`).hostname;
+  } catch {
+    return '';
+  }
+};
+
+/**
+ * Direct request from this machine, not relayed by a proxy on its behalf. The Host header must
+ * name loopback too: that rejects DNS rebinding (attacker domain resolving to 127.0.0.1) and
+ * proxies like `tailscale serve`, which keep the tailnet name as Host.
+ */
 export function isLocalRequest(req) {
   if (!LOOPBACK.has(req.socket?.remoteAddress)) return false;
+  if (!LOCAL_HOSTS.has(hostName(req.headers.host))) return false;
   return !FORWARD_HEADERS.some((h) => req.headers[h] !== undefined);
 }
 

@@ -20,7 +20,9 @@ export function normalizeServerUrl(input: string): string | null {
   if (!trimmed) return null;
   try {
     const url = new URL(/^[a-z]+:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
-    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    // Plain http only to this device (simulator dev); anything else must be https.
+    const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
+    if (url.protocol !== 'https:' && !(url.protocol === 'http:' && local)) return null;
     return url.origin;
   } catch {
     return null;
