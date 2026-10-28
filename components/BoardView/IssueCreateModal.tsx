@@ -2,8 +2,10 @@ import React, { useRef, useState } from 'react';
 import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 import type { BoardItem, BoardStatusOption } from '../../types';
-import { createBoardIssue, errorDetails } from '../../services/boardApi';
+import { createBoardIssue, errorDetails, uploadIssueImage } from '../../services/boardApi';
 import { useDialogA11y } from '../CommandPalette/useDialogA11y';
+import { ImageAttachments, imageDropHandlers } from '../ImageAttachments';
+import { bodyWithImages, submitIntent } from '../../utils/composer';
 import { LabelChip } from './BoardCard';
 import {
   FIELD_INPUT,
@@ -51,6 +53,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
   const titleRef = useRef<HTMLInputElement>(null);
+  const formRef = useRef<HTMLFormElement>(null);
   const trapTab = useDialogA11y(true, dialogRef, () => titleRef.current);
   const [repo, setRepo] = useState(initialRepo ?? repos?.[0] ?? '');
   const [statusOptionId, setStatusOptionId] = useState(
@@ -61,6 +64,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
   const [labels, setLabels] = useState<string[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [milestone, setMilestone] = useState<string[]>([]);
+  const [images, setImages] = useState<File[]>([]);
   const [saving, setSaving] = useState(false);
   // Issue exists on GitHub but the project step failed: the next submit only retries that step
   const [orphan, setOrphan] = useState<{ id: string; url: string | null } | null>(null);
@@ -78,11 +82,25 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
     e.preventDefault();
     if (!repo || !title.trim() || saving) return;
     setSaving(true);
+    let fullBody = body;
+    if (images.length && !orphan) {
+      try {
+        const urls = await Promise.all(images.map((f) => uploadIssueImage(repo, f)));
+        // Uploaded once: a retry after a failed create must not upload them again
+        fullBody = bodyWithImages(body, urls);
+        setBody(fullBody);
+        setImages([]);
+      } catch (err) {
+        toast.error(err instanceof Error ? err.message : 'Bilder nicht hochgeladen');
+        setSaving(false);
+        return;
+      }
+    }
     try {
       const item = await createBoardIssue({
         repo,
         title: title.trim(),
-        body,
+        body: fullBody,
         labels,
         assignees,
         milestone: milestone[0] ?? null,
@@ -118,6 +136,11 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
         tabIndex={-1}
         onKeyDown={(e) => {
           trapTab(e);
+          if (submitIntent(e)) {
+            e.preventDefault();
+            formRef.current?.requestSubmit();
+            return;
+          }
           if (e.key === 'Escape' && !e.defaultPrevented) {
             e.preventDefault();
             e.stopPropagation();
@@ -125,9 +148,10 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
           }
         }}
         onMouseDown={(e) => e.stopPropagation()}
+        {...(orphan ? {} : imageDropHandlers((files) => setImages((prev) => [...prev, ...files])))}
         className="w-full max-w-[620px] bg-gray-800 border border-gray-600 rounded-xl shadow-2xl p-4"
       >
-        <form onSubmit={submit}>
+        <form ref={formRef} onSubmit={submit}>
           <div className="flex items-center mb-3">
             <h2 id="issue-create-title" className="text-sm font-semibold text-gray-50">
               Neues Issue
@@ -195,6 +219,10 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               ref={titleRef}
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              // Only Cmd/Ctrl+Enter submits (#105), so a stray Enter cannot create the issue
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !submitIntent(e)) e.preventDefault();
+              }}
               maxLength={256}
               required
               disabled={!!orphan}
@@ -213,6 +241,18 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               disabled={!!orphan}
               placeholder="Markdown"
               className={`${FIELD_INPUT} font-mono resize-y`}
+            />
+
+            <span className="text-gray-400 self-start pt-3">Bilder</span>
+            <ImageAttachments
+              images={images}
+              onChange={setImages}
+              disabled={!!orphan || saving}
+              note={
+                images.length
+                  ? `Werden in ${repo || 'das Repo'} (Branch issue-assets) hochgeladen und sind so sichtbar wie das Repo`
+                  : undefined
+              }
             />
 
             <span className="text-gray-400">Labels</span>
@@ -286,7 +326,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               disabled={!repo || !title.trim() || saving}
               className="px-3 py-1.5 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
             >
-              {saving ? 'Lege an …' : orphan ? 'Erneut aufs Board setzen' : 'Issue anlegen'}
+              {saving ? 'Lege an …' : orphan ? 'Erneut aufs Board setzen' : 'Issue anlegen (⌘↵)'}
             </button>
           </div>
         </form>

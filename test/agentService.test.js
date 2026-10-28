@@ -246,4 +246,23 @@ describe('agentService - dispatch safety', () => {
       )
     ).toThrow(/No project directories/);
   });
+
+  it('allows the home directory itself for New agent, not its unconfigured subfolders', () => {
+    const opts = { allowedDirs: [project], unsafeAllowed: false };
+    expect(sanitizeDispatchOptions({ cwd: os.homedir() }, opts).cwd).toBe(
+      fs.realpathSync(os.homedir())
+    );
+    expect(() => sanitizeDispatchOptions({ cwd: path.join(os.homedir(), '.ssh') }, opts)).toThrow(
+      /Working directory/
+    );
+  });
+
+  it('requires a prompt unless the session starts idle', async () => {
+    await expect(mod.dispatch({ cwd: project }, { allowedDirs: [project] })).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(
+      mod.dispatch({ cwd: outside, idle: true }, { allowedDirs: [project] })
+    ).rejects.toThrow(/Working directory/);
+  });
 });

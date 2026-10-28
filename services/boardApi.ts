@@ -33,6 +33,16 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
+/** Commits an image to the repo's `issue-assets` branch; returns a URL for issue Markdown */
+export async function uploadIssueImage(repo: string, file: Blob): Promise<string> {
+  const data = await request<{ url: string }>(`/board/images?repo=${encodeURIComponent(repo)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  return data.url;
+}
+
 /** JSON fields of a failed request besides `error` ({} for other errors) */
 export function errorDetails(err: unknown): Record<string, unknown> {
   const details = (err as { details?: unknown })?.details;

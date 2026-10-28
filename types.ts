@@ -432,6 +432,8 @@ export interface AgentDispatchRequest extends Partial<AgentDispatchDefaults> {
   resume?: string;
   name?: string | null;
   cwd: string;
+  /** Start without a prompt ("New agent"); the session waits for input */
+  idle?: boolean;
 }
 
 export interface AgentDispatchResult {
