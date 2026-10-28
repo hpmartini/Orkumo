@@ -332,8 +332,8 @@ const lastSegment = (path: string) => path.split('/').filter(Boolean).pop() || p
 /**
  * Main checkout of a Claude/git worktree path ("<main>/.claude/worktrees/x" or
  * "<main>/.worktrees/x"), derived from the path alone so it works before contexts load.
- * shortcut: worktrees created elsewhere (`git worktree add ../x`) are only resolved by the
- * server context (repo.name), not grouped with the main checkout; revisit if that gets common.
+ * Worktrees created elsewhere (`git worktree add ../x`) join their main checkout once the
+ * server context delivers repo.root.
  */
 export function mainRepoPath(dir: string): string {
   const match = dir.match(/^(.+?)\/(?:\.claude\/worktrees|\.worktrees)(?:\/|$)/);
