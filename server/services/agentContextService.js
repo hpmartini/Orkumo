@@ -264,9 +264,15 @@ export function accumulateCacheUsage(prev, text) {
   return usage;
 }
 
-/** Context window of a model; shortcut: no model id carries the window, so >200k usage implies 1M */
+// Native 1M-window models, as in Claude Code's own model table (opus 4.7+, every 5.x family)
+const NATIVE_1M_MODEL = /claude-(opus-4-[78]|(opus|sonnet|haiku|fable)-5)/;
+
+/** Context window of a model; ids never carry it, so `[1m]` or >200k usage also implies 1M */
 export function contextWindowFor(model, cachedTokens) {
-  return String(model || '').includes('[1m]') || cachedTokens > 200_000 ? 1_000_000 : 200_000;
+  const id = String(model || '');
+  return NATIVE_1M_MODEL.test(id) || id.includes('[1m]') || cachedTokens > 200_000
+    ? 1_000_000
+    : 200_000;
 }
 
 /** Prompt-cache stats of a session; reads only the bytes appended since the last call */
