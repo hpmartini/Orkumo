@@ -175,3 +175,15 @@ async function fetchRemoteLogs(host, id) {
   }
   return { source: 'logs', text: result.stdout, entries: [] };
 }
+
+/** MagicDNS name of this machine (e.g. `mac.tail1234.ts.net`), or null without Tailscale. */
+export async function getSelfDnsName() {
+  const bin = resolveTailscale();
+  if (!bin) return null;
+  const status = await run(bin, ['status', '--json'], 5000);
+  try {
+    return JSON.parse(status.stdout).Self?.DNSName?.replace(/\.$/, '') || null;
+  } catch {
+    return null;
+  }
+}

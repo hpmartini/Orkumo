@@ -53,7 +53,7 @@ export const AgentSummaryBar: React.FC<AgentSummaryBarProps> = ({
   );
 
   return (
-    <div className="flex items-center gap-0.5 text-xs text-gray-400 min-w-0 flex-wrap">
+    <div className="flex items-center gap-0.5 text-xs text-gray-400 min-w-0 flex-wrap whitespace-nowrap">
       <span
         className={`w-1.5 h-1.5 rounded-full mr-1.5 shrink-0 ${daemon?.running ? 'bg-emerald-500' : 'bg-gray-600'}`}
         title={`Supervisor ${daemon?.running ? 'running' : 'idle'}${daemon?.raw ? `\n${daemon.raw}` : ''}`}

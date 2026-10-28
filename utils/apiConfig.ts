@@ -3,7 +3,9 @@
  * (Vite dev server with proxy vs Electron production with direct API calls)
  */
 
+import { Capacitor } from '@capacitor/core';
 import { PORTS } from '../config/defaults';
+import { readPairing, type Pairing } from './remoteClient';
 
 // Detect if running in Electron
 // In production: file:// protocol
@@ -18,13 +20,23 @@ export const isElectron =
 const SERVER_PORT =
   (typeof window !== 'undefined' && window.electronAPI?.serverPort) || PORTS.server;
 
+// iOS app (Capacitor): the bundle runs from capacitor://localhost and talks to the paired Mac.
+export const isNativeApp = Capacitor.isNativePlatform();
+export const pairing = isNativeApp ? readPairing() : null;
+
+/** Server origin when the API is not same-origin (Electron, iOS app); '' otherwise. */
+export const serverOrigin = (native: boolean, paired: Pairing | null, electron: boolean): string =>
+  native ? (paired?.url ?? '') : electron ? `http://localhost:${SERVER_PORT}` : '';
+
+const SERVER_ORIGIN = serverOrigin(isNativeApp, pairing, isElectron);
+
 // Base URL for API requests
-export const API_BASE_URL = isElectron ? `http://localhost:${SERVER_PORT}/api` : '/api';
+export const API_BASE_URL = `${SERVER_ORIGIN}/api`;
 
 // WebSocket URL for PTY terminal connections
 export const getWsUrl = (path: string = '/api/pty'): string => {
-  if (isElectron) {
-    return `ws://localhost:${SERVER_PORT}${path}`;
+  if (SERVER_ORIGIN) {
+    return `${SERVER_ORIGIN.replace(/^http/, 'ws')}${path}`;
   }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   return `${protocol}//${window.location.host}${path}`;

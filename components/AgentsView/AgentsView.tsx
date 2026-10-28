@@ -1489,7 +1489,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
       {/* Header; small screens show it on /agents only, other routes have the app header */}
       <div
-        className={`relative ${active ? 'flex' : 'hidden md:flex'} items-center gap-3 px-4 py-1.5 border-b border-gray-800 shrink-0`}
+        className={`relative ${active ? 'flex' : 'hidden md:flex'} flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 border-b border-gray-800 shrink-0`}
       >
         <button
           onClick={nav.onOpenDashboard}
@@ -1499,7 +1499,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         >
           <Bot size={18} />
         </button>
-        <div className="min-w-0 flex items-center gap-3">
+        <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
             counts={{ ...counts, completed: chipCounts.completed }}

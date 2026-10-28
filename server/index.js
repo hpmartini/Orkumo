@@ -47,6 +47,7 @@ import * as dockerService from './services/dockerService.js';
 import * as healthService from './services/healthService.js';
 import * as agentService from './services/agentService.js';
 import * as meshService from './services/meshService.js';
+import * as remoteAccess from './services/remoteAccess.js';
 import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
@@ -163,6 +164,7 @@ const isAllowedOrigin = (origin) => {
   if (!origin) return true;
   if (origin === 'null') return process.env.ELECTRON_MODE === 'true';
   if (extraCorsOrigins.includes(origin)) return true;
+  if (origin === remoteAccess.CAPACITOR_ORIGIN) return remoteAccess.isRemoteEnabled();
   try {
     return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
   } catch {
@@ -170,6 +172,8 @@ const isAllowedOrigin = (origin) => {
   }
 };
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
+// After cors so preflights are answered; before every route so nothing is reachable without the token.
+app.use(remoteAccess.requireRemoteToken);
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
 app.use('/api/terminal/ghostty', ghosttyRoutes);
@@ -3117,6 +3121,20 @@ app.post(
 /**
  * GET /api/agents/remote - sessions of the other Tailscale devices (`ssh <host> claude agents --json`)
  */
+// Pairing data for the iOS app; only shown on this machine, never to a remote client.
+app.get('/api/remote/pairing', async (req, res) => {
+  if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
+  if (!remoteAccess.isRemoteEnabled()) return res.json({ enabled: false });
+  const dnsName = await meshService.getSelfDnsName();
+  const url = process.env.DEVORBIT_REMOTE_URL || (dnsName ? `https://${dnsName}` : null);
+  res.json({
+    enabled: true,
+    url,
+    token: remoteAccess.getToken(),
+    link: url ? remoteAccess.pairingLink(url) : null,
+  });
+});
+
 app.get('/api/agents/remote', agentLimiter, async (req, res) => {
   try {
     res.json(await meshService.listRemote());
@@ -3792,7 +3810,11 @@ app.use((req, res) => {
 const server = createServer(app);
 
 // WebSocket server for PTY communication
-const wss = new WebSocketServer({ server, path: '/api/pty' });
+const wss = new WebSocketServer({
+  server,
+  path: '/api/pty',
+  verifyClient: ({ req }) => remoteAccess.isAuthorized(req),
+});
 
 // Store WebSocket -> sessionId mapping (for local PTY mode)
 const wsSessionMap = new Map();

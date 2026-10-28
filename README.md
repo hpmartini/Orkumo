@@ -98,6 +98,36 @@ Security: sessions can only be dispatched into (and `--add-dir` only point at) t
 
 API: `GET /api/agents`, `GET /api/agents/stream` (SSE), `POST /api/agents/dispatch`, `GET /api/agents/:id/logs`, `POST /api/agents/:id/reply|stop|respawn`, `DELETE /api/agents/:id`, `PUT /api/agents/:id/name|pin`, `PUT /api/agents/order`, `GET /api/agents/daemon`, `POST /api/agents/daemon/stop`, `GET /api/agents/subagents|repos|commands|past`, `GET|PUT /api/settings/agent-view`.
 
+## 📱 iOS-App (iPhone & iPad)
+
+Die iOS-App ist eine Capacitor-Hülle um denselben React-Build (`ios/`). Sie ist ein reiner Client: Server, PTY und `claude` laufen weiter auf dem Mac, die App verbindet sich über das Tailscale-Tailnet. v1: Agents, Board, Terminal.
+
+**1. Remote-Zugang auf dem Mac einschalten** (Default: aus, alles bleibt localhost-only)
+
+```bash
+DEVORBIT_REMOTE=true bun run server          # oder DEVORBIT_REMOTE=true in .env.local
+tailscale serve --bg --https=8443 http://127.0.0.1:3001   # HTTPS nur im Tailnet
+```
+
+- Mit `DEVORBIT_REMOTE=true` braucht jede Anfrage, die nicht direkt von localhost kommt (auch über `tailscale serve`), den Pairing-Token. Er liegt in `<data>/remote-token` (Modus 600) und wird beim ersten Start erzeugt.
+- HTTPS ist Pflicht: WKWebView blockt `http`-Fetch und -WebSocket aus der App (`capacitor://`) als Mixed Content. Bind an die Tailnet-IP mit http reicht daher nicht.
+- Läuft `tailscale serve` auf einem anderen Port als 443 oder unter anderem Namen: `DEVORBIT_REMOTE_URL=https://<mac>.<tailnet>.ts.net:8443` setzen, sonst nimmt die Pairing-Anzeige `https://<MagicDNS-Name>`.
+
+**2. Koppeln:** Admin Panel → „iOS-App“ zeigt Adresse, Token und den Link `devorbit://pair?…`. Den Link auf iPhone/iPad öffnen (AirDrop, Notiz) oder Adresse und Token in der App eingeben. Lehnt der Server den Token ab, fragt die App neu danach.
+
+**3. App bauen und installieren** (Xcode, kostenloses Personal Team reicht)
+
+```bash
+bun run ios:sync    # vite build + cap sync ios
+bun run ios:open    # Xcode: Target App → Signing & Capabilities → Team wählen → Gerät → Run
+```
+
+**End-to-End-Check im Simulator** (paart, lädt Agents und Board, tippt einen Befehl in ein Shell-Terminal, prüft die Markerdatei auf dem Mac):
+
+```bash
+bun run ios:e2e "iPhone 16" https://<mac>.<tailnet>.ts.net:8443 http://127.0.0.1:3001 /tmp/ios-e2e
+```
+
 ## 🐳 Docker Deployment
 
 You can run the dashboard entirely within Docker:

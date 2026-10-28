@@ -166,6 +166,7 @@ export default [
       '.claude/**',
       'dist-server/**',
       'dist-electron/**',
+      'ios/**', // Capacitor project; ios/App/App/public is a copy of dist
       '*.config.js',
       '*.config.ts',
     ],
