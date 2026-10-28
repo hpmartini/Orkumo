@@ -4,6 +4,7 @@ import {
   Code2,
   ExternalLink,
   Funnel,
+  KanbanSquare,
   GitPullRequest,
   ListChecks,
   Play,
@@ -30,6 +31,8 @@ import {
   ParentEditor,
   type IssueSave,
 } from './IssueEditors';
+import { FlowControls } from './FlowControls';
+import { IssueComments } from './IssueComments';
 
 const VIA: Record<AgentIssueLink['via'], string> = {
   'mw-board': 'mw-board-Kommentar',
@@ -53,6 +56,10 @@ interface BoardItemPanelProps {
   onOpenCode: (jobIds: string[]) => void;
   /** Edits this item's issue (only issues, not PRs or drafts) */
   onSave: IssueSave;
+  /** Modal: centered dialog (issue modal of the agents view) instead of the board sidebar */
+  variant?: 'sidebar' | 'modal';
+  /** Shown as "Board" button (modal only) */
+  onOpenBoard?: () => void;
 }
 
 const Muted: React.FC<{ children: React.ReactNode }> = ({ children }) => (
@@ -73,6 +80,8 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
   onStartAgent,
   onOpenCode,
   onSave,
+  variant = 'sidebar',
+  onOpenBoard,
 }) => {
   const closeRef = useRef<HTMLButtonElement>(null);
   const key = itemKey(item);
@@ -132,7 +141,11 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
 
   return (
     <aside
-      className="absolute top-0 right-0 z-20 h-full w-[420px] max-w-full flex flex-col bg-gray-900 border-l border-gray-700 shadow-[0_0_40px_-8px_rgba(0,0,0,.6)]"
+      className={
+        variant === 'modal'
+          ? 'w-[640px] max-w-full max-h-[85vh] flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-[0_0_40px_-8px_rgba(0,0,0,.6)]'
+          : 'absolute top-0 right-0 z-20 h-full w-[420px] max-w-full flex flex-col bg-gray-900 border-l border-gray-700 shadow-[0_0_40px_-8px_rgba(0,0,0,.6)]'
+      }
       aria-label="Issue-Details"
     >
       <div className="flex items-center gap-2 px-4 h-12 border-b border-gray-700 shrink-0">
@@ -141,6 +154,16 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           {item.number != null ? `${item.repo}#${item.number}` : 'Entwurf'}
         </span>
         <div className="flex-1" />
+        {onOpenBoard && (
+          <button
+            onClick={onOpenBoard}
+            title="Im Board öffnen"
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800"
+          >
+            <KanbanSquare size={14} />
+            Board
+          </button>
+        )}
         <button
           onClick={() => onOpenCode(links.map((l) => l.jobId))}
           disabled={!item.repo && !links.length}
@@ -284,7 +307,11 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           </dd>
         </dl>
 
+        {editable && <FlowControls item={item} repoOptions={repoOptions} onSave={save} />}
+
         {editable && <IssueBody body={details?.body ?? null} error={detailsError} onSave={save} />}
+
+        {issueId && <IssueComments issueId={issueId} />}
 
         <section>
           <h3 className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5">

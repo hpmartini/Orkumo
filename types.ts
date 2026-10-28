@@ -653,6 +653,14 @@ export interface BoardRepoOptions {
 }
 
 /** Lazily loaded issue parts (GET /api/board/issues/:issueId) */
+export interface IssueComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+
 export interface BoardIssueDetails {
   body: string;
   subIssues: (BoardIssueRef & { id: string; state: string })[];

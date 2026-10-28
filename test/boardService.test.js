@@ -18,6 +18,8 @@ const {
   pickNewItemStatus,
   updateIssue,
   createIssue,
+  getIssueComments,
+  addIssueComment,
 } = await import('../server/services/boardService.js');
 const { CREATE_GRACE_MS } = await import('../utils/boardWrites.js');
 
@@ -612,5 +614,60 @@ describe('boardService - writes vs. board fetches (#72)', () => {
     );
     expect(err.status).toBe(502);
     expect(err.message).toMatch(/GitHub CLI \(gh\) nicht gefunden/);
+  });
+});
+
+describe('boardService - issue comments (#104)', () => {
+  afterEach(() => vi.mocked(execFile).mockReset());
+  const page = (ids, next) =>
+    JSON.stringify({
+      data: {
+        node: {
+          comments: {
+            pageInfo: { hasNextPage: !!next, endCursor: next ?? null },
+            nodes: ids.map((id) => ({
+              id,
+              body: `b${id}`,
+              createdAt: '2026-10-27T00:00:00Z',
+              url: `u${id}`,
+              author: id === 'C3' ? null : { login: 'hpmartini' },
+            })),
+          },
+        },
+      },
+    });
+
+  it('reads all pages in order and maps deleted authors to ghost', async () => {
+    let n = 0;
+    const calls = routeGh([
+      ['comments(first:100', () => (n++ ? page(['C3']) : page(['C1', 'C2'], 'CUR'))],
+    ]);
+    const comments = await getIssueComments('I_1');
+    expect(comments.map((c) => c.id)).toEqual(['C1', 'C2', 'C3']);
+    expect(comments[2].author).toBe('ghost');
+    expect(comments[0]).toEqual({
+      id: 'C1',
+      author: 'hpmartini',
+      body: 'bC1',
+      createdAt: '2026-10-27T00:00:00Z',
+      url: 'uC1',
+    });
+    expect(calls[1]).toContain('after=CUR');
+  });
+
+  it('404s for an unknown issue', async () => {
+    routeGh([['comments(first:100', '{"data":{"node":null}}']]);
+    await expect(getIssueComments('I_x')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('posts the body via addComment and returns the fresh list', async () => {
+    const calls = routeGh([
+      ['addComment', '{"data":{"addComment":{"commentEdge":{"node":{"id":"C9"}}}}}'],
+      ['comments(first:100', page(['C9'])],
+    ]);
+    const comments = await addIssueComment('I_1', 'Hallo\n> zitat');
+    expect(calls[0]).toContain('body=Hallo\n> zitat');
+    expect(calls[0]).toContain('id=I_1');
+    expect(comments.map((c) => c.id)).toEqual(['C9']);
   });
 });
