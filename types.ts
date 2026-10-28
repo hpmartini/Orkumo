@@ -397,6 +397,9 @@ export interface AgentCapabilities {
 
 export type AgentGrouping = 'state' | 'directory' | 'project' | 'none';
 export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
+/** When a session card shows its details (issues, PRs, servers, sub-agents) */
+export type AgentCardDetails = 'hover' | 'click' | 'always';
+export type AgentCardDensity = 'comfortable' | 'compact';
 
 export interface AgentDispatchDefaults {
   model: string | null;
@@ -421,6 +424,8 @@ export interface AgentViewSettings {
   collapsedGroups: string[];
   notifications: boolean;
   desktopNotifications: boolean;
+  cardDetails: AgentCardDetails;
+  cardDensity: AgentCardDensity;
   disabled: boolean;
   dispatch: AgentDispatchDefaults;
   version: number;
@@ -519,6 +524,8 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
+  cardDetails: 'hover',
+  cardDensity: 'comfortable',
   disabled: false,
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,

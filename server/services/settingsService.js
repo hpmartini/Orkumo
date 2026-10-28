@@ -39,6 +39,8 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
+  cardDetails: 'hover', // 'hover' | 'click' | 'always': when a session card shows its details
+  cardDensity: 'comfortable', // 'comfortable' | 'compact'
   disabled: false, // Mirrors the CLI `disableAgentView` setting
   dispatch: {
     model: null,

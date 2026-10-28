@@ -18,7 +18,13 @@ import {
   Timer,
   Workflow,
 } from 'lucide-react';
-import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
+import type {
+  AgentSession,
+  AgentGrouping,
+  AgentContext,
+  AgentCardDetails,
+  AgentCardDensity,
+} from '../../types';
 import {
   AgentServer,
   NavItem,
@@ -29,6 +35,7 @@ import {
   formatAge,
   shortenPath,
   displayRepo,
+  cardDetailsVisible,
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
@@ -36,6 +43,9 @@ import { AppPowerButton, AppStatusDot, RailNavProps } from './ProjectsRail';
 import { SessionLinks } from './SessionLinks';
 import { CacheBadge } from './CacheBadge';
 import { isCacheWarning } from '../../utils/agentCache';
+
+/** Pointer has to rest this long on a card before its details open (hover mode) */
+const HOVER_DETAILS_DELAY_MS = 200;
 
 /** Drag payload of a group header (separate from the workspace tab drag) */
 export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
@@ -60,6 +70,9 @@ interface AgentListProps {
   onFocusOpen?: (id: string) => void;
   now: number;
   grouping: AgentGrouping;
+  /** When session cards show their details; the chevron pins them in every mode */
+  cardDetails?: AgentCardDetails;
+  cardDensity?: AgentCardDensity;
   /** Repo / issue / sub-agent data per session id (may be empty while loading) */
   contexts: Record<string, AgentContext | undefined>;
   /** Matched DevOrbit dev servers per session id */
@@ -174,6 +187,8 @@ export const AgentList: React.FC<AgentListProps> = ({
   onFocusOpen,
   now,
   grouping,
+  cardDetails = 'hover',
+  cardDensity = 'comfortable',
   contexts,
   servers,
   filtered,
@@ -209,6 +224,16 @@ export const AgentList: React.FC<AgentListProps> = ({
   }, []);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ index: number; x: number; y: number } | null>(null);
+  // Hovered card; set after a short delay so sweeping the pointer across the list does not flicker
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hoverCard = (id: string | null) => {
+    clearTimeout(hoverTimer.current);
+    if (id === null) setHoveredId(null);
+    else hoverTimer.current = setTimeout(() => setHoveredId(id), HOVER_DETAILS_DELAY_MS);
+  };
+  useEffect(() => () => clearTimeout(hoverTimer.current), []);
+  const comfortable = cardDensity === 'comfortable';
 
   // Keep the selected row in view
   useEffect(() => {
@@ -705,7 +730,13 @@ export const AgentList: React.FC<AgentListProps> = ({
                     issueKeys.length > 0 ||
                     sessionServers.length > 0 ||
                     runningSubagents > 0;
-                  const expanded = hasDetails && !!expandedSessionIds?.has(session.id);
+                  const pinned = hasDetails && !!expandedSessionIds?.has(session.id);
+                  const expanded = cardDetailsVisible(cardDetails, {
+                    hasDetails,
+                    pinned,
+                    hovered: hoveredId === session.id,
+                    focused: selected && railFocused,
+                  });
                   const extra =
                     session.state === 'blocked' && session.waitingFor
                       ? `waiting: ${session.waitingFor}`
@@ -726,7 +757,9 @@ export const AgentList: React.FC<AgentListProps> = ({
                       }}
                       onDoubleClick={() => onActivate(item)}
                       onContextMenu={(e) => openMenu(index, e)}
-                      className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
+                      onMouseEnter={() => hoverCard(session.id)}
+                      onMouseLeave={() => hoverCard(null)}
+                      className={`group flex items-start gap-2 px-3 ${comfortable ? 'py-2.5' : 'py-1.5'} text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
                         // Outline, not ring: stays visible on top of the selection ring
                         isActive ? 'outline outline-2 -outline-offset-2 outline-blue-400' : ''
                       } ${
@@ -744,20 +777,22 @@ export const AgentList: React.FC<AgentListProps> = ({
                         >
                           {glyph.glyph}
                         </span>
-                        {hasDetails && (
+                        {hasDetails && cardDetails !== 'always' && (
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
                               onToggleExpanded?.(session.id);
                             }}
-                            aria-expanded={expanded}
-                            aria-label={`${expanded ? 'Hide' : 'Show'} details of ${session.name}`}
+                            aria-expanded={pinned}
+                            aria-label={`${pinned ? 'Hide' : 'Show'} details of ${session.name}`}
                             title={
-                              expanded
+                              pinned
                                 ? 'Hide details'
-                                : label
-                                  ? `${label.text}: show pull requests, issues, servers`
-                                  : 'Show issues, servers, sub-agents'
+                                : expanded
+                                  ? 'Keep details open'
+                                  : label
+                                    ? `${label.text}: show pull requests, issues, servers`
+                                    : 'Show issues, servers, sub-agents'
                             }
                             className={`mt-0.5 h-5 w-5 flex items-center justify-center rounded hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
                               label && !expanded
@@ -802,7 +837,9 @@ export const AgentList: React.FC<AgentListProps> = ({
                             {age}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5 h-5 text-[11px] text-gray-400 min-w-0">
+                        <div
+                          className={`flex items-center gap-1.5 h-5 text-[11px] text-gray-400 min-w-0 ${comfortable ? 'mt-1' : 'mt-0.5'}`}
+                        >
                           {/* Repository + branch */}
                           <span className="flex-1 min-w-0 flex items-center gap-1">
                             {repo && (
@@ -869,10 +906,31 @@ export const AgentList: React.FC<AgentListProps> = ({
                               </span>
                             )}
                           </span>
-                          {ctx?.cache && <CacheBadge cache={ctx.cache} />}
+                          {!comfortable && ctx?.cache && <CacheBadge cache={ctx.cache} />}
                         </div>
+                        {/* Comfortable: metrics get their own line instead of competing with the branch */}
+                        {comfortable && ctx?.cache && (
+                          <div className="flex items-center h-5 mt-0.5 text-[11px]">
+                            <CacheBadge cache={ctx.cache} />
+                          </div>
+                        )}
+                        {/* Status above the details, so opening them on hover only moves what is below */}
+                        {extra && (
+                          <div
+                            className={`text-xs truncate ${comfortable ? 'mt-1.5 text-gray-400' : 'mt-0.5 text-gray-500'}`}
+                          >
+                            {extra}
+                          </div>
+                        )}
                         {expanded && (
-                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
+                          <div
+                            data-card-details
+                            className={`flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400 ${
+                              comfortable
+                                ? 'mt-2 pt-2 gap-y-1.5 border-t border-gray-700/60'
+                                : 'mt-1.5 gap-y-1'
+                            }`}
+                          >
                             <SessionLinks
                               session={session}
                               ctx={ctx}
@@ -882,9 +940,6 @@ export const AgentList: React.FC<AgentListProps> = ({
                               onOpenPrs={onOpenPrs}
                             />
                           </div>
-                        )}
-                        {extra && (
-                          <div className="text-xs text-gray-500 truncate mt-0.5">{extra}</div>
                         )}
                       </div>
                       <div className="flex flex-col items-center shrink-0">
