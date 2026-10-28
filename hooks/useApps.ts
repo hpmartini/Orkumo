@@ -134,7 +134,8 @@ export function useApps(): UseAppsReturn {
 
   // Fetch apps from backend
   const refreshApps = useCallback(async () => {
-    setLoading(true);
+    // `loading` covers the first load only: App shows a skeleton while it is set, and a refresh
+    // (context switch, refresh button) must not unmount the shell with its attached terminals
     setError(null);
     try {
       // First, migrate any existing localStorage settings to backend (one-time)

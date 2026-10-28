@@ -500,3 +500,15 @@ The following existing tasks are related to the new features above:
   - Approach: Versionen und Duplikate in `node_modules` geprüft, dann `NODE_ENV` der Shell. Gegenprobe `NODE_ENV=test npx vitest run` → 584/584.
   - Solution: `vitest.config.ts` setzt `process.env.NODE_ENV = 'test'` vor dem Start der Worker. Deckt `npx vitest` und `bun run test` gleichermaßen ab.
 - Verifikation: Mit geerbtem `NODE_ENV=production`: `npx vitest run` und `bun run test:run` je 44/44 Dateien, 584/584 Tests. tsc 0 Fehler.
+
+---
+
+### Kontextwechsel lädt Agent-Liste und attachte Sessions neu (2026-10-28)
+
+- [x] **[FIX]** Jeder Kontextwechsel baute die ganze Shell ab und wieder auf
+  - Issue: Nach einem Klick auf einen Kontext-Tab luden Agent-Liste, Kontextdaten und Event-Stream neu, angehängte Terminals verbanden sich neu.
+  - Root cause: Der Wechsel ruft `refreshApps()` (`useProjectContexts(refreshApps)`, seit #97 `24d2c30`). `refreshApps` setzte `loading=true`, und `App.tsx` zeigt bei `loading` nur `<LoadingSkeleton />`. Damit wurde alles unter `AppContent` abgebaut, auch `AgentsView`. `59c3fd0` (#119) hatte nur den `key` entfernt, das Lade-Skelett baute weiter ab.
+  - Approach: Playwright gegen eine isolierte Instanz: Marker am `[data-agents-view]`-Knoten, MutationObserver auf sein Verschwinden, Requests beim Wechsel mitgeschnitten.
+  - Solution: `refreshApps` setzt `loading` nicht mehr auf `true`. `loading` gilt nur für den ersten Start (Startwert `true`), jeder spätere Refresh läuft im Hintergrund.
+- Verifikation: tsc 0 Fehler, vitest 591/591. Browser: Nach zwei Wechseln derselbe `AgentsView`-Knoten, 0 Unmounts. Beim Wechsel nur noch `/api/apps`, `/api/settings`, `/api/settings/agent-view`, kein `/api/agents`, `/api/agents/context`, `/api/agents/stream` mehr.
+- Offen: Angehängte Terminals des verlassenen Kontexts werden weiter ausgehängt und beim Zurückwechseln neu verbunden. Das kommt aus dem eigenen Workspace pro Kontext (#97), nicht aus dem Lade-Skelett. Abhilfe wäre, die Terminals aller Kontexte versteckt gemountet zu lassen.
