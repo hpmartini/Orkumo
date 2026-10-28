@@ -1366,13 +1366,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               label: 'View Workflows',
               onSelect: () => navigate(workflowsUrl(groupRepoSlug(group, contexts)!)),
             },
-            {
-              id: 'new-issue',
-              label: 'New issue',
-              onSelect: () => openIssueDialog(groupRepoSlug(group, contexts)),
-            },
           ]
         : []),
+      {
+        id: 'new-issue',
+        label: groupRepoSlug(group, contexts) ? 'New issue' : 'New issue (no GitHub repo)',
+        disabled: !groupRepoSlug(group, contexts),
+        onSelect: () => openIssueDialog(groupRepoSlug(group, contexts)),
+      },
       ...(group.cwd
         ? [
             {
