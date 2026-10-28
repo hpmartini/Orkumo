@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
+import os from 'os';
 import { execFileSync } from 'child_process';
 import yaml from 'js-yaml';
 import { getConfig } from './configService.js';
@@ -267,6 +268,11 @@ function scanDirectoryRecursive(dirPath, depth, maxDepth, excludePatterns) {
       }
     }
 
+    // A plain Git repo is a project too (#133); keep scanning, apps may live in subfolders
+    if (entries.some((e) => e.name === '.git' && e.isDirectory())) {
+      projects.push(gitRepoProject(dirPath));
+    }
+
     // Scan subdirectories
     for (const entry of entries) {
       if (!entry.isDirectory()) continue;
@@ -280,6 +286,70 @@ function scanDirectoryRecursive(dirPath, depth, maxDepth, excludePatterns) {
   }
 
   return projects;
+}
+
+/** Git repo without a detected start command: listed, but not runnable until one is set */
+function gitRepoProject(projectPath) {
+  return {
+    id: generateProjectId(projectPath),
+    name: path.basename(projectPath),
+    path: projectPath,
+    type: 'unknown',
+    detectedFramework: 'Git',
+  };
+}
+
+const JOBS_DIR = path.join(
+  process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude'),
+  'jobs'
+);
+
+/** Main checkout of a worktree path, mirrors mainRepoPath in utils/agentSessions.ts */
+const mainRepoPath = (dir) =>
+  dir.match(/^(.+?)\/(?:\.claude\/worktrees|\.worktrees)(?:\/|$)/)?.[1] ?? dir;
+
+/**
+ * Main repos background agents ran in, read from the jobs' state.json.
+ * shortcut: interactive sessions are not covered, add them if their repos show up missing.
+ */
+export function agentRepoPaths(jobsDir = JOBS_DIR) {
+  let entries = [];
+  try {
+    entries = fs.readdirSync(jobsDir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const repos = new Set();
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    try {
+      const state = JSON.parse(
+        fs.readFileSync(path.join(jobsDir, entry.name, 'state.json'), 'utf-8')
+      );
+      const dir = state.worktree || state.worktreePath || state.cwd;
+      if (typeof dir === 'string' && path.isAbsolute(dir)) repos.add(mainRepoPath(dir));
+    } catch {
+      // Job without readable state
+    }
+  }
+  return [...repos];
+}
+
+/**
+ * Add agent repos no scanned project covers (#133). Paths compare case-insensitively
+ * (macOS); a repo inside a scanned project belongs to that project.
+ */
+export function mergeAgentRepos(projects, repoPaths) {
+  const known = projects.map((p) => p.path.toLowerCase());
+  const added = [];
+  for (const repo of repoPaths) {
+    const lower = repo.toLowerCase();
+    if (known.some((k) => lower === k || lower.startsWith(`${k}/`))) continue;
+    if (!fs.existsSync(path.join(repo, '.git'))) continue;
+    known.push(lower);
+    added.push(gitRepoProject(repo));
+  }
+  return [...projects, ...added];
 }
 
 /**
@@ -300,7 +370,7 @@ export function scanAllDirectories() {
   }
 
   // Add default stats structure
-  return allProjects.map((project) => ({
+  return mergeAgentRepos(allProjects, agentRepoPaths()).map((project) => ({
     ...project,
     status: 'STOPPED',
     uptime: 0,
@@ -309,7 +379,7 @@ export function scanAllDirectories() {
       cpu: Array(20).fill(0),
       memory: Array(20).fill(0),
     },
-    addresses: [`http://localhost:${project.port}`],
+    addresses: project.port ? [`http://localhost:${project.port}`] : [],
   }));
 }
 

@@ -134,9 +134,10 @@ export const AppDetail: React.FC<AppDetailProps> = ({
     app.status === AppStatus.RESTARTING;
 
   const canStart =
-    app.status === AppStatus.STOPPED ||
-    app.status === AppStatus.ERROR ||
-    app.status === AppStatus.CANCELLED;
+    !!app.startCommand &&
+    (app.status === AppStatus.STOPPED ||
+      app.status === AppStatus.ERROR ||
+      app.status === AppStatus.CANCELLED);
 
   const canStop = app.status === AppStatus.RUNNING;
 
@@ -366,7 +367,7 @@ export const AppDetail: React.FC<AppDetailProps> = ({
                       className="flex items-center gap-1 text-gray-300 text-sm font-mono bg-gray-900/50 px-2 py-0.5 rounded hover:bg-gray-900 transition-colors disabled:cursor-default disabled:hover:bg-gray-900/50 group"
                       title={onSetCommand ? 'Click to edit command' : undefined}
                     >
-                      {app.startCommand || 'npm run dev'}
+                      {app.startCommand || 'no start command'}
                       {onSetCommand && (
                         <Settings2
                           size={12}
