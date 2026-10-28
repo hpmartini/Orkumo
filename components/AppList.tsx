@@ -1,5 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { FolderOpen, FolderRoot, Box, RefreshCw, ChevronDown, ChevronRight, Star } from 'lucide-react';
+import {
+  FolderOpen,
+  FolderRoot,
+  Box,
+  RefreshCw,
+  ChevronDown,
+  ChevronRight,
+  Star,
+} from 'lucide-react';
 import { AppConfig, AppStatus } from '../types';
 import { StatusBadge } from './StatusBadge';
 import { KebabMenu, createAppMenuItems } from './KebabMenu';
@@ -107,7 +115,7 @@ export const AppList: React.FC<AppListProps> = ({
   const handleStatusClick = (app: AppConfig) => {
     if (app.status === AppStatus.RUNNING && onStop) {
       onStop(app.id);
-    } else if (canStart(app.status) && onStart) {
+    } else if (canStart(app.status) && onStart && app.startCommand) {
       onStart(app.id);
     }
   };
@@ -126,10 +134,10 @@ export const AppList: React.FC<AppListProps> = ({
             app.status === AppStatus.RUNNING
               ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]'
               : app.status === AppStatus.STARTING || app.status === AppStatus.RESTARTING
-              ? 'bg-yellow-500 animate-pulse'
-              : app.status === AppStatus.ERROR
-              ? 'bg-red-500'
-              : 'bg-gray-600'
+                ? 'bg-yellow-500 animate-pulse'
+                : app.status === AppStatus.ERROR
+                  ? 'bg-red-500'
+                  : 'bg-gray-600'
           }`}
         ></div>
         <div>
@@ -141,14 +149,16 @@ export const AppList: React.FC<AppListProps> = ({
           </h3>
           <div className="text-xs text-gray-500 flex items-center gap-2 mt-1">
             <span className="px-1.5 py-0.5 rounded bg-gray-700/50">{app.detectedFramework}</span>
-            <span className="truncate max-w-[200px]" title={app.path}>{app.path}</span>
+            <span className="truncate max-w-[200px]" title={app.path}>
+              {app.path}
+            </span>
           </div>
         </div>
       </div>
       <div className="flex items-center gap-3">
         <StatusBadge
           status={app.status}
-          onClick={(onStart || onStop) ? () => handleStatusClick(app) : undefined}
+          onClick={onStart || onStop ? () => handleStatusClick(app) : undefined}
           isLoading={isLoading(app.status)}
         />
         {/* Favorite Button */}
@@ -176,7 +186,7 @@ export const AppList: React.FC<AppListProps> = ({
               isFavorite: app.isFavorite,
               isArchived: app.isArchived,
               hasPort: !!app.port,
-              onStart,
+              onStart: app.startCommand ? onStart : undefined,
               onStop,
               onRestart,
               onOpenInBrowser,
@@ -215,7 +225,7 @@ export const AppList: React.FC<AppListProps> = ({
         {groupedApps.sortedFolders.map((folder) => {
           const folderApps = groupedApps.groups[folder];
           const isCollapsed = collapsedFolders.has(folder);
-          const runningCount = folderApps.filter(a => a.status === AppStatus.RUNNING).length;
+          const runningCount = folderApps.filter((a) => a.status === AppStatus.RUNNING).length;
           const isMainDir = folder.toLowerCase() === mainDirectory.toLowerCase();
 
           return (
@@ -229,11 +239,19 @@ export const AppList: React.FC<AppListProps> = ({
                     : 'bg-gray-750 border-gray-700/50 hover:bg-gray-700/50'
                 }`}
               >
-                <div className={`flex items-center gap-2 ${isMainDir ? 'text-blue-300' : 'text-gray-300'}`}>
+                <div
+                  className={`flex items-center gap-2 ${isMainDir ? 'text-blue-300' : 'text-gray-300'}`}
+                >
                   {isCollapsed ? (
-                    <ChevronRight size={16} className={isMainDir ? 'text-blue-400' : 'text-gray-500'} />
+                    <ChevronRight
+                      size={16}
+                      className={isMainDir ? 'text-blue-400' : 'text-gray-500'}
+                    />
                   ) : (
-                    <ChevronDown size={16} className={isMainDir ? 'text-blue-400' : 'text-gray-500'} />
+                    <ChevronDown
+                      size={16}
+                      className={isMainDir ? 'text-blue-400' : 'text-gray-500'}
+                    />
                   )}
                   {isMainDir ? (
                     <FolderRoot size={16} className="text-blue-400" />
@@ -241,7 +259,9 @@ export const AppList: React.FC<AppListProps> = ({
                     <FolderOpen size={16} className="text-blue-400" />
                   )}
                   <span className="font-medium">{folder}</span>
-                  <span className={`text-xs ${isMainDir ? 'text-blue-400' : 'text-gray-500'}`}>({folderApps.length})</span>
+                  <span className={`text-xs ${isMainDir ? 'text-blue-400' : 'text-gray-500'}`}>
+                    ({folderApps.length})
+                  </span>
                 </div>
                 {runningCount > 0 && (
                   <span className="flex items-center gap-1 text-xs text-emerald-400">
@@ -253,9 +273,7 @@ export const AppList: React.FC<AppListProps> = ({
 
               {/* Apps in this folder */}
               {!isCollapsed && (
-                <div className="divide-y divide-gray-700/50">
-                  {folderApps.map(renderAppItem)}
-                </div>
+                <div className="divide-y divide-gray-700/50">{folderApps.map(renderAppItem)}</div>
               )}
             </div>
           );

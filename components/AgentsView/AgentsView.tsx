@@ -56,6 +56,7 @@ import {
   flattenGroups,
   documentTitle,
   applyQuickFilters,
+  sessionsInContext,
   matchesQuickFilter,
   mergeServers,
   collectPullRequests,
@@ -112,6 +113,8 @@ interface AgentsViewProps {
   onOpenView: () => void;
   /** Active project context (#97): its stored workspace and rail prefs are reloaded on change */
   contextId?: string;
+  /** Member apps of the active context; null shows every session (#133) */
+  contextAppIds?: string[] | null;
   /** Main area of the other routes (dashboard, board, code, ...): replaces the workspace while not active */
   children?: React.ReactNode;
 }
@@ -156,6 +159,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   nav,
   onOpenView,
   contextId,
+  contextAppIds,
   children,
 }) => {
   const palette = useCommandPalette();
@@ -292,8 +296,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     });
   }, []);
   const shownSessions = useMemo(
-    () => applyQuickFilters(visibleSessions, quickFilters, lookup),
-    [visibleSessions, quickFilters, lookup]
+    () =>
+      applyQuickFilters(
+        sessionsInContext(visibleSessions, apps, contextAppIds, lookup),
+        quickFilters,
+        lookup
+      ),
+    [visibleSessions, apps, contextAppIds, quickFilters, lookup]
   );
   const chipCounts = useMemo(() => {
     const result = {} as Record<AgentQuickFilter, number>;

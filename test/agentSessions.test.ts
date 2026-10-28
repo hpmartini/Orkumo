@@ -18,6 +18,7 @@ import {
   displayRepo,
   formatModelName,
   groupRepoSlug,
+  sessionsInContext,
   type SessionLookup,
 } from '../utils/agentSessions';
 import type { AgentSession } from '../types';
@@ -446,5 +447,27 @@ describe('groupRepoSlug', () => {
 
   it('ignores state groups, which mix repos', () => {
     expect(groupRepoSlug({ sessions: [b] }, contexts)).toBeNull();
+  });
+});
+
+describe('sessionsInContext (#133)', () => {
+  const apps = [
+    { id: 'repo', name: 'repo', path: '/p/repo' },
+    { id: 'web', name: 'web', path: '/p/repo/web' },
+    { id: 'other', name: 'other', path: '/p/other' },
+  ];
+  const inRoot = session({ cwd: '/p/repo' });
+  const inWeb = session({ cwd: '/p/repo/web/src' });
+  const inWorktree = session({ cwd: '/p/other/.claude/worktrees/x' });
+  const outside = session({ cwd: '/elsewhere' });
+  const all = [inRoot, inWeb, inWorktree, outside];
+
+  it('keeps every session for the "all" context', () => {
+    expect(sessionsInContext(all, apps, null)).toEqual(all);
+  });
+
+  it('keeps sessions whose most specific app is a member', () => {
+    expect(sessionsInContext(all, apps, ['repo', 'other'])).toEqual([inRoot, inWorktree]);
+    expect(sessionsInContext(all, apps, ['web'])).toEqual([inWeb]);
   });
 });

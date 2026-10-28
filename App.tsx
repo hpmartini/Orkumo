@@ -440,6 +440,7 @@ function AppContent() {
             {/* Not keyed by context: that would remount the views below (Web-IDE, terminals) */}
             <AgentsView
               contextId={contexts.active?.id}
+              contextAppIds={contextAppIds}
               active={activeTab === 'agents'}
               apps={apps}
               onExit={handleSelectDashboard}

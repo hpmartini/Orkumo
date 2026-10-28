@@ -984,8 +984,10 @@ app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) =>
     }
 
     // Get all apps
-    const apps = scanAllDirectories();
-    const appIds = apps.map((app) => app.id);
+    // Plain Git repos have no start command and need no port
+    const appIds = scanAllDirectories()
+      .filter((app) => app.startCommand)
+      .map((app) => app.id);
 
     // Note: Port exhaustion validation is handled by the service layer which tracks
     // the actual highest port used (accounting for conflicts). A simple arithmetic
