@@ -488,4 +488,15 @@ The following existing tasks are related to the new features above:
   - Approach: Routing in `App.tsx` und `AgentsView` gelesen. Mit Playwright gegen eine isolierte Server-Instanz geprüft (`DEVORBIT_DATA_PATH`, Ports 3198/3199).
   - Solution: Close-Button in der Agents-Leiste außerhalb von `/agents`. `attach` öffnet `/agents`, wenn die Ansicht nicht aktiv ist. Die Route (`devOrbitContextRoute`) gehört jetzt zu den Kontext-UI-Daten (`UI_KEYS`, Server-Schema `contextUiSchema`) und wird nach einem Wechsel wiederhergestellt, ohne gemerkte Route `/agents`.
 - Verifikation: tsc 0 Fehler. Browser: Close auf allen vier Views → `/agents`; Rail-Doppelklick aus `/workflows` → `/agents`; Alpha `/board` / Beta `/workflows` bleiben beim Hin- und Herwechseln getrennt.
-- Offen: vitest 129 Fehlschläge (`React.act is not a function`), schon vor dem Fix vorhanden.
+- Offen: vitest 129 Fehlschläge (`React.act is not a function`), schon vor dem Fix vorhanden. Gelöst im nächsten Eintrag.
+
+---
+
+### vitest: 129 Tests scheitern mit `React.act is not a function` (2026-10-28)
+
+- [x] **[FIX]** Tests luden den Production-Build von React
+  - Issue: In Agent-Shells schlugen 129 von 411 Tests in 24 Dateien fehl (z.B. `test/WebIDEPanel.test.tsx`), alle mit `TypeError: React.act is not a function`.
+  - Root cause: Der Claude-Hintergrundprozess (`claude bg-spare`) exportiert `NODE_ENV=production`, und jede Agent-Shell erbt das. Vitest setzt `NODE_ENV=test` nur, wenn die Variable leer ist. React 19 lädt dann `react.production.js`, das kein `act` exportiert. Versionen waren konsistent (react/react-dom 19.2.3, @testing-library/react 16.3.1); die `bun.lock`-Änderung (`configVersion`) war unbeteiligt.
+  - Approach: Versionen und Duplikate in `node_modules` geprüft, dann `NODE_ENV` der Shell. Gegenprobe `NODE_ENV=test npx vitest run` → 584/584.
+  - Solution: `vitest.config.ts` setzt `process.env.NODE_ENV = 'test'` vor dem Start der Worker. Deckt `npx vitest` und `bun run test` gleichermaßen ab.
+- Verifikation: Mit geerbtem `NODE_ENV=production`: `npx vitest run` und `bun run test:run` je 44/44 Dateien, 584/584 Tests. tsc 0 Fehler.
