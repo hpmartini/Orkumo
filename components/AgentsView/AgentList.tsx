@@ -230,7 +230,9 @@ export const AgentList: React.FC<AgentListProps> = ({
   const hoverCard = (id: string | null) => {
     clearTimeout(hoverTimer.current);
     if (id === null) setHoveredId(null);
-    else hoverTimer.current = setTimeout(() => setHoveredId(id), HOVER_DETAILS_DELAY_MS);
+    // Touch screens emulate mouseenter on tap: there the chevron and the selection decide
+    else if (window.matchMedia?.('(hover: hover)').matches)
+      hoverTimer.current = setTimeout(() => setHoveredId(id), HOVER_DETAILS_DELAY_MS);
   };
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
   const comfortable = cardDensity === 'comfortable';

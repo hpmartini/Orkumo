@@ -64,3 +64,17 @@ describe('agent card settings defaults and persistence (#135)', () => {
     expect(settingsService.getAgentViewSettings().cardDetails).toBe('always');
   });
 });
+
+describe('agent view settings schema (#135)', () => {
+  it('accepts the card options and rejects unknown values', async () => {
+    const { agentViewSettingsSchema } = await import('../server/schemas/agentViewSettings.js');
+    for (const cardDetails of ['hover', 'click', 'always']) {
+      expect(agentViewSettingsSchema.safeParse({ cardDetails }).success).toBe(true);
+    }
+    for (const cardDensity of ['comfortable', 'compact']) {
+      expect(agentViewSettingsSchema.safeParse({ cardDensity }).success).toBe(true);
+    }
+    expect(agentViewSettingsSchema.safeParse({ cardDetails: 'bogus' }).success).toBe(false);
+    expect(agentViewSettingsSchema.safeParse({ cardDensity: 'roomy' }).success).toBe(false);
+  });
+});
