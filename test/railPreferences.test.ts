@@ -164,6 +164,35 @@ describe('useRailPreferences expanded rows', () => {
     expect(keys(otherMode.result.current.arrange(groups))).toEqual(['a', 'b', 'c']);
   });
 
+  it.each(['project', 'state', 'directory'] as const)(
+    'keeps collapsed groups and order of grouping %s across a reload, other groupings untouched (#50)',
+    (grouping) => {
+      localStorage.removeItem('devOrbitAgentRail.v1');
+      const groups = [group('a'), group('b'), group('c')];
+      const keys = (gs: SessionGroup[]) => gs.map((g) => g.key);
+      const others = (['project', 'state', 'directory'] as const).filter((m) => m !== grouping);
+      const first = renderHook(() => useRailPreferences(grouping));
+      act(() => first.result.current.moveGroup('c', 'a', ['a', 'b', 'c']));
+      act(() => first.result.current.toggleCollapsed('b'));
+      first.unmount();
+      // "Expand all" in another grouping must not touch this grouping
+      for (const m of others) {
+        const other = renderHook(() => useRailPreferences(m));
+        act(() => other.result.current.expandAll());
+        other.unmount();
+      }
+
+      const reloaded = renderHook(() => useRailPreferences(grouping));
+      expect(keys(reloaded.result.current.arrange(groups))).toEqual(['c', 'a', 'b']);
+      expect([...reloaded.result.current.collapsed]).toEqual(['b']);
+      for (const m of others) {
+        const other = renderHook(() => useRailPreferences(m));
+        expect(keys(other.result.current.arrange(groups))).toEqual(['a', 'b', 'c']);
+        expect(other.result.current.collapsed.size).toBe(0);
+      }
+    }
+  );
+
   it('keeps favorite groups and agents on top across a reload', () => {
     localStorage.removeItem('devOrbitAgentRail.v1');
     const groups = [group('a', ['s1']), group('b', ['s2', 's3'])];
