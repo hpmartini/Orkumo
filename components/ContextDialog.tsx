@@ -10,7 +10,7 @@ import { shortenPath } from '../utils/agentSessions';
 // Characters that fit the 560px dialog at 11px mono; shortenPath cuts the start so the
 // folder name stays visible, CSS truncate stays as fallback for single overlong segments
 const HEADER_PATH_CHARS = 72;
-const ROW_PATH_CHARS = 36;
+const ROW_PATH_CHARS = 68;
 
 interface ContextDialogProps {
   /** null creates a new context */
@@ -178,9 +178,11 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                                   onChange={() => toggle(app.id)}
                                   className="accent-blue-500 shrink-0"
                                 />
-                                <span className="truncate">{app.name}</span>
-                                <span className="ml-auto min-w-0 truncate text-gray-500 font-mono text-[11px] max-w-[50%]">
-                                  {shortenPath(shortPath(app.path, group.root), ROW_PATH_CHARS)}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block truncate">{app.name}</span>
+                                  <span className="block truncate text-gray-500 font-mono text-[11px]">
+                                    {shortenPath(shortPath(app.path, group.root), ROW_PATH_CHARS)}
+                                  </span>
                                 </span>
                               </label>
                             </li>
