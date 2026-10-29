@@ -153,6 +153,25 @@ describe('PullRequestsPage (/pulls)', () => {
     expect(screen.getByText('PR 1')).toBeInTheDocument();
   });
 
+  it('focuses the view on arrival and keeps the list mounted when the pane opens and closes', () => {
+    electron(true);
+    render(<PullRequestsPage {...listProps} />);
+    expect(document.activeElement).toHaveAttribute('data-pulls-view');
+    const list = screen.getByText('PR 3').closest('ul, div.overflow-y-auto');
+    fireEvent.click(screen.getByRole('button', { name: /PR 1$/ }));
+    expect(screen.getByText('PR 3').closest('ul, div.overflow-y-auto')).toBe(list);
+    fireEvent.click(screen.getByRole('button', { name: 'Close browser' }));
+    expect(screen.getByText('PR 3').closest('ul, div.overflow-y-auto')).toBe(list);
+  });
+
+  it('ignores non-https PR urls', () => {
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const bad = { ...pr(9), url: 'javascript:alert(1)' };
+    render(<PullRequestsPage {...listProps} rows={[{ pr: bad, agents: [] }]} />);
+    fireEvent.click(screen.getByRole('button', { name: /PR 9$/ }));
+    expect(open).not.toHaveBeenCalled();
+  });
+
   it('keeps an external link icon next to each PR', () => {
     render(<PullRequestsPage {...listProps} />);
     expect(screen.getByRole('link', { name: 'Open #1 in browser' })).toHaveAttribute(

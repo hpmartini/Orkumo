@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState } from 'react';
+import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { AgentPullRequest } from '../../types';
 import { BrowserPane } from './AgentWorkspace';
@@ -34,41 +34,49 @@ const noop = () => {};
 export const PullRequestsPage: React.FC<PullRequestsPageProps> = ({ onClearRepo, ...list }) => {
   const [openUrl, setOpenUrl] = useState<string | null>(null);
   const canEmbed = typeof window !== 'undefined' && !!window.electronAPI?.browserView;
+  const viewRef = useRef<HTMLDivElement>(null);
+
+  // Arriving from the popover: its trigger is hidden here, so focus lands on the view
+  useEffect(() => viewRef.current?.focus(), []);
 
   const openPr = (pr: AgentPullRequest) => {
+    if (!pr.url.startsWith('https://')) return;
     if (canEmbed) setOpenUrl(pr.url);
     else window.open(pr.url, '_blank', 'noopener,noreferrer');
   };
 
-  const listPane = (
-    <div className="h-full flex flex-col min-h-0">
-      <PullRequestsHeader
-        count={filterPullRows(list.rows, list.repoFilter).length}
-        repoFilter={list.repoFilter}
-        onClearRepo={onClearRepo}
-      />
-      <div className="flex-1 overflow-y-auto min-h-0">
-        <PullRequestList {...list} onOpenPr={openPr} openUrl={openUrl} />
-      </div>
-    </div>
-  );
-
   return (
-    <div className="absolute inset-0 flex flex-col min-h-0 bg-gray-900" data-pulls-view>
-      {openUrl ? (
-        <Group orientation="horizontal" className="h-full w-full">
-          {/* v4: plain numbers are pixels, so sizes are given in percent */}
-          <Panel id="pulls-list" minSize="20%" defaultSize="40%" className="min-h-0 min-w-0">
-            {listPane}
-          </Panel>
-          <Separator className="w-1 cursor-col-resize bg-gray-800 hover:bg-blue-500/50 transition-colors" />
-          <Panel id="pulls-pr" minSize="20%" className="min-h-0 min-w-0 p-1">
-            <BrowserPane url={openUrl} active onFocus={noop} onClose={() => setOpenUrl(null)} />
-          </Panel>
-        </Group>
-      ) : (
-        listPane
-      )}
+    <div
+      ref={viewRef}
+      tabIndex={-1}
+      aria-label="Open pull requests"
+      className="absolute inset-0 flex flex-col min-h-0 bg-gray-900 outline-none"
+      data-pulls-view
+    >
+      {/* The list panel stays mounted when the pane opens or closes, so scroll and focus survive */}
+      <Group orientation="horizontal" className="h-full w-full">
+        {/* v4: plain numbers are pixels, so sizes are given in percent */}
+        <Panel id="pulls-list" minSize="20%" defaultSize="40%" className="min-h-0 min-w-0">
+          <div className="h-full flex flex-col min-h-0">
+            <PullRequestsHeader
+              count={filterPullRows(list.rows, list.repoFilter).length}
+              repoFilter={list.repoFilter}
+              onClearRepo={onClearRepo}
+            />
+            <div className="flex-1 overflow-y-auto min-h-0">
+              <PullRequestList {...list} onOpenPr={openPr} openUrl={openUrl} />
+            </div>
+          </div>
+        </Panel>
+        {openUrl && (
+          <>
+            <Separator className="w-1 cursor-col-resize bg-gray-800 hover:bg-blue-500/50 transition-colors" />
+            <Panel id="pulls-pr" minSize="20%" className="min-h-0 min-w-0 p-1">
+              <BrowserPane url={openUrl} active onFocus={noop} onClose={() => setOpenUrl(null)} />
+            </Panel>
+          </>
+        )}
+      </Group>
     </div>
   );
 };

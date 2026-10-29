@@ -567,24 +567,30 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
   const navigate = useNavigate();
-  const openPrCode = async ({ pr, agents }: PullRequestRow) => {
-    // Agents on the PR's head branch sit in its worktree; else the repo's checkout
-    const folder =
-      agents.map((a) => agentFolder(a, contexts[a.id])).find(Boolean) ??
-      (await fetchRepoPath(pr.repoSlug).catch(() => null));
-    if (folder) navigate(codeUrl(folder));
-    else toast.error(`No local checkout of ${pr.repoSlug}`);
-  };
+  const openPrCode = useCallback(
+    async ({ pr, agents }: PullRequestRow) => {
+      // Agents on the PR's head branch sit in its worktree; else the repo's checkout
+      const folder =
+        agents.map((a) => agentFolder(a, contexts[a.id])).find(Boolean) ??
+        (await fetchRepoPath(pr.repoSlug).catch(() => null));
+      if (folder) navigate(codeUrl(folder));
+      else toast.error(`No local checkout of ${pr.repoSlug}`);
+    },
+    [contexts, navigate]
+  );
   // Read by the /pulls container in App.tsx (ConnectedPullRequestsPage)
-  const pullsData: PullRequestsPageProps = {
-    rows: pullRows,
-    sessions,
-    contexts,
-    repoFilter: prRepo,
-    onClearRepo: () => setPrRepo(null),
-    onSelectAgent: attach,
-    onOpenCode: openPrCode,
-  };
+  const pullsData = useMemo<PullRequestsPageProps>(
+    () => ({
+      rows: pullRows,
+      sessions,
+      contexts,
+      repoFilter: prRepo,
+      onClearRepo: () => setPrRepo(null),
+      onSelectAgent: attach,
+      onOpenCode: openPrCode,
+    }),
+    [pullRows, sessions, contexts, prRepo, attach, openPrCode]
+  );
   // New issue dialog; repo null = the user picks one of `issueRepos`
   const [issueDialog, setIssueDialog] = useState<{ repo: string | null } | null>(null);
   const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
