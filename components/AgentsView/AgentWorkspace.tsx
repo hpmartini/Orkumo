@@ -97,7 +97,7 @@ function browserSession(id: string): AgentSession | null {
 }
 
 /** Built-in browser next to the agent terminals; reuses the Coding view's preview */
-const BrowserPane: React.FC<{
+export const BrowserPane: React.FC<{
   url: string;
   active: boolean;
   onFocus: () => void;
