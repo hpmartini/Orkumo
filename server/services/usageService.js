@@ -283,7 +283,7 @@ export async function claudeLimits(source, now) {
           fiveHour: win(util.five_hour, FIVE_HOUR_MIN),
           weekly: win(util.seven_day, WEEK_MIN),
           source: 'claude-cache',
-          asOf: stat.mtimeMs,
+          asOf: json.cachedUsageUtilization.fetchedAtMs ?? stat.mtimeMs,
         };
       }
     } catch {
