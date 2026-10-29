@@ -1,12 +1,13 @@
 import React, { useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, GitPullRequest, Hand, Rocket } from 'lucide-react';
+import { ChevronDown, GitPullRequest, Hand } from 'lucide-react';
 import type { AgentSession } from '../../types';
 import type { WorkflowCard as Card } from '../../utils/workflows';
 import { shortRepo } from '../../utils/board';
 import { formatAge } from '../../utils/agentSessions';
 import { AgentGlyph, CheckIcon, LabelChip } from '../BoardView/BoardCard';
 import { WorkflowDetails, type WorkflowNav } from './WorkflowDetails';
+import { GoButton, goLabel } from './GoButton';
 
 export const MODE_LABEL = {
   default: 'Standard',
@@ -52,7 +53,8 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
   const [spot, setSpot] = useState<{ x: number; y: number } | null>(null);
   const [hover, setHover] = useState(false);
   const waiting = state.waitingOn ? WAITING[state.waitingOn] : null;
-  const needsGo = !!state.go;
+  // the amber frame marks GOs only Hape can give; the poll starts on its own anyway
+  const needsGo = !!state.go && state.go.kind !== 'poll';
   const pr = item.pullRequests[0];
 
   return (
@@ -132,12 +134,7 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
             )}
           </div>
 
-          {needsGo && (
-            <GoButton
-              label={state.go?.kind === 'build' ? 'GO: Umsetzung' : `GO: ${state.go?.stage}`}
-              onGo={onGo}
-            />
-          )}
+          {state.go && <GoButton label={goLabel(state.go)} onGo={onGo} />}
 
           <button
             type="button"
@@ -221,42 +218,5 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
         )}
       </AnimatePresence>
     </motion.article>
-  );
-};
-
-/** Two-step GO: the first click arms, the second sends; arming expires after 4 s */
-const GoButton: React.FC<{ label: string; onGo: () => Promise<void> }> = ({ label, onGo }) => {
-  const [armed, setArmed] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  return (
-    <button
-      type="button"
-      disabled={busy}
-      onClick={async () => {
-        if (!armed) {
-          setArmed(true);
-          clearTimeout(timer.current);
-          timer.current = setTimeout(() => setArmed(false), 4000);
-          return;
-        }
-        clearTimeout(timer.current);
-        setBusy(true);
-        try {
-          await onGo();
-        } finally {
-          setBusy(false);
-          setArmed(false);
-        }
-      }}
-      className={`mt-3 flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-1.5 text-[12px] font-semibold transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 disabled:cursor-wait disabled:opacity-60 ${
-        armed
-          ? 'bg-amber-300 text-gray-950 hover:bg-amber-200'
-          : 'bg-amber-300/15 text-amber-100 hover:bg-amber-300/25'
-      }`}
-    >
-      <Rocket size={13} />
-      {busy ? 'Sende GO…' : armed ? 'Wirklich? Nochmal klicken' : label}
-    </button>
   );
 };

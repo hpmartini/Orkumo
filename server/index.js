@@ -56,12 +56,8 @@ import { getAgentContexts, getKnownServerPids } from './services/agentContextSer
 import * as boardService from './services/boardService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowService from './services/workflowService.js';
-import {
-  BUILD_LABEL,
-  deriveWorkflowState,
-  isWorkflowItem,
-  sameGo,
-} from '../utils/workflowStage.js';
+import { applyGo, workflowGoSchema } from './services/workflowGo.js';
+import { deriveWorkflowState, isWorkflowItem } from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
@@ -3469,18 +3465,6 @@ app.get('/api/workflows/runs', agentLimiter, async (req, res) => {
   }
 });
 
-const workflowGoSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('build') }).strict(),
-  z
-    .object({
-      kind: z.literal('approve'),
-      runId: z.string().regex(/^[a-z]+-\d+$/),
-      stage: z.enum(['briefing', 'plan', 'pr']),
-      sha: z.string().regex(/^[0-9a-f]{7,40}$/),
-    })
-    .strict(),
-]);
-
 // GO for the next stage; refused unless it is exactly the GO the fresh state offers
 app.post(
   '/api/workflows/go',
@@ -3489,18 +3473,10 @@ app.post(
   async (req, res) => {
     try {
       const ctx = await workflowContext(req.body.itemId, { refresh: true });
-      if (!sameGo(ctx.state.go, req.body.go)) {
-        return res
-          .status(409)
-          .json({ error: 'Dieses GO ist nicht (mehr) offen', state: ctx.state });
-      }
-      if (req.body.go.kind === 'build') {
-        const labels = [...ctx.item.labels.map((l) => l.name), BUILD_LABEL];
-        const item = await boardService.updateIssue(ctx.source, ctx.item.itemId, { labels });
-        return res.json({ ok: true, item });
-      }
-      const { stage, sha } = req.body.go;
-      res.json(await workflowService.approve(ctx.run, stage, sha));
+      const { status, body } = await applyGo(ctx, req.body.go, {
+        updateIssue: boardService.updateIssue,
+      });
+      res.status(status).json(body);
     } catch (error) {
       sendAgentError(res, error);
     }
