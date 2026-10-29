@@ -318,15 +318,14 @@ These features are defined in CLAUDE.md but have not been implemented yet.
 
 ### Updated Implementation Status
 
-| Feature                   | Status     | Priority | Complexity |
-| ------------------------- | ---------- | -------- | ---------- |
-| Open in External IDE      | 🔲 Pending | High     | Low        |
-| Claude Code Terminal      | 🔲 Pending | High     | Medium     |
-| Coding Sub-View Layout    | 🔲 Pending | Medium   | Medium     |
-| Browser Preview (iframe)  | 🔲 Pending | Medium   | Low        |
-| Monaco Editor Integration | 🔲 Pending | Low      | Medium     |
-| code-server Integration   | 🔲 Pending | Low      | High       |
-| Browser Debugger (CDP)    | 🔲 Pending | Low      | Very High  |
+| Feature                  | Status     | Priority | Complexity |
+| ------------------------ | ---------- | -------- | ---------- |
+| Open in External IDE     | 🔲 Pending | High     | Low        |
+| Claude Code Terminal     | 🔲 Pending | High     | Medium     |
+| Coding Sub-View Layout   | 🔲 Pending | Medium   | Medium     |
+| Browser Preview (iframe) | 🔲 Pending | Medium   | Low        |
+| code-server Integration  | 🔲 Pending | Low      | High       |
+| Browser Debugger (CDP)   | 🔲 Pending | Low      | Very High  |
 
 ---
 
@@ -467,7 +466,7 @@ which claude || echo "Claude CLI not found"
 A dedicated "Coding" view in AppDetail with three resizable panels:
 
 1. **Terminals Panel** - Reuses existing terminal tabs
-2. **Web-IDE Panel** - Embedded code editor (Monaco or code-server)
+2. **Web-IDE Panel** - Embedded code editor (code-server)
 3. **Browser Preview Panel** - iframe showing the running app with debugging tools
 
 ### Layout Architecture
@@ -483,9 +482,9 @@ A dedicated "Coding" view in AppDetail with three resizable panels:
 │  │             │                     │                            │ │
 │  │  TERMINALS  │      WEB IDE        │    BROWSER PREVIEW         │ │
 │  │             │                     │                            │ │
-│  │  [Tab1]     │   Monaco Editor     │   ┌──────────────────────┐ │ │
-│  │  [Tab2]     │   or                │   │  http://localhost:   │ │ │
-│  │  [+Claude]  │   code-server       │   ├──────────────────────┤ │ │
+│  │  [Tab1]     │   code-server       │   ┌──────────────────────┐ │ │
+│  │  [Tab2]     │                     │   │  http://localhost:   │ │ │
+│  │  [+Claude]  │                     │   ├──────────────────────┤ │ │
 │  │             │   iframe            │   │                      │ │ │
 │  │  Terminal   │                     │   │   App Preview        │ │ │
 │  │  Output     │   File Explorer     │   │   (iframe)           │ │ │
@@ -556,7 +555,7 @@ const [activeView, setActiveView] = useState<'details' | 'coding'>('details');
 | ----------------------------------------------- | ---------------------------------------- |
 | `components/CodingView.tsx`                     | Main coding layout with resizable panels |
 | `components/CodingView/TerminalsPanel.tsx`      | Wrapper for terminal tabs                |
-| `components/CodingView/WebIDEPanel.tsx`         | Monaco or code-server embed              |
+| `components/CodingView/WebIDEPanel.tsx`         | code-server embed                        |
 | `components/CodingView/BrowserPreviewPanel.tsx` | iframe + console logs                    |
 
 ---
@@ -662,68 +661,10 @@ const VIEWPORTS = {
 
 ### Options Evaluated
 
-| Option               | Description                | Pros                       | Cons                             | Recommendation      |
-| -------------------- | -------------------------- | -------------------------- | -------------------------------- | ------------------- |
-| **Monaco Editor**    | VS Code's editor component | Lightweight, easy to embed | No file explorer, no extensions  | Phase 1             |
-| **code-server**      | Full VS Code in browser    | Complete IDE experience    | Heavy, requires separate process | Phase 2             |
-| **External VS Code** | Just open in desktop app   | Simple, full features      | Not embedded                     | Already implemented |
-
-### Phase 5.1: Monaco Editor Integration
-
-```bash
-bun add @monaco-editor/react
-```
-
-```tsx
-// components/CodingView/MonacoPanel.tsx
-import Editor from '@monaco-editor/react';
-
-interface MonacoPanelProps {
-  projectPath: string;
-  initialFile?: string;
-}
-
-function MonacoPanel({ projectPath, initialFile }: MonacoPanelProps) {
-  const [files, setFiles] = useState<FileTree>([]);
-  const [currentFile, setCurrentFile] = useState(initialFile);
-  const [content, setContent] = useState('');
-
-  // Load file tree via API
-  useEffect(() => {
-    fetch(`/api/apps/${appId}/files`)
-      .then((r) => r.json())
-      .then(setFiles);
-  }, []);
-
-  return (
-    <div className="flex h-full">
-      {/* File Explorer */}
-      <div className="w-48 border-r border-gray-700 overflow-auto">
-        <FileTree files={files} onSelect={setCurrentFile} />
-      </div>
-
-      {/* Editor */}
-      <div className="flex-1">
-        <Editor
-          theme="vs-dark"
-          path={currentFile}
-          value={content}
-          onChange={setContent}
-          language={detectLanguage(currentFile)}
-        />
-      </div>
-    </div>
-  );
-}
-```
-
-#### Backend API for File Operations
-
-```
-GET  /api/apps/:id/files           - List files (tree structure)
-GET  /api/apps/:id/files/*path     - Read file content
-PUT  /api/apps/:id/files/*path     - Write file content
-```
+| Option               | Description              | Pros                    | Cons                             | Recommendation      |
+| -------------------- | ------------------------ | ----------------------- | -------------------------------- | ------------------- |
+| **code-server**      | Full VS Code in browser  | Complete IDE experience | Heavy, requires separate process | Phase 2             |
+| **External VS Code** | Just open in desktop app | Simple, full features   | Not embedded                     | Already implemented |
 
 ### Phase 5.2: code-server Integration (Advanced)
 
@@ -772,8 +713,6 @@ Then embed via iframe:
 
 ### Phase 4: Editor & Debugging (5-10 days)
 
-- [ ] Monaco Editor integration
-- [ ] File tree API endpoints
 - [ ] Console log forwarding
 - [ ] Network request logging (optional)
 
@@ -790,8 +729,7 @@ Then embed via iframe:
 ```json
 {
   "dependencies": {
-    "react-resizable-panels": "^2.0.0",
-    "@monaco-editor/react": "^4.6.0"
+    "react-resizable-panels": "^2.0.0"
   }
 }
 ```
@@ -806,15 +744,13 @@ components/
 ├── CodingView/
 │   ├── index.tsx              # Main 3-panel layout
 │   ├── TerminalsPanel.tsx     # Terminal tabs wrapper
-│   ├── WebIDEPanel.tsx        # Monaco or code-server
-│   ├── BrowserPreviewPanel.tsx # iframe + console
-│   └── FileTree.tsx           # File explorer for Monaco
+│   ├── WebIDEPanel.tsx        # code-server iframe
+│   └── BrowserPreviewPanel.tsx # iframe + console
 ├── ClaudeTerminalModal.tsx    # Claude options modal
 └── IDESelector.tsx            # IDE dropdown component
 
 server/
 ├── services/
-│   ├── ideService.js          # NEW: IDE detection/launch
-│   └── fileService.js         # NEW: File read/write for Monaco
+│   └── ideService.js          # NEW: IDE detection/launch
 └── index.js                   # New endpoints
 ```

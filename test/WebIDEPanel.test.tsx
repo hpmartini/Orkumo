@@ -53,17 +53,17 @@ describe('WebIDEPanel', () => {
   });
 
   describe('VS Code only (no editor switcher)', () => {
-    it('renders no Monaco switcher, only the VS Code iframe', async () => {
+    it('renders no editor switcher, only the VS Code iframe', async () => {
       await renderReady('/home/coder/Projects/test-project');
 
-      expect(screen.queryByText(/Monaco/i)).not.toBeInTheDocument();
       expect(screen.queryByRole('group', { name: /Editor type/i })).not.toBeInTheDocument();
       expect(getIframe()).toBeInTheDocument();
       expect(getIframe().getAttribute('src')).toContain('/code-server/');
     });
 
-    it('ignores a stale editorType="monaco" from old per-app state', async () => {
-      const stale = { editorType: 'monaco' } as Record<string, unknown>;
+    it('ignores a stale editorType from old per-app state', async () => {
+      // Old per-app state may still carry the removed second editor type
+      const stale = { editorType: 'legacy-editor' } as Record<string, unknown>;
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" {...stale} />);
       await waitForCodeServerReady();
 
@@ -121,7 +121,6 @@ describe('WebIDEPanel', () => {
       expect(await screen.findByText(/not installed/i)).toBeInTheDocument();
       expect(screen.getByText(/brew install code-server/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
-      expect(screen.queryByText(/Monaco/i)).not.toBeInTheDocument();
       expect(screen.getAllByRole('button')).toHaveLength(1);
     });
   });

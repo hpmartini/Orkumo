@@ -18,7 +18,7 @@ DevOrbit Dashboard has **full code-server integration** already implemented and 
 #### WebIDEPanel (`components/CodingView/WebIDEPanel.tsx`)
 
 - **code-server only**: full VS Code experience with extensions, debugging, git
-- **Security**: Path traversal prevention, iframe sandboxing
+- **Security**: iframe sandboxing
 
 #### Path Mapping
 
