@@ -164,10 +164,14 @@ describe('PullRequestsPage (/pulls)', () => {
     expect(screen.getByText('PR 3').closest('ul, div.overflow-y-auto')).toBe(list);
   });
 
-  it('ignores non-https PR urls', () => {
+  it('ignores PR urls that are not https://github.com/', () => {
     const open = vi.spyOn(window, 'open').mockReturnValue(null);
-    const bad = { ...pr(9), url: 'javascript:alert(1)' };
-    render(<PullRequestsPage {...listProps} rows={[{ pr: bad, agents: [] }]} />);
+    const bad = [
+      { pr: { ...pr(8), url: 'https://evil.test/pull/8' }, agents: [] },
+      { pr: { ...pr(9), url: 'javascript:alert(1)' }, agents: [] },
+    ];
+    render(<PullRequestsPage {...listProps} rows={bad} />);
+    fireEvent.click(screen.getByRole('button', { name: /PR 8$/ }));
     fireEvent.click(screen.getByRole('button', { name: /PR 9$/ }));
     expect(open).not.toHaveBeenCalled();
   });
