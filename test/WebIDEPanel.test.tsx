@@ -3,18 +3,7 @@ import { render, screen, act, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { WebIDEPanel } from '../components/CodingView/WebIDEPanel';
 
-// Mock Monaco Editor
-vi.mock('@monaco-editor/react', () => ({
-  default: ({ value, onChange }: any) => (
-    <textarea
-      data-testid="monaco-editor"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-    />
-  ),
-}));
-
-// Mock fetch for file operations and the code-server backend API
+// Mock fetch for the code-server backend API
 global.fetch = vi.fn();
 
 const IFRAME_SELECTOR = 'iframe[title="VS Code Server"]';
@@ -50,9 +39,7 @@ describe('WebIDEPanel', () => {
     (global.fetch as any).mockImplementation(async (url: string) => ({
       ok: true,
       json: async () =>
-        String(url).endsWith('/code-server/status')
-          ? { installed: true, running: true }
-          : { tree: [] },
+        String(url).endsWith('/code-server/status') ? { installed: true, running: true } : {},
     }));
   });
 
@@ -65,32 +52,23 @@ describe('WebIDEPanel', () => {
     vi.unstubAllEnvs();
   });
 
-  describe('Editor Type Switcher', () => {
-    it('should render Monaco and VS Code buttons', async () => {
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+  describe('VS Code only (no editor switcher)', () => {
+    it('renders no Monaco switcher, only the VS Code iframe', async () => {
+      await renderReady('/home/coder/Projects/test-project');
 
-      expect(await screen.findByText('Monaco')).toBeInTheDocument();
-      expect(screen.getByText('VS Code')).toBeInTheDocument();
+      expect(screen.queryByText(/Monaco/i)).not.toBeInTheDocument();
+      expect(screen.queryByRole('group', { name: /Editor type/i })).not.toBeInTheDocument();
+      expect(getIframe()).toBeInTheDocument();
+      expect(getIframe().getAttribute('src')).toContain('/code-server/');
     });
 
-    it('should have VS Code active by default', async () => {
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
+    it('ignores a stale editorType="monaco" from old per-app state', async () => {
+      const stale = { editorType: 'monaco' } as Record<string, unknown>;
+      render(<WebIDEPanel directory="/home/coder/Projects/test-project" {...stale} />);
+      await waitForCodeServerReady();
 
-      const vsCodeButton = await screen.findByRole('button', { name: /VS Code/i });
-      const monacoButton = screen.getByRole('button', { name: /Monaco/i });
-      expect(vsCodeButton).toHaveClass('bg-blue-600');
-      expect(monacoButton).not.toHaveClass('bg-blue-600');
-    });
-
-    it('should switch to Monaco when Monaco button is clicked', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
-
-      const monacoButton = await screen.findByRole('button', { name: /Monaco/i });
-      await user.click(monacoButton);
-
-      expect(monacoButton).toHaveClass('bg-blue-600');
-      expect(screen.getByRole('button', { name: /VS Code/i })).not.toHaveClass('bg-blue-600');
+      expect(screen.queryByText('Explorer')).not.toBeInTheDocument();
+      expect(getIframe().getAttribute('src')).toContain('/code-server/');
     });
   });
 
@@ -141,7 +119,10 @@ describe('WebIDEPanel', () => {
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
       expect(await screen.findByText(/not installed/i)).toBeInTheDocument();
+      expect(screen.getByText(/brew install code-server/)).toBeInTheDocument();
       expect(screen.getByRole('button', { name: /Retry/i })).toBeInTheDocument();
+      expect(screen.queryByText(/Monaco/i)).not.toBeInTheDocument();
+      expect(screen.getAllByRole('button')).toHaveLength(1);
     });
   });
 
@@ -170,31 +151,6 @@ describe('WebIDEPanel', () => {
       expect(getIframe().getAttribute('src')).toContain(
         encodeURIComponent('/Users/test/Projects/myapp')
       );
-    });
-  });
-
-  describe('Monaco Editor mode', () => {
-    it('should show Explorer in Monaco mode', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
-
-      await user.click(await screen.findByRole('button', { name: /Monaco/i }));
-
-      expect(await screen.findByText('Explorer')).toBeInTheDocument();
-    });
-
-    it('should not show Explorer in code-server mode', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
-
-      // Default mode is code-server
-      expect(screen.queryByText('Explorer')).not.toBeInTheDocument();
-
-      // Monaco shows it, switching back hides it again
-      await user.click(await screen.findByRole('button', { name: /Monaco/i }));
-      expect(await screen.findByText('Explorer')).toBeInTheDocument();
-      await user.click(screen.getByRole('button', { name: /VS Code/i }));
-      expect(screen.queryByText('Explorer')).not.toBeInTheDocument();
     });
   });
 
@@ -234,7 +190,7 @@ describe('WebIDEPanel', () => {
       render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
 
       // Wait for component to render
-      await screen.findByText('Monaco');
+      await screen.findByText('Web IDE');
 
       expect(screen.queryByRole('button', { name: /Terminal/i })).not.toBeInTheDocument();
     });
@@ -274,9 +230,7 @@ describe('WebIDEPanel', () => {
         json: async () =>
           String(url).endsWith('/code-server/start')
             ? { success: true }
-            : String(url).endsWith('/code-server/status')
-              ? { installed: true, running: true }
-              : { tree: [] },
+            : { installed: true, running: true },
       }));
       vi.setSystemTime(Date.now() + 60_000); // lift the recently-ready restart guard
 
@@ -301,38 +255,6 @@ describe('WebIDEPanel', () => {
 
       expect(screen.queryByText(/Editor not responding/i)).not.toBeInTheDocument();
       expect(screen.queryByText(/Failed to load VS Code/i)).not.toBeInTheDocument();
-    });
-  });
-
-  describe('Rapid editor switching', () => {
-    it('should handle rapid switching between editors', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
-
-      const monacoButton = await screen.findByRole('button', { name: /Monaco/i });
-      const vsCodeButton = screen.getByRole('button', { name: /VS Code/i });
-
-      await user.click(monacoButton);
-      expect(monacoButton).toHaveClass('bg-blue-600');
-
-      await user.click(vsCodeButton);
-      expect(vsCodeButton).toHaveClass('bg-blue-600');
-
-      await user.click(monacoButton);
-      expect(monacoButton).toHaveClass('bg-blue-600');
-
-      await user.click(vsCodeButton);
-      expect(vsCodeButton).toHaveClass('bg-blue-600');
-    });
-
-    it('should reset loading state when switching away from code-server', async () => {
-      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<WebIDEPanel directory="/home/coder/Projects/test-project" />);
-
-      expect(await screen.findByText('Loading VS Code Server')).toBeInTheDocument();
-
-      await user.click(screen.getByRole('button', { name: /Monaco/i }));
-      expect(screen.queryByText('Loading VS Code Server')).not.toBeInTheDocument();
     });
   });
 
@@ -373,9 +295,7 @@ describe('WebIDEPanel', () => {
       (global.fetch as any).mockImplementation(async (url: string) => ({
         ok: true,
         json: async () =>
-          String(url).endsWith('/code-server/status')
-            ? { installed: true, running: true }
-            : { tree: [] },
+          String(url).endsWith('/code-server/status') ? { installed: true, running: true } : {},
       }));
       const statusCalls = () =>
         (global.fetch as any).mock.calls.filter(([u]: [string]) =>
