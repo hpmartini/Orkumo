@@ -8,6 +8,7 @@ import type {
   AgentPrLink,
   AgentContext,
   AgentPullRequest,
+  AgentCardDetails,
 } from '../types';
 
 export type GroupKey =
@@ -708,6 +709,19 @@ export function stateGlyph(state: AgentDisplayState): {
     default:
       return { glyph: '∙', className: 'text-gray-500', animate: false, label: 'Unknown' };
   }
+}
+
+/**
+ * Whether a session card shows its details. A click on the chevron pins them in every mode;
+ * in `hover` mode the hovered card and the keyboard-selected card (rail focused) show them too.
+ */
+export function cardDetailsVisible(
+  mode: AgentCardDetails,
+  state: { hasDetails: boolean; pinned: boolean; hovered: boolean; focused: boolean }
+): boolean {
+  if (!state.hasDetails) return false;
+  if (mode === 'always' || state.pinned) return true;
+  return mode === 'hover' && (state.hovered || state.focused);
 }
 
 /**
