@@ -17,7 +17,7 @@ const defaultSettings = {
   customCommands: {}, // Map of appId -> custom start command
   preferredIDEs: {}, // Map of appId -> preferred IDE id
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
-  apiKeys: {}, // Map of provider -> API key (e.g. { gemini: "AIza..." })
+  apiKeys: {}, // Map of provider -> API key (e.g. { provider: "key" })
   dismissedRecommendations: [], // Array of dismissed recommendation keys
   snoozedRecommendations: {}, // Map of recommendation key -> snooze expiry timestamp
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides

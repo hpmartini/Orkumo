@@ -20,14 +20,8 @@ const STATS = [
   '  707   1.0',
 ].join('\n');
 
-const ARGS = [
-  '    1 /sbin/launchd',
-  ` 9031 /Applications/Google Chrome.app/Contents/MacOS/Google Chrome Helper (GPU) --type=gpu-process ${'--flag '.repeat(40)}`,
-  '  700 node /Users/me/project/server/index.js --port 3001',
-].join('\n');
-
 describe('parseTopProcesses', () => {
-  const result = parseTopProcesses(STATS, ARGS);
+  const result = parseTopProcesses(STATS);
 
   it('sorts by cpu descending and limits to 8 by default', () => {
     expect(result.byCpu).toHaveLength(8);
@@ -41,21 +35,18 @@ describe('parseTopProcesses', () => {
     expect(result.byMemory[0].rssBytes).toBe(500000 * 1024);
   });
 
-  it('uses the basename of comm (spaces kept) and the truncated args as command', () => {
+  it('uses the basename of comm as name and the executable path as command, no args', () => {
     const gpu = result.byCpu.find((p) => p.pid === 9031);
     expect(gpu.name).toBe('Google Chrome Helper (GPU)');
-    expect(gpu.command.length).toBe(120);
-    expect(gpu.command.startsWith('/Applications/Google Chrome.app')).toBe(true);
-    expect(result.byCpu.find((p) => p.pid === 700).command).toBe(
-      'node /Users/me/project/server/index.js --port 3001'
+    expect(gpu.command).toMatch(
+      /^\/Applications\/Google Chrome\.app\/.*Google Chrome Helper \(GPU\)$/
     );
-    // no args entry -> falls back to comm
-    expect(result.byMemory.find((p) => p.pid === 9035).command).toMatch(/Google Chrome Helper$/);
+    expect(result.byCpu.find((p) => p.pid === 700).command).toBe('node');
   });
 
   it('parses comma decimal separator and skips malformed lines', () => {
     expect(result.byCpu.find((p) => p.pid === 1).cpuPercent).toBe(2.7);
-    const all = parseTopProcesses(STATS, ARGS, 100).byCpu;
+    const all = parseTopProcesses(STATS, 100).byCpu;
     expect(all).toHaveLength(10);
     expect(all.some((p) => p.pid === 706 || p.pid === 707)).toBe(false);
   });
@@ -73,6 +64,6 @@ describe('parseTopProcesses', () => {
   });
 
   it('returns empty lists for empty output', () => {
-    expect(parseTopProcesses('', '')).toEqual({ byCpu: [], byMemory: [], byApp: [] });
+    expect(parseTopProcesses('')).toEqual({ byCpu: [], byMemory: [], byApp: [] });
   });
 });

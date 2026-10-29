@@ -313,7 +313,7 @@ export interface DiskInfo {
 export interface TopProcess {
   pid: number;
   name: string;
-  /** full command line, truncated to 120 chars */
+  /** executable path, without arguments */
   command: string;
   cpuPercent: number;
   rssBytes: number;

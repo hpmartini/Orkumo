@@ -318,16 +318,11 @@ export async function checkProjectHealth(projectPath) {
 }
 
 /**
- * Parse `ps -A -o pid=,pcpu=,rss=,comm=` (statsOut) and `ps -A -ww -o pid=,args=` (argsOut)
- * into the top processes by CPU and by memory, plus the top apps (same name summed).
- * Two outputs because macOS truncates comm to 16 chars unless it is the last column.
+ * Parse `ps -A -o pid=,pcpu=,rss=,comm=` into the top processes by CPU and by memory,
+ * plus the top apps (same name summed). comm is last so macOS keeps the full path.
+ * No args: the endpoint is reachable from the LAN and arguments can carry secrets.
  */
-export function parseTopProcesses(statsOut, argsOut, limit = 8) {
-  const args = new Map();
-  for (const line of String(argsOut || '').split('\n')) {
-    const m = line.match(/^\s*(\d+)\s+(.*)$/);
-    if (m) args.set(Number(m[1]), m[2].length > 120 ? `${m[2].slice(0, 119)}…` : m[2]);
-  }
+export function parseTopProcesses(statsOut, limit = 8) {
   const procs = [];
   for (const line of String(statsOut || '').split('\n')) {
     // pcpu uses the locale's decimal separator (de_DE: "3,0")
@@ -337,7 +332,7 @@ export function parseTopProcesses(statsOut, argsOut, limit = 8) {
     procs.push({
       pid,
       name: path.basename(m[4]) || m[4],
-      command: args.get(pid) ?? m[4],
+      command: m[4],
       cpuPercent: Number(m[2].replace(',', '.')),
       rssBytes: Number(m[3]) * 1024, // ps rss is KiB
     });
@@ -364,11 +359,8 @@ export function parseTopProcesses(statsOut, argsOut, limit = 8) {
 async function getTopProcesses() {
   const opts = { timeout: 5000, maxBuffer: 16 * 1024 * 1024 };
   try {
-    const [stats, args] = await Promise.all([
-      execFileAsync('ps', ['-A', '-o', 'pid=,pcpu=,rss=,comm='], opts),
-      execFileAsync('ps', ['-A', '-ww', '-o', 'pid=,args='], opts),
-    ]);
-    return parseTopProcesses(stats.stdout, args.stdout);
+    const stats = await execFileAsync('ps', ['-A', '-o', 'pid=,pcpu=,rss=,comm='], opts);
+    return parseTopProcesses(stats.stdout);
   } catch {
     return { byCpu: [], byMemory: [], byApp: [] };
   }
