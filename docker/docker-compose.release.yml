@@ -7,7 +7,8 @@ services:
   frontend:
     image: ghcr.io/hpmartini/devhub-frontend:${DEVHUB_VERSION:-latest}
     ports:
-      - "${DEVORBIT_PORT:-3000}:80"
+      # Loopback only: the API has no auth. Drop "127.0.0.1:" deliberately to expose it on your LAN.
+      - "127.0.0.1:${DEVORBIT_PORT:-3000}:80"
     depends_on:
       api:
         condition: service_healthy

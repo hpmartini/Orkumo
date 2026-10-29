@@ -114,12 +114,12 @@ Every [release](https://github.com/hpmartini/DevHub/releases) ships the desktop 
 
 ```bash
 mkdir devorbit && cd devorbit
-gh release download --repo hpmartini/DevHub -p docker-compose.release.yml -p init-db.sql  # latest release; add a tag for another
+gh release download <tag> --repo hpmartini/DevHub -p docker-compose.release.yml -p init-db.sql  # <tag> from the releases page, e.g. v1.0.0
 docker compose -f docker-compose.release.yml up -d   # http://localhost:3000
 ```
 
 Optional `.env` next to the compose file: `POSTGRES_PASSWORD`, `GEMINI_API_KEY`, `DEVORBIT_PORT` (default 3000), `DEVORBIT_PROJECTS_DIR` (default `~/Projects`), `PTY_HOST_HTTP_TOKEN`.
-Terminals need the PTY-Host on the host: `git clone` this repo, `bun run pty-host:install && bun run pty-host` (ports 3096/3097).
+Terminals need the PTY-Host on the host: `git clone` this repo, `bun run pty-host:install && bun run pty-host` (ports 3096/3097). It binds to `127.0.0.1`, which Docker Desktop reaches; on Linux set `PTY_HOST_BIND` to the `docker0` IP (usually `172.17.0.1`), not `0.0.0.0`.
 
 ---
 
