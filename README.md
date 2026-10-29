@@ -108,6 +108,19 @@ docker compose up --build
 
 Access the dashboard at `http://localhost:3000`.
 
+### Docker from a release (no checkout, no build)
+
+Every [release](https://github.com/hpmartini/DevHub/releases) ships the desktop installers (`.dmg`, `.AppImage`, `.deb`, `.rpm`, see [DESKTOP.md](DESKTOP.md)) and multi-arch images (`ghcr.io/hpmartini/devhub-api`, `devhub-frontend`, amd64 + arm64).
+
+```bash
+mkdir devorbit && cd devorbit
+gh release download --repo hpmartini/DevHub -p docker-compose.release.yml -p init-db.sql  # latest release; add a tag for another
+docker compose -f docker-compose.release.yml up -d   # http://localhost:3000
+```
+
+Optional `.env` next to the compose file: `POSTGRES_PASSWORD`, `GEMINI_API_KEY`, `DEVORBIT_PORT` (default 3000), `DEVORBIT_PROJECTS_DIR` (default `~/Projects`), `PTY_HOST_HTTP_TOKEN`.
+Terminals need the PTY-Host on the host: `git clone` this repo, `bun run pty-host:install && bun run pty-host` (ports 3096/3097).
+
 ---
 
 ## 💻 Web IDE: code-server Integration

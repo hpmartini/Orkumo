@@ -34,6 +34,8 @@ Download the latest release for your platform from the [Releases](https://github
 - **macOS**: Download `.dmg` file (supports both Intel and Apple Silicon)
 - **Linux**: Download `.AppImage`, `.deb`, or `.rpm` based on your distribution
 
+Prefer Docker? Each release also ships GHCR images and a compose file, see [README: Docker from a release](README.md#docker-from-a-release-no-checkout-no-build).
+
 ### Building from Source
 
 1. **Clone the repository**
