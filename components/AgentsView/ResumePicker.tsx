@@ -79,7 +79,7 @@ export const ResumePicker: React.FC<ResumePickerProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center pt-24"
+      className="fixed inset-0 z-[95] bg-black/60 flex items-start justify-center pt-24"
       onClick={onClose}
       role="dialog"
       aria-modal="true"

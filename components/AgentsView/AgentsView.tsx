@@ -1996,7 +1996,7 @@ const PromptEditor: React.FC<{
   const [text, setText] = useState(value);
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[95] bg-black/60 flex items-center justify-center p-4"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
@@ -2053,7 +2053,7 @@ const DirectoryPicker: React.FC<{
   );
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center pt-24 p-4"
+      className="fixed inset-0 z-[95] bg-black/60 flex items-start justify-center pt-24 p-4"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
