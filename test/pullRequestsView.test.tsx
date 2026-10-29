@@ -89,6 +89,24 @@ describe('PullRequestsPage (/pulls)', () => {
     expect(screen.getByText('PR 3')).toBeInTheDocument();
   });
 
+  it('AC-2: agent and code buttons call their handlers', () => {
+    const onSelectAgent = vi.fn();
+    const onOpenCode = vi.fn();
+    const agentRows = [{ pr: pr(1), agents: [{ id: 'a1', name: 'Agent One' } as AgentSession] }];
+    render(
+      <PullRequestsPage
+        {...listProps}
+        rows={agentRows}
+        onSelectAgent={onSelectAgent}
+        onOpenCode={onOpenCode}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Agent One' }));
+    expect(onSelectAgent).toHaveBeenCalledWith('a1');
+    fireEvent.click(screen.getByRole('button', { name: /Code/ }));
+    expect(onOpenCode).toHaveBeenCalledWith(agentRows[0]);
+  });
+
   it('AC-3: a PR opens one pane, the next PR replaces it', () => {
     electron(true);
     render(<PullRequestsPage {...listProps} />);
