@@ -28,6 +28,7 @@ import {
   type WorkflowCard as Card,
 } from '../../utils/workflows';
 import { shortRepo } from '../../utils/board';
+import { filterByProjects } from './projectFilter';
 import { agentFolder, boardUrl, codeUrl } from '../../utils/codeTarget';
 import { WorkflowCard } from './WorkflowCard';
 import type { WorkflowNav } from './WorkflowDetails';
@@ -110,10 +111,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
       ),
     [data, runs, now, repo, agent]
   );
-  const allCards = useMemo(
-    () => scopeWorkflowCards(scopedCards, { repos: projects }),
-    [scopedCards, projects]
-  );
+  const allCards = useMemo(() => filterByProjects(scopedCards, projects), [scopedCards, projects]);
   // Choices: the repos with issues in mw, plus picked ones that have none right now
   const repoChoices = useMemo(
     () =>

@@ -86,7 +86,16 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
         onClick={(e) => {
           if (!(e.target as HTMLElement).closest(INTERACTIVE)) onToggle();
         }}
-        className={`relative cursor-pointer rounded-xl border bg-gray-900/95 transition-colors ${
+        tabIndex={0}
+        aria-label={`${card.key}: ${item.title}`}
+        onKeyDown={(e) => {
+          // Only the focused card itself; keys on GO and the jumps stay with them
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        className={`relative cursor-pointer rounded-xl border bg-gray-900/95 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-cursor ${
           needsGo ? 'border-transparent' : 'border-gray-750 hover:border-gray-700'
         } ${moved ? 'wf-moved' : ''}`}
       >
@@ -111,7 +120,7 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
             <span className="ml-auto shrink-0 rounded-full border border-gray-750 px-1.5 leading-[18px] text-gray-300">
               {MODE_LABEL[state.mode]}
             </span>
-            {/* The card toggles on click; this button carries keyboard focus and aria-expanded */}
+            {/* The card toggles on click and Enter/Space; this button carries aria-expanded */}
             <button
               type="button"
               onClick={onToggle}

@@ -96,14 +96,24 @@ describe('WorkflowCard', () => {
     expect(toggleButton()).toHaveAttribute('aria-expanded', 'false');
   });
 
-  it('AC-1: Enter and Space on the focused toggle expand and collapse', async () => {
+  it('AC-1: Enter and Space on the focused card expand and collapse', async () => {
     const user = userEvent.setup();
-    setup();
-    toggleButton().focus();
+    const { onToggle } = setup();
+    await user.tab();
+    expect(screen.getByLabelText(/^o\/r#7: Karte sieben/)).toHaveFocus();
     await user.keyboard('{Enter}');
     expect(toggleButton()).toHaveAttribute('aria-expanded', 'true');
     await user.keyboard(' ');
     expect(toggleButton()).toHaveAttribute('aria-expanded', 'false');
+    expect(onToggle).toHaveBeenCalledTimes(2);
+  });
+
+  it('AC-1: Enter on an inner button does not toggle the card', async () => {
+    const user = userEvent.setup();
+    const { onToggle } = setup();
+    screen.getByRole('button', { name: /GO: Umsetzung/ }).focus();
+    await user.keyboard('{Enter}');
+    expect(onToggle).not.toHaveBeenCalled();
   });
 
   it('AC-2: GO, Agent, Issue and Code clicks do not toggle', () => {
