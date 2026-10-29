@@ -145,7 +145,7 @@ export const RemoteAgents: React.FC<RemoteAgentsProps> = ({
                       ? 'ring-1 ring-inset ring-blue-300/50'
                       : ''
                   }`}
-                  title={`${session.id} · ${device.name}:${session.cwd}${attachable ? '\nDouble-click to attach' : ''}`}
+                  title={`${session.id} · ${device.name}:${session.cwd}${attachable ? '\nDouble-click to attach' : '\nInteractive session: not attachable (only background sessions)'}`}
                 >
                   <span
                     className={`w-4 text-center shrink-0 leading-5 ${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
