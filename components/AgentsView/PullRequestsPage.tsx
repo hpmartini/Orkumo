@@ -40,10 +40,11 @@ export const PullRequestsPage: React.FC<PullRequestsPageProps> = ({ onClearRepo,
   useEffect(() => viewRef.current?.focus(), []);
 
   const openPr = (pr: AgentPullRequest) => {
-    // PR urls come from gh; only GitHub pages may load in the embedded browser
-    if (!pr.url.startsWith('https://github.com/')) return;
-    if (canEmbed) setOpenUrl(pr.url);
-    else window.open(pr.url, '_blank', 'noopener,noreferrer');
+    if (!pr.url.startsWith('https://')) return;
+    // Only GitHub pages load in the embedded browser; narrow windows (md breakpoint) and other hosts open externally
+    if (canEmbed && pr.url.startsWith('https://github.com/') && window.innerWidth >= 768) {
+      setOpenUrl(pr.url);
+    } else window.open(pr.url, '_blank', 'noopener,noreferrer');
   };
 
   return (
