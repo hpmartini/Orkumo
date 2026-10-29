@@ -274,25 +274,6 @@ class SettingsService {
   }
 
   /**
-   * Set custom port for an app
-   * @param {string} appId - Application ID
-   * @param {number|null} port - Port number or null to clear
-   * @returns {number|null} The set port
-   */
-  setPort(appId, port) {
-    const settings = readSettings();
-
-    if (port === null || port === undefined) {
-      delete settings.customPorts[appId];
-    } else {
-      settings.customPorts[appId] = port;
-    }
-
-    writeSettings(settings);
-    return port;
-  }
-
-  /**
    * Set custom name for an app
    * @param {string} appId - Application ID
    * @param {string|null} name - Custom name or null to clear
@@ -309,39 +290,6 @@ class SettingsService {
 
     writeSettings(settings);
     return name;
-  }
-
-  /**
-   * Set custom command for an app
-   * @param {string} appId - Application ID
-   * @param {string|null} command - Custom command or null to clear
-   * @returns {string|null} The set command
-   */
-  setCommand(appId, command) {
-    const settings = readSettings();
-
-    if (!settings.customCommands) {
-      settings.customCommands = {};
-    }
-
-    if (command === null || command === undefined || command.trim() === '') {
-      delete settings.customCommands[appId];
-    } else {
-      settings.customCommands[appId] = command.trim();
-    }
-
-    writeSettings(settings);
-    return command;
-  }
-
-  /**
-   * Get custom command for an app
-   * @param {string} appId - Application ID
-   * @returns {string|null} Custom command or null
-   */
-  getCommand(appId) {
-    const settings = readSettings();
-    return settings.customCommands?.[appId] || null;
   }
 
   /**
@@ -378,39 +326,6 @@ class SettingsService {
   clearAll() {
     writeSettings(defaultSettings);
     return defaultSettings;
-  }
-
-  /**
-   * Set preferred IDE for an app
-   * @param {string} appId - Application ID
-   * @param {string|null} ideId - IDE identifier or null to clear
-   * @returns {string|null} The set IDE
-   */
-  setPreferredIDE(appId, ideId) {
-    const settings = readSettings();
-
-    if (!settings.preferredIDEs) {
-      settings.preferredIDEs = {};
-    }
-
-    if (ideId === null || ideId === undefined || ideId.trim() === '') {
-      delete settings.preferredIDEs[appId];
-    } else {
-      settings.preferredIDEs[appId] = ideId.trim();
-    }
-
-    writeSettings(settings);
-    return ideId;
-  }
-
-  /**
-   * Get preferred IDE for an app
-   * @param {string} appId - Application ID
-   * @returns {string|null} Preferred IDE ID or null
-   */
-  getPreferredIDE(appId) {
-    const settings = readSettings();
-    return settings.preferredIDEs?.[appId] || null;
   }
 
   /**
@@ -458,62 +373,6 @@ class SettingsService {
     settings.favorites = newOrder;
     writeSettings(settings);
     return newOrder;
-  }
-
-  /**
-   * Get all API keys (masked for security)
-   * @returns {object} Map of provider -> masked key info
-   */
-  getApiKeys() {
-    const settings = readSettings();
-    const masked = {};
-    for (const [provider, key] of Object.entries(settings.apiKeys || {})) {
-      if (key && typeof key === 'string' && key.length > 4) {
-        masked[provider] = {
-          configured: true,
-          maskedKey: `${key.substring(0, 4)}...${key.substring(key.length - 4)}`,
-        };
-      } else if (key) {
-        masked[provider] = { configured: true, maskedKey: '****' };
-      }
-    }
-    return masked;
-  }
-
-  /**
-   * Get the raw API key for a provider (for server-side use only)
-   * @param {string} provider - Provider name (e.g. 'gemini')
-   * @returns {string|null} Raw API key or null
-   */
-  getApiKey(provider) {
-    const settings = readSettings();
-    return settings.apiKeys?.[provider] || null;
-  }
-
-  /**
-   * Set an API key for a provider
-   * @param {string} provider - Provider name
-   * @param {string} key - API key
-   */
-  setApiKey(provider, key) {
-    const settings = readSettings();
-    if (!settings.apiKeys) {
-      settings.apiKeys = {};
-    }
-    settings.apiKeys[provider] = key;
-    writeSettings(settings);
-  }
-
-  /**
-   * Remove an API key for a provider
-   * @param {string} provider - Provider name
-   */
-  removeApiKey(provider) {
-    const settings = readSettings();
-    if (settings.apiKeys) {
-      delete settings.apiKeys[provider];
-      writeSettings(settings);
-    }
   }
 
   /**
@@ -572,179 +431,6 @@ class SettingsService {
 
     writeSettings(settings);
     return settings;
-  }
-
-  /**
-   * Configure ports for all apps consistently, starting from a base port
-   * @param {string[]} appIds - Array of app IDs to configure
-   * @param {number} startPort - Starting port number (default: 3001)
-   * @param {object} portManager - PortManager instance for conflict detection
-   * @param {function} onProgress - Optional progress callback (currentIndex, total)
-   * @returns {Promise<object>} Map of appId -> assigned port
-   */
-  async configureAllPorts(appIds, startPort = 3001, portManager = null, onProgress = null) {
-    const settings = readSettings();
-    const configured = {};
-    let currentPort = startPort;
-    let highestPort = startPort;
-
-    // Validate that we won't exhaust port range
-    // Use a conservative estimate: assume 20% of ports might be unavailable due to conflicts
-    const maxPort = 65535;
-    const estimatedPortsNeeded = Math.ceil(appIds.length * 1.2);
-    if (startPort + estimatedPortsNeeded > maxPort) {
-      throw new Error(
-        `Port range exhausted: Cannot assign ${appIds.length} apps starting from ${startPort} (estimated ${estimatedPortsNeeded} ports needed including conflicts)`
-      );
-    }
-
-    // If portManager is provided, check ports in parallel for better performance
-    let unavailablePorts = new Set();
-    let preCheckedMaxPort = startPort;
-    if (portManager) {
-      // Batch check ports in parallel (check up to 50 ports ahead)
-      const portsToCheck = Math.min(appIds.length + 50, maxPort - startPort + 1);
-      preCheckedMaxPort = startPort + portsToCheck - 1;
-      const portCheckPromises = [];
-
-      for (let i = 0; i < portsToCheck; i++) {
-        const portToCheck = startPort + i;
-        portCheckPromises.push(
-          portManager.isPortAvailable(portToCheck).then((available) => ({
-            port: portToCheck,
-            available,
-          }))
-        );
-      }
-
-      // Wait for all checks to complete
-      const results = await Promise.all(portCheckPromises);
-      unavailablePorts = new Set(results.filter((r) => !r.available).map((r) => r.port));
-    }
-
-    // Assign sequential ports starting from startPort
-    for (let i = 0; i < appIds.length; i++) {
-      const appId = appIds[i];
-
-      // Find the next available port
-      let assignedPort = currentPort;
-
-      // Skip unavailable ports
-      while (unavailablePorts.has(assignedPort) && assignedPort <= maxPort) {
-        assignedPort++;
-      }
-
-      // If we've exhausted our pre-checked range, check new ports
-      if (portManager && assignedPort > preCheckedMaxPort) {
-        let portAvailable = await portManager.isPortAvailable(assignedPort);
-        while (!portAvailable && assignedPort <= maxPort) {
-          assignedPort++;
-          if (assignedPort > maxPort) {
-            throw new Error(`Port range exhausted after configuring ${i} apps`);
-          }
-          portAvailable = await portManager.isPortAvailable(assignedPort);
-        }
-      }
-
-      // Track the highest port used
-      highestPort = Math.max(highestPort, assignedPort);
-
-      // Validate we haven't exceeded the max port
-      if (highestPort > maxPort) {
-        throw new Error(`Port range exhausted after configuring ${i} apps`);
-      }
-
-      settings.customPorts[appId] = assignedPort;
-      configured[appId] = assignedPort;
-
-      // Set currentPort to the next port after the assigned port to ensure sequential allocation
-      currentPort = assignedPort + 1;
-
-      // Report progress if callback is provided
-      if (onProgress) {
-        const percentage = Math.round(((i + 1) / appIds.length) * 100);
-        onProgress(i + 1, appIds.length, percentage);
-      }
-    }
-
-    writeSettings(settings);
-    return configured;
-  }
-
-  /**
-   * Dismiss a recommendation permanently
-   * @param {string} key - Recommendation key (type + title hash)
-   * @returns {boolean} Success
-   */
-  dismissRecommendation(key) {
-    const settings = readSettings();
-    if (!settings.dismissedRecommendations.includes(key)) {
-      settings.dismissedRecommendations.push(key);
-      writeSettings(settings);
-    }
-    return true;
-  }
-
-  /**
-   * Snooze a recommendation for 24 hours
-   * @param {string} key - Recommendation key
-   * @returns {number} Expiry timestamp
-   */
-  snoozeRecommendation(key) {
-    const settings = readSettings();
-    const expiry = Date.now() + 24 * 60 * 60 * 1000; // 24 hours
-    settings.snoozedRecommendations[key] = expiry;
-    writeSettings(settings);
-    return expiry;
-  }
-
-  /**
-   * Get hidden recommendations (dismissed or snoozed)
-   * @returns {object} { dismissed: string[], snoozed: { key: expiry } }
-   */
-  getHiddenRecommendations() {
-    const settings = readSettings();
-    const now = Date.now();
-
-    // Clean up expired snoozes
-    const activeSnoozed = {};
-    for (const [key, expiry] of Object.entries(settings.snoozedRecommendations || {})) {
-      if (expiry > now) {
-        activeSnoozed[key] = expiry;
-      }
-    }
-
-    // Update if any expired
-    if (
-      Object.keys(activeSnoozed).length !==
-      Object.keys(settings.snoozedRecommendations || {}).length
-    ) {
-      settings.snoozedRecommendations = activeSnoozed;
-      writeSettings(settings);
-    }
-
-    return {
-      dismissed: settings.dismissedRecommendations || [],
-      snoozed: activeSnoozed,
-    };
-  }
-
-  /**
-   * Restore a dismissed recommendation
-   * @param {string} key - Recommendation key
-   * @returns {boolean} Success
-   */
-  restoreRecommendation(key) {
-    const settings = readSettings();
-    const index = settings.dismissedRecommendations.indexOf(key);
-    if (index !== -1) {
-      settings.dismissedRecommendations.splice(index, 1);
-      writeSettings(settings);
-    }
-    // Also remove from snoozed if present
-    delete settings.snoozedRecommendations[key];
-    writeSettings(settings);
-    return true;
   }
 
   /**

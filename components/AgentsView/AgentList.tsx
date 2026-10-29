@@ -39,7 +39,7 @@ import {
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
-import { AppPowerButton, AppStatusDot, RailNavProps } from './ProjectsRail';
+import { RailNavProps } from './ProjectsRail';
 import { SessionLinks } from './SessionLinks';
 import { CacheBadge } from './CacheBadge';
 import { isCacheWarning } from '../../utils/agentCache';
@@ -598,7 +598,6 @@ export const AgentList: React.FC<AgentListProps> = ({
                         </button>
                         {app && nav ? (
                           <>
-                            <AppStatusDot status={app.status} />
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -683,11 +682,6 @@ export const AgentList: React.FC<AgentListProps> = ({
                               onToggle={() => onToggleFavoriteGroup(groupKey)}
                             />
                           )
-                        )}
-                        {app && nav && (
-                          <span className="shrink-0">
-                            <AppPowerButton app={app} nav={nav} />
-                          </span>
                         )}
                       </div>
                     );

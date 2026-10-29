@@ -116,7 +116,6 @@ export interface KeyboardShortcuts {
   goToDashboardAlt: KeyboardShortcut;
   openSettings: KeyboardShortcut;
   openSettingsAlt: KeyboardShortcut;
-  toggleDetailsCoding: KeyboardShortcut;
   openAgents: KeyboardShortcut;
   goToTab1: KeyboardShortcut;
   goToTab2: KeyboardShortcut;
@@ -127,52 +126,13 @@ export interface KeyboardShortcuts {
   goToTab7: KeyboardShortcut;
   goToTab8: KeyboardShortcut;
   goToTab9: KeyboardShortcut;
-  // App control shortcuts
-  startApp: KeyboardShortcut;
-  stopApp: KeyboardShortcut;
-  restartApp: KeyboardShortcut;
 }
-
-// Per-app view state - stored separately for each app tab
-export type EditorType = 'monaco' | 'code-server';
-export type DevToolsTab = 'console' | 'network';
-export type ConsoleFilter = 'all' | 'log' | 'warn' | 'error';
-
-export interface PerAppViewState {
-  // Terminal state (tabs array is not stored here due to XTerm instances)
-  activeTerminalTabId: string | null;
-  showLogsTab: boolean;
-
-  // Editor state
-  editorType: EditorType;
-
-  // DevTools state
-  showDevTools: boolean;
-  devToolsTab: DevToolsTab;
-  consoleFilter: ConsoleFilter;
-
-  // Panel visibility
-  isBrowserHidden: boolean;
-  isTerminalHidden: boolean;
-}
-
-export const DEFAULT_PER_APP_STATE: PerAppViewState = {
-  activeTerminalTabId: null,
-  showLogsTab: true,
-  editorType: 'code-server',
-  showDevTools: true,
-  devToolsTab: 'console',
-  consoleFilter: 'all',
-  isBrowserHidden: false,
-  isTerminalHidden: true, // Default to hidden when first entering coding view
-};
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   goToDashboard: { key: 'h', description: 'Go to dashboard' },
   goToDashboardAlt: { key: 'd', description: 'Go to dashboard' },
   openSettings: { key: 's', description: 'Open settings' },
   openSettingsAlt: { key: ',', modifiers: { meta: true }, description: 'Open settings (Cmd+,)' },
-  toggleDetailsCoding: { key: 'c', description: 'Toggle Details/Coding view' },
   openAgents: { key: 'a', description: 'Open Claude agents view' },
   goToTab1: { key: '1', modifiers: { meta: true }, description: 'Go to context 1' },
   goToTab2: { key: '2', modifiers: { meta: true }, description: 'Go to context 2' },
@@ -183,14 +143,6 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   goToTab7: { key: '7', modifiers: { meta: true }, description: 'Go to context 7' },
   goToTab8: { key: '8', modifiers: { meta: true }, description: 'Go to context 8' },
   goToTab9: { key: '9', modifiers: { meta: true }, description: 'Go to context 9' },
-  // App control shortcuts
-  startApp: { key: 'Enter', modifiers: { meta: true }, description: 'Start selected app' },
-  stopApp: { key: '.', modifiers: { meta: true }, description: 'Stop selected app' },
-  restartApp: {
-    key: 'r',
-    modifiers: { meta: true, shift: true },
-    description: 'Restart selected app',
-  },
 };
 
 // ============================================

@@ -8,73 +8,29 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-DevOrbit Dashboard is a React-based developer dashboard that monitores and manages local development applications. It uses Gemini AI to analyze project configurations and provide intelligent recommendations.
+DevOrbit Dashboard is a React-based workspace for agentic development. It scans the directories configured in the admin panel as a project registry (projects open in Code mode, `/code?path=`); it no longer starts, stops or analyzes apps (issue #143).
 
-It scans the configured directories and subdirectories and analyses inherited projects, on how to run and monitor them specificially. First it reads the docs and the configuration files, like the packaged.json. Only if the given information are ambiguous, it reads the CLAUDE.md or the AGENTS.md file. The info of how to control the applicaions are stored appropriately.
+The overview (`/dashboard`) shows:
 
-The directories can be configured on the admin panel.
+- Agent situation (`components/AgentOverview.tsx`, derivation in `utils/agentOverview.ts`): running / needs input / working / done, lists "cache expires < 10 min" and "compaction needed"; each entry opens the agent in `/agents`
+- Compact usage card linking to the usage page
+- System Health: memory, CPU, top processes by CPU and RSS, top apps (`server/services/healthService.js`)
 
-The dashboard shows:
+Usage page (`/usage`, `components/UsageView/`, `server/services/usageService.js`, route `/api/usage?days=1..90`):
 
-- Total Projects
-- Active Services
-- Total CPU Load
-- AI Analysis
-- all used ports
-- System alerts
-- recommodations (like possible optimizations, updates, etc.)
-- per application:
-  - name
-  - directory
-  - technology
-  - the status (running, error, cancelled, stopped, starting, analyzing, waiting, etc.)
-  - the ports and adresses
-  - controls: start, stop, restart, open in browser
-- Applications
-  - are grouped by directory and subdirectory
-  - can be set as favorites and showed at the top in a separate favorites card
-  - can be archived, meaning they are hidden. at the bottom is a panel which opens the archive
+- Tokens per day, model and provider (input, output, cache read, cache write) for Claude Code, each Codex account and MiniMax, read from local session logs (`~/.claude/projects`, `$CODEX_HOME/sessions`)
+- Plan limits (5h / week): Codex from the newest `rate_limits` event; Claude from the statusline snapshot written by `scripts/claude-rate-limits-tap.sh`, fallback `~/.claude.json`; missing source shows "Limit unbekannt"
+- `scripts/verify-usage.mjs --days 30` re-sums the same logs independently and diffs per day and provider
 
-The details view for the applicaions show:
+Further modes:
 
-- name
-- cpu usage
-- memory usage
-- directory
-- technology
-- default start command
-- the status (running, error, cancelled, stopped, starting, analyzing, waiting, etc.)
-- the ports and adresses
-- the console output in a web terminal emulator
-  and provides basic control mechanisms, like:
-- start
-- stop
-- restart
-- installing dependencies (like npm install)
-- setting a specific port
-- open in browser
-- AI config
-
-The console output in the details view is a real webbased terminal emulator, supporting multiple tabs. On Default it shows just one tab with the console output. When adding more terminal tabs, each should run the default shell on start.
-
-- On demand, detect all ports of the favorite projects to resolve conflicts
-- Make sure the projects are started with their configured (or at build time set up) ports
-- Docker-Projekt-Support
-  - detect containers and setup (docker file and, docker compose file)
-  - configure project, so it can run and manage the containers
-  - ability to control each container in the details view
-- Open in external IDE from details view
 - Open new terminal tab with claude code
   - additional options: `-c` for continuing the last session, `--dangerously-skip-permissions`
 - Claude Code Agents View (browser version of `claude agents`, route `/agents`):
   - `components/AgentsView/` - list, dispatch input, peek panel, attached sessions in tabs / tiled panes
   - `server/services/agentService.js` - wraps the `claude` CLI (`--bg`, `agents --json`, `logs`, `stop`, `respawn`, `rm`, `daemon`) and `~/.claude/jobs` state; routes under `/api/agents/*`
   - `utils/agentInput.ts` (dispatch syntax) and `utils/agentSessions.ts` (grouping) are pure and unit-tested
-
-- On details view add a “sub view” for coding with this elements as side-by-side view:
-  - Terminals (reuse the terminals from the default details view)
-  - Web-IDE (VS-Code) einbauen
-  - Browser-View im I-Frame mit Debugger einbauen
+- Code mode (`/code`): terminals, Web-IDE (VS Code), browser preview
 
 ## Commands
 
@@ -94,7 +50,7 @@ bun run preview
 
 ## Environment Setup
 
-Set `GEMINI_API_KEY` in `.env.local` for AI-powered configuration analysis.
+Optional `DEVORBIT_CODEX_HOMES=Label=path,Label=path` lists the Codex accounts for `/usage`. For live Claude limits, wrap the statusline: `statusLine.command` = `bash <repo>/scripts/claude-rate-limits-tap.sh <existing statusline command>`.
 
 ## Architecture
 
@@ -105,8 +61,7 @@ This is a single-page React application with a flat file structure (no `src/` di
 ├── index.tsx         # React entry point
 ├── types.ts          # TypeScript types (AppConfig, AppStatus enum)
 ├── services/
-│   ├── geminiService.ts  # Gemini AI integration for config analysis
-│   └── mockOs.ts         # Mock data simulating directory scanning
+│   └── api.ts           # REST client for the server
 ├── index.html        # HTML shell with Tailwind CDN config
 └── vite.config.ts    # Vite config with @/ alias pointing to root
 ```

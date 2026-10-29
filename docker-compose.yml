@@ -50,7 +50,6 @@ services:
     environment:
       - NODE_ENV=production
       - SERVER_PORT=3099
-      - GEMINI_API_KEY=${GEMINI_API_KEY}
       # Override platform for IDE detection (container is linux, but host is darwin)
       - HOST_PLATFORM=darwin
       - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/devorbit

@@ -6,19 +6,13 @@ import {
   Routes,
   Route,
   useNavigate,
-  useParams,
   useLocation,
 } from 'react-router-dom';
 import { isElectron } from './utils/apiConfig';
 import { Bot, Rocket } from 'lucide-react';
-import toast, { Toaster } from 'react-hot-toast';
+import { Toaster } from 'react-hot-toast';
 import {
-  DashboardOverview,
-  AppList,
-  FavoritesList,
-  AppDetail,
   SystemHealth,
-  Recommendations,
   ErrorBoundary,
   AdminPanel,
   TitleBar,
@@ -27,12 +21,14 @@ import {
   AgentsView,
 } from './components';
 import { ModuleSlot } from './components/ModuleSlot';
-import { useApps, usePerAppState } from './hooks';
+import { useApps } from './hooks';
+import { AgentOverview } from './components/AgentOverview';
+import { UsageView, UsageCard } from './components/UsageView';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useProjectContexts, ROUTE_KEY } from './hooks/useProjectContexts';
 import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
 import type { PaletteCommand } from './utils/commandPalette';
-import { generateProjectUrl } from './utils/routing';
+import { codeUrl } from './utils/codeTarget';
 import { fetchConfig } from './services/api';
 import { KeyboardShortcuts } from './types';
 
@@ -40,45 +36,18 @@ import { BoardView } from './components/BoardView';
 import { WorkflowView } from './components/WorkflowView';
 import { CodeView } from './components/CodeView';
 
-type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code' | 'workflows';
+type ActiveTab = 'dashboard' | 'usage' | 'agents' | 'board' | 'code' | 'workflows';
 
 function AppContent() {
   const navigate = useNavigate();
-  const params = useParams();
   const location = useLocation();
-  const projectId = params.projectId;
   const isDashboardRoute = location.pathname === '/dashboard';
+  const isUsageRoute = location.pathname === '/usage';
   const isBoardRoute = location.pathname === '/board';
   const isCodeRoute = location.pathname === '/code';
   const isWorkflowsRoute = location.pathname === '/workflows';
 
-  const {
-    apps,
-    loading,
-    error: _error,
-    selectedAppId,
-    selectedApp,
-    settings,
-    setSelectedAppId,
-    handleStartApp,
-    handleStopApp,
-    handleRestartApp,
-    handleAnalyzeApp,
-    handleOpenInBrowser,
-    handleOpenInFinder,
-    handleOpenInTerminal,
-    handleToggleFavorite,
-    handleToggleArchive,
-    handleInstallDeps,
-    handleSetPort,
-    handleSetCommand,
-    handleRename,
-    handleReorderFavorites,
-    handleSetFavoritesSortMode,
-    refreshApps,
-    runningCount,
-    totalCpu,
-  } = useApps();
+  const { apps, loading, settings, refreshApps } = useApps();
 
   // Project contexts (#97): title bar tabs, each with its own favorites, board slices, agent tabs
   const contexts = useProjectContexts(refreshApps);
@@ -100,61 +69,20 @@ function AppContent() {
   // Context id being edited in the dialog; 'new' creates one
   const [editingContext, setEditingContext] = useState<string | null>(null);
 
-  // Per-app view state management (terminals, editor type, devtools, etc.)
-  const { createAppStateHelpers, getAppState, updateAppState } = usePerAppState();
-
   const [activeTab, setActiveTab] = useState<ActiveTab>('agents');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
 
-  // Details/Coding view state
-  const [detailsViewMode, setDetailsViewMode] = useState<'details' | 'coding'>('details');
-  const [isViewTabBarHidden, setIsViewTabBarHidden] = useState(() => {
-    const saved = localStorage.getItem('devOrbitViewTabBarHidden');
-    return saved === 'true';
-  });
-
-  // Persist view tab bar hidden state
-  useEffect(() => {
-    localStorage.setItem('devOrbitViewTabBarHidden', String(isViewTabBarHidden));
-  }, [isViewTabBarHidden]);
-
-  const handleToggleViewTabBar = useCallback(() => {
-    setIsViewTabBarHidden((prev) => !prev);
-  }, []);
-
-  const handleToggleDetailsView = useCallback(() => {
-    setDetailsViewMode((prev) => (prev === 'details' ? 'coding' : 'details'));
-  }, []);
-
-  // Use refs to avoid re-running the effect when callbacks change
-  const setSelectedAppIdRef = useRef(setSelectedAppId);
   const navigateRef = useRef(navigate);
-
-  // Keep refs up to date
   useEffect(() => {
-    setSelectedAppIdRef.current = setSelectedAppId;
     navigateRef.current = navigate;
-  }, [setSelectedAppId, navigate]);
+  }, [navigate]);
 
-  // Sync URL params with selected app
   useEffect(() => {
-    // Wait for apps to load to avoid race condition
-    if (loading) return;
-
-    if (projectId) {
-      // Validate that the project exists
-      const projectExists = apps.find((app) => app.id === projectId);
-      if (projectExists) {
-        setSelectedAppIdRef.current(projectId);
-        setActiveTab('apps');
-      } else {
-        // Invalid/stale project ID - back to the default view
-        navigateRef.current('/agents', { replace: true });
-      }
-    } else {
-      setActiveTab(
-        isDashboardRoute
-          ? 'dashboard'
+    setActiveTab(
+      isDashboardRoute
+        ? 'dashboard'
+        : isUsageRoute
+          ? 'usage'
           : isBoardRoute
             ? 'board'
             : isCodeRoute
@@ -162,9 +90,8 @@ function AppContent() {
               : isWorkflowsRoute
                 ? 'workflows'
                 : 'agents'
-      );
-    }
-  }, [projectId, apps, loading, isDashboardRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
+    );
+  }, [isDashboardRoute, isUsageRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
 
   // Each context keeps its own route (#97): it is parked with the context's ui on a switch
   const route = location.pathname + location.search;
@@ -194,26 +121,11 @@ function AppContent() {
   // Stable: AgentsView's attach callbacks depend on it
   const openAgentsView = useCallback(() => navigate('/agents'), [navigate]);
 
+  // A project opens in Code mode
   const handleSelectApp = (id: string) => {
     const app = apps.find((a) => a.id === id);
-    if (app) {
-      navigate(generateProjectUrl(app.name, id));
-    }
+    if (app) navigate(codeUrl(app.path));
   };
-
-  // Rename handler that prompts for the new name
-  const handleRenamePrompt = useCallback(
-    (id: string) => {
-      const app = apps.find((a) => a.id === id);
-      if (!app) return;
-
-      const newName = window.prompt('Enter new name:', app.name);
-      if (newName && newName.trim() && newName !== app.name) {
-        handleRename(id, newName.trim());
-      }
-    },
-    [apps, handleRename]
-  );
 
   // Keyboard shortcuts
   const keyboardShortcutActions = useMemo(
@@ -222,67 +134,14 @@ function AppContent() {
       { id: 'goToDashboardAlt' as keyof KeyboardShortcuts, handler: handleSelectDashboard },
       { id: 'openSettings' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
       { id: 'openSettingsAlt' as keyof KeyboardShortcuts, handler: () => setAdminPanelOpen(true) },
-      { id: 'toggleDetailsCoding' as keyof KeyboardShortcuts, handler: handleToggleDetailsView },
       { id: 'openAgents' as keyof KeyboardShortcuts, handler: () => navigate('/agents') },
       // Cmd+1..9 switch to the n-th context
       ...Array.from({ length: 9 }, (_, i) => ({
         id: `goToTab${i + 1}` as keyof KeyboardShortcuts,
         handler: () => contextList[i] && switchContext(contextList[i].id),
       })),
-      // App control shortcuts
-      {
-        id: 'startApp' as keyof KeyboardShortcuts,
-        handler: () => {
-          if (selectedAppId) {
-            toast.promise(handleStartApp(selectedAppId), {
-              loading: 'Starting...',
-              success: 'App started',
-              error: 'Failed to start',
-            });
-          } else {
-            toast('Select an app first', { icon: 'ℹ️' });
-          }
-        },
-      },
-      {
-        id: 'stopApp' as keyof KeyboardShortcuts,
-        handler: () => {
-          if (selectedAppId) {
-            toast.promise(handleStopApp(selectedAppId), {
-              loading: 'Stopping...',
-              success: 'App stopped',
-              error: 'Failed to stop',
-            });
-          } else {
-            toast('Select an app first', { icon: 'ℹ️' });
-          }
-        },
-      },
-      {
-        id: 'restartApp' as keyof KeyboardShortcuts,
-        handler: () => {
-          if (selectedAppId) {
-            toast.promise(handleRestartApp(selectedAppId), {
-              loading: 'Restarting...',
-              success: 'App restarted',
-              error: 'Failed to restart',
-            });
-          } else {
-            toast('Select an app first', { icon: 'ℹ️' });
-          }
-        },
-      },
     ],
-    [
-      navigate,
-      contextList,
-      switchContext,
-      handleToggleDetailsView,
-      selectedAppId,
-      handleStartApp,
-      handleStopApp,
-      handleRestartApp,
-    ]
+    [navigate, contextList, switchContext]
   );
 
   useKeyboardShortcuts({
@@ -292,13 +151,6 @@ function AppContent() {
   });
 
   // Command palette (Cmd/Ctrl+P). Agent-specific commands are registered by AgentsView.
-  const onAppsPage = !!selectedAppId && !!projectId;
-  const runOnSelected = (
-    action: (id: string) => Promise<unknown>,
-    messages: { loading: string; success: string; error: string }
-  ) => {
-    if (selectedAppId) toast.promise(action(selectedAppId), messages);
-  };
   const command = (
     id: string,
     title: string,
@@ -306,14 +158,15 @@ function AppContent() {
     run: () => void,
     keywords?: string
   ): PaletteCommand => ({ id: `app.${id}`, title, group, scope: 'command', keywords, run });
-  const appCommand = (verb: string, past: string, action: (id: string) => Promise<unknown>) => () =>
-    runOnSelected(action, {
-      loading: `${verb}...`,
-      success: `App ${past}`,
-      error: `Failed to ${verb.toLowerCase()}`,
-    });
   const paletteCommands: PaletteCommand[] = [
     command('dashboard', 'Go to dashboard', 'Navigate', handleSelectDashboard, 'home overview'),
+    command(
+      'usage',
+      'Open usage',
+      'Navigate',
+      () => navigate('/usage'),
+      'tokens limits codex claude'
+    ),
     command('agents', 'Open agents view', 'Navigate', () => navigate('/agents'), 'claude sessions'),
     command(
       'board',
@@ -331,25 +184,6 @@ function AppContent() {
       'mw martini pipeline orchestrate go stages'
     ),
     command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
-    ...(onAppsPage
-      ? [
-          command('coding', 'Toggle details / coding view', 'View', handleToggleDetailsView),
-          command('tabbar', 'Show / hide view tab bar', 'View', handleToggleViewTabBar),
-          command(
-            'start',
-            'Start selected app',
-            'App',
-            appCommand('Start', 'started', handleStartApp)
-          ),
-          command('stop', 'Stop selected app', 'App', appCommand('Stop', 'stopped', handleStopApp)),
-          command(
-            'restart',
-            'Restart selected app',
-            'App',
-            appCommand('Restart', 'restarted', handleRestartApp)
-          ),
-        ]
-      : []),
     ...contexts.contexts.map((c) =>
       command(`context.${c.id}`, `Switch to context: ${c.name}`, 'Context', () =>
         contexts.switchTo(c.id)
@@ -406,21 +240,6 @@ function AppContent() {
         onCreate={() => setEditingContext('new')}
         apps={apps}
         projectDirs={projectDirs}
-        showPaneControls={activeTab === 'apps' && detailsViewMode === 'coding' && !!selectedAppId}
-        isTerminalVisible={selectedAppId ? !getAppState(selectedAppId).isTerminalHidden : true}
-        isBrowserVisible={selectedAppId ? !getAppState(selectedAppId).isBrowserHidden : true}
-        onToggleTerminal={() => {
-          if (selectedAppId) {
-            const current = getAppState(selectedAppId).isTerminalHidden;
-            updateAppState(selectedAppId, { isTerminalHidden: !current });
-          }
-        }}
-        onToggleBrowser={() => {
-          if (selectedAppId) {
-            const current = getAppState(selectedAppId).isBrowserHidden;
-            updateAppState(selectedAppId, { isBrowserHidden: !current });
-          }
-        }}
       />
 
       {/* One shell: the agents rail on every route; the other views fill its main area */}
@@ -461,8 +280,6 @@ function AppContent() {
                 onOpenWorkflows: () => navigate('/workflows'),
                 onOpenSettings: () => setAdminPanelOpen(true),
                 onOpenProject: handleSelectApp,
-                onStartApp: handleStartApp,
-                onStopApp: handleStopApp,
               }}
             >
               {/* Dashboard: the start view behind the rocket and the agents icon */}
@@ -470,63 +287,20 @@ function AppContent() {
                 className={activeTab === 'dashboard' ? 'absolute inset-0 overflow-auto' : 'hidden'}
               >
                 <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 space-y-8 animate-in fade-in duration-500">
-                  <DashboardOverview
-                    totalApps={contextApps.length}
-                    runningCount={runningCount}
-                    totalCpu={totalCpu}
-                    apps={contextApps}
-                  />
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-                    <div className="lg:col-span-2 space-y-6">
-                      <div className="flex items-center justify-between">
-                        <h3 className="text-lg font-semibold text-gray-200">
-                          Application Registry
-                        </h3>
-                      </div>
-                      {/* Favorites Section */}
-                      <FavoritesList
-                        apps={contextApps}
-                        selectedAppId={selectedAppId}
-                        favoritesOrder={settings?.favorites || []}
-                        favoritesSortMode={settings?.favoritesSortMode || 'manual'}
-                        onSelectApp={handleSelectApp}
-                        onStart={handleStartApp}
-                        onStop={handleStopApp}
-                        onRestart={handleRestartApp}
-                        onOpenInBrowser={handleOpenInBrowser}
-                        onToggleFavorite={handleToggleFavorite}
-                        onToggleArchive={handleToggleArchive}
-                        onReorderFavorites={handleReorderFavorites}
-                        onSetSortMode={handleSetFavoritesSortMode}
-                      />
-                      {/* All Applications */}
-                      <AppList
-                        apps={contextApps.filter((app) => !app.isArchived && !app.isFavorite)}
-                        selectedAppId={selectedAppId}
-                        onSelectApp={handleSelectApp}
-                        onRefresh={refreshApps}
-                        onStart={handleStartApp}
-                        onStop={handleStopApp}
-                        onRestart={handleRestartApp}
-                        onOpenInBrowser={handleOpenInBrowser}
-                        onToggleFavorite={handleToggleFavorite}
-                        onToggleArchive={handleToggleArchive}
-                        onOpenInFinder={handleOpenInFinder}
-                        onOpenInTerminal={handleOpenInTerminal}
-                        onRename={handleRenamePrompt}
-                        mainDirectory="projects"
-                      />
-                    </div>
-
-                    <div className="space-y-6">
-                      <Recommendations apps={contextApps} onAnalyzeApp={handleAnalyzeApp} />
-                      <SystemHealth
-                        onRestartApp={handleRestartApp}
-                        onInstallDeps={handleInstallDeps}
-                      />
-                    </div>
+                  <AgentOverview active={activeTab === 'dashboard'} />
+                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                    <UsageCard onOpen={() => navigate('/usage')} />
+                    <SystemHealth />
                   </div>
                 </div>
+              </div>
+
+              {/* Usage per provider - polls only while active */}
+              <div
+                className={activeTab === 'usage' ? 'absolute inset-0 z-10 overflow-auto' : 'hidden'}
+                aria-hidden={activeTab !== 'usage'}
+              >
+                <UsageView active={activeTab === 'usage'} />
               </div>
 
               {/* Agent task board - kept mounted like the agents view, polls only while active */}
@@ -564,53 +338,6 @@ function AppContent() {
               >
                 <WorkflowView active={activeTab === 'workflows'} />
               </div>
-
-              {/* Stays mounted on other routes so the Web-IDE and browser iframes survive navigation;
-                  hidden off-screen with a clip because iframes bleed through visibility tricks */}
-              {selectedApp && (
-                <div
-                  className={`flex flex-col min-h-0 ${
-                    activeTab === 'apps' ? 'absolute inset-0 z-10' : 'fixed pointer-events-none'
-                  }`}
-                  style={
-                    activeTab === 'apps'
-                      ? undefined
-                      : {
-                          left: '-200vw',
-                          top: 0,
-                          width: '100vw',
-                          height: '100vh',
-                          clipPath: 'inset(0 100% 100% 0)',
-                          visibility: 'hidden',
-                        }
-                  }
-                  aria-hidden={activeTab !== 'apps'}
-                >
-                  <AppDetail
-                    key={selectedApp.id}
-                    app={selectedApp}
-                    onStart={handleStartApp}
-                    onStop={handleStopApp}
-                    onRestart={handleRestartApp}
-                    onAnalyze={handleAnalyzeApp}
-                    onOpenInBrowser={handleOpenInBrowser}
-                    onInstallDeps={handleInstallDeps}
-                    onSetPort={handleSetPort}
-                    onSetCommand={handleSetCommand}
-                    onRename={handleRename}
-                    onToggleFavorite={handleToggleFavorite}
-                    onToggleArchive={handleToggleArchive}
-                    onOpenInFinder={handleOpenInFinder}
-                    onOpenInTerminal={handleOpenInTerminal}
-                    preferredIDE={settings?.preferredIDEs?.[selectedApp.id] || null}
-                    isViewTabBarHidden={isViewTabBarHidden}
-                    onToggleViewTabBar={handleToggleViewTabBar}
-                    activeView={detailsViewMode}
-                    onViewChange={setDetailsViewMode}
-                    perAppState={createAppStateHelpers(selectedApp.id)}
-                  />
-                </div>
-              )}
             </AgentsView>
           </div>
         </div>
@@ -657,11 +384,12 @@ function AppRouter() {
     <Routes>
       <Route path="/" element={<Navigate to="/agents" replace />} />
       <Route path="/dashboard" element={<AppContent />} />
+      <Route path="/usage" element={<AppContent />} />
       <Route path="/agents" element={<AppContent />} />
       <Route path="/board" element={<AppContent />} />
       <Route path="/code" element={<AppContent />} />
       <Route path="/workflows" element={<AppContent />} />
-      <Route path="/:projectName/:projectId" element={<AppContent />} />
+      <Route path="*" element={<Navigate to="/agents" replace />} />
     </Routes>
   );
 }

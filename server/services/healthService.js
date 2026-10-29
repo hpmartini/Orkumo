@@ -318,71 +318,74 @@ export async function checkProjectHealth(projectPath) {
 }
 
 /**
+ * Parse `ps -A -o pid=,pcpu=,rss=,comm=` (statsOut) and `ps -A -ww -o pid=,args=` (argsOut)
+ * into the top processes by CPU and by memory, plus the top apps (same name summed).
+ * Two outputs because macOS truncates comm to 16 chars unless it is the last column.
+ */
+export function parseTopProcesses(statsOut, argsOut, limit = 8) {
+  const args = new Map();
+  for (const line of String(argsOut || '').split('\n')) {
+    const m = line.match(/^\s*(\d+)\s+(.*)$/);
+    if (m) args.set(Number(m[1]), m[2].length > 120 ? `${m[2].slice(0, 119)}…` : m[2]);
+  }
+  const procs = [];
+  for (const line of String(statsOut || '').split('\n')) {
+    // pcpu uses the locale's decimal separator (de_DE: "3,0")
+    const m = line.match(/^\s*(\d+)\s+(\d+(?:[.,]\d+)?)\s+(\d+)\s+(.+?)\s*$/);
+    if (!m) continue;
+    const pid = Number(m[1]);
+    procs.push({
+      pid,
+      name: path.basename(m[4]) || m[4],
+      command: args.get(pid) ?? m[4],
+      cpuPercent: Number(m[2].replace(',', '.')),
+      rssBytes: Number(m[3]) * 1024, // ps rss is KiB
+    });
+  }
+  const top = (list, key) => [...list].sort((a, b) => b[key] - a[key]).slice(0, limit);
+  const apps = new Map();
+  for (const p of procs) {
+    const app = apps.get(p.name) || { name: p.name, processCount: 0, cpuPercent: 0, rssBytes: 0 };
+    app.processCount += 1;
+    app.cpuPercent = Math.round((app.cpuPercent + p.cpuPercent) * 10) / 10;
+    app.rssBytes += p.rssBytes;
+    apps.set(p.name, app);
+  }
+  return {
+    byCpu: top(procs, 'cpuPercent'),
+    byMemory: top(procs, 'rssBytes'),
+    byApp: [...apps.values()].sort((a, b) => b.rssBytes - a.rssBytes).slice(0, 5),
+  };
+}
+
+/**
+ * Top processes of the whole machine; empty lists when ps fails.
+ */
+async function getTopProcesses() {
+  const opts = { timeout: 5000, maxBuffer: 16 * 1024 * 1024 };
+  try {
+    const [stats, args] = await Promise.all([
+      execFileAsync('ps', ['-A', '-o', 'pid=,pcpu=,rss=,comm='], opts),
+      execFileAsync('ps', ['-A', '-ww', '-o', 'pid=,args='], opts),
+    ]);
+    return parseTopProcesses(stats.stdout, args.stdout);
+  } catch {
+    return { byCpu: [], byMemory: [], byApp: [] };
+  }
+}
+
+/**
  * Get full system health report
  */
 export async function getSystemHealth(_projectPaths = []) {
-  const [versions, diskSpace] = await Promise.all([
+  const [versions, diskSpace, topProcesses] = await Promise.all([
     getSystemVersions(),
     getDiskSpace(os.homedir()),
+    getTopProcesses(),
   ]);
 
   const memory = getMemoryInfo();
   const cpu = getCpuInfo();
-
-  // Generate recommendations based on health data
-  const recommendations = [];
-
-  // Check Node version
-  if (versions.node.installed) {
-    const nodeVersion = versions.node.version.split('.')[0];
-    if (parseInt(nodeVersion, 10) < 20) {
-      recommendations.push({
-        type: 'update',
-        severity: 'warning',
-        title: 'Node.js Update Available',
-        message: `Current Node.js version (${versions.node.version}) is older than LTS 20.x`,
-        action:
-          versions.versionManager.manager === 'nvm'
-            ? 'nvm install --lts && nvm use --lts'
-            : versions.versionManager.manager === 'volta'
-              ? 'volta install node@lts'
-              : 'Download from nodejs.org',
-      });
-    }
-  }
-
-  // Check Docker
-  if (versions.docker.installed && !versions.docker.running) {
-    recommendations.push({
-      type: 'service',
-      severity: 'info',
-      title: 'Docker Not Running',
-      message: 'Docker is installed but the daemon is not running',
-      action: 'Start Docker Desktop or run: sudo systemctl start docker',
-    });
-  }
-
-  // Check disk space
-  if (diskSpace && diskSpace.usedPercent > 90) {
-    recommendations.push({
-      type: 'disk',
-      severity: 'warning',
-      title: 'Low Disk Space',
-      message: `Disk is ${diskSpace.usedPercent}% full`,
-      action: 'Free up disk space or expand storage',
-    });
-  }
-
-  // Check memory
-  if (memory.usedPercent > 85) {
-    recommendations.push({
-      type: 'memory',
-      severity: 'warning',
-      title: 'High Memory Usage',
-      message: `Memory is ${memory.usedPercent}% utilized`,
-      action: 'Close unused applications to free memory',
-    });
-  }
 
   return {
     system: {
@@ -395,7 +398,7 @@ export async function getSystemHealth(_projectPaths = []) {
       hostname: os.hostname(),
       uptime: os.uptime(),
     },
-    recommendations,
+    topProcesses,
     timestamp: Date.now(),
   };
 }
