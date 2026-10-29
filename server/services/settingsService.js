@@ -14,12 +14,9 @@ const defaultSettings = {
   archived: [], // Array of app IDs that are archived
   customPorts: {}, // Map of appId -> port number
   customNames: {}, // Map of appId -> custom name
-  customCommands: {}, // Map of appId -> custom start command
   preferredIDEs: {}, // Map of appId -> preferred IDE id
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
   apiKeys: {}, // Map of provider -> API key (e.g. { provider: "key" })
-  dismissedRecommendations: [], // Array of dismissed recommendation keys
-  snoozedRecommendations: {}, // Map of recommendation key -> snooze expiry timestamp
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides
   agentView: {}, // Claude Code agent view preferences (grouping, layout, dispatch defaults)
   board: {}, // Agent task board: GitHub project source + slice favorites/order/hidden
@@ -105,21 +102,6 @@ function readSettings() {
       loadedSettings.apiKeys = {};
     }
 
-    // Migrate: Ensure customCommands exists (added in v1.4)
-    if (!loadedSettings.customCommands) {
-      loadedSettings.customCommands = {};
-    }
-
-    // Migrate: Ensure dismissedRecommendations exists (added in v1.5)
-    if (!loadedSettings.dismissedRecommendations) {
-      loadedSettings.dismissedRecommendations = [];
-    }
-
-    // Migrate: Ensure snoozedRecommendations exists (added in v1.5)
-    if (!loadedSettings.snoozedRecommendations) {
-      loadedSettings.snoozedRecommendations = {};
-    }
-
     // Migrate: Ensure keyboardShortcuts exists (added in v1.6)
     if (!loadedSettings.keyboardShortcuts) {
       loadedSettings.keyboardShortcuts = {};
@@ -180,7 +162,6 @@ class SettingsService {
       isArchived: settings.archived.includes(appId),
       customPort: settings.customPorts[appId] || null,
       customName: settings.customNames[appId] || null,
-      customCommand: settings.customCommands?.[appId] || null,
       preferredIDE: settings.preferredIDEs?.[appId] || null,
     };
   }
@@ -408,15 +389,6 @@ class SettingsService {
     for (const appId of Object.keys(settings.customNames)) {
       if (!validSet.has(appId)) {
         delete settings.customNames[appId];
-      }
-    }
-
-    // Clean up custom commands
-    if (settings.customCommands) {
-      for (const appId of Object.keys(settings.customCommands)) {
-        if (!validSet.has(appId)) {
-          delete settings.customCommands[appId];
-        }
       }
     }
 
