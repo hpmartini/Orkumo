@@ -17,6 +17,7 @@ import {
   XCircle,
   AlertCircle,
   Kanban,
+  Pencil,
 } from 'lucide-react';
 import {
   fetchConfig,
@@ -57,6 +58,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newDirectory, setNewDirectory] = useState('');
+  /** Directory being replaced by the input value; null adds a new one */
+  const [editingDirectory, setEditingDirectory] = useState<string | null>(null);
   const [scanDepth, setScanDepth] = useState(2);
 
   // IDE settings state
@@ -327,9 +330,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     setLoading(true);
     setError(null);
     try {
-      const updated = await addDirectory(newDirectory.trim());
+      let updated = await addDirectory(newDirectory.trim());
+      // Editing = add the new path, then drop the old one (only if the new one was really added)
+      if (editingDirectory && updated.directories.length > (config?.directories.length ?? 0)) {
+        updated = await removeDirectory(editingDirectory);
+      }
       setConfig(updated);
       setNewDirectory('');
+      setEditingDirectory(null);
       onConfigChange();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add directory');
@@ -407,7 +415,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
             </div>
             <div>
               <h2 className="text-xl font-semibold text-white">Admin Panel</h2>
-              <p className="text-sm text-gray-400">Configure directories to scan</p>
+              <p className="text-sm text-gray-400">Project directories, AI, IDEs and shortcuts</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-700 rounded-lg transition-colors">
@@ -424,19 +432,75 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
             </div>
           )}
 
-          {/* Add Directory */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Add Directory to Scan
+          {/* Project directories: the one list Dashboard, contexts and agent dispatch share */}
+          <section>
+            <h3 className="text-sm font-medium text-gray-200">Project Directories</h3>
+            <p className="text-xs text-gray-400 mt-1 mb-3">
+              The single source for the dashboard scan, the project list of contexts and the
+              directories agents may be dispatched in. Projects outside these folders only appear
+              while an agent runs there.
+            </p>
+            {loading && !config ? (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="animate-spin text-blue-500" size={24} />
+              </div>
+            ) : config?.directories.length === 0 ? (
+              <p className="text-gray-500 text-sm py-4">
+                No directories configured. Add a directory below to start scanning for projects.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {config?.directories.map((dir) => (
+                  <li
+                    key={dir}
+                    className={`flex items-center gap-1 p-2 pl-3 bg-gray-900 rounded-lg border group ${
+                      editingDirectory === dir ? 'border-blue-500' : 'border-gray-700'
+                    }`}
+                  >
+                    <span
+                      className="flex-1 min-w-0 text-gray-300 font-mono text-sm truncate"
+                      title={dir}
+                    >
+                      {dir}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setEditingDirectory(dir);
+                        setNewDirectory(dir);
+                      }}
+                      disabled={loading}
+                      className="p-2 text-gray-500 hover:text-white hover:bg-gray-700 rounded-lg opacity-60 group-hover:opacity-100 focus-visible:opacity-100 transition-all disabled:opacity-50"
+                      title="Edit directory"
+                      aria-label={`Edit ${dir}`}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleRemoveDirectory(dir)}
+                      disabled={loading}
+                      className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg opacity-60 group-hover:opacity-100 focus-visible:opacity-100 transition-all disabled:opacity-50"
+                      title="Remove directory"
+                      aria-label={`Remove ${dir}`}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <label htmlFor="admin-new-directory" className="block text-xs text-gray-400 mt-4 mb-2">
+              {editingDirectory ? 'Replace directory' : 'Add directory'}
             </label>
             <div className="flex gap-2">
               <input
+                id="admin-new-directory"
                 type="text"
                 value={newDirectory}
                 onChange={(e) => setNewDirectory(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddDirectory()}
-                placeholder="/path/to/projects"
-                className="flex-1 px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="/Users/you/PROJECTS"
+                className="flex-1 min-w-0 px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white font-mono text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <button
                 onClick={handleBrowseDirectory}
@@ -446,51 +510,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               >
                 <FolderOpen size={18} />
               </button>
+              {editingDirectory && (
+                <button
+                  onClick={() => {
+                    setEditingDirectory(null);
+                    setNewDirectory('');
+                  }}
+                  className="px-3 py-2 text-gray-300 rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
               <button
                 onClick={handleAddDirectory}
                 disabled={loading || !newDirectory.trim()}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <FolderPlus size={18} />
-                Add
+                {editingDirectory ? <Save size={18} /> : <FolderPlus size={18} />}
+                {editingDirectory ? 'Save' : 'Add'}
               </button>
             </div>
-          </div>
-
-          {/* Directory List */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Configured Directories
-            </label>
-            {loading && !config ? (
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="animate-spin text-blue-500" size={24} />
-              </div>
-            ) : config?.directories.length === 0 ? (
-              <p className="text-gray-500 text-sm py-4">
-                No directories configured. Add a directory above to start scanning for projects.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {config?.directories.map((dir) => (
-                  <div
-                    key={dir}
-                    className="flex items-center justify-between p-3 bg-gray-900 rounded-lg border border-gray-700 group"
-                  >
-                    <span className="text-gray-300 font-mono text-sm truncate">{dir}</span>
-                    <button
-                      onClick={() => handleRemoveDirectory(dir)}
-                      disabled={loading}
-                      className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
-                      title="Remove directory"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          </section>
 
           {/* Scan Depth */}
           <div>

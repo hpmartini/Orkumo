@@ -8,6 +8,7 @@ import type {
   AgentPrLink,
   AgentContext,
   AgentPullRequest,
+  AgentCardDetails,
 } from '../types';
 
 export type GroupKey =
@@ -166,6 +167,50 @@ export interface ProjectApp {
   path: string;
 }
 
+const bySpecificity = <T extends ProjectApp>(apps: T[]) =>
+  [...apps].sort((a, b) => b.path.length - a.path.length);
+
+/** The session's directories and their main checkouts (worktrees join their main repo) */
+function sessionDirs(session: AgentSession, lookup?: SessionLookup) {
+  const root = lookup?.contexts?.[session.id]?.repo?.root;
+  const dirs = [session.worktree, session.cwd].filter((d): d is string => !!d);
+  // Worktrees group with their main checkout, also before contexts have loaded
+  const mains = [...(root ? [root] : []), ...dirs.map(mainRepoPath)];
+  return { dirs, mains };
+}
+
+/** Most specific app containing the session; `apps` must be sorted by `bySpecificity` */
+function sessionApp<T extends ProjectApp>(
+  session: AgentSession,
+  sortedApps: T[],
+  lookup?: SessionLookup
+): T | undefined {
+  const { dirs, mains } = sessionDirs(session, lookup);
+  // App paths may differ in case from session paths (case-insensitive macOS file system)
+  return sortedApps.find(
+    (a) => a.path && [...dirs, ...mains].some((d) => isUnder(a.path.toLowerCase(), d.toLowerCase()))
+  );
+}
+
+/**
+ * Sessions belonging to a project context (#133): those whose app is a member.
+ * `appIds === null` is the "all" context and keeps every session.
+ */
+export function sessionsInContext(
+  sessions: AgentSession[],
+  apps: ProjectApp[],
+  appIds: string[] | null | undefined,
+  lookup?: SessionLookup
+): AgentSession[] {
+  if (!appIds) return sessions;
+  const members = new Set(appIds);
+  const sorted = bySpecificity(apps);
+  return sessions.filter((s) => {
+    const app = sessionApp(s, sorted, lookup);
+    return !!app && members.has(app.id);
+  });
+}
+
 /**
  * One cluster per DevOrbit app (most specific app path wins); sessions outside every app
  * cluster by repo root (subfolders and worktrees join their main checkout) after the apps.
@@ -177,19 +222,11 @@ function projectGroups(
   apps: ProjectApp[] = [],
   lookup?: SessionLookup
 ): SessionGroup[] {
-  const bySpecificity = [...apps].sort((a, b) => b.path.length - a.path.length);
+  const sorted = bySpecificity(apps);
   const clusters = new Map<string, SessionGroup & { matched: boolean; fallback: string }>();
   for (const session of sessions) {
-    const root = lookup?.contexts?.[session.id]?.repo?.root;
-    const dirs = [session.worktree, session.cwd].filter((d): d is string => !!d);
-    // Worktrees group with their main checkout, also before contexts have loaded
-    const mains = [...(root ? [root] : []), ...dirs.map(mainRepoPath)];
-    // App paths may differ in case from session paths (case-insensitive macOS file system)
-    const app = bySpecificity.find(
-      (a) =>
-        a.path && [...dirs, ...mains].some((d) => isUnder(a.path.toLowerCase(), d.toLowerCase()))
-    );
-    const mainDir = mains[0];
+    const app = sessionApp(session, sorted, lookup);
+    const mainDir = sessionDirs(session, lookup).mains[0];
     // Keyed by path, not display name: the name changes once contexts load and can collide
     const key: GroupKey = app ? `project:${app.id}` : `project:dir:${mainDir}`;
     let cluster = clusters.get(key);
@@ -296,8 +333,8 @@ const lastSegment = (path: string) => path.split('/').filter(Boolean).pop() || p
 /**
  * Main checkout of a Claude/git worktree path ("<main>/.claude/worktrees/x" or
  * "<main>/.worktrees/x"), derived from the path alone so it works before contexts load.
- * shortcut: worktrees created elsewhere (`git worktree add ../x`) are only resolved by the
- * server context (repo.name), not grouped with the main checkout; revisit if that gets common.
+ * Worktrees created elsewhere (`git worktree add ../x`) join their main checkout once the
+ * server context delivers repo.root.
  */
 export function mainRepoPath(dir: string): string {
   const match = dir.match(/^(.+?)\/(?:\.claude\/worktrees|\.worktrees)(?:\/|$)/);
@@ -672,6 +709,19 @@ export function stateGlyph(state: AgentDisplayState): {
     default:
       return { glyph: '∙', className: 'text-gray-500', animate: false, label: 'Unknown' };
   }
+}
+
+/**
+ * Whether a session card shows its details. A click on the chevron pins them in every mode;
+ * in `hover` mode the hovered card and the keyboard-selected card (rail focused) show them too.
+ */
+export function cardDetailsVisible(
+  mode: AgentCardDetails,
+  state: { hasDetails: boolean; pinned: boolean; hovered: boolean; focused: boolean }
+): boolean {
+  if (!state.hasDetails) return false;
+  if (mode === 'always' || state.pinned) return true;
+  return mode === 'hover' && (state.hovered || state.focused);
 }
 
 /**

@@ -28,6 +28,18 @@ import { stateGlyph } from '../../utils/agentSessions';
 const NARROW_PX = 360;
 const paneBtnFocus = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400';
 
+/** WebLinksAddon's default handler (not exported): new window without opener */
+function openExternally(uri: string) {
+  const win = window.open();
+  if (!win) return;
+  try {
+    win.opener = null;
+  } catch {
+    // Electron can throw
+  }
+  win.location.href = uri;
+}
+
 interface AgentTerminalProps {
   session: AgentSession;
   /** Whether the pane is currently visible (tabs layout hides inactive panes) */
@@ -47,6 +59,8 @@ interface AgentTerminalProps {
   solo?: boolean;
   /** Linked PRs, issues and running processes, shown after the connection dot */
   meta?: React.ReactNode;
+  /** Cmd/Ctrl-click on a link: open it in the built-in browser instead of externally */
+  onOpenLink?: (url: string) => void;
 }
 
 /**
@@ -82,6 +96,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   headerProps,
   solo,
   meta,
+  onOpenLink,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
@@ -95,6 +110,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   // Cmd+W is bound once at terminal creation; close through the latest prop
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const onOpenLinkRef = useRef(onOpenLink);
+  onOpenLinkRef.current = onOpenLink;
   const ghostty = useGhosttyTheme();
   const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
   const optionsRef = useRef(options);
@@ -133,7 +150,15 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon());
+    terminal.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        const open = onOpenLinkRef.current;
+        if (open && (event.metaKey || event.ctrlKey) && /^https?:\/\//i.test(uri)) {
+          // after xterm's own mouseup handling: opening the split remounts this terminal
+          setTimeout(() => open(uri));
+        } else openExternally(uri);
+      })
+    );
     terminal.open(container);
     try {
       fitAddon.fit();

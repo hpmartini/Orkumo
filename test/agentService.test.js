@@ -246,4 +246,31 @@ describe('agentService - dispatch safety', () => {
       )
     ).toThrow(/No project directories/);
   });
+
+  it('does not open the home directory for background sessions', () => {
+    const opts = { allowedDirs: [project], unsafeAllowed: false };
+    expect(() => sanitizeDispatchOptions({ cwd: os.homedir() }, opts)).toThrow(/Working directory/);
+  });
+
+  it('requires a prompt unless the session starts idle', async () => {
+    await expect(mod.dispatch({ cwd: project }, { allowedDirs: [project] })).rejects.toMatchObject({
+      status: 400,
+    });
+    await expect(
+      mod.dispatch({ cwd: outside, idle: true }, { allowedDirs: [project] })
+    ).rejects.toThrow(/Working directory/);
+    // a short optional prompt passes the length check for idle sessions
+    await expect(
+      mod.dispatch({ cwd: outside, idle: true, prompt: 'hi' }, { allowedDirs: [project] })
+    ).rejects.toThrow(/Working directory/);
+  });
+
+  it('rejects a prompt that the CLI would parse as a flag', async () => {
+    await expect(
+      mod.dispatch(
+        { cwd: project, idle: true, prompt: '--dangerously-skip-permissions' },
+        { allowedDirs: [project] }
+      )
+    ).rejects.toMatchObject({ status: 400 });
+  });
 });

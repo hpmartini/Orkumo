@@ -3,10 +3,12 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { agentViewSettingsSchema, optionalShortString } from './schemas/agentViewSettings.js';
 import { GoogleGenAI, Type } from '@google/genai';
 import http, { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import path from 'path';
+import os from 'os';
 // NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
 import {
   getConfig,
@@ -15,6 +17,7 @@ import {
   removeDirectory,
 } from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
+import { migrateDirectorySpelling } from './services/directoryMigration.js';
 import {
   startProcess,
   stopProcess,
@@ -51,6 +54,7 @@ import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
+import * as imageUpload from './services/imageUpload.js';
 import * as workflowService from './services/workflowService.js';
 import {
   BUILD_LABEL,
@@ -984,8 +988,10 @@ app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) =>
     }
 
     // Get all apps
-    const apps = scanAllDirectories();
-    const appIds = apps.map((app) => app.id);
+    // Plain Git repos have no start command and need no port
+    const appIds = scanAllDirectories()
+      .filter((app) => app.startCommand)
+      .map((app) => app.id);
 
     // Note: Port exhaustion validation is handled by the service layer which tracks
     // the actual highest port used (accounting for conflicts). A simple arithmetic
@@ -2899,7 +2905,6 @@ app.get('/api/preview/:port{/*path}', (req, res) => {
 // ============================================
 
 const agentIdSchema = z.string().regex(agentService.SHORT_ID_RE);
-const optionalShortString = z.string().max(200).optional().nullable();
 const agentDispatchSchema = z.object({
   prompt: z.string().max(20000).optional(),
   exec: z.string().max(4000).optional(),
@@ -2924,6 +2929,7 @@ const agentDispatchSchema = z.object({
   pluginDirs: z.array(z.string().max(500)).max(20).optional(),
   mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
   strictMcpConfig: z.boolean().optional(),
+  idle: z.boolean().optional(),
 });
 const agentReplySchema = z.object({
   text: z.string().min(1).max(20000),
@@ -2933,34 +2939,6 @@ const agentRemoveSchema = z.object({
   discardUnpushed: z.string().max(200).optional().nullable(),
   forceRemoveWorktree: z.string().max(200).optional().nullable(),
 });
-const agentViewSettingsSchema = z
-  .object({
-    grouping: z.enum(['state', 'directory', 'project', 'none']).optional(),
-    layout: z.enum(['tabs', 'columns', 'rows', 'grid']).optional(),
-    scopeCwd: z.string().max(500).nullable().optional(),
-    collapsedGroups: z.array(z.string().max(500)).max(200).optional(),
-    notifications: z.boolean().optional(),
-    desktopNotifications: z.boolean().optional(),
-    disabled: z.boolean().optional(),
-    dispatch: z
-      .object({
-        model: optionalShortString,
-        effort: optionalShortString,
-        permissionMode: optionalShortString,
-        agent: optionalShortString,
-        fallbackModel: optionalShortString,
-        skipPermissions: z.boolean().optional(),
-        allowSkipPermissions: z.boolean().optional(),
-        restricted: z.boolean().optional(),
-        strictMcpConfig: z.boolean().optional(),
-        settings: z.string().max(10000).optional().nullable(),
-        addDirs: z.array(z.string().max(500)).max(20).optional(),
-        pluginDirs: z.array(z.string().max(500)).max(20).optional(),
-        mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
-      })
-      .optional(),
-  })
-  .strict();
 
 const agentLimiter = rateLimit({
   windowMs: RATE_LIMIT.windowMs,
@@ -3090,6 +3068,20 @@ app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), as
   try {
     const result = await agentService.dispatch(req.body);
     res.status(201).json(result);
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Raw image bytes (not JSON: base64 would hit the 1 MB JSON limit); type is sniffed server-side
+const imageBody = express.raw({ type: 'image/*', limit: imageUpload.MAX_IMAGE_BYTES });
+
+/**
+ * POST /api/agents/images - store an image for a task/agent prompt, returns its local path
+ */
+app.post('/api/agents/images', agentLimiter, imageBody, async (req, res) => {
+  try {
+    res.status(201).json({ path: await imageUpload.saveAgentImage(req.body) });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -3232,7 +3224,7 @@ app.get('/api/agents/repos', async (req, res) => {
         repos.push({ name: path.basename(dir), path: dir, source: 'configured' });
       }
     }
-    res.json({ cwd, repos });
+    res.json({ cwd, repos, home: os.homedir() });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -3607,6 +3599,73 @@ app.get(
   async (req, res) => {
     try {
       res.json(await boardService.getIssueDetails(req.params.issueId));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/**
+ * POST /api/board/images?repo=owner/name - commit an issue image to the `issue-assets` branch
+ */
+app.post('/api/board/images', agentLimiter, imageBody, async (req, res) => {
+  const slug = boardRepoSlugSchema.safeParse(req.query.repo);
+  if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
+  try {
+    res.status(201).json(await imageUpload.uploadIssueImage(slug.data, req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Issue comments (#104)
+const commentSchema = z.object({ body: z.string().trim().min(1).max(65536) }).strict();
+app.get(
+  '/api/board/issues/:issueId/comments',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  async (req, res) => {
+    try {
+      res.json({ comments: await boardService.getIssueComments(req.params.issueId) });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+app.post(
+  '/api/board/issues/:issueId/comments',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  validate(commentSchema),
+  async (req, res) => {
+    try {
+      res.json({
+        comments: await boardService.addIssueComment(req.params.issueId, req.body.body),
+      });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+// Issue that is not on the board (issue modal): summary by repo/number, label set by node id
+app.get('/api/board/issue', agentLimiter, async (req, res) => {
+  const ref = issueRefSchema.safeParse({ repo: req.query.repo, number: Number(req.query.number) });
+  if (!ref.success) return res.status(400).json({ error: 'Invalid repo or number' });
+  try {
+    const id = await boardService.issueNodeId(ref.data.repo, ref.data.number);
+    res.json(await boardService.getIssueSummary(id));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+app.put(
+  '/api/board/issues/:issueId/labels',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  validate(z.object({ labels: issueNames }).strict()),
+  async (req, res) => {
+    try {
+      res.json(await boardService.setIssueLabels(req.params.issueId, req.body.labels));
     } catch (error) {
       sendAgentError(res, error);
     }
@@ -4166,6 +4225,11 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
 
 // Initialize database before starting server
 async function startServer() {
+  try {
+    migrateDirectorySpelling();
+  } catch (error) {
+    console.error('[Config] Directory spelling migration failed:', error);
+  }
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
   const modules = await moduleHost.load(getModulesDir());

@@ -142,6 +142,39 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                   <option value="directory">Directory</option>
                 </select>
               </div>
+              <div>
+                <label className={label} htmlFor="agent-card-details">
+                  Card details (issues, PRs, servers)
+                </label>
+                <select
+                  id="agent-card-details"
+                  className={field}
+                  value={settings.cardDetails}
+                  onChange={(e) =>
+                    onUpdate({ cardDetails: e.target.value as AgentViewSettings['cardDetails'] })
+                  }
+                >
+                  <option value="hover">On hover or keyboard selection</option>
+                  <option value="click">On click (chevron)</option>
+                  <option value="always">Always</option>
+                </select>
+              </div>
+              <div>
+                <label className={label} htmlFor="agent-card-density">
+                  Card density
+                </label>
+                <select
+                  id="agent-card-density"
+                  className={field}
+                  value={settings.cardDensity}
+                  onChange={(e) =>
+                    onUpdate({ cardDensity: e.target.value as AgentViewSettings['cardDensity'] })
+                  }
+                >
+                  <option value="comfortable">Comfortable (metrics on their own line)</option>
+                  <option value="compact">Compact</option>
+                </select>
+              </div>
             </div>
             <div className="flex flex-wrap gap-4 text-sm text-gray-300">
               <label className="flex items-center gap-2 cursor-pointer">

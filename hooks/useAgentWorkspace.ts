@@ -8,6 +8,7 @@ import {
   focusSession,
   migrateWorkspace,
   moveTab,
+  openBrowser,
   openSession,
   pruneMissing,
   setTabLayout,
@@ -33,9 +34,21 @@ function load(): Workspace {
  * All actions are stable callbacks over the pure reducers in utils/agentWorkspace.
  */
 export function useAgentWorkspace(contextId?: string) {
-  const [workspace, setWorkspace] = useState<Workspace>(load);
-  // A project context switch swaps the stored workspace (useProjectContexts): pick it up
-  useEffect(() => setWorkspace(load()), [contextId]);
+  const [state, setState] = useState(() => ({
+    contextId,
+    workspace: load(),
+    /** Workspaces of contexts left this session: their terminals stay mounted, hidden */
+    parked: {} as Record<string, Workspace>,
+  }));
+  // A project context switch swaps the stored workspace (useProjectContexts): pick it up in
+  // the same render, so the left context's panes move to `parked` without an unmount
+  if (state.contextId !== contextId) {
+    const parked = { ...state.parked };
+    if (state.contextId) parked[state.contextId] = state.workspace;
+    if (contextId) delete parked[contextId];
+    setState({ contextId, workspace: load(), parked });
+  }
+  const { workspace, parked } = state;
 
   useEffect(() => {
     try {
@@ -46,7 +59,8 @@ export function useAgentWorkspace(contextId?: string) {
   }, [workspace]);
 
   const actions = useMemo(() => {
-    const apply = (fn: (ws: Workspace) => Workspace) => setWorkspace(fn);
+    const apply = (fn: (ws: Workspace) => Workspace) =>
+      setState((s) => ({ ...s, workspace: fn(s.workspace) }));
     return {
       attach: (id: string) => apply((ws) => openSession(ws, id)),
       focusPane: (id: string) => apply((ws) => focusSession(ws, id)),
@@ -55,6 +69,7 @@ export function useAgentWorkspace(contextId?: string) {
       closeTab: (tabId: string) => apply((ws) => closeTab(ws, tabId)),
       split: (id: string, targetId: string, zone: Parameters<typeof splitInto>[3]) =>
         apply((ws) => splitInto(ws, id, targetId, zone)),
+      openBrowser: (fromId: string, url: string) => apply((ws) => openBrowser(ws, fromId, url)),
       detach: (id: string) => apply((ws) => detachSession(ws, id)),
       moveTab: (tabId: string, targetId: string, position: 'before' | 'after') =>
         apply((ws) => moveTab(ws, tabId, targetId, position)),
@@ -67,5 +82,5 @@ export function useAgentWorkspace(contextId?: string) {
 
   const openIds = useMemo(() => new Set(workspace.tabs.flatMap((t) => t.panes)), [workspace.tabs]);
 
-  return { workspace, openIds, ...actions };
+  return { workspace, parked, openIds, ...actions };
 }

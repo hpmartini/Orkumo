@@ -405,11 +405,40 @@ export async function refetchItem(source, itemId, created = false) {
   return item;
 }
 
-async function issueNodeId(repo, number) {
+export async function issueNodeId(repo, number) {
   const [owner, name] = repo.split('/');
   const id = (await ghGraphql(ISSUE_ID_QUERY, { owner, name }, { number }))?.repository?.issue?.id;
   if (!id) throw httpError(`Issue ${repo}#${number} not found`, 404);
   return id;
+}
+
+const ISSUE_SUMMARY_QUERY = `query($id:ID!){node(id:$id){... on Issue{
+  id number title body url state repository{nameWithOwner} labels(first:50){nodes{name color}}
+}}}`;
+
+/** Title, body and labels of an issue by node id (issue modal for issues not on the board) */
+export async function getIssueSummary(issueId) {
+  const node = (await ghGraphql(ISSUE_SUMMARY_QUERY, { id: issueId }))?.node;
+  if (!node?.id) throw httpError('Issue not found', 404);
+  return {
+    issueId: node.id,
+    repo: node.repository?.nameWithOwner ?? '',
+    number: node.number,
+    title: node.title,
+    body: node.body ?? '',
+    url: node.url,
+    state: node.state,
+    labels: (node.labels?.nodes || [])
+      .filter(Boolean)
+      .map((l) => ({ name: l.name, color: l.color })),
+  };
+}
+
+/** Replaces the label set of an issue that is not on the board; the repo comes from GitHub */
+export async function setIssueLabels(issueId, labels) {
+  const { repo } = await getIssueSummary(issueId);
+  await applyIssuePatch({ issueId, repo }, { labels });
+  return getIssueSummary(issueId);
 }
 
 /** Body and full sub-issue list of an issue (loaded when its panel opens, not with the board). */
@@ -426,6 +455,42 @@ export async function getIssueDetails(issueId) {
       state: n.state,
     })),
   };
+}
+
+const COMMENTS_QUERY = `query($id:ID!,$after:String){node(id:$id){... on Issue{
+  comments(first:100,after:$after){pageInfo{hasNextPage endCursor}
+    nodes{id body createdAt url author{login}}}
+}}}`;
+const ADD_COMMENT_MUTATION = `mutation($id:ID!,$body:String!){addComment(input:{subjectId:$id,body:$body}){commentEdge{node{id}}}}`;
+const MAX_COMMENT_PAGES = 20;
+
+const mapComment = (n) => ({
+  id: n.id,
+  author: n.author?.login ?? 'ghost',
+  body: n.body ?? '',
+  createdAt: n.createdAt,
+  url: n.url,
+});
+
+/** All comments of an issue, oldest first (paged; capped at MAX_COMMENT_PAGES * 100). */
+export async function getIssueComments(issueId) {
+  const comments = [];
+  let after = null;
+  for (let page = 0; page < MAX_COMMENT_PAGES; page++) {
+    const node = (await ghGraphql(COMMENTS_QUERY, after ? { id: issueId, after } : { id: issueId }))
+      ?.node;
+    if (!node?.comments) throw httpError('Issue not found', 404);
+    comments.push(...(node.comments.nodes || []).filter(Boolean).map(mapComment));
+    if (!node.comments.pageInfo?.hasNextPage) break;
+    after = node.comments.pageInfo.endCursor;
+  }
+  return comments;
+}
+
+/** Posts a comment; returns the full list as GitHub has it afterwards. */
+export async function addIssueComment(issueId, body) {
+  await ghGraphql(ADD_COMMENT_MUTATION, { id: issueId, body });
+  return getIssueComments(issueId);
 }
 
 /** httpError carrying extra JSON fields for the client (sent next to `error`) */

@@ -276,6 +276,7 @@ export const FavoritesList: React.FC<FavoritesListProps> = ({
                   </>
                 ) : (
                   onStart &&
+                  app.startCommand &&
                   canStart(app.status) && (
                     <button
                       onClick={(e) => {

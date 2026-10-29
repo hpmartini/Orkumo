@@ -18,6 +18,7 @@ import {
   displayRepo,
   formatModelName,
   groupRepoSlug,
+  sessionsInContext,
   type SessionLookup,
 } from '../utils/agentSessions';
 import type { AgentSession } from '../types';
@@ -351,6 +352,24 @@ describe('groupSessions (project)', () => {
     ]);
   });
 
+  it('groups a worktree outside the repo with its main checkout once contexts load', () => {
+    const sessions = [
+      session({ id: 'm', cwd: '/code/proj' }),
+      session({ id: 'w', cwd: '/w/x' }),
+      session({ id: 'c', cwd: '/code/proj/.claude/worktrees/feat' }),
+    ];
+    const lookup: SessionLookup = {
+      contexts: {
+        m: repoCtx('/code/proj', null),
+        w: repoCtx('/code/proj', null),
+        c: repoCtx('/code/proj', null),
+      },
+    };
+    expect(
+      groupSessions(sessions, 'project', { lookup }).map((g) => [g.key, g.title, g.sessions.length])
+    ).toEqual([['project:dir:/code/proj', 'proj', 3]]);
+  });
+
   it('titles by the GitHub repo name, folder in parentheses only when it differs', () => {
     const sessions = [session({ id: 'a', cwd: '/x/web' }), session({ id: 'b', cwd: '/x/old' })];
     const lookup: SessionLookup = {
@@ -446,5 +465,27 @@ describe('groupRepoSlug', () => {
 
   it('ignores state groups, which mix repos', () => {
     expect(groupRepoSlug({ sessions: [b] }, contexts)).toBeNull();
+  });
+});
+
+describe('sessionsInContext (#133)', () => {
+  const apps = [
+    { id: 'repo', name: 'repo', path: '/p/repo' },
+    { id: 'web', name: 'web', path: '/p/repo/web' },
+    { id: 'other', name: 'other', path: '/p/other' },
+  ];
+  const inRoot = session({ cwd: '/p/repo' });
+  const inWeb = session({ cwd: '/p/repo/web/src' });
+  const inWorktree = session({ cwd: '/p/other/.claude/worktrees/x' });
+  const outside = session({ cwd: '/elsewhere' });
+  const all = [inRoot, inWeb, inWorktree, outside];
+
+  it('keeps every session for the "all" context', () => {
+    expect(sessionsInContext(all, apps, null)).toEqual(all);
+  });
+
+  it('keeps sessions whose most specific app is a member', () => {
+    expect(sessionsInContext(all, apps, ['repo', 'other'])).toEqual([inRoot, inWorktree]);
+    expect(sessionsInContext(all, apps, ['web'])).toEqual([inWeb]);
   });
 });

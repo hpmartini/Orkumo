@@ -10,6 +10,8 @@ import type {
   BoardItem,
   BoardRepoOptions,
   BoardSettings,
+  IssueComment,
+  IssueSummary,
   WorkflowDetails,
   WorkflowRunInfo,
 } from '../types';
@@ -31,6 +33,16 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     throw Object.assign(new Error(message), { details: payload ?? {} });
   }
   return payload as T;
+}
+
+/** Commits an image to the repo's `issue-assets` branch; returns a URL for issue Markdown */
+export async function uploadIssueImage(repo: string, file: Blob): Promise<string> {
+  const data = await request<{ url: string }>(`/board/images?repo=${encodeURIComponent(repo)}`, {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  return data.url;
 }
 
 /** JSON fields of a failed request besides `error` ({} for other errors) */
@@ -60,6 +72,35 @@ export function fetchRepoOptions(repo: string): Promise<BoardRepoOptions> {
 
 export function fetchIssueDetails(issueId: string): Promise<BoardIssueDetails> {
   return request<BoardIssueDetails>(`/board/issues/${encodeURIComponent(issueId)}`);
+}
+
+export async function fetchIssueComments(issueId: string): Promise<IssueComment[]> {
+  const { comments } = await request<{ comments: IssueComment[] }>(
+    `/board/issues/${encodeURIComponent(issueId)}/comments`
+  );
+  return comments;
+}
+
+/** Posts a comment; returns all comments afterwards */
+export async function addIssueComment(issueId: string, body: string): Promise<IssueComment[]> {
+  const { comments } = await request<{ comments: IssueComment[] }>(
+    `/board/issues/${encodeURIComponent(issueId)}/comments`,
+    { method: 'POST', body: JSON.stringify({ body }) }
+  );
+  return comments;
+}
+
+/** Title, body and labels of an issue by repo and number (for issues not on the board) */
+export function fetchIssueSummary(repo: string, number: number): Promise<IssueSummary> {
+  return request<IssueSummary>(`/board/issue?repo=${encodeURIComponent(repo)}&number=${number}`);
+}
+
+/** Replaces the label set of an issue that is not on the board */
+export function setIssueLabels(issueId: string, labels: string[]): Promise<IssueSummary> {
+  return request<IssueSummary>(`/board/issues/${encodeURIComponent(issueId)}/labels`, {
+    method: 'PUT',
+    body: JSON.stringify({ labels }),
+  });
 }
 
 /** Creates the issue and adds it to the board project; returns the new board item */

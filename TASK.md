@@ -488,4 +488,51 @@ The following existing tasks are related to the new features above:
   - Approach: Routing in `App.tsx` und `AgentsView` gelesen. Mit Playwright gegen eine isolierte Server-Instanz geprüft (`DEVORBIT_DATA_PATH`, Ports 3198/3199).
   - Solution: Close-Button in der Agents-Leiste außerhalb von `/agents`. `attach` öffnet `/agents`, wenn die Ansicht nicht aktiv ist. Die Route (`devOrbitContextRoute`) gehört jetzt zu den Kontext-UI-Daten (`UI_KEYS`, Server-Schema `contextUiSchema`) und wird nach einem Wechsel wiederhergestellt, ohne gemerkte Route `/agents`.
 - Verifikation: tsc 0 Fehler. Browser: Close auf allen vier Views → `/agents`; Rail-Doppelklick aus `/workflows` → `/agents`; Alpha `/board` / Beta `/workflows` bleiben beim Hin- und Herwechseln getrennt.
-- Offen: vitest 129 Fehlschläge (`React.act is not a function`), schon vor dem Fix vorhanden.
+- Offen: vitest 129 Fehlschläge (`React.act is not a function`), schon vor dem Fix vorhanden. Gelöst im nächsten Eintrag.
+
+---
+
+### vitest: 129 Tests scheitern mit `React.act is not a function` (2026-10-28)
+
+- [x] **[FIX]** Tests luden den Production-Build von React
+  - Issue: In Agent-Shells schlugen 129 von 411 Tests in 24 Dateien fehl (z.B. `test/WebIDEPanel.test.tsx`), alle mit `TypeError: React.act is not a function`.
+  - Root cause: Der Claude-Hintergrundprozess (`claude bg-spare`) exportiert `NODE_ENV=production`, und jede Agent-Shell erbt das. Vitest setzt `NODE_ENV=test` nur, wenn die Variable leer ist. React 19 lädt dann `react.production.js`, das kein `act` exportiert. Versionen waren konsistent (react/react-dom 19.2.3, @testing-library/react 16.3.1); die `bun.lock`-Änderung (`configVersion`) war unbeteiligt.
+  - Approach: Versionen und Duplikate in `node_modules` geprüft, dann `NODE_ENV` der Shell. Gegenprobe `NODE_ENV=test npx vitest run` → 584/584.
+  - Solution: `vitest.config.ts` setzt `process.env.NODE_ENV = 'test'` vor dem Start der Worker. Deckt `npx vitest` und `bun run test` gleichermaßen ab.
+- Verifikation: Mit geerbtem `NODE_ENV=production`: `npx vitest run` und `bun run test:run` je 44/44 Dateien, 584/584 Tests. tsc 0 Fehler.
+
+---
+
+### Kontextwechsel lädt Agent-Liste und attachte Sessions neu (2026-10-28)
+
+- [x] **[FIX]** Jeder Kontextwechsel baute die ganze Shell ab und wieder auf
+  - Issue: Nach einem Klick auf einen Kontext-Tab luden Agent-Liste, Kontextdaten und Event-Stream neu, angehängte Terminals verbanden sich neu.
+  - Root cause: Der Wechsel ruft `refreshApps()` (`useProjectContexts(refreshApps)`, seit #97 `24d2c30`). `refreshApps` setzte `loading=true`, und `App.tsx` zeigt bei `loading` nur `<LoadingSkeleton />`. Damit wurde alles unter `AppContent` abgebaut, auch `AgentsView`. `59c3fd0` (#119) hatte nur den `key` entfernt, das Lade-Skelett baute weiter ab.
+  - Approach: Playwright gegen eine isolierte Instanz: Marker am `[data-agents-view]`-Knoten, MutationObserver auf sein Verschwinden, Requests beim Wechsel mitgeschnitten.
+  - Solution: `refreshApps` setzt `loading` nicht mehr auf `true`. `loading` gilt nur für den ersten Start (Startwert `true`), jeder spätere Refresh läuft im Hintergrund.
+- Verifikation: tsc 0 Fehler, vitest 591/591. Browser: Nach zwei Wechseln derselbe `AgentsView`-Knoten, 0 Unmounts. Beim Wechsel nur noch `/api/apps`, `/api/settings`, `/api/settings/agent-view`, kein `/api/agents`, `/api/agents/context`, `/api/agents/stream` mehr.
+- Offen: Angehängte Terminals des verlassenen Kontexts werden weiter ausgehängt und beim Zurückwechseln neu verbunden. Das kommt aus dem eigenen Workspace pro Kontext (#97), nicht aus dem Lade-Skelett. Abhilfe wäre, die Terminals aller Kontexte versteckt gemountet zu lassen. Gelöst im nächsten Eintrag.
+
+---
+
+### Attachte Terminals verbinden sich nach einem Kontextwechsel neu (2026-10-28)
+
+- [x] **[FIX]** Terminals des verlassenen Kontexts wurden ausgehängt
+  - Issue: Wechsel A → B → A baute die angehängten Terminals von A ab und verband sie bei der Rückkehr neu (neuer WebSocket, neues `claude attach`).
+  - Root cause: `useAgentWorkspace` ersetzte beim Wechsel den Workspace (`setWorkspace(load())`), und `AgentWorkspace` rendert nur die Tabs des aktuellen Workspace. Jeder Kontext hat seit #97 eigene Tabs.
+  - Approach: Playwright gegen die isolierte Instanz: Marker am `.xterm`-Knoten, neue WebSockets während der Wechsel mitgezählt.
+  - Solution: `useAgentWorkspace` parkt den Workspace des verlassenen Kontexts (`parked`), und zwar im selben Render, damit nichts zwischendurch abgebaut wird. `AgentsView` rendert pro besuchtem Kontext ein `AgentWorkspace`, geschlüsselt nach `contextId`. So wandert ein Workspace zwischen live und geparkt, ohne neu gemountet zu werden. Geparkte Workspaces sind versteckt (`hidden`: kein Terminal gilt als sichtbar, also kein Fokus und kein Resize) und haben No-op-Handler. Sessions, die im Live-Workspace offen sind, hängen dort nur einmal an.
+- Verifikation: tsc 0 Fehler, vitest 592/592 (neu: `test/useAgentWorkspace.test.ts`). Browser: Nach A → B → A derselbe `.xterm`-Knoten, 0 neue WebSockets, in B kein Terminal sichtbar, Fokus bleibt in der Agents-View.
+- Grenzen: Geparkte Terminals bleiben bis zum Neuladen der Seite verbunden, auch für einen inzwischen gelöschten Kontext. Ist eine Session in A und B offen, verbindet sie sich beim Wechsel neu, damit sie nicht doppelt anhängt.
+
+---
+
+### Browser-Vorschau lehnt externe URLs ab (2026-10-29)
+
+- [x] **[FIX]** „Only localhost URLs are allowed in browser preview" bei jeder Nicht-localhost-URL
+  - Issue: Der eingebettete Browser (Electron, Coding-View) öffnete nur localhost-Adressen.
+  - Root cause: Der IPC-Handler `browser-view-navigate` in `electron/main.js` hatte eine Host-Allowlist (`localhost`, `127.0.0.1`, `0.0.0.0`, `::1`).
+  - Approach: Fehlertext bis zum Handler verfolgt; geprüft, dass kein anderer Filter (webRequest, CSP, will-navigate) externe Hosts blockt.
+  - Solution: Host-Allowlist entfernt, Protokollprüfung (nur http/https) bleibt. Die BrowserView ist sandboxed, ohne Node und ohne Preload. Neu: eigene Session (`persist:browser-preview`) mit Permission-Handler, der Kamera/Mikro/Standort usw. nur localhost-Seiten gewährt (Electron-Default ohne Handler: alles erlauben).
+- Verifikation: `node --check electron/main.js` ok. Electron-Smoke-Test mit denselben `webPreferences` und demselben Handler: `https://example.com/` lädt (Titel „Example Domain"), Geolocation-Anfrage von example.com abgelehnt. Nicht end-to-end durch die laufende App geklickt.
+- Grenzen: Im reinen Web-Modus (iframe) bleiben Seiten mit `X-Frame-Options`/`frame-ancestors` gesperrt; das setzt die Zielseite, nicht DevOrbit. `window.open` aus der Vorschau öffnet weiter ein eigenes Electron-Fenster (wie vorher bei localhost). Cookies/Logins der Vorschau liegen jetzt in der eigenen Session, bestehende Logins aus der Default-Session sind dort einmalig weg.

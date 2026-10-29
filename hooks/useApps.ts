@@ -134,7 +134,8 @@ export function useApps(): UseAppsReturn {
 
   // Fetch apps from backend
   const refreshApps = useCallback(async () => {
-    setLoading(true);
+    // `loading` covers the first load only: App shows a skeleton while it is set, and a refresh
+    // (context switch, refresh button) must not unmount the shell with its attached terminals
     setError(null);
     try {
       // First, migrate any existing localStorage settings to backend (one-time)
@@ -269,7 +270,8 @@ export function useApps(): UseAppsReturn {
   const handleStartApp = useCallback(
     async (id: string) => {
       const app = apps.find((a) => a.id === id);
-      if (!app) return;
+      // Plain Git repos (#133) stay listed but have nothing to start
+      if (!app?.startCommand) return;
 
       // Set to starting
       setApps((currentApps) =>
@@ -278,7 +280,7 @@ export function useApps(): UseAppsReturn {
 
       try {
         // Pass the configured port to the backend
-        await startApp(id, app.path, app.startCommand || 'npm run dev', app.port);
+        await startApp(id, app.path, app.startCommand, app.port);
         // Status will be updated via SSE
       } catch (err) {
         console.error('Failed to start app:', err);

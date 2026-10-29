@@ -397,6 +397,9 @@ export interface AgentCapabilities {
 
 export type AgentGrouping = 'state' | 'directory' | 'project' | 'none';
 export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
+/** When a session card shows its details (issues, PRs, servers, sub-agents) */
+export type AgentCardDetails = 'hover' | 'click' | 'always';
+export type AgentCardDensity = 'comfortable' | 'compact';
 
 export interface AgentDispatchDefaults {
   model: string | null;
@@ -421,6 +424,8 @@ export interface AgentViewSettings {
   collapsedGroups: string[];
   notifications: boolean;
   desktopNotifications: boolean;
+  cardDetails: AgentCardDetails;
+  cardDensity: AgentCardDensity;
   disabled: boolean;
   dispatch: AgentDispatchDefaults;
   version: number;
@@ -432,6 +437,8 @@ export interface AgentDispatchRequest extends Partial<AgentDispatchDefaults> {
   resume?: string;
   name?: string | null;
   cwd: string;
+  /** Start without a prompt ("New agent"); the session waits for input */
+  idle?: boolean;
 }
 
 export interface AgentDispatchResult {
@@ -519,6 +526,8 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
+  cardDetails: 'hover',
+  cardDensity: 'comfortable',
   disabled: false,
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
@@ -650,6 +659,26 @@ export interface BoardRepoOptions {
   labels: (BoardLabel & { id: string })[];
   assignees: { id: string; login: string }[];
   milestones: { id: string; title: string }[];
+}
+
+export interface IssueComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+
+/** Issue that is not on the board, as the issue modal shows it (GET /api/board/issue) */
+export interface IssueSummary {
+  issueId: string;
+  repo: string;
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: 'OPEN' | 'CLOSED';
+  labels: BoardLabel[];
 }
 
 /** Lazily loaded issue parts (GET /api/board/issues/:issueId) */
