@@ -48,7 +48,7 @@ export const GoButton: React.FC<{ label: string; onGo: () => Promise<void> }> = 
       }`}
     >
       <Rocket size={13} />
-      {busy ? 'Sende GO…' : armed ? 'Wirklich? Nochmal klicken' : label}
+      {busy ? 'Sende…' : armed ? 'Wirklich? Nochmal klicken' : label}
     </button>
   );
 };
