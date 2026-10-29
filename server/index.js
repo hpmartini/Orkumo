@@ -7,6 +7,7 @@ import { GoogleGenAI, Type } from '@google/genai';
 import http, { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import path from 'path';
+import os from 'os';
 // NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
 import {
   getConfig,
@@ -51,6 +52,7 @@ import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
+import * as imageUpload from './services/imageUpload.js';
 import * as workflowService from './services/workflowService.js';
 import {
   BUILD_LABEL,
@@ -2926,6 +2928,7 @@ const agentDispatchSchema = z.object({
   pluginDirs: z.array(z.string().max(500)).max(20).optional(),
   mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
   strictMcpConfig: z.boolean().optional(),
+  idle: z.boolean().optional(),
 });
 const agentReplySchema = z.object({
   text: z.string().min(1).max(20000),
@@ -3097,6 +3100,20 @@ app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), as
   }
 });
 
+// Raw image bytes (not JSON: base64 would hit the 1 MB JSON limit); type is sniffed server-side
+const imageBody = express.raw({ type: 'image/*', limit: imageUpload.MAX_IMAGE_BYTES });
+
+/**
+ * POST /api/agents/images - store an image for a task/agent prompt, returns its local path
+ */
+app.post('/api/agents/images', agentLimiter, imageBody, async (req, res) => {
+  try {
+    res.status(201).json({ path: await imageUpload.saveAgentImage(req.body) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 /**
  * POST /api/agents/cloud-session - validated CLI args for a cloud/remote session PTY
  * (`claude --cloud <id|url>` or `claude --teleport`). The client opens the PTY via /api/pty.
@@ -3234,7 +3251,7 @@ app.get('/api/agents/repos', async (req, res) => {
         repos.push({ name: path.basename(dir), path: dir, source: 'configured' });
       }
     }
-    res.json({ cwd, repos });
+    res.json({ cwd, repos, home: os.homedir() });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -3614,6 +3631,19 @@ app.get(
     }
   }
 );
+
+/**
+ * POST /api/board/images?repo=owner/name - commit an issue image to the `issue-assets` branch
+ */
+app.post('/api/board/images', agentLimiter, imageBody, async (req, res) => {
+  const slug = boardRepoSlugSchema.safeParse(req.query.repo);
+  if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
+  try {
+    res.status(201).json(await imageUpload.uploadIssueImage(slug.data, req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
 
 // Issue comments (#104)
 const commentSchema = z.object({ body: z.string().trim().min(1).max(65536) }).strict();

@@ -2,6 +2,7 @@ import React, { useEffect, useLayoutEffect, useMemo, useState, useCallback } fro
 import { Send, FolderOpen, PenSquare } from 'lucide-react';
 import type { AgentSubagent, AgentRepo, AgentSlashCommand } from '../../types';
 import { computeSuggestions, Suggestion } from '../../utils/agentInput';
+import { submitIntent } from '../../utils/composer';
 
 interface DispatchInputProps {
   value: string;
@@ -18,6 +19,10 @@ interface DispatchInputProps {
   repos: AgentRepo[];
   commands: AgentSlashCommand[];
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
+  /** 'agent': optional prompt, a single "Start agent" button that always attaches */
+  variant?: 'task' | 'agent';
+  /** Rendered below the textarea (image attachments) */
+  attachments?: React.ReactNode;
 }
 
 const MIN_HEIGHT = 96;
@@ -26,8 +31,8 @@ const MAX_HEIGHT = 288;
 /**
  * The task composer body, rendered inside TaskComposerModal.
  *
- * Enter dispatches, Shift+Enter / Ctrl+J insert a newline, Ctrl+Enter dispatches and attaches,
- * Tab applies the highlighted suggestion, Ctrl+G opens the larger editor.
+ * Enter / Ctrl+J insert a newline, Cmd/Ctrl+Enter dispatches, Cmd/Ctrl+Shift+Enter dispatches
+ * and attaches, Tab or Enter applies the highlighted suggestion, Ctrl+G opens the larger editor.
  */
 export const DispatchInput: React.FC<DispatchInputProps> = ({
   value,
@@ -44,7 +49,10 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   repos,
   commands,
   inputRef,
+  variant = 'task',
+  attachments,
 }) => {
+  const isAgent = variant === 'agent';
   const [caret, setCaret] = useState(0);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
@@ -119,14 +127,15 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
       );
       return;
     }
-    if (e.key === 'Enter') {
-      if (e.shiftKey) return; // newline
+    const submit = submitIntent(e);
+    if (submit) {
       e.preventDefault();
-      if (showSuggestions && suggestions[highlighted]?.type !== 'command') {
-        applySuggestion(suggestions[highlighted]);
-        return;
-      }
-      onSubmit({ attach: e.ctrlKey || e.metaKey });
+      onSubmit({ attach: isAgent || submit.attach });
+      return;
+    }
+    if (e.key === 'Enter' && showSuggestions && !e.shiftKey) {
+      e.preventDefault();
+      applySuggestion(suggestions[highlighted]);
       return;
     }
     if (e.key === 'j' && e.ctrlKey) {
@@ -196,7 +205,11 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
         onKeyDown={handleKeyDown}
         onBlur={() => setSuggestionsOpen(false)}
-        placeholder="Describe the task for a new session"
+        placeholder={
+          isAgent
+            ? 'Optional first prompt - leave empty to start an idle session'
+            : 'Describe the task for a new session'
+        }
         aria-label="Task description"
         aria-autocomplete="list"
         aria-controls={showSuggestions ? listId : undefined}
@@ -205,12 +218,17 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-50 placeholder-gray-400 resize-none outline-none font-mono leading-6 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/40"
         spellCheck={false}
       />
+      {attachments}
       <div className="flex items-center gap-2 mt-3">
         <button
           type="button"
           onClick={onPickDirectory}
           className="flex items-center gap-1.5 min-w-0 px-2 py-1.5 rounded-md text-xs text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
-          title="Directory the new session starts in (mention @repo to override)"
+          title={
+            isAgent
+              ? 'Directory the agent starts in'
+              : 'Directory the new session starts in (mention @repo to override)'
+          }
         >
           <FolderOpen size={13} aria-hidden />
           <span className="truncate max-w-[280px] font-mono">
@@ -227,23 +245,25 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         >
           <PenSquare size={15} />
         </button>
+        {!isAgent && (
+          <button
+            type="button"
+            onClick={() => onSubmit({ attach: true })}
+            disabled={disabled}
+            className="px-3 py-1.5 rounded-md text-sm text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50"
+            title="Dispatch and open the session (Cmd/Ctrl+Shift+Enter)"
+          >
+            Dispatch and attach
+          </button>
+        )}
         <button
           type="button"
-          onClick={() => onSubmit({ attach: true })}
-          disabled={disabled}
-          className="px-3 py-1.5 rounded-md text-sm text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50"
-          title="Dispatch and open the session (Ctrl+Enter)"
-        >
-          Dispatch and attach
-        </button>
-        <button
-          type="button"
-          onClick={() => onSubmit({ attach: false })}
+          onClick={() => onSubmit({ attach: isAgent })}
           disabled={disabled}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
-          title="Dispatch (Enter)"
+          title={isAgent ? 'Start and attach (Cmd/Ctrl+Enter)' : 'Dispatch (Cmd/Ctrl+Enter)'}
         >
-          <Send size={13} aria-hidden /> Dispatch
+          <Send size={13} aria-hidden /> {isAgent ? 'Start agent' : 'Dispatch'}
         </button>
       </div>
       <div className="mt-2 min-h-[1.25rem] text-xs" role="status" aria-live="polite">
@@ -261,7 +281,8 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
           </span>
         ) : (
           <span className="text-gray-300">
-            @agent · @repo · /command · ! shell command · Shift+Enter for a new line
+            @agent · @repo · /command · ! shell command · Cmd/Ctrl+Enter to send · Enter for a new
+            line
           </span>
         )}
       </div>

@@ -46,6 +46,7 @@ import {
   respawnAgent,
   stopAgent,
   openCloudSession,
+  uploadAgentImage,
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
@@ -95,8 +96,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchBoard } from '../../services/boardApi';
 import { deriveAgentLinks, linksByAgent } from '../../utils/board';
 import type { BoardData } from '../../types';
-import { IssueCreateModal } from '../BoardView/IssueCreateModal';
+import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
+import { promptWithImages } from '../../utils/composer';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -207,6 +209,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     query: '',
   });
   const [composerOpen, setComposerOpen] = useState(false);
+  // 'agent' = New agent (#105): interactive session in agentCwd, attached right away
+  const [composerMode, setComposerMode] = useState<'task' | 'agent'>('task');
+  const [agentCwd, setAgentCwd] = useState<string | null>(null);
+  const [composerImages, setComposerImages] = useState<File[]>([]);
+  const [homeDir, setHomeDir] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
   const [dispatching, setDispatching] = useState(false);
@@ -402,6 +409,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     return dispatchCwd || settings.scopeCwd || defaultCwd;
   }, [settings.grouping, selectedItem, dispatchCwd, settings.scopeCwd, defaultCwd]);
 
+  const openComposer = useCallback((mode: 'task' | 'agent', cwd: string | null = null) => {
+    setComposerMode(mode);
+    if (mode === 'agent') setAgentCwd(cwd);
+    setComposerOpen(true);
+  }, []);
+  const composerCwd = composerMode === 'agent' ? agentCwd || homeDir : targetCwd;
+
+  // GitHub repos of the known sessions
+  const issueRepos = useMemo(
+    () =>
+      [...new Set(Object.values(contexts).map((c) => c.repo?.slug))].filter(
+        (slug): slug is string => !!slug
+      ),
+    [contexts]
+  );
+  const selectedRepo =
+    selectedItem?.type === 'group'
+      ? groupRepoSlug(selectedItem.group, contexts)
+      : selectedItem?.type === 'session'
+        ? contexts[selectedItem.session.id]?.repo?.slug || null
+        : null;
+  const openIssueDialog = useCallback(
+    (repo: string | null) => setIssueDialog({ repo: repo || lastIssueRepo(issueRepos) }),
+    [issueRepos]
+  );
+
   const directoryChoices = useMemo(() => {
     const seen = new Map<string, { name: string; path: string; source: string }>();
     for (const repo of repos) seen.set(repo.path, repo);
@@ -450,13 +483,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     const scope = settings.scopeCwd;
     Promise.all([
       fetchSubagents(scope).catch(() => []),
-      fetchAgentRepos(scope).catch(() => ({ cwd: null, repos: [] })),
+      fetchAgentRepos(scope).catch(() => ({ cwd: null, repos: [], home: undefined })),
       fetchAgentCommands(scope).catch(() => []),
     ]).then(([agentsList, repoData, commandList]) => {
       if (cancelled) return;
       setSubagents(agentsList);
       setRepos(repoData.repos);
       setDefaultCwd(repoData.cwd);
+      if (repoData.home) setHomeDir(repoData.home);
       setCommands(commandList);
     });
     return () => {
@@ -503,7 +537,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
   const navigate = useNavigate();
-  const [createIssueRepo, setCreateIssueRepo] = useState<string | null>(null);
+  // New issue dialog; repo null = the user picks one of `issueRepos`
+  const [issueDialog, setIssueDialog] = useState<{ repo: string | null } | null>(null);
   const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
   useEffect(() => {
     if (!attachParam || loading) return;
@@ -518,9 +553,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     if (typeof prefill?.dispatch !== 'string') return;
     setInput(prefill.dispatch);
     if (typeof prefill.cwd === 'string' && prefill.cwd) setDispatchCwd(prefill.cwd);
-    setComposerOpen(true);
+    openComposer('task');
     navigate('/agents', { replace: true, state: null });
-  }, [prefill, navigate]);
+  }, [prefill, navigate, openComposer]);
 
   // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
   const [board, setBoard] = useState<BoardData | null>(null);
@@ -655,6 +690,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         agent?: string | null;
         cwd?: string | null;
         name?: string | null;
+        idle?: boolean;
       },
       attachAfter = false
     ) => {
@@ -672,6 +708,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           cwd,
         });
         setInput('');
+        setComposerImages([]);
         setComposerOpen(false);
         setHighlightedId(result.id);
         setSelectedKey(result.id);
@@ -733,8 +770,61 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [doDispatch, updateSettings, settings.dispatch, showHint]
   );
 
+  /** Stores the composer images on the server; null when an upload failed (hint shown) */
+  const uploadComposerImages = useCallback(async (): Promise<string[] | null> => {
+    if (composerImages.length === 0) return [];
+    setDispatching(true);
+    try {
+      return await Promise.all(composerImages.map(uploadAgentImage));
+    } catch (err) {
+      showHint(err instanceof Error ? err.message : 'Image upload failed', 'error', 6000);
+      return null;
+    } finally {
+      setDispatching(false);
+    }
+  }, [composerImages, showHint]);
+
   const handleSubmit = useCallback(
     async ({ attach: attachAfter }: { attach: boolean }) => {
+      if (composerMode === 'agent') {
+        // The CLI refuses `--bg` in ~ (trusted one session at a time): run it interactively there
+        if (homeDir && composerCwd === homeDir) {
+          if (input.trim() || composerImages.length > 0) {
+            showHint(
+              'In ~ Claude Code only runs interactively: start without prompt and type it in the terminal, or pick a project folder',
+              'error',
+              8000
+            );
+            return;
+          }
+          const id = `home-${Date.now()}`;
+          setCloudSessions((prev) => [
+            ...prev,
+            {
+              id,
+              sessionId: null,
+              kind: 'interactive',
+              cwd: homeDir,
+              startedAt: Date.now(),
+              name: 'claude · ~',
+              state: null,
+              ptyArgs: [],
+              pinned: false,
+              order: null,
+              links: [],
+              displayState: 'idle',
+            },
+          ]);
+          setComposerOpen(false);
+          attach(id);
+          return;
+        }
+        const paths = await uploadComposerImages();
+        if (!paths) return;
+        const prompt = promptWithImages(input, paths);
+        await doDispatch({ prompt: prompt || undefined, idle: true, cwd: composerCwd }, true);
+        return;
+      }
       const parsed = parseDispatchInput(input, { subagents, repos });
       switch (parsed.kind) {
         case 'empty':
@@ -771,19 +861,36 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         case 'exec':
           await doDispatch({ exec: parsed.command }, attachAfter);
           return;
-        case 'dispatch':
+        case 'dispatch': {
+          const paths = await uploadComposerImages();
+          if (!paths) return;
           await doDispatch(
             {
-              prompt: parsed.prompt,
+              prompt: promptWithImages(parsed.prompt, paths),
               agent: parsed.agent ?? undefined,
               cwd: parsed.repo?.path || undefined,
             },
             attachAfter
           );
           return;
+        }
       }
     },
-    [input, subagents, repos, sessions, showHint, attach, handleCommand, doDispatch]
+    [
+      composerMode,
+      composerCwd,
+      homeDir,
+      composerImages.length,
+      uploadComposerImages,
+      input,
+      subagents,
+      repos,
+      sessions,
+      showHint,
+      attach,
+      handleCommand,
+      doDispatch,
+    ]
   );
 
   const handleRename = useCallback(
@@ -984,7 +1091,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       // Global (also inside text inputs)
       if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyN') {
         e.preventDefault();
-        setComposerOpen(true);
+        openComposer('task');
         return;
       }
       if (ctrl && key === 's' && !e.shiftKey) {
@@ -1080,7 +1187,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         case 'n':
           if (e.ctrlKey || e.metaKey || e.altKey) break;
           e.preventDefault();
-          setComposerOpen(true);
+          openComposer('task');
           break;
         case 'F': // Shift+F: plain F is the app-wide "open favorites" shortcut
           if (e.ctrlKey || e.metaKey || e.altKey || !selectedItem) break;
@@ -1099,6 +1206,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     document.addEventListener('keydown', handler, { capture: true });
     return () => document.removeEventListener('keydown', handler, { capture: true });
   }, [
+    openComposer,
     active,
     showSettings,
     showHelp,
@@ -1263,12 +1371,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             },
           ]
         : []),
+      {
+        id: 'new-issue',
+        label: groupRepoSlug(group, contexts) ? 'New issue' : 'New issue (no GitHub repo)',
+        disabled: !groupRepoSlug(group, contexts),
+        onSelect: () => openIssueDialog(groupRepoSlug(group, contexts)),
+      },
       ...(group.cwd
         ? [
             {
               id: 'dispatch-here',
               label: 'Dispatch into this directory',
               onSelect: () => setDispatchCwd(group.cwd || null),
+            },
+            {
+              id: 'new-agent',
+              label: 'New agent here',
+              onSelect: () => openComposer('agent', group.cwd || null),
             },
           ]
         : []),
@@ -1279,7 +1398,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onSelect: () => handleStopOrDelete({ type: 'group', group }),
       },
     ],
-    [collapsed, toggleGroup, handleStopOrDelete, nav, navigate, contexts]
+    [
+      collapsed,
+      toggleGroup,
+      handleStopOrDelete,
+      nav,
+      navigate,
+      contexts,
+      openIssueDialog,
+      openComposer,
+    ]
   );
 
   // ---------------------------------------------------------------------
@@ -1303,12 +1431,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       shortcut: 'N',
       run: () => {
         onOpenView();
-        setComposerOpen(true);
+        openComposer('task');
       },
       runWithText: (text) => {
         onOpenView();
         setInput(text);
-        setComposerOpen(true);
+        openComposer('task');
       },
     };
     // The rest acts on the visible view only; the task composer works from every page
@@ -1416,6 +1544,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     }
     return list;
   }, [
+    openComposer,
     active,
     onOpenView,
     onExit,
@@ -1646,11 +1775,27 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
             <button
               type="button"
-              onClick={() => setComposerOpen(true)}
+              onClick={() => openComposer('task')}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
               title="New task (N or Alt+N)"
             >
               <Plus size={14} aria-hidden /> New task
+            </button>
+            <button
+              type="button"
+              onClick={() => openComposer('agent')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
+              title="New interactive agent session, attached right away"
+            >
+              <Plus size={13} aria-hidden /> Agent
+            </button>
+            <button
+              type="button"
+              onClick={() => openIssueDialog(selectedRepo)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
+              title="New GitHub issue"
+            >
+              <Plus size={13} aria-hidden /> Issue
             </button>
             <button
               type="button"
@@ -1732,7 +1877,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               nav={nav}
               issuesByAgent={issuesByAgent}
               onOpenIssue={setIssueModalKey}
-              onCreateIssue={setCreateIssueRepo}
+              onCreateIssue={openIssueDialog}
               bottom={
                 remoteEnabled ? (
                   <RemoteAgents
@@ -1896,10 +2041,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           onClose={() => setIssueModalKey(null)}
         />
       )}
-      {createIssueRepo && (
+      {issueDialog && (
         <IssueCreateModal
-          repo={createIssueRepo}
-          onClose={() => setCreateIssueRepo(null)}
+          repo={issueDialog.repo}
+          repos={issueRepos}
+          onClose={() => setIssueDialog(null)}
           onCreated={(item) => {
             const key = `${item.repo}#${item.number}`;
             toast(
@@ -1941,7 +2087,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onSubmit={handleSubmit}
         onOpenEditor={() => setEditorOpen(true)}
         onPickDirectory={() => setPickDirOpen(true)}
-        targetCwd={targetCwd}
+        targetCwd={composerCwd}
+        variant={composerMode}
+        images={composerImages}
+        onImagesChange={setComposerImages}
         hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
         hintTone={hint?.tone}
         disabled={dispatching}
@@ -1973,11 +2122,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       )}
       {pickDirOpen && (
         <DirectoryPicker
-          choices={directoryChoices}
-          current={targetCwd}
+          choices={
+            composerMode === 'agent' && homeDir
+              ? [{ name: '~ (home)', path: homeDir, source: 'home' }, ...directoryChoices]
+              : directoryChoices
+          }
+          current={composerCwd}
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
-            setDispatchCwd(path);
+            if (composerMode === 'agent') setAgentCwd(path);
+            else setDispatchCwd(path);
             setPickDirOpen(false);
             inputRef.current?.focus();
           }}

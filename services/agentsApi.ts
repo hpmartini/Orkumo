@@ -97,6 +97,16 @@ export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatch
   });
 }
 
+/** Stores an image on the server for a prompt; returns its local path (#105) */
+export async function uploadAgentImage(file: Blob): Promise<string> {
+  const data = await request<{ path: string }>('/agents/images', {
+    method: 'POST',
+    headers: { 'Content-Type': file.type || 'application/octet-stream' },
+    body: file,
+  });
+  return data.path;
+}
+
 export function openCloudSession(target?: string): Promise<{ args: string[] }> {
   return request<{ args: string[] }>('/agents/cloud-session', {
     method: 'POST',
@@ -203,7 +213,7 @@ export async function checkCodeFolder(path: string): Promise<string> {
 
 export async function fetchAgentRepos(
   cwd?: string | null
-): Promise<{ cwd: string; repos: AgentRepo[] }> {
+): Promise<{ cwd: string; repos: AgentRepo[]; home?: string }> {
   return request(`/agents/repos${query({ cwd })}`);
 }
 

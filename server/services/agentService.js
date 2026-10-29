@@ -587,6 +587,7 @@ export function sanitizeDispatchOptions(opts, context) {
       `Option(s) ${requested.join(', ')} are disabled on this server. Start it with DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS=true to enable them.`
     );
   }
+  // "New agent" in ~ opens an interactive PTY instead (claude refuses --bg in an untrusted home)
   const cwd = assertAllowedPath(opts.cwd, allowedDirs, 'Working directory');
   const addDirs = (Array.isArray(opts.addDirs) ? opts.addDirs : [])
     .filter((dir) => typeof dir === 'string' && dir.trim())
@@ -721,8 +722,15 @@ async function findSession(id) {
 export async function dispatch(opts = {}, context = {}) {
   const prompt = typeof opts.prompt === 'string' ? opts.prompt.trim() : '';
   const exec = typeof opts.exec === 'string' ? opts.exec.trim() : '';
-  if (!exec && !opts.resume && prompt.length < MIN_PROMPT_LENGTH) {
+  // `idle`: "New agent" starts a session without a prompt (`claude --bg` waits for input)
+  if (!exec && !opts.resume && !opts.idle && prompt.length < MIN_PROMPT_LENGTH) {
     const error = new Error('Too short');
+    error.status = 400;
+    throw error;
+  }
+  // The prompt is a positional CLI argument: a leading "-" would be parsed as a flag and skip the unsafe-flag gate
+  if (prompt.startsWith('-')) {
+    const error = new Error('Prompt must not start with "-"');
     error.status = 400;
     throw error;
   }
