@@ -654,6 +654,26 @@ export interface BoardRepoOptions {
   milestones: { id: string; title: string }[];
 }
 
+export interface IssueComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+
+/** Issue that is not on the board, as the issue modal shows it (GET /api/board/issue) */
+export interface IssueSummary {
+  issueId: string;
+  repo: string;
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: 'OPEN' | 'CLOSED';
+  labels: BoardLabel[];
+}
+
 /** Lazily loaded issue parts (GET /api/board/issues/:issueId) */
 export interface BoardIssueDetails {
   body: string;

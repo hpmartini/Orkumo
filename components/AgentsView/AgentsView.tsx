@@ -97,6 +97,7 @@ import { fetchBoard } from '../../services/boardApi';
 import { deriveAgentLinks, linksByAgent } from '../../utils/board';
 import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
+import { IssueModal } from '../BoardView/IssueModal';
 import { promptWithImages } from '../../utils/composer';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
@@ -189,6 +190,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [peekId, setPeekId] = useState<string | null>(null);
+  // Issue pill clicked: issue as modal over the agents view (#104)
+  const [issueModalKey, setIssueModalKey] = useState<string | null>(null);
   const {
     workspace,
     parked,
@@ -1873,7 +1876,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               appsById={appsById}
               nav={nav}
               issuesByAgent={issuesByAgent}
-              onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+              onOpenIssue={setIssueModalKey}
               onCreateIssue={openIssueDialog}
               bottom={
                 remoteEnabled ? (
@@ -1980,6 +1983,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     onMoveTab={live ? workspaceActions.moveTab : noop}
                     onSplit={live ? workspaceActions.split : noop}
                     onDetach={live ? workspaceActions.detach : noop}
+                    onOpenLink={live ? workspaceActions.openBrowser : undefined}
                     onSetLayout={live ? workspaceActions.setLayout : noop}
                     onPeek={live ? (sid) => setPeekId(sid) : noop}
                     focusZone={focusZone}
@@ -1989,7 +1993,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                         ctx={contexts[x.id]}
                         servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
                         issueKeys={issuesByAgent?.get(x.id) || []}
-                        onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+                        onOpenIssue={setIssueModalKey}
                         onOpenPrs={(repo) => {
                           setPrRepo(repo);
                           setPanel('prs');
@@ -2030,6 +2034,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
       {/* Modals */}
       <ShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
+      {issueModalKey && (
+        <IssueModal
+          issueKey={issueModalKey}
+          sessions={sessions}
+          onClose={() => setIssueModalKey(null)}
+        />
+      )}
       {issueDialog && (
         <IssueCreateModal
           repo={issueDialog.repo}
@@ -2139,7 +2150,7 @@ const PromptEditor: React.FC<{
   const [text, setText] = useState(value);
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[95] bg-black/60 flex items-center justify-center p-4"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
@@ -2196,7 +2207,7 @@ const DirectoryPicker: React.FC<{
   );
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center pt-24 p-4"
+      className="fixed inset-0 z-[95] bg-black/60 flex items-start justify-center pt-24 p-4"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"

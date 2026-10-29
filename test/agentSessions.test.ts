@@ -352,6 +352,24 @@ describe('groupSessions (project)', () => {
     ]);
   });
 
+  it('groups a worktree outside the repo with its main checkout once contexts load', () => {
+    const sessions = [
+      session({ id: 'm', cwd: '/code/proj' }),
+      session({ id: 'w', cwd: '/w/x' }),
+      session({ id: 'c', cwd: '/code/proj/.claude/worktrees/feat' }),
+    ];
+    const lookup: SessionLookup = {
+      contexts: {
+        m: repoCtx('/code/proj', null),
+        w: repoCtx('/code/proj', null),
+        c: repoCtx('/code/proj', null),
+      },
+    };
+    expect(
+      groupSessions(sessions, 'project', { lookup }).map((g) => [g.key, g.title, g.sessions.length])
+    ).toEqual([['project:dir:/code/proj', 'proj', 3]]);
+  });
+
   it('titles by the GitHub repo name, folder in parentheses only when it differs', () => {
     const sessions = [session({ id: 'a', cwd: '/x/web' }), session({ id: 'b', cwd: '/x/old' })];
     const lookup: SessionLookup = {

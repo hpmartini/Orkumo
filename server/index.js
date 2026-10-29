@@ -3645,6 +3645,60 @@ app.post('/api/board/images', agentLimiter, imageBody, async (req, res) => {
   }
 });
 
+// Issue comments (#104)
+const commentSchema = z.object({ body: z.string().trim().min(1).max(65536) }).strict();
+app.get(
+  '/api/board/issues/:issueId/comments',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  async (req, res) => {
+    try {
+      res.json({ comments: await boardService.getIssueComments(req.params.issueId) });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+app.post(
+  '/api/board/issues/:issueId/comments',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  validate(commentSchema),
+  async (req, res) => {
+    try {
+      res.json({
+        comments: await boardService.addIssueComment(req.params.issueId, req.body.body),
+      });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+// Issue that is not on the board (issue modal): summary by repo/number, label set by node id
+app.get('/api/board/issue', agentLimiter, async (req, res) => {
+  const ref = issueRefSchema.safeParse({ repo: req.query.repo, number: Number(req.query.number) });
+  if (!ref.success) return res.status(400).json({ error: 'Invalid repo or number' });
+  try {
+    const id = await boardService.issueNodeId(ref.data.repo, ref.data.number);
+    res.json(await boardService.getIssueSummary(id));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+app.put(
+  '/api/board/issues/:issueId/labels',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  validate(z.object({ labels: issueNames }).strict()),
+  async (req, res) => {
+    try {
+      res.json(await boardService.setIssueLabels(req.params.issueId, req.body.labels));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
 app.post('/api/board/issues', agentLimiter, validate(createIssueSchema), async (req, res) => {
   try {
     const { source } = settingsService.getBoardSettings();

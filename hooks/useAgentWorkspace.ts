@@ -8,6 +8,7 @@ import {
   focusSession,
   migrateWorkspace,
   moveTab,
+  openBrowser,
   openSession,
   pruneMissing,
   setTabLayout,
@@ -68,6 +69,7 @@ export function useAgentWorkspace(contextId?: string) {
       closeTab: (tabId: string) => apply((ws) => closeTab(ws, tabId)),
       split: (id: string, targetId: string, zone: Parameters<typeof splitInto>[3]) =>
         apply((ws) => splitInto(ws, id, targetId, zone)),
+      openBrowser: (fromId: string, url: string) => apply((ws) => openBrowser(ws, fromId, url)),
       detach: (id: string) => apply((ws) => detachSession(ws, id)),
       moveTab: (tabId: string, targetId: string, position: 'before' | 'after') =>
         apply((ws) => moveTab(ws, tabId, targetId, position)),

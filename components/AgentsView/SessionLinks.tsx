@@ -22,7 +22,7 @@ const IssuePill: React.FC<{
       onOpen?.(issueKey);
     }}
     className="shrink-0 font-mono leading-4 px-1 rounded border border-gray-600 text-gray-300 hover:text-white hover:border-gray-400 hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-    title={`Open ${issueKey} on the board`}
+    title={`Open ${issueKey}`}
   >
     {issueLabel(issueKey, repoSlug)}
   </button>
