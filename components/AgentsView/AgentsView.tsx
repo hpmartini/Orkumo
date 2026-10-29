@@ -96,6 +96,7 @@ import { fetchBoard } from '../../services/boardApi';
 import { deriveAgentLinks, linksByAgent } from '../../utils/board';
 import type { BoardData } from '../../types';
 import { IssueCreateModal } from '../BoardView/IssueCreateModal';
+import { IssueModal } from '../BoardView/IssueModal';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -187,6 +188,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [peekId, setPeekId] = useState<string | null>(null);
+  // Issue pill clicked: issue as modal over the agents view (#104)
+  const [issueModalKey, setIssueModalKey] = useState<string | null>(null);
   const {
     workspace,
     parked,
@@ -1728,7 +1731,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               appsById={appsById}
               nav={nav}
               issuesByAgent={issuesByAgent}
-              onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+              onOpenIssue={setIssueModalKey}
               onCreateIssue={setCreateIssueRepo}
               bottom={
                 remoteEnabled ? (
@@ -1844,7 +1847,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                         ctx={contexts[x.id]}
                         servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
                         issueKeys={issuesByAgent?.get(x.id) || []}
-                        onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+                        onOpenIssue={setIssueModalKey}
                         onOpenPrs={(repo) => {
                           setPrRepo(repo);
                           setPanel('prs');
@@ -1885,6 +1888,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
       {/* Modals */}
       <ShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
+      {issueModalKey && (
+        <IssueModal
+          issueKey={issueModalKey}
+          sessions={sessions}
+          onClose={() => setIssueModalKey(null)}
+        />
+      )}
       {createIssueRepo && (
         <IssueCreateModal
           repo={createIssueRepo}
