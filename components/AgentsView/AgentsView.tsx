@@ -51,7 +51,12 @@ import {
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
 import { agentFolder, boardUrl, codeUrl, workflowsUrl } from '../../utils/codeTarget';
-import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
+import {
+  parseDispatchInput,
+  parseFilter,
+  applySessionFilter,
+  isUntrustedWorkspaceError,
+} from '../../utils/agentInput';
 import {
   groupSessions,
   flattenGroups,
@@ -681,6 +686,33 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [attachRemote, showHint]
   );
 
+  /** Opens an interactive `claude` PTY in `cwd` (for ~ and folders whose trust prompt is pending) */
+  const openInteractiveClaude = useCallback(
+    (cwd: string, name: string) => {
+      const id = `interactive-${Date.now()}`;
+      setCloudSessions((prev) => [
+        ...prev,
+        {
+          id,
+          sessionId: null,
+          kind: 'interactive',
+          cwd,
+          startedAt: Date.now(),
+          name,
+          state: null,
+          ptyArgs: [],
+          pinned: false,
+          order: null,
+          links: [],
+          displayState: 'idle',
+        },
+      ]);
+      setComposerOpen(false);
+      attach(id);
+    },
+    [attach]
+  );
+
   const doDispatch = useCallback(
     async (
       extra: {
@@ -721,12 +753,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         refresh();
         if (attachAfter) attach(result.id);
       } catch (err) {
-        showHint(err instanceof Error ? err.message : 'Dispatch failed', 'error', 6000);
+        const message = err instanceof Error ? err.message : 'Dispatch failed';
+        if (isUntrustedWorkspaceError(message)) {
+          // Input stays in the composer so the user can retry once the folder is trusted
+          openInteractiveClaude(cwd, `claude · ${cwd.split(/[\\/]/).filter(Boolean).pop() || cwd}`);
+          showHint(
+            'Folder not trusted yet: accept the trust prompt in the terminal, then start the agent again',
+            'info',
+            10000
+          );
+          return;
+        }
+        showHint(message, 'error', 6000);
       } finally {
         setDispatching(false);
       }
     },
-    [targetCwd, settings.dispatch, showHint, refresh, attach]
+    [targetCwd, settings.dispatch, showHint, refresh, attach, openInteractiveClaude]
   );
 
   const handleCommand = useCallback(
@@ -797,26 +840,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             );
             return;
           }
-          const id = `home-${Date.now()}`;
-          setCloudSessions((prev) => [
-            ...prev,
-            {
-              id,
-              sessionId: null,
-              kind: 'interactive',
-              cwd: homeDir,
-              startedAt: Date.now(),
-              name: 'claude · ~',
-              state: null,
-              ptyArgs: [],
-              pinned: false,
-              order: null,
-              links: [],
-              displayState: 'idle',
-            },
-          ]);
-          setComposerOpen(false);
-          attach(id);
+          openInteractiveClaude(homeDir, 'claude · ~');
           return;
         }
         const paths = await uploadComposerImages();
@@ -890,6 +914,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       attach,
       handleCommand,
       doDispatch,
+      openInteractiveClaude,
     ]
   );
 
