@@ -17,6 +17,7 @@ import {
   removeDirectory,
 } from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
+import { migrateDirectorySpelling } from './services/directoryMigration.js';
 import {
   startProcess,
   stopProcess,
@@ -4224,6 +4225,11 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
 
 // Initialize database before starting server
 async function startServer() {
+  try {
+    migrateDirectorySpelling();
+  } catch (error) {
+    console.error('[Config] Directory spelling migration failed:', error);
+  }
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
   const modules = await moduleHost.load(getModulesDir());
