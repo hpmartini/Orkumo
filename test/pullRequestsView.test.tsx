@@ -3,7 +3,11 @@ import { render, screen, fireEvent, within } from '@testing-library/react';
 import type { AgentPullRequest, AgentSession } from '../types';
 import type { PullRequestRow } from '../utils/agentSessions';
 import { PullRequestsPanel } from '../components/AgentsView/PullRequestsPanel';
-import { PullRequestsPage } from '../components/AgentsView/PullRequestsPage';
+import {
+  ConnectedPullRequestsPage,
+  PullRequestsDataContext,
+  PullRequestsPage,
+} from '../components/AgentsView/PullRequestsPage';
 
 // The embedded browser talks to Electron; the pane only needs to show which URL it got
 vi.mock('../components/CodingView/BrowserPreviewPanel', () => ({
@@ -135,6 +139,18 @@ describe('PullRequestsPage (/pulls)', () => {
     fireEvent.click(screen.getByRole('button', { name: /PR 1$/ }));
     expect(open).toHaveBeenCalledWith(rows[0].pr.url, '_blank', 'noopener,noreferrer');
     expect(screen.queryByTestId('pr-pane')).not.toBeInTheDocument();
+  });
+
+  it('App.tsx container renders the page from the AgentsView context, nothing without it', () => {
+    const { rerender } = render(<ConnectedPullRequestsPage />);
+    expect(screen.queryByText('Open pull requests')).not.toBeInTheDocument();
+    rerender(
+      <PullRequestsDataContext.Provider value={listProps}>
+        <ConnectedPullRequestsPage />
+      </PullRequestsDataContext.Provider>
+    );
+    expect(screen.getByText('Open pull requests')).toBeInTheDocument();
+    expect(screen.getByText('PR 1')).toBeInTheDocument();
   });
 
   it('keeps an external link icon next to each PR', () => {

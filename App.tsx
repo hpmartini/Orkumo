@@ -38,6 +38,7 @@ import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
 import { WorkflowView } from './components/WorkflowView';
+import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
 import { CodeView } from './components/CodeView';
 
 type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code' | 'workflows' | 'pulls';
@@ -467,7 +468,6 @@ function AppContent() {
               active={activeTab === 'agents'}
               apps={apps}
               onExit={handleSelectDashboard}
-              pullsActive={activeTab === 'pulls'}
               onOpenView={openAgentsView}
               nav={{
                 onOpenDashboard: handleSelectDashboard,
@@ -577,6 +577,13 @@ function AppContent() {
               >
                 <WorkflowView active={activeTab === 'workflows'} />
               </div>
+
+              {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
+              {activeTab === 'pulls' && (
+                <div className="absolute inset-0 z-10 flex flex-col min-h-0">
+                  <ConnectedPullRequestsPage />
+                </div>
+              )}
 
               {/* Stays mounted on other routes so the Web-IDE and browser iframes survive navigation;
                   hidden off-screen with a clip because iframes bleed through visibility tricks */}

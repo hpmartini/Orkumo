@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { createContext, useContext, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import type { AgentPullRequest } from '../../types';
 import { BrowserPane } from './AgentWorkspace';
@@ -9,12 +9,21 @@ import {
   type PullRequestListProps,
 } from './PullRequestsPanel';
 
-interface PullRequestsPageProps extends Omit<
+export interface PullRequestsPageProps extends Omit<
   PullRequestListProps,
   'onOpenPr' | 'openUrl' | 'onDone'
 > {
   onClearRepo: () => void;
 }
+
+/** PR data and handlers, provided by AgentsView around the main area of the other routes */
+export const PullRequestsDataContext = createContext<PullRequestsPageProps | null>(null);
+
+/** /pulls container in App.tsx: reads the PR data AgentsView already holds (no second data path) */
+export const ConnectedPullRequestsPage: React.FC = () => {
+  const data = useContext(PullRequestsDataContext);
+  return data ? <PullRequestsPage {...data} /> : null;
+};
 
 const noop = () => {};
 
