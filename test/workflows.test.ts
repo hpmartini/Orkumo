@@ -83,6 +83,17 @@ describe('scopeWorkflowCards', () => {
   it('filters by repo (case-insensitive) and by agent job id', () => {
     expect(scopeWorkflowCards(cards, { repo: 'O/R' }).map((c) => c.key)).toEqual(['a', 'b']);
     expect(scopeWorkflowCards(cards, { agent: '75f5f8a7' }).map((c) => c.key)).toEqual(['a']);
+  });
+
+  it('filters by a set of picked projects; empty means all', () => {
+    expect(scopeWorkflowCards(cards, { repos: ['o/X'] }).map((c) => c.key)).toEqual(['c']);
+    expect(scopeWorkflowCards(cards, { repos: ['o/r', 'o/x'] }).map((c) => c.key)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
+    expect(scopeWorkflowCards(cards, { repos: [] })).toHaveLength(3);
+    expect(scopeWorkflowCards(cards, { repo: 'o/r', repos: ['o/x'] })).toHaveLength(0);
     expect(scopeWorkflowCards(cards, { repo: 'o/x', agent: '75f5f8a7' })).toEqual([]);
     expect(scopeWorkflowCards(cards, {})).toHaveLength(3);
   });

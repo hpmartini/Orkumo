@@ -51,12 +51,14 @@ export function buildWorkflowCards(
 /** Cards of one repo ("owner/name") and/or one agent (job id = first 8 chars of the session) */
 export function scopeWorkflowCards(
   cards: WorkflowCard[],
-  { repo, agent }: { repo?: string | null; agent?: string | null }
+  { repo, agent, repos }: { repo?: string | null; agent?: string | null; repos?: readonly string[] }
 ): WorkflowCard[] {
+  const picked = new Set(repos?.map((r) => r.toLowerCase()));
   return cards.filter(
     (c) =>
       (!repo || c.item.repo?.toLowerCase() === repo.toLowerCase()) &&
-      (!agent || c.state.sessionId?.slice(0, 8) === agent)
+      (!agent || c.state.sessionId?.slice(0, 8) === agent) &&
+      (!picked.size || picked.has(c.item.repo?.toLowerCase() ?? ''))
   );
 }
 
