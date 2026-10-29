@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { contextRoot, groupByRoot, projectRoot, shortPath } from '../utils/projectDirs';
+import { shortenPath } from '../utils/agentSessions';
 
 const dirs = ['/Users/x/PROJECTS', '/Users/x/WEBSITES', '/Users/x/PROJECTS/sub'];
 const apps = [
@@ -45,5 +46,19 @@ describe('contextRoot', () => {
   it('is null for the all context and for contexts without known projects', () => {
     expect(contextRoot(null, apps, dirs)).toBeNull();
     expect(contextRoot(['d', 'gone'], apps, dirs)).toBeNull();
+  });
+});
+
+describe('dialog path display (shortPath + shortenPath)', () => {
+  it('keeps short paths, cuts long ones at the start and keeps the folder name', () => {
+    expect(shortenPath(shortPath('/Users/x/projects/DemoNews', null), 36)).toBe(
+      '~/projects/DemoNews'
+    );
+    const long = shortenPath(
+      shortPath('/Users/x/projects/clients/acme/2026/q4/DC-Example-Training-Courseware', null),
+      36
+    );
+    expect(long).toBe('…/q4/DC-Example-Training-Courseware');
+    expect(long.length).toBeLessThanOrEqual(36);
   });
 });

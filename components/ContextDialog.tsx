@@ -5,6 +5,12 @@ import { useDialogA11y } from './CommandPalette/useDialogA11y';
 import { FIELD_INPUT } from './BoardView/IssueFields';
 import { parseContextFilter } from '../utils/board';
 import { groupByRoot, projectRoot, shortPath } from '../utils/projectDirs';
+import { shortenPath } from '../utils/agentSessions';
+
+// Characters that fit the 560px dialog at 11px mono; shortenPath cuts the start so the
+// folder name stays visible, CSS truncate stays as fallback for single overlong segments
+const HEADER_PATH_CHARS = 72;
+const ROW_PATH_CHARS = 36;
 
 interface ContextDialogProps {
   /** null creates a new context */
@@ -156,7 +162,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                           title={group.root ?? undefined}
                         >
                           {group.root
-                            ? shortPath(group.root, null)
+                            ? shortenPath(shortPath(group.root, null), HEADER_PATH_CHARS)
                             : 'Außerhalb der Projektverzeichnisse'}
                         </div>
                         <ul className="divide-y divide-gray-700/60">
@@ -164,7 +170,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                             <li key={app.id}>
                               <label
                                 className="flex items-center gap-2 min-w-0 px-2 py-1.5 text-gray-200 hover:bg-gray-750 cursor-pointer"
-                                title={app.path}
+                                title={`${app.name}\n${app.path}`}
                               >
                                 <input
                                   type="checkbox"
@@ -174,7 +180,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                                 />
                                 <span className="truncate">{app.name}</span>
                                 <span className="ml-auto min-w-0 truncate text-gray-500 font-mono text-[11px] max-w-[50%]">
-                                  {shortPath(app.path, group.root)}
+                                  {shortenPath(shortPath(app.path, group.root), ROW_PATH_CHARS)}
                                 </span>
                               </label>
                             </li>
