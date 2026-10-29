@@ -6,6 +6,7 @@ import {
   computeSuggestions,
   extractNumberedChoices,
   stripAnsi,
+  isUntrustedWorkspaceError,
 } from '../utils/agentInput';
 import type { AgentSession } from '../types';
 
@@ -245,5 +246,18 @@ describe('extractNumberedChoices', () => {
 
   it('strips ANSI sequences', () => {
     expect(stripAnsi('\x1b[31mred\x1b[0m \x1b]0;title\x07done')).toBe('red done');
+  });
+});
+
+describe('isUntrustedWorkspaceError', () => {
+  it('detects the CLI trust refusal', () => {
+    expect(
+      isUntrustedWorkspaceError(
+        'Workspace not trusted. Run `claude` in /x once and accept the trust prompt, then retry.'
+      )
+    ).toBe(true);
+  });
+  it('ignores other dispatch errors', () => {
+    expect(isUntrustedWorkspaceError('Too short')).toBe(false);
   });
 });
