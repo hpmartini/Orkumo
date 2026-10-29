@@ -97,19 +97,13 @@ const MODES: { grouping: AgentGrouping; first: RegExp; second: RegExp }[] = [
 ];
 
 const headers = () => screen.getAllByRole('option').filter((el) => el.hasAttribute('draggable'));
-const headerTitles = () =>
-  headers().map((h) =>
-    within(h)
-      .getByRole('button', { name: /^(Expand|Collapse) / })
-      .getAttribute('aria-label')!
-      .replace(/^(Expand|Collapse) /, '')
-  );
-const header = (name: RegExp) => headers().find((h) => name.test(headerTitle(h)))!;
 const headerTitle = (h: HTMLElement) =>
   within(h)
     .getByRole('button', { name: /^(Expand|Collapse) / })
     .getAttribute('aria-label')!
     .replace(/^(Expand|Collapse) /, '');
+const headerTitles = () => headers().map(headerTitle);
+const header = (name: RegExp) => headers().find((h) => name.test(headerTitle(h)))!;
 const rowVisible = (name: string) => screen.queryByText(name) !== null;
 const indexOfTitle = (name: RegExp) => headerTitles().findIndex((t) => name.test(t));
 
@@ -155,7 +149,7 @@ describe.each(MODES)(
       await userEvent.click(screen.getByRole('menuitem', { name: 'Move down' }));
       expect(indexOfTitle(first)).toBeLessThan(indexOfTitle(second));
 
-      // Keyboard: select second, Alt+ArrowUp moves it before first again
+      // Keyboard: select second (chevron twice = selected, still open), Alt+ArrowUp moves it before first
       await userEvent.click(within(header(second)).getByRole('button', { name: /^Collapse / }));
       await userEvent.click(within(header(second)).getByRole('button', { name: /^Expand / }));
       fireEvent.keyDown(header(second), { key: 'ArrowUp', altKey: true });
