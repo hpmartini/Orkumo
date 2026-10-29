@@ -640,6 +640,26 @@ export function flattenGroups(
   return items;
 }
 
+/** Rail rows for a grouping: empty project/directory groups and an empty Interactive group are left out */
+export function railItems(
+  groups: SessionGroup[],
+  collapsed: Set<string>,
+  grouping: AgentGrouping
+): NavItem[] {
+  return flattenGroups(
+    groups,
+    collapsed,
+    grouping === 'directory' || grouping === 'project'
+  ).filter(
+    (item) =>
+      !(
+        item.type === 'group' &&
+        item.group.key === 'interactive' &&
+        item.group.sessions.length === 0
+      )
+  );
+}
+
 export function summarizeSessions(sessions: AgentSession[]): {
   awaitingInput: number;
   working: number;

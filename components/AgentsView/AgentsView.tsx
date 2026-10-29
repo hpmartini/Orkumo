@@ -59,7 +59,7 @@ import {
 } from '../../utils/agentInput';
 import {
   groupSessions,
-  flattenGroups,
+  railItems,
   documentTitle,
   applyQuickFilters,
   sessionsInContext,
@@ -363,22 +363,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     return id && sessions.some((s) => s.id === id) ? id : null;
   }, [workspace.tabs, workspace.activeTabId, sessions]);
   const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
-  const items = useMemo(() => {
-    const flat = flattenGroups(
-      groups,
-      collapsed,
-      settings.grouping === 'directory' || settings.grouping === 'project'
-    );
-    // The interactive group only shows up when there are interactive sessions
-    return flat.filter(
-      (item) =>
-        !(
-          item.type === 'group' &&
-          item.group.key === 'interactive' &&
-          item.group.sessions.length === 0
-        )
-    );
-  }, [groups, collapsed, settings.grouping]);
+  const items = useMemo(
+    () => railItems(groups, collapsed, settings.grouping),
+    [groups, collapsed, settings.grouping]
+  );
 
   const itemKey = (item: NavItem): string =>
     item.type === 'group'
