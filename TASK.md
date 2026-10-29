@@ -524,3 +524,15 @@ The following existing tasks are related to the new features above:
   - Solution: `useAgentWorkspace` parkt den Workspace des verlassenen Kontexts (`parked`), und zwar im selben Render, damit nichts zwischendurch abgebaut wird. `AgentsView` rendert pro besuchtem Kontext ein `AgentWorkspace`, geschlüsselt nach `contextId`. So wandert ein Workspace zwischen live und geparkt, ohne neu gemountet zu werden. Geparkte Workspaces sind versteckt (`hidden`: kein Terminal gilt als sichtbar, also kein Fokus und kein Resize) und haben No-op-Handler. Sessions, die im Live-Workspace offen sind, hängen dort nur einmal an.
 - Verifikation: tsc 0 Fehler, vitest 592/592 (neu: `test/useAgentWorkspace.test.ts`). Browser: Nach A → B → A derselbe `.xterm`-Knoten, 0 neue WebSockets, in B kein Terminal sichtbar, Fokus bleibt in der Agents-View.
 - Grenzen: Geparkte Terminals bleiben bis zum Neuladen der Seite verbunden, auch für einen inzwischen gelöschten Kontext. Ist eine Session in A und B offen, verbindet sie sich beim Wechsel neu, damit sie nicht doppelt anhängt.
+
+---
+
+### Browser-Vorschau lehnt externe URLs ab (2026-10-29)
+
+- [x] **[FIX]** „Only localhost URLs are allowed in browser preview" bei jeder Nicht-localhost-URL
+  - Issue: Der eingebettete Browser (Electron, Coding-View) öffnete nur localhost-Adressen.
+  - Root cause: Der IPC-Handler `browser-view-navigate` in `electron/main.js` hatte eine Host-Allowlist (`localhost`, `127.0.0.1`, `0.0.0.0`, `::1`).
+  - Approach: Fehlertext bis zum Handler verfolgt; geprüft, dass kein anderer Filter (webRequest, CSP, will-navigate) externe Hosts blockt.
+  - Solution: Host-Allowlist entfernt, Protokollprüfung (nur http/https) bleibt. Die BrowserView ist sandboxed, ohne Node und ohne Preload. Neu: eigene Session (`persist:browser-preview`) mit Permission-Handler, der Kamera/Mikro/Standort usw. nur localhost-Seiten gewährt (Electron-Default ohne Handler: alles erlauben).
+- Verifikation: `node --check electron/main.js` ok. Electron-Smoke-Test mit denselben `webPreferences` und demselben Handler: `https://example.com/` lädt (Titel „Example Domain"), Geolocation-Anfrage von example.com abgelehnt. Nicht end-to-end durch die laufende App geklickt.
+- Grenzen: Im reinen Web-Modus (iframe) bleiben Seiten mit `X-Frame-Options`/`frame-ancestors` gesperrt; das setzt die Zielseite, nicht DevOrbit. `window.open` aus der Vorschau öffnet weiter ein eigenes Electron-Fenster (wie vorher bei localhost). Cookies/Logins der Vorschau liegen jetzt in der eigenen Session, bestehende Logins aus der Default-Session sind dort einmalig weg.

@@ -655,8 +655,20 @@ function setupIpcHandlers() {
           nodeIntegration: false,
           contextIsolation: true,
           sandbox: true,
+          partition: 'persist:browser-preview',
         },
       });
+      // External sites load here too: grant camera/mic/location etc. only to local dev apps
+      view.webContents.session.setPermissionRequestHandler(
+        (_wc, _permission, callback, details) => {
+          try {
+            const host = new URL(details.requestingUrl).hostname;
+            callback(['localhost', '127.0.0.1', '0.0.0.0', '[::1]'].includes(host));
+          } catch {
+            callback(false);
+          }
+        }
+      );
 
       // Set bounds
       view.setBounds({
@@ -691,16 +703,10 @@ function setupIpcHandlers() {
     }
 
     try {
-      // Validate URL - only allow http/https localhost URLs
+      // Any http/https host is fine: the view is sandboxed, without Node or preload
       const parsed = new URL(url);
       if (!['http:', 'https:'].includes(parsed.protocol)) {
         return { success: false, error: 'Only http and https protocols are allowed' };
-      }
-
-      // For security, only allow localhost URLs in the browser preview
-      const hostname = parsed.hostname.toLowerCase();
-      if (!['localhost', '127.0.0.1', '0.0.0.0', '::1'].includes(hostname)) {
-        return { success: false, error: 'Only localhost URLs are allowed in browser preview' };
       }
 
       await entry.view.webContents.loadURL(url);
