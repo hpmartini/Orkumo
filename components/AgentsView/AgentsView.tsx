@@ -1838,6 +1838,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     onMoveTab={live ? workspaceActions.moveTab : noop}
                     onSplit={live ? workspaceActions.split : noop}
                     onDetach={live ? workspaceActions.detach : noop}
+                    onOpenLink={live ? workspaceActions.openBrowser : undefined}
                     onSetLayout={live ? workspaceActions.setLayout : noop}
                     onPeek={live ? (sid) => setPeekId(sid) : noop}
                     focusZone={focusZone}
