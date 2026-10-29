@@ -59,7 +59,7 @@ This is a single-page React application with a flat file structure (no `src/` di
 ```
 ├── App.tsx           # Main component with all UI logic and state management
 ├── index.tsx         # React entry point
-├── types.ts          # TypeScript types (AppConfig, AppStatus enum)
+├── types.ts          # TypeScript types (AppConfig, AppType)
 ├── services/
 │   └── api.ts           # REST client for the server
 ├── index.html        # HTML shell with Tailwind CDN config
@@ -72,11 +72,6 @@ This is a single-page React application with a flat file structure (no `src/` di
 - **Styling**: Tailwind CSS via CDN with custom colors (gray-750, gray-850, gray-950)
 - **Charts**: Recharts for CPU/memory visualization
 - **Icons**: lucide-react
-- **AI Integration**: @google/genai SDK with structured JSON responses via `responseSchema`
-
-### AppStatus Flow
-
-Applications transition through states: `STOPPED` -> `STARTING` -> `RUNNING` | `ANALYZING`
 
 ### Path Alias
 

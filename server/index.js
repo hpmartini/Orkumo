@@ -793,7 +793,7 @@ app.get('/api/claude-cli/status', async (req, res) => {
 
 /**
  * GET /api/system/health
- * Get full system health report with recommendations
+ * Get full system health report with top processes
  */
 app.get('/api/system/health', async (req, res) => {
   try {

@@ -1,14 +1,3 @@
-export enum AppStatus {
-  STOPPED = 'STOPPED',
-  RUNNING = 'RUNNING',
-  ERROR = 'ERROR',
-  STARTING = 'STARTING',
-  ANALYZING = 'ANALYZING',
-  CANCELLED = 'CANCELLED',
-  WAITING = 'WAITING',
-  RESTARTING = 'RESTARTING',
-}
-
 export type AppType =
   | 'vite'
   | 'next'
@@ -35,16 +24,7 @@ export interface AppConfig {
   type: AppType;
   port?: number;
   addresses?: string[];
-  startCommand?: string;
   detectedFramework?: string;
-  status: AppStatus;
-  uptime: number; // seconds
-  logs: string[];
-  stats: {
-    cpu: number[]; // history
-    memory: number[]; // history (MB)
-  };
-  aiAnalysis?: string;
   isFavorite?: boolean;
   isArchived?: boolean;
   // Docker Compose specific fields

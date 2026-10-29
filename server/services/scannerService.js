@@ -125,7 +125,6 @@ function scanDockerComposeProject(projectPath) {
     path: projectPath,
     type: 'docker-compose',
     port: port || 8080,
-    startCommand: `${dockerCmd} up`,
     detectedFramework: 'Docker Compose',
     dockerComposeFile: composeFile.filename,
     dockerServices: services,
@@ -154,33 +153,6 @@ function detectProjectType(packageJson) {
   if (packageJson.scripts?.start) return { type: 'node', framework: 'Node.js' };
 
   return { type: 'unknown', framework: 'Unknown' };
-}
-
-/**
- * Detect the start command from package.json
- */
-function detectStartCommand(packageJson, projectType) {
-  const scripts = packageJson.scripts || {};
-
-  // Priority order for dev commands
-  const devCommands = ['dev', 'start:dev', 'serve', 'develop'];
-  for (const cmd of devCommands) {
-    if (scripts[cmd]) return `npm run ${cmd}`;
-  }
-
-  if (scripts.start) return 'npm start';
-
-  // Fallback based on project type
-  switch (projectType) {
-    case 'next':
-      return 'npm run dev';
-    case 'vite':
-      return 'npm run dev';
-    case 'cra':
-      return 'npm start';
-    default:
-      return 'npm start';
-  }
 }
 
 /**
@@ -213,7 +185,6 @@ function scanProject(projectPath) {
   try {
     const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
     const { type, framework } = detectProjectType(packageJson);
-    const startCommand = detectStartCommand(packageJson, type);
     const port = detectPort(packageJson, type);
 
     return {
@@ -222,7 +193,6 @@ function scanProject(projectPath) {
       path: projectPath,
       type,
       port,
-      startCommand,
       detectedFramework: framework,
       packageJson: {
         name: packageJson.name,

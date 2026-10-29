@@ -19,7 +19,6 @@ describe('API Service', () => {
           type: 'vite',
           port: 3000,
           addresses: ['http://localhost:3000'],
-          startCommand: 'npm run dev',
           detectedFramework: 'React',
           status: 'STOPPED',
         },
@@ -37,11 +36,7 @@ describe('API Service', () => {
       expect(apps[0]).toMatchObject({
         id: 'test-id-1',
         name: 'Test App',
-        status: 'STOPPED',
-        stats: {
-          cpu: expect.any(Array),
-          memory: expect.any(Array),
-        },
+        detectedFramework: 'React',
       });
     });
 

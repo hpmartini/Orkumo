@@ -1,4 +1,4 @@
-import { AppConfig, AppStatus, KeyboardShortcuts } from '../types';
+import { AppConfig, KeyboardShortcuts } from '../types';
 import { API_BASE_URL } from '../utils/apiConfig';
 
 const API_BASE = API_BASE_URL;
@@ -76,15 +76,7 @@ export async function fetchApps(): Promise<AppConfig[]> {
     type: app.type as AppConfig['type'],
     port: app.port as number,
     addresses: app.addresses as string[],
-    startCommand: app.startCommand as string,
     detectedFramework: app.detectedFramework as string,
-    status: (app.status as string as AppStatus) || AppStatus.STOPPED,
-    uptime: (app.uptime as number) || 0,
-    logs: (app.logs as string[]) || [],
-    stats: {
-      cpu: Array(20).fill(0),
-      memory: Array(20).fill(0),
-    },
   }));
 }
 
