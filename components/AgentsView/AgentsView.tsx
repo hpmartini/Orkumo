@@ -406,13 +406,36 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       null
     : null;
 
+  // Item that was selected when a directory was chosen explicitly: that choice beats the selection's cwd until the selection changes
+  const [cwdPickedFor, setCwdPickedFor] = useState<string | null>(null);
+  const selectedItemKey = selectedItem ? itemKey(selectedItem) : null;
+  const pickDispatchCwd = useCallback(
+    (cwd: string | null) => {
+      setDispatchCwd(cwd);
+      setCwdPickedFor(selectedItemKey);
+    },
+    [selectedItemKey]
+  );
+
   const targetCwd: string | null = useMemo(() => {
-    if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
+    if (
+      (settings.grouping === 'directory' || settings.grouping === 'project') &&
+      selectedItem &&
+      cwdPickedFor !== selectedItemKey
+    ) {
       if (selectedItem.type === 'group' && selectedItem.group.cwd) return selectedItem.group.cwd;
       if (selectedItem.type === 'session') return selectedItem.session.cwd;
     }
     return dispatchCwd || settings.scopeCwd || defaultCwd;
-  }, [settings.grouping, selectedItem, dispatchCwd, settings.scopeCwd, defaultCwd]);
+  }, [
+    settings.grouping,
+    selectedItem,
+    selectedItemKey,
+    cwdPickedFor,
+    dispatchCwd,
+    settings.scopeCwd,
+    defaultCwd,
+  ]);
 
   const openComposer = useCallback((mode: 'task' | 'agent', cwd: string | null = null) => {
     setComposerMode(mode);
@@ -557,10 +580,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   useEffect(() => {
     if (typeof prefill?.dispatch !== 'string') return;
     setInput(prefill.dispatch);
-    if (typeof prefill.cwd === 'string' && prefill.cwd) setDispatchCwd(prefill.cwd);
+    if (typeof prefill.cwd === 'string' && prefill.cwd) pickDispatchCwd(prefill.cwd);
     openComposer('task');
     navigate('/agents', { replace: true, state: null });
-  }, [prefill, navigate, openComposer]);
+  }, [prefill, navigate, openComposer, pickDispatchCwd]);
 
   // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
   const [board, setBoard] = useState<BoardData | null>(null);
@@ -1407,7 +1430,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             {
               id: 'dispatch-here',
               label: 'Dispatch into this directory',
-              onSelect: () => setDispatchCwd(group.cwd || null),
+              onSelect: () => pickDispatchCwd(group.cwd || null),
             },
             {
               id: 'new-agent',
@@ -2158,7 +2181,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
             if (composerMode === 'agent') setAgentCwd(path);
-            else setDispatchCwd(path);
+            else pickDispatchCwd(path);
             setPickDirOpen(false);
             inputRef.current?.focus();
           }}
