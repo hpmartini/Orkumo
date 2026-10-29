@@ -9,7 +9,13 @@ import {
 } from '../../utils/agentSessions';
 
 interface AgentSummaryBarProps {
-  counts: { awaitingInput: number; working: number; completed: number; failed: number };
+  counts: {
+    awaitingInput: number;
+    working: number;
+    completed: number;
+    failed: number;
+    cacheExpiring: number;
+  };
   /** null while the context request is still loading */
   openPrs: number | null;
   runningServers: number | null;
@@ -83,6 +89,7 @@ export const AgentSummaryBar: React.FC<AgentSummaryBarProps> = ({
       )}
       {toggle('working', counts.working, 'working', 'text-orange-300')}
       {toggle('completed', counts.completed, 'completed', 'text-emerald-300')}
+      {toggle('cache-expiring', counts.cacheExpiring, 'cache expiring', 'text-amber-300')}
       {(counts.failed > 0 || active.has('failed')) &&
         toggle('failed', counts.failed, 'failed', 'text-red-300')}
       <span className="text-gray-500 px-1" aria-hidden="true">
