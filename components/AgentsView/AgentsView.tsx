@@ -104,6 +104,12 @@ import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
 import { promptWithImages } from '../../utils/composer';
+import {
+  groupDirectories,
+  samePath,
+  shortenHome,
+  type DirectoryChoice,
+} from '../../utils/directoryGroups';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -2178,6 +2184,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               : directoryChoices
           }
           current={composerCwd}
+          home={homeDir}
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
             if (composerMode === 'agent') setAgentCwd(path);
@@ -2243,18 +2250,21 @@ const PromptEditor: React.FC<{
   );
 };
 
-/** Directory picker for the dispatch target */
+/** Directory picker for the dispatch target, grouped by parent directory (#158) */
 const DirectoryPicker: React.FC<{
-  choices: { name: string; path: string; source: string }[];
+  choices: DirectoryChoice[];
   current: string | null;
+  home: string | null;
   onCancel: () => void;
   onPick: (path: string) => void;
-}> = ({ choices, current, onCancel, onPick }) => {
+}> = ({ choices, current, home, onCancel, onPick }) => {
   const [query, setQuery] = useState('');
   const [custom, setCustom] = useState(current || '');
-  const filtered = choices.filter((c) =>
-    `${c.name} ${c.path}`.toLowerCase().includes(query.toLowerCase())
+  const groups = useMemo(
+    () => groupDirectories(choices, { home, current, query }),
+    [choices, home, current, query]
   );
+  const first = groups[0]?.entries[0];
   return (
     <div
       className="fixed inset-0 z-[95] bg-black/60 flex items-start justify-center pt-24 p-4"
@@ -2273,25 +2283,43 @@ const DirectoryPicker: React.FC<{
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') onCancel();
-              if (e.key === 'Enter' && filtered[0]) onPick(filtered[0].path);
+              if (e.key === 'Enter' && first) onPick(first.path);
             }}
             placeholder="Directory for new sessions…"
             className="w-full bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none"
           />
         </div>
-        <div className="max-h-[45vh] overflow-y-auto">
-          {filtered.map((choice) => (
-            <button
-              key={choice.path}
-              onClick={() => onPick(choice.path)}
-              className={`w-full text-left px-4 py-2 flex items-center gap-3 hover:bg-gray-800 ${choice.path === current ? 'bg-gray-800/60' : ''}`}
-            >
-              <span className="text-sm text-gray-100">{choice.name}</span>
-              <span className="text-xs text-gray-500 font-mono truncate">{choice.path}</span>
-              <span className="ml-auto text-[10px] text-gray-500">{choice.source}</span>
-            </button>
+        <div className="max-h-[45vh] overflow-y-auto pb-1">
+          {groups.map((group) => (
+            <div key={group.key} role="group" aria-label={group.label ?? 'Current and home'}>
+              {group.label && (
+                <div
+                  className="px-4 pt-3 pb-1 text-[11px] font-mono text-gray-400 truncate border-t border-gray-800/70"
+                  title={group.label}
+                >
+                  {group.label}
+                </div>
+              )}
+              {group.entries.map((entry) => (
+                <button
+                  key={entry.path}
+                  data-testid="dir-choice"
+                  title={entry.path}
+                  onClick={() => onPick(entry.path)}
+                  className={`w-full text-left px-4 py-1.5 flex items-center gap-3 min-w-0 whitespace-nowrap hover:bg-gray-800 ${entry === first ? 'bg-gray-800/40' : ''} ${samePath(entry.path, current) ? 'text-blue-300' : 'text-gray-100'}`}
+                >
+                  <span className="text-sm truncate min-w-0">{entry.name}</span>
+                  <span className="text-xs text-gray-500 font-mono truncate min-w-0 flex-1 basis-0">
+                    {group.label ? entry.detail : shortenHome(entry.path, home)}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-gray-500">
+                    {entry.sources.join(' · ')}
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
-          {filtered.length === 0 && (
+          {groups.length === 0 && (
             <div className="px-4 py-4 text-sm text-gray-500">No matches.</div>
           )}
         </div>
