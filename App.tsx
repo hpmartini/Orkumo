@@ -33,6 +33,7 @@ import { useProjectContexts, ROUTE_KEY } from './hooks/useProjectContexts';
 import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
 import type { PaletteCommand } from './utils/commandPalette';
 import { generateProjectUrl } from './utils/routing';
+import { fetchConfig } from './services/api';
 import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
@@ -88,6 +89,14 @@ function AppContent() {
     const members = new Set(contextAppIds);
     return apps.filter((app) => members.has(app.id));
   }, [apps, contextAppIds]);
+  // Configured project directories (admin panel): context dialog and tabs cluster by them
+  const [projectDirs, setProjectDirs] = useState<string[]>([]);
+  const loadProjectDirs = useCallback(() => {
+    fetchConfig()
+      .then((c) => setProjectDirs(c.directories))
+      .catch(() => setProjectDirs([]));
+  }, []);
+  useEffect(loadProjectDirs, [loadProjectDirs]);
   // Context id being edited in the dialog; 'new' creates one
   const [editingContext, setEditingContext] = useState<string | null>(null);
 
@@ -395,6 +404,8 @@ function AppContent() {
         onReorder={contexts.reorder}
         onEdit={setEditingContext}
         onCreate={() => setEditingContext('new')}
+        apps={apps}
+        projectDirs={projectDirs}
         showPaneControls={activeTab === 'apps' && detailsViewMode === 'coding' && !!selectedAppId}
         isTerminalVisible={selectedAppId ? !getAppState(selectedAppId).isTerminalHidden : true}
         isBrowserVisible={selectedAppId ? !getAppState(selectedAppId).isBrowserHidden : true}
@@ -607,8 +618,10 @@ function AppContent() {
 
       {editingContext && (
         <ContextDialog
+          key={editingContext}
           context={contexts.contexts.find((c) => c.id === editingContext) ?? null}
           apps={apps}
+          projectDirs={projectDirs}
           canDelete={contexts.contexts.length > 1}
           onSave={(input) =>
             editingContext === 'new'
@@ -617,6 +630,10 @@ function AppContent() {
           }
           onDelete={() => contexts.remove(editingContext)}
           onClose={() => setEditingContext(null)}
+          onOpenSettings={() => {
+            setEditingContext(null);
+            setAdminPanelOpen(true);
+          }}
         />
       )}
 
@@ -624,7 +641,10 @@ function AppContent() {
       <AdminPanel
         isOpen={adminPanelOpen}
         onClose={() => setAdminPanelOpen(false)}
-        onConfigChange={refreshApps}
+        onConfigChange={() => {
+          refreshApps();
+          loadProjectDirs();
+        }}
       />
 
       <ModuleSlot />

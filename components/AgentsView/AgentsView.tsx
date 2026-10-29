@@ -51,7 +51,12 @@ import {
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
 import { agentFolder, boardUrl, codeUrl, workflowsUrl } from '../../utils/codeTarget';
-import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
+import {
+  parseDispatchInput,
+  parseFilter,
+  applySessionFilter,
+  isUntrustedWorkspaceError,
+} from '../../utils/agentInput';
 import {
   groupSessions,
   flattenGroups,
@@ -401,13 +406,36 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       null
     : null;
 
+  // Item that was selected when a directory was chosen explicitly: that choice beats the selection's cwd until the selection changes
+  const [cwdPickedFor, setCwdPickedFor] = useState<string | null>(null);
+  const selectedItemKey = selectedItem ? itemKey(selectedItem) : null;
+  const pickDispatchCwd = useCallback(
+    (cwd: string | null) => {
+      setDispatchCwd(cwd);
+      setCwdPickedFor(selectedItemKey);
+    },
+    [selectedItemKey]
+  );
+
   const targetCwd: string | null = useMemo(() => {
-    if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
+    if (
+      (settings.grouping === 'directory' || settings.grouping === 'project') &&
+      selectedItem &&
+      cwdPickedFor !== selectedItemKey
+    ) {
       if (selectedItem.type === 'group' && selectedItem.group.cwd) return selectedItem.group.cwd;
       if (selectedItem.type === 'session') return selectedItem.session.cwd;
     }
     return dispatchCwd || settings.scopeCwd || defaultCwd;
-  }, [settings.grouping, selectedItem, dispatchCwd, settings.scopeCwd, defaultCwd]);
+  }, [
+    settings.grouping,
+    selectedItem,
+    selectedItemKey,
+    cwdPickedFor,
+    dispatchCwd,
+    settings.scopeCwd,
+    defaultCwd,
+  ]);
 
   const openComposer = useCallback((mode: 'task' | 'agent', cwd: string | null = null) => {
     setComposerMode(mode);
@@ -552,10 +580,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   useEffect(() => {
     if (typeof prefill?.dispatch !== 'string') return;
     setInput(prefill.dispatch);
-    if (typeof prefill.cwd === 'string' && prefill.cwd) setDispatchCwd(prefill.cwd);
+    if (typeof prefill.cwd === 'string' && prefill.cwd) pickDispatchCwd(prefill.cwd);
     openComposer('task');
     navigate('/agents', { replace: true, state: null });
-  }, [prefill, navigate, openComposer]);
+  }, [prefill, navigate, openComposer, pickDispatchCwd]);
 
   // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
   const [board, setBoard] = useState<BoardData | null>(null);
@@ -681,6 +709,33 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [attachRemote, showHint]
   );
 
+  /** Opens an interactive `claude` PTY in `cwd` (for ~ and folders whose trust prompt is pending) */
+  const openInteractiveClaude = useCallback(
+    (cwd: string, name: string) => {
+      const id = `interactive-${Date.now()}`;
+      setCloudSessions((prev) => [
+        ...prev,
+        {
+          id,
+          sessionId: null,
+          kind: 'interactive',
+          cwd,
+          startedAt: Date.now(),
+          name,
+          state: null,
+          ptyArgs: [],
+          pinned: false,
+          order: null,
+          links: [],
+          displayState: 'idle',
+        },
+      ]);
+      setComposerOpen(false);
+      attach(id);
+    },
+    [attach]
+  );
+
   const doDispatch = useCallback(
     async (
       extra: {
@@ -721,12 +776,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         refresh();
         if (attachAfter) attach(result.id);
       } catch (err) {
-        showHint(err instanceof Error ? err.message : 'Dispatch failed', 'error', 6000);
+        const message = err instanceof Error ? err.message : 'Dispatch failed';
+        if (isUntrustedWorkspaceError(message)) {
+          // Input stays in the composer so the user can retry once the folder is trusted
+          openInteractiveClaude(cwd, `claude · ${cwd.split(/[\\/]/).filter(Boolean).pop() || cwd}`);
+          showHint(
+            'Folder not trusted yet: accept the trust prompt in the terminal, then start the agent again',
+            'info',
+            10000
+          );
+          return;
+        }
+        showHint(message, 'error', 6000);
       } finally {
         setDispatching(false);
       }
     },
-    [targetCwd, settings.dispatch, showHint, refresh, attach]
+    [targetCwd, settings.dispatch, showHint, refresh, attach, openInteractiveClaude]
   );
 
   const handleCommand = useCallback(
@@ -797,26 +863,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             );
             return;
           }
-          const id = `home-${Date.now()}`;
-          setCloudSessions((prev) => [
-            ...prev,
-            {
-              id,
-              sessionId: null,
-              kind: 'interactive',
-              cwd: homeDir,
-              startedAt: Date.now(),
-              name: 'claude · ~',
-              state: null,
-              ptyArgs: [],
-              pinned: false,
-              order: null,
-              links: [],
-              displayState: 'idle',
-            },
-          ]);
-          setComposerOpen(false);
-          attach(id);
+          openInteractiveClaude(homeDir, 'claude · ~');
           return;
         }
         const paths = await uploadComposerImages();
@@ -890,6 +937,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       attach,
       handleCommand,
       doDispatch,
+      openInteractiveClaude,
     ]
   );
 
@@ -1382,7 +1430,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             {
               id: 'dispatch-here',
               label: 'Dispatch into this directory',
-              onSelect: () => setDispatchCwd(group.cwd || null),
+              onSelect: () => pickDispatchCwd(group.cwd || null),
             },
             {
               id: 'new-agent',
@@ -2133,7 +2181,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
             if (composerMode === 'agent') setAgentCwd(path);
-            else setDispatchCwd(path);
+            else pickDispatchCwd(path);
             setPickDirOpen(false);
             inputRef.current?.focus();
           }}

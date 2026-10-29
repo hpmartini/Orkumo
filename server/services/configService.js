@@ -73,7 +73,9 @@ function validatePath(dirPath) {
   }
 
   // Check for symlinks that might escape
-  const realPath = fs.realpathSync(normalizedPath);
+  // .native also restores the on-disk case: macOS accepts `/Users/x/projects` for
+  // `/Users/x/PROJECTS`, but every project path and ID derives from the stored spelling
+  const realPath = fs.realpathSync.native(normalizedPath);
   if (realPath !== normalizedPath) {
     // Re-validate the real path
     for (const forbidden of FORBIDDEN_PATHS) {
@@ -83,7 +85,16 @@ function validatePath(dirPath) {
     }
   }
 
-  return normalizedPath;
+  return realPath;
+}
+
+/** On-disk spelling of an existing directory, or the input when it cannot be resolved */
+export function canonicalDir(dirPath) {
+  try {
+    return fs.realpathSync.native(dirPath);
+  } catch {
+    return dirPath;
+  }
 }
 
 /**
@@ -130,7 +141,7 @@ export function addDirectory(dirPath) {
 
   const config = getConfig();
 
-  if (!config.directories.includes(validatedPath)) {
+  if (!config.directories.some((d) => canonicalDir(d) === validatedPath)) {
     config.directories.push(validatedPath);
     updateConfig(config);
   }
