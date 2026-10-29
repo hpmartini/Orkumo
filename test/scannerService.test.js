@@ -159,57 +159,6 @@ describe('scannerService', () => {
     });
   });
 
-  describe('detectStartCommand', () => {
-    const detectStartCommand = (packageJson, projectType) => {
-      const scripts = packageJson.scripts || {};
-
-      const devCommands = ['dev', 'start:dev', 'serve', 'develop'];
-      for (const cmd of devCommands) {
-        if (scripts[cmd]) return `npm run ${cmd}`;
-      }
-
-      if (scripts.start) return 'npm start';
-
-      switch (projectType) {
-        case 'next':
-          return 'npm run dev';
-        case 'vite':
-          return 'npm run dev';
-        case 'cra':
-          return 'npm start';
-        default:
-          return 'npm start';
-      }
-    };
-
-    it('should prioritize dev script', () => {
-      const packageJson = {
-        scripts: { dev: 'vite', start: 'node server.js' },
-      };
-      expect(detectStartCommand(packageJson, 'vite')).toBe('npm run dev');
-    });
-
-    it('should use serve script if no dev', () => {
-      const packageJson = {
-        scripts: { serve: 'vue-cli-service serve' },
-      };
-      expect(detectStartCommand(packageJson, 'vue')).toBe('npm run serve');
-    });
-
-    it('should fallback to npm start', () => {
-      const packageJson = {
-        scripts: { start: 'node index.js' },
-      };
-      expect(detectStartCommand(packageJson, 'node')).toBe('npm start');
-    });
-
-    it('should use project type default when no scripts', () => {
-      expect(detectStartCommand({}, 'next')).toBe('npm run dev');
-      expect(detectStartCommand({}, 'vite')).toBe('npm run dev');
-      expect(detectStartCommand({}, 'cra')).toBe('npm start');
-    });
-  });
-
   describe('detectPort', () => {
     const detectPort = (packageJson, projectType) => {
       const scripts = packageJson.scripts || {};

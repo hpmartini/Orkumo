@@ -339,16 +339,8 @@ export function scanAllDirectories() {
     }
   }
 
-  // Add default stats structure
   return mergeAgentRepos(allProjects, agentRepoPaths()).map((project) => ({
     ...project,
-    status: 'STOPPED',
-    uptime: 0,
-    logs: [],
-    stats: {
-      cpu: Array(20).fill(0),
-      memory: Array(20).fill(0),
-    },
     addresses: project.port ? [`http://localhost:${project.port}`] : [],
   }));
 }

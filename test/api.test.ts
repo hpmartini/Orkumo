@@ -20,7 +20,6 @@ describe('API Service', () => {
           port: 3000,
           addresses: ['http://localhost:3000'],
           detectedFramework: 'React',
-          status: 'STOPPED',
         },
       ];
 
