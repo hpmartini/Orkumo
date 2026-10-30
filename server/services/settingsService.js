@@ -38,6 +38,19 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   desktopNotifications: false,
   cardDetails: 'hover', // 'hover' | 'click' | 'always': when a session card shows its details
   cardDensity: 'comfortable', // 'comfortable' | 'compact'
+  // Card element -> slot (#159); mirrors DEFAULT_AGENT_CARD_FIELDS in types.ts
+  cardFields: {
+    issue: 'left',
+    pr: 'left',
+    project: 'row2',
+    branch: 'row2',
+    git: 'row2',
+    metrics: 'row3',
+    status: 'row4',
+    links: 'details',
+    servers: 'details',
+    subagents: 'details',
+  },
   disabled: false, // Mirrors the CLI `disableAgentView` setting
   dispatch: {
     model: null,
@@ -438,11 +451,12 @@ class SettingsService {
       ...DEFAULT_AGENT_VIEW_SETTINGS,
       ...stored,
       dispatch: { ...DEFAULT_AGENT_VIEW_SETTINGS.dispatch, ...(stored.dispatch || {}) },
+      cardFields: { ...DEFAULT_AGENT_VIEW_SETTINGS.cardFields, ...(stored.cardFields || {}) },
     };
   }
 
   /**
-   * Update agent view preferences (shallow merge, dispatch defaults merged one level deeper)
+   * Update agent view preferences (shallow merge, dispatch and cardFields merged one level deeper)
    * @param {object} partial
    * @returns {object} Updated preferences
    */
@@ -453,6 +467,7 @@ class SettingsService {
       ...current,
       ...partial,
       dispatch: { ...current.dispatch, ...(partial?.dispatch || {}) },
+      cardFields: { ...current.cardFields, ...(partial?.cardFields || {}) },
     };
     settings.agentView = next;
     writeSettings(settings);

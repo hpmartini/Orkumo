@@ -48,6 +48,21 @@ describe('agent card settings defaults and persistence (#135)', () => {
     expect(server.cardDensity).toBe(DEFAULT_AGENT_VIEW_SETTINGS.cardDensity);
   });
 
+  it('cardFields (#159): client and server defaults agree, old files get them, updates merge', async () => {
+    const { DEFAULT_AGENT_VIEW_SETTINGS: server, settingsService } =
+      await import('../server/services/settingsService.js');
+    expect(server.cardFields).toEqual(DEFAULT_AGENT_VIEW_SETTINGS.cardFields);
+    stored = JSON.stringify({ agentView: { grouping: 'state' }, version: 1 });
+    expect(settingsService.getAgentViewSettings().cardFields).toEqual(
+      DEFAULT_AGENT_VIEW_SETTINGS.cardFields
+    );
+    settingsService.updateAgentViewSettings({ cardFields: { pr: 'row3' } });
+    expect(settingsService.getAgentViewSettings().cardFields).toEqual({
+      ...DEFAULT_AGENT_VIEW_SETTINGS.cardFields,
+      pr: 'row3',
+    });
+  });
+
   it('existing settings files without the new keys get the defaults; updates persist', async () => {
     stored = JSON.stringify({ agentView: { grouping: 'state' }, version: 1 });
     const { settingsService } = await import('../server/services/settingsService.js');

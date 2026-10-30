@@ -285,7 +285,34 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
     [sessions, apps, contexts]
   );
-  const lookup = useMemo(() => ({ contexts, servers, now }), [contexts, servers, now]);
+  // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
+  const [board, setBoard] = useState<BoardData | null>(null);
+  useEffect(() => {
+    // server caches the board ~60 s
+    const load = () =>
+      fetchBoard()
+        .then(setBoard)
+        .catch(() => {});
+    load();
+    const interval = setInterval(load, BOARD_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, []);
+  const issueLinks = useMemo(
+    () => (board ? deriveAgentLinks(board.items, sessions) : undefined),
+    [board, sessions]
+  );
+  const issuesByAgent = useMemo(() => issueLinks && linksByAgent(issueLinks), [issueLinks]);
+  const workflowIssues = useMemo(
+    () =>
+      new Map(
+        (issueLinks || []).filter((l) => l.via === 'mw-board').map((l) => [l.jobId, l.issueKey])
+      ),
+    [issueLinks]
+  );
+  const lookup = useMemo(
+    () => ({ contexts, servers, workflowIssues, now }),
+    [contexts, servers, workflowIssues, now]
+  );
   const [panel, setPanel] = useState<'prs' | 'servers' | null>(null);
   useEffect(() => {
     if (!active) setPanel(null);
@@ -340,6 +367,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
   // An active quick filter must not hide its matches inside collapsed groups
   const rail = useRailPreferences(settings.grouping, contextId);
+  const { expandedSessions, toggleExpandedSession } = rail;
   const {
     arrange,
     toggleCollapsed,
@@ -616,23 +644,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     openComposer('task');
     navigate('/agents', { replace: true, state: null });
   }, [prefill, navigate, openComposer, pickDispatchCwd]);
-
-  // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
-  const [board, setBoard] = useState<BoardData | null>(null);
-  useEffect(() => {
-    // server caches the board ~60 s
-    const load = () =>
-      fetchBoard()
-        .then(setBoard)
-        .catch(() => {});
-    load();
-    const interval = setInterval(load, BOARD_REFRESH_MS);
-    return () => clearInterval(interval);
-  }, []);
-  const issuesByAgent = useMemo(
-    () => (board ? linksByAgent(deriveAgentLinks(board.items, sessions)) : undefined),
-    [board, sessions]
-  );
 
   const openCloud = useCallback(
     async (target?: string) => {
@@ -1358,6 +1369,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           },
         },
         {
+          // Replaces the card chevron (#159)
+          id: 'details',
+          label: expandedSessions.has(session.id) ? 'Hide details' : 'Keep details open',
+          onSelect: () => toggleExpandedSession(session.id),
+        },
+        {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
           disabled: !bg,
@@ -1409,6 +1426,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       contexts,
       navigate,
       issuesByAgent,
+      expandedSessions,
+      toggleExpandedSession,
     ]
   );
 
@@ -1931,6 +1950,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               grouping={settings.grouping}
               cardDetails={settings.cardDetails}
               cardDensity={settings.cardDensity}
+              cardFields={settings.cardFields}
+              lookup={lookup}
               contexts={contexts}
               servers={servers}
               filtered={quickFilters.size > 0 || !!filter}
@@ -1951,7 +1972,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               favoriteGroupKeys={rail.favoriteGroups}
               favoriteSessionIds={rail.favoriteSessions}
               expandedSessionIds={rail.expandedSessions}
-              onToggleExpanded={rail.toggleExpandedSession}
               onToggleFavoriteGroup={rail.toggleFavoriteGroup}
               onToggleFavoriteSession={rail.toggleFavoriteSession}
               onMoveGroup={rail.moveGroup}

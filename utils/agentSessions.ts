@@ -9,7 +9,11 @@ import type {
   AgentContext,
   AgentPullRequest,
   AgentCardDetails,
+  AgentCardElement,
+  AgentCardFields,
+  AgentCardSlot,
 } from '../types';
+import { DEFAULT_AGENT_CARD_FIELDS } from '../types';
 import { isCacheWarning } from './agentCache';
 
 export type GroupKey =
@@ -293,8 +297,60 @@ export interface ServerApp {
 export interface SessionLookup {
   contexts?: Record<string, AgentContext | undefined>;
   servers?: Map<string, AgentServer[]>;
+  /** Session id -> board issue key ("owner/repo#12") of agents mw board started (#159) */
+  workflowIssues?: Map<string, string>;
   /** Clock for time-dependent filters (cache expiry); defaults to Date.now() */
   now?: number;
+}
+
+/** Name prefix mw board gives the sessions it starts: "MACC <repo>#<number> <title>" */
+const WORKFLOW_NAME = /^MACC (\S+)#(\d+)(?: +(.*))?$/;
+
+export interface WorkflowName {
+  repo: string;
+  number: number;
+  /** Name without the prefix; the full name when nothing follows it */
+  title: string;
+}
+
+/** Splits an mw board session name; null for every other name */
+export function parseWorkflowName(name: string | null | undefined): WorkflowName | null {
+  const match = WORKFLOW_NAME.exec((name || '').trim());
+  if (!match) return null;
+  const title = (match[3] || '').trim();
+  return { repo: match[1], number: Number(match[2]), title: title || match[0].trim() };
+}
+
+/** Started by the mw board workflow for a GitHub issue, not by hand */
+export function isWorkflowSession(
+  session: Pick<AgentSession, 'id' | 'name'>,
+  lookup?: SessionLookup
+): boolean {
+  return !!parseWorkflowName(session.name) || !!lookup?.workflowIssues?.has(session.id);
+}
+
+/**
+ * Board issue a workflow agent works on: the mw-board link, else the name prefix resolved
+ * against the agent's linked issues or its repo slug (key null if neither matches).
+ * null for hand-started agents.
+ */
+export function workflowIssue(
+  session: Pick<AgentSession, 'id' | 'name'>,
+  lookup?: SessionLookup,
+  issueKeys: string[] = []
+): { key: string | null; number: number } | null {
+  const linked = lookup?.workflowIssues?.get(session.id);
+  if (linked) return { key: linked, number: Number(linked.slice(linked.lastIndexOf('#') + 1)) };
+  const parsed = parseWorkflowName(session.name);
+  if (!parsed) return null;
+  const suffix = `/${parsed.repo}#${parsed.number}`.toLowerCase();
+  const fromLinks = issueKeys.find((k) => k.toLowerCase().endsWith(suffix));
+  const slug = lookup?.contexts?.[session.id]?.repo?.slug;
+  const fromSlug =
+    slug && slug.toLowerCase().endsWith(`/${parsed.repo.toLowerCase()}`)
+      ? `${slug}#${parsed.number}`
+      : null;
+  return { key: fromLinks || fromSlug, number: parsed.number };
 }
 
 export type AgentSortKey =
@@ -459,6 +515,8 @@ export type AgentQuickFilter =
   | 'pr'
   | 'server'
   | 'subagents'
+  | 'local'
+  | 'workflow'
   | 'cache-expiring';
 
 export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: string }[] = [
@@ -469,6 +527,8 @@ export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: strin
   { key: 'pr', label: 'Open PR', title: 'Agents with an open pull request' },
   { key: 'server', label: 'Server', title: 'Agents with a running dev server in their directory' },
   { key: 'subagents', label: 'Sub-agents', title: 'Agents with running sub-agents' },
+  { key: 'local', label: 'Local', title: 'Agents you started yourself' },
+  { key: 'workflow', label: 'Workflow', title: 'Agents mw board started for a GitHub issue' },
   {
     key: 'cache-expiring',
     label: 'Cache expiring',
@@ -477,6 +537,7 @@ export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: strin
 ];
 
 const STATE_FILTERS: AgentQuickFilter[] = ['needs-input', 'working', 'completed', 'failed'];
+const ORIGIN_FILTERS: AgentQuickFilter[] = ['local', 'workflow'];
 
 export function matchesQuickFilter(
   key: AgentQuickFilter,
@@ -498,24 +559,35 @@ export function matchesQuickFilter(
       return runningServerCount(session, lookup) > 0;
     case 'subagents':
       return (lookup?.contexts?.[session.id]?.subagents.running || 0) > 0;
+    case 'local':
+      return !isWorkflowSession(session, lookup);
+    case 'workflow':
+      return isWorkflowSession(session, lookup);
     case 'cache-expiring':
       return isCacheWarning(lookup?.contexts?.[session.id]?.cache, lookup?.now ?? Date.now());
   }
 }
 
-/** State chips combine with OR (they are alternatives), attribute chips with AND. */
+/** State chips and origin chips each combine with OR (alternatives), attribute chips with AND. */
 export function applyQuickFilters(
   sessions: AgentSession[],
   active: ReadonlySet<AgentQuickFilter>,
   lookup?: SessionLookup
 ): AgentSession[] {
   if (active.size === 0) return sessions;
-  const states = [...active].filter((k) => STATE_FILTERS.includes(k));
-  const attrs = [...active].filter((k) => !STATE_FILTERS.includes(k));
+  const anyOf = (group: AgentQuickFilter[]) => {
+    const keys = [...active].filter((k) => group.includes(k));
+    return (s: AgentSession) =>
+      keys.length === 0 || keys.some((k) => matchesQuickFilter(k, s, lookup));
+  };
+  const matchesState = anyOf(STATE_FILTERS);
+  const matchesOrigin = anyOf(ORIGIN_FILTERS);
+  const attrs = [...active].filter(
+    (k) => !STATE_FILTERS.includes(k) && !ORIGIN_FILTERS.includes(k)
+  );
   return sessions.filter(
     (s) =>
-      (states.length === 0 || states.some((k) => matchesQuickFilter(k, s, lookup))) &&
-      attrs.every((k) => matchesQuickFilter(k, s, lookup))
+      matchesState(s) && matchesOrigin(s) && attrs.every((k) => matchesQuickFilter(k, s, lookup))
   );
 }
 
@@ -722,8 +794,54 @@ export function stateGlyph(state: AgentDisplayState): {
   }
 }
 
+/** Card elements in display order within a slot, with their settings labels (#159) */
+export const CARD_ELEMENTS: { key: AgentCardElement; label: string }[] = [
+  { key: 'issue', label: 'Workflow issue (#nr)' },
+  { key: 'pr', label: 'Pull request' },
+  { key: 'project', label: 'Project name' },
+  { key: 'branch', label: 'Branch / worktree' },
+  { key: 'git', label: 'Git status (dirty, ahead, behind)' },
+  { key: 'metrics', label: 'Context and cache' },
+  { key: 'status', label: 'Status text (working on, waiting for)' },
+  { key: 'links', label: 'Linked issues' },
+  { key: 'servers', label: 'Dev servers' },
+  { key: 'subagents', label: 'Running sub-agents' },
+];
+
+export const CARD_SLOTS: { key: AgentCardSlot; label: string }[] = [
+  { key: 'left', label: 'Left, under the status icon' },
+  { key: 'title', label: 'After the name' },
+  { key: 'row2', label: 'Row 2' },
+  { key: 'row3', label: 'Row 3 (joins row 2 when compact)' },
+  { key: 'row4', label: 'Row 4' },
+  { key: 'details', label: 'Details (hover / pinned)' },
+  { key: 'hidden', label: 'Hidden' },
+];
+
 /**
- * Whether a session card shows its details. A click on the chevron pins them in every mode;
+ * Sorts rendered card elements into their slots. Empty elements (null, false, empty list)
+ * are dropped, so a slot without content is an empty array. `wrap` keys rendered nodes.
+ */
+export function cardSlots<T, U = T>(
+  fields: Partial<AgentCardFields>,
+  nodes: Record<AgentCardElement, T>,
+  wrap: (node: T, key: AgentCardElement) => U = (node) => node as unknown as U
+): Record<AgentCardSlot, U[]> {
+  const slots = Object.fromEntries(CARD_SLOTS.map(({ key }) => [key, [] as U[]])) as Record<
+    AgentCardSlot,
+    U[]
+  >;
+  for (const { key } of CARD_ELEMENTS) {
+    const node = nodes[key];
+    if (node === null || node === undefined || node === false || node === '') continue;
+    if (Array.isArray(node) && node.length === 0) continue;
+    slots[fields[key] || DEFAULT_AGENT_CARD_FIELDS[key]].push(wrap(node, key));
+  }
+  return slots;
+}
+
+/**
+ * Whether a session card shows its details. "Keep details open" pins them in every mode;
  * in `hover` mode the hovered card and the keyboard-selected card (rail focused) show them too.
  */
 export function cardDetailsVisible(
