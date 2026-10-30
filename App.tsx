@@ -38,9 +38,10 @@ import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
 import { WorkflowView } from './components/WorkflowView';
+import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
 import { CodeView } from './components/CodeView';
 
-type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code' | 'workflows';
+type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code' | 'workflows' | 'pulls';
 
 function AppContent() {
   const navigate = useNavigate();
@@ -51,6 +52,7 @@ function AppContent() {
   const isBoardRoute = location.pathname === '/board';
   const isCodeRoute = location.pathname === '/code';
   const isWorkflowsRoute = location.pathname === '/workflows';
+  const isPullsRoute = location.pathname === '/pulls';
 
   const {
     apps,
@@ -161,10 +163,21 @@ function AppContent() {
               ? 'code'
               : isWorkflowsRoute
                 ? 'workflows'
-                : 'agents'
+                : isPullsRoute
+                  ? 'pulls'
+                  : 'agents'
       );
     }
-  }, [projectId, apps, loading, isDashboardRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
+  }, [
+    projectId,
+    apps,
+    loading,
+    isDashboardRoute,
+    isBoardRoute,
+    isCodeRoute,
+    isWorkflowsRoute,
+    isPullsRoute,
+  ]);
 
   // Each context keeps its own route (#97): it is parked with the context's ui on a switch
   const route = location.pathname + location.search;
@@ -565,6 +578,13 @@ function AppContent() {
                 <WorkflowView active={activeTab === 'workflows'} />
               </div>
 
+              {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
+              {activeTab === 'pulls' && (
+                <div className="absolute inset-0 z-10 flex flex-col min-h-0">
+                  <ConnectedPullRequestsPage />
+                </div>
+              )}
+
               {/* Stays mounted on other routes so the Web-IDE and browser iframes survive navigation;
                   hidden off-screen with a clip because iframes bleed through visibility tricks */}
               {selectedApp && (
@@ -661,6 +681,7 @@ function AppRouter() {
       <Route path="/board" element={<AppContent />} />
       <Route path="/code" element={<AppContent />} />
       <Route path="/workflows" element={<AppContent />} />
+      <Route path="/pulls" element={<AppContent />} />
       <Route path="/:projectName/:projectId" element={<AppContent />} />
     </Routes>
   );

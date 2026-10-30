@@ -36,6 +36,9 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
   const viewIdRef = useRef<string>(`browser-view-${appId || fallbackId}`);
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [currentUrl, setCurrentUrl] = useState(url);
+  // Create reads the latest url without depending on it: a url change navigates (effect below), no rebuild
+  const urlRef = useRef(url);
+  urlRef.current = url;
   const [urlError, setUrlError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -100,6 +103,7 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
       }
 
       // Navigate to URL
+      const url = urlRef.current;
       if (url) {
         const navResult = await api.navigate(viewId, url);
         if (!mounted) return;
@@ -119,7 +123,8 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
       mounted = false;
       api.destroy(viewId).catch(console.error);
     };
-  }, [api, url]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- created once per view; url changes navigate below
+  }, [api]);
 
   // Update bounds when container resizes or viewport changes
   useEffect(() => {
