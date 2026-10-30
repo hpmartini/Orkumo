@@ -59,7 +59,7 @@ import {
 } from '../../utils/agentInput';
 import {
   groupSessions,
-  flattenGroups,
+  railItems,
   documentTitle,
   applyQuickFilters,
   sessionsInContext,
@@ -399,22 +399,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     return id && sessions.some((s) => s.id === id) ? id : null;
   }, [workspace.tabs, workspace.activeTabId, sessions]);
   const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
-  const items = useMemo(() => {
-    const flat = flattenGroups(
-      groups,
-      collapsed,
-      settings.grouping === 'directory' || settings.grouping === 'project'
-    );
-    // The interactive group only shows up when there are interactive sessions
-    return flat.filter(
-      (item) =>
-        !(
-          item.type === 'group' &&
-          item.group.key === 'interactive' &&
-          item.group.sessions.length === 0
-        )
-    );
-  }, [groups, collapsed, settings.grouping]);
+  const items = useMemo(
+    () => railItems(groups, collapsed, settings.grouping),
+    [groups, collapsed, settings.grouping]
+  );
 
   const itemKey = (item: NavItem): string =>
     item.type === 'group'
@@ -1520,6 +1508,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Command palette entries
   // ---------------------------------------------------------------------
 
+  const collapseAllGroups = useCallback(
+    () => rail.collapseAll([FAVORITES_GROUP_KEY, ...groups.map((g) => g.key)]),
+    [rail.collapseAll, groups]
+  );
+  const expandAllGroups = useCallback(() => rail.expandAll(), [rail.expandAll]);
+
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const newTask: PaletteCommand = {
       id: 'agents.new-task',
@@ -1590,6 +1584,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         )
       );
     }
+    // A quick filter keeps every group open, like the disabled header buttons
+    if (quickFilters.size === 0) {
+      list.push(
+        cmd('groups.collapse', 'Collapse all groups', 'Rail', collapseAllGroups),
+        cmd('groups.expand', 'Expand all groups', 'Rail', expandAllGroups)
+      );
+    }
     if (quickFilters.size > 0 || filter) {
       list.push(
         cmd('filter.clear', 'Clear all filters', 'Rail', () => {
@@ -1656,6 +1657,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     quickFilters,
     filter,
     toggleQuickFilter,
+    collapseAllGroups,
+    expandAllGroups,
     workspace.tabs,
     workspace.activeTabId,
     workspaceActions,
@@ -1911,10 +1914,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             nav={nav}
             grouping={settings.grouping}
             onGrouping={(grouping) => updateSettings({ grouping })}
-            onCollapseAll={() =>
-              rail.collapseAll([FAVORITES_GROUP_KEY, ...groups.map((g) => g.key)])
-            }
-            onExpandAll={() => rail.expandAll()}
+            onCollapseAll={collapseAllGroups}
+            onExpandAll={expandAllGroups}
             collapseDisabled={quickFilters.size > 0}
           />
           <AgentFilterBar
