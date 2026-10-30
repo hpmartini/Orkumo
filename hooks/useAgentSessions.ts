@@ -9,6 +9,14 @@ import type {
   AgentCapabilities,
 } from '../types';
 import { DEFAULT_AGENT_VIEW_SETTINGS } from '../types';
+
+/** Nested preferences merge one level deep, so older settings files gain new keys */
+const withDefaults = (loaded: Partial<AgentViewSettings>): AgentViewSettings => ({
+  ...DEFAULT_AGENT_VIEW_SETTINGS,
+  ...loaded,
+  dispatch: { ...DEFAULT_AGENT_VIEW_SETTINGS.dispatch, ...loaded.dispatch },
+  cardFields: { ...DEFAULT_AGENT_VIEW_SETTINGS.cardFields, ...loaded.cardFields },
+});
 import {
   fetchAgents,
   subscribeToAgents,
@@ -61,12 +69,7 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
     let mounted = true;
     fetchAgentViewSettings()
       .then((loaded) => {
-        if (mounted)
-          setSettings({
-            ...DEFAULT_AGENT_VIEW_SETTINGS,
-            ...loaded,
-            dispatch: { ...DEFAULT_AGENT_VIEW_SETTINGS.dispatch, ...loaded.dispatch },
-          });
+        if (mounted) setSettings(withDefaults(loaded));
       })
       .catch(() => {
         /* keep defaults */
@@ -82,15 +85,12 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
       ...previous,
       ...partial,
       dispatch: { ...previous.dispatch, ...(partial.dispatch || {}) },
+      cardFields: { ...previous.cardFields, ...(partial.cardFields || {}) },
     };
     setSettings(optimistic);
     try {
       const saved = await updateAgentViewSettings(partial);
-      setSettings({
-        ...DEFAULT_AGENT_VIEW_SETTINGS,
-        ...saved,
-        dispatch: { ...DEFAULT_AGENT_VIEW_SETTINGS.dispatch, ...saved.dispatch },
-      });
+      setSettings(withDefaults(saved));
     } catch (err) {
       setSettings(previous);
       toast.error(err instanceof Error ? err.message : 'Failed to save agent view settings');

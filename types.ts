@@ -395,6 +395,21 @@ export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
 /** When a session card shows its details (issues, PRs, servers, sub-agents) */
 export type AgentCardDetails = 'hover' | 'click' | 'always';
 export type AgentCardDensity = 'comfortable' | 'compact';
+/** Detail elements of an agent card (#159); each sits in one AgentCardSlot */
+export type AgentCardElement =
+  | 'issue'
+  | 'pr'
+  | 'project'
+  | 'branch'
+  | 'git'
+  | 'metrics'
+  | 'status'
+  | 'links'
+  | 'servers'
+  | 'subagents';
+/** left = column under the status glyph, title = after the name, row2-4 = lines below it */
+export type AgentCardSlot = 'left' | 'title' | 'row2' | 'row3' | 'row4' | 'details' | 'hidden';
+export type AgentCardFields = Record<AgentCardElement, AgentCardSlot>;
 
 export interface AgentDispatchDefaults {
   model: string | null;
@@ -421,6 +436,7 @@ export interface AgentViewSettings {
   desktopNotifications: boolean;
   cardDetails: AgentCardDetails;
   cardDensity: AgentCardDensity;
+  cardFields: AgentCardFields;
   disabled: boolean;
   dispatch: AgentDispatchDefaults;
   version: number;
@@ -514,6 +530,19 @@ export const DEFAULT_AGENT_DISPATCH_DEFAULTS: AgentDispatchDefaults = {
   strictMcpConfig: false,
 };
 
+export const DEFAULT_AGENT_CARD_FIELDS: AgentCardFields = {
+  issue: 'left',
+  pr: 'left',
+  project: 'row2',
+  branch: 'row2',
+  git: 'row2',
+  metrics: 'row3',
+  status: 'row4',
+  links: 'details',
+  servers: 'details',
+  subagents: 'details',
+};
+
 export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   grouping: 'project',
   layout: 'tabs',
@@ -523,6 +552,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   desktopNotifications: false,
   cardDetails: 'hover',
   cardDensity: 'comfortable',
+  cardFields: DEFAULT_AGENT_CARD_FIELDS,
   disabled: false,
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,

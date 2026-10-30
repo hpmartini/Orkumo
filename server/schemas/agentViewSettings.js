@@ -13,6 +13,28 @@ export const agentViewSettingsSchema = z
     desktopNotifications: z.boolean().optional(),
     cardDetails: z.enum(['hover', 'click', 'always']).optional(),
     cardDensity: z.enum(['comfortable', 'compact']).optional(),
+    cardFields: z
+      .object(
+        Object.fromEntries(
+          [
+            'issue',
+            'pr',
+            'project',
+            'branch',
+            'git',
+            'metrics',
+            'status',
+            'links',
+            'servers',
+            'subagents',
+          ].map((k) => [
+            k,
+            z.enum(['left', 'title', 'row2', 'row3', 'row4', 'details', 'hidden']).optional(),
+          ])
+        )
+      )
+      .strict()
+      .optional(),
     disabled: z.boolean().optional(),
     dispatch: z
       .object({
