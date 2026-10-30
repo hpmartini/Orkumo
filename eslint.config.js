@@ -116,7 +116,7 @@ export default [
     },
   },
   {
-    files: ['**/*.{js,cjs}'],
+    files: ['**/*.{js,cjs,mjs}'],
     rules: {
       // optional catch binding is fine; unused catch params are not worth flagging
       'no-unused-vars': ['error', { caughtErrors: 'none', argsIgnorePattern: '^_' }],

@@ -1,0 +1,7 @@
+{"type":"user","timestamp":"2026-10-28T11:59:00.000Z","message":{"role":"user","content":"what is the usage?"}}
+{"type":"assistant","timestamp":"2026-10-28T12:00:00.000Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-x","usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}}
+{"type":"assistant","timestamp":"2026-10-28T12:00:01.000Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-x","usage":{"input_tokens":10,"output_tokens":50,"cache_read_input_tokens":100,"cache_creation_input_tokens":20}}}
+{"type":"assistant","timestamp":"2026-10-29T12:00:00.000Z","requestId":"req_2","message":{"id":"msg_2","model":"claude-x","usage":{"input_tokens":1,"output_tokens":2,"cache_read_input_tokens":3,"cache_creation_input_tokens":4}}}
+{"type":"assistant","timestamp":"2026-10-01T12:00:00.000Z","requestId":"req_old","message":{"id":"msg_old","model":"claude-x","usage":{"input_tokens":999,"output_tokens":999,"cache_read_input_tokens":999,"cache_creation_input_tokens":999}}}
+{"type":"assistant","timestamp":"2026-10-29T12:00:00.000Z","message":{"id":"msg_syn","model":"<synthetic>","usage":{"input_tokens":7,"output_tokens":7}}}
+{"type":"assistant","usage": broken

@@ -1,4 +1,15 @@
-import { pgTable, uuid, varchar, text, integer, boolean, timestamp, jsonb, decimal, serial, primaryKey } from 'drizzle-orm/pg-core';
+import {
+  pgTable,
+  uuid,
+  varchar,
+  text,
+  integer,
+  boolean,
+  timestamp,
+  jsonb,
+  serial,
+  primaryKey,
+} from 'drizzle-orm/pg-core';
 
 /**
  * Applications table - stores discovered app information
@@ -11,7 +22,6 @@ export const applications = pgTable('applications', {
   framework: varchar('framework', { length: 100 }), // 'nextjs', 'vite', 'flask', 'django', etc.
 
   // Configuration
-  startCommand: text('start_command'),
   defaultPort: integer('default_port'),
   customPort: integer('custom_port'),
   envFile: text('env_file'),
@@ -24,46 +34,11 @@ export const applications = pgTable('applications', {
   // Metadata (stored as JSONB for flexibility)
   packageJson: jsonb('package_json'),
   detectedScripts: jsonb('detected_scripts'),
-  aiAnalysis: text('ai_analysis'),
 
   // Timestamps
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-  lastStartedAt: timestamp('last_started_at', { withTimezone: true }),
   lastScannedAt: timestamp('last_scanned_at', { withTimezone: true }),
-});
-
-/**
- * Application runs/history - tracks app execution history
- */
-export const appRuns = pgTable('app_runs', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  appId: uuid('app_id').references(() => applications.id, { onDelete: 'cascade' }),
-
-  status: varchar('status', { length: 50 }), // 'running', 'stopped', 'error', 'crashed'
-  pid: integer('pid'),
-  port: integer('port'),
-
-  startedAt: timestamp('started_at', { withTimezone: true }).defaultNow(),
-  stoppedAt: timestamp('stopped_at', { withTimezone: true }),
-  exitCode: integer('exit_code'),
-
-  // Resource usage snapshots (stored as averages)
-  avgCpuUsage: decimal('avg_cpu_usage', { precision: 5, scale: 2 }),
-  avgMemoryMb: integer('avg_memory_mb'),
-  peakCpuUsage: decimal('peak_cpu_usage', { precision: 5, scale: 2 }),
-  peakMemoryMb: integer('peak_memory_mb'),
-});
-
-/**
- * Port allocations - for conflict management
- */
-export const portAllocations = pgTable('port_allocations', {
-  port: integer('port').primaryKey(),
-  appId: uuid('app_id').references(() => applications.id, { onDelete: 'set null' }),
-  allocatedAt: timestamp('allocated_at', { withTimezone: true }).defaultNow(),
-  isSystemPort: boolean('is_system_port').default(false),
-  notes: text('notes'),
 });
 
 /**
@@ -97,12 +72,20 @@ export const tags = pgTable('tags', {
 /**
  * Many-to-many relationship between apps and tags
  */
-export const appTags = pgTable('app_tags', {
-  appId: uuid('app_id').notNull().references(() => applications.id, { onDelete: 'cascade' }),
-  tagId: integer('tag_id').notNull().references(() => tags.id, { onDelete: 'cascade' }),
-}, (table) => ({
-  pk: primaryKey({ columns: [table.appId, table.tagId] }),
-}));
+export const appTags = pgTable(
+  'app_tags',
+  {
+    appId: uuid('app_id')
+      .notNull()
+      .references(() => applications.id, { onDelete: 'cascade' }),
+    tagId: integer('tag_id')
+      .notNull()
+      .references(() => tags.id, { onDelete: 'cascade' }),
+  },
+  (table) => ({
+    pk: primaryKey({ columns: [table.appId, table.tagId] }),
+  })
+);
 
 /**
  * System configuration

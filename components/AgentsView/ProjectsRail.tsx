@@ -6,9 +6,7 @@ import {
   ChevronsDownUp,
   ChevronsUpDown,
   Code2,
-  Play,
   Settings,
-  Square,
   Workflow,
 } from 'lucide-react';
 import type { AgentGrouping } from '../../types';
@@ -21,8 +19,6 @@ export interface RailNavProps {
   onOpenWorkflows?: () => void;
   onOpenSettings: () => void;
   onOpenProject: (appId: string) => void;
-  onStartApp: (appId: string) => void;
-  onStopApp: (appId: string) => void;
 }
 
 const GROUP_MODES: { key: AgentGrouping; label: string }[] = [
@@ -33,44 +29,6 @@ const GROUP_MODES: { key: AgentGrouping; label: string }[] = [
 ];
 
 const PROJECTS_COLLAPSED_KEY = 'devOrbitAgentProjectsCollapsed';
-
-export const isAppRunning = (app?: AgentConfigLike) => app?.status === 'RUNNING';
-
-export const AppStatusDot: React.FC<{ status?: string }> = ({ status }) => (
-  <span
-    className={`w-2 h-2 rounded-full shrink-0 ${
-      status === 'RUNNING'
-        ? 'bg-emerald-400'
-        : status === 'ERROR'
-          ? 'bg-red-400'
-          : status === 'STARTING' || status === 'RESTARTING'
-            ? 'bg-yellow-400 motion-safe:animate-pulse'
-            : 'bg-gray-500'
-    }`}
-    title={status ? status.toLowerCase() : 'stopped'}
-  />
-);
-
-/** Start / stop toggle for an app, used by project headers and the Projects section */
-export const AppPowerButton: React.FC<{
-  app: AgentConfigLike;
-  nav: RailNavProps;
-}> = ({ app, nav }) => {
-  const running = isAppRunning(app);
-  return (
-    <button
-      onClick={(e) => {
-        e.stopPropagation();
-        (running ? nav.onStopApp : nav.onStartApp)(app.id);
-      }}
-      className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-      title={running ? `Stop ${app.name}` : `Start ${app.name}`}
-      aria-label={running ? `Stop ${app.name}` : `Start ${app.name}`}
-    >
-      {running ? <Square size={11} /> : <Play size={11} />}
-    </button>
-  );
-};
 
 /** Group-mode switch plus rail-wide buttons (collapse, workflows, settings) */
 export const RailNav: React.FC<{
@@ -178,7 +136,6 @@ export const ProjectsSection: React.FC<{
       (a, b) => Number(!!b.isFavorite) - Number(!!a.isFavorite) || a.name.localeCompare(b.name)
     );
   if (list.length === 0) return null;
-  const running = list.filter(isAppRunning).length;
   const open = !collapsed && !filtered;
   return (
     <div className="mx-2 mt-2 rounded-lg border border-gray-700 bg-gray-850 overflow-hidden">
@@ -189,15 +146,12 @@ export const ProjectsSection: React.FC<{
       >
         {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
         Projects
-        <span className="font-normal text-gray-400">
-          {running}/{list.length} running
-        </span>
+        <span className="font-normal text-gray-400">{list.length}</span>
       </button>
       {open && (
         <div>
           {list.map((app) => (
             <div key={app.id} className="group flex items-center gap-2 px-3 py-1 hover:bg-gray-800">
-              <AppStatusDot status={app.status} />
               <button
                 onClick={() => nav.onOpenProject(app.id)}
                 className="flex-1 min-w-0 truncate text-left text-sm text-gray-300 hover:text-white"
@@ -214,7 +168,6 @@ export const ProjectsSection: React.FC<{
                 >
                   <Code2 size={11} />
                 </button>
-                <AppPowerButton app={app} nav={nav} />
               </span>
             </div>
           ))}

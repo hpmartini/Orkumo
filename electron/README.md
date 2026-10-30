@@ -115,7 +115,6 @@ To enable auto-updates, publish releases to GitHub with the built artifacts.
 
 The Electron app respects the following environment variables:
 
-- `GEMINI_API_KEY`: AI features API key (from `.env.local`)
 - `SERVER_PORT`: Backend server port (default: 3001)
 - `DATABASE_URL`: PostgreSQL connection string (optional)
 

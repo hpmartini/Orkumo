@@ -1,6 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { RefreshCw, Box, Terminal, Globe, Play, Square, FileText } from 'lucide-react';
-import { AppStatus } from '../../types';
+import { RefreshCw, Box, Terminal, Globe, FileText } from 'lucide-react';
 import { API_BASE_URL } from '../../utils/apiConfig';
 import { TIMEOUTS } from '../../config/defaults';
 
@@ -254,14 +253,6 @@ interface WebIDEPanelProps {
   showBrowserButton?: boolean;
   /** Callback to show browser panel */
   onShowBrowser?: () => void;
-  /** Current app status for flow controls */
-  appStatus?: AppStatus;
-  /** Callback to start the app */
-  onStart?: () => void;
-  /** Callback to stop the app */
-  onStop?: () => void;
-  /** Callback to restart the app */
-  onRestart?: () => void;
   /** Callback to switch to details view */
   onSwitchToDetails?: () => void;
 }
@@ -272,10 +263,6 @@ export const WebIDEPanel = ({
   onShowTerminal,
   showBrowserButton,
   onShowBrowser,
-  appStatus,
-  onStart,
-  onStop,
-  onRestart,
   onSwitchToDetails,
 }: WebIDEPanelProps) => {
   const [codeServerLoading, setCodeServerLoading] = useState(true);
@@ -566,49 +553,6 @@ export const WebIDEPanel = ({
       <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <span>Web IDE</span>
-
-          {/* Flow Controls */}
-          {appStatus !== undefined && (
-            <div className="flex items-center gap-1 ml-2 pl-2 border-l border-gray-700">
-              {appStatus === AppStatus.RUNNING ? (
-                <>
-                  <button
-                    onClick={onStop}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-red-500/20 text-red-400 hover:bg-red-500/30 border border-red-500/30 rounded transition-colors"
-                    title="Stop application"
-                  >
-                    <Square size={12} fill="currentColor" />
-                    Stop
-                  </button>
-                  <button
-                    onClick={onRestart}
-                    className="flex items-center gap-1 px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 rounded transition-colors"
-                    title="Restart application"
-                  >
-                    <RefreshCw size={12} />
-                  </button>
-                </>
-              ) : (
-                <button
-                  onClick={onStart}
-                  disabled={
-                    appStatus === AppStatus.STARTING ||
-                    appStatus === AppStatus.ANALYZING ||
-                    appStatus === AppStatus.RESTARTING
-                  }
-                  className="flex items-center gap-1 px-2 py-1 text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 border border-emerald-500/30 rounded transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title="Start application"
-                >
-                  {appStatus === AppStatus.STARTING || appStatus === AppStatus.RESTARTING ? (
-                    <RefreshCw size={12} className="animate-spin" />
-                  ) : (
-                    <Play size={12} fill="currentColor" />
-                  )}
-                  {appStatus === AppStatus.STARTING ? 'Starting...' : 'Run'}
-                </button>
-              )}
-            </div>
-          )}
 
           {/* Panel visibility buttons */}
           {showTerminalButton && onShowTerminal && (
