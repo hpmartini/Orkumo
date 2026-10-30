@@ -65,6 +65,9 @@ services:
       # Optional shared secret for the PTY-Host HTTP endpoint. Set in .env to
       # require authentication (recommended when the host is on a shared LAN).
       - PTY_HOST_HTTP_TOKEN=${PTY_HOST_HTTP_TOKEN:-}
+      # Host user id for `launchctl kickstart gui/<uid>/…` (start the mw-board poll now, #145);
+      # 501 is the first macOS user. Set HOST_UID in .env if `id -u` differs.
+      - HOST_UID=${HOST_UID:-501}
     depends_on:
       db:
         condition: service_healthy

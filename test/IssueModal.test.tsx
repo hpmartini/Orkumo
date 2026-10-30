@@ -16,6 +16,7 @@ const api = vi.hoisted(() => ({
   fetchIssueSummary: vi.fn(),
   setIssueLabels: vi.fn(),
   fetchRepoPath: vi.fn(),
+  sendWorkflowGo: vi.fn(),
   errorDetails: () => ({}),
 }));
 vi.mock('../services/boardApi', () => api);
@@ -210,6 +211,28 @@ describe('IssueModal (#104)', () => {
       expect(api.setIssueLabels).toHaveBeenCalledWith('I_9', ['bug', 'mw:build'])
     );
     await waitFor(() => expect(build.getAttribute('aria-pressed')).toBe('true'));
+  });
+
+  it('released issue waiting on the poll: "Jetzt starten" starts it after confirming (#145)', async () => {
+    api.sendWorkflowGo.mockResolvedValue({ ok: true });
+    renderModal();
+    const start = await screen.findByRole('button', { name: /Jetzt starten/ });
+    fireEvent.click(start);
+    expect(api.sendWorkflowGo).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: /Wirklich/ }));
+    await waitFor(() =>
+      expect(api.sendWorkflowGo).toHaveBeenCalledWith('PVTI_1', { kind: 'poll' })
+    );
+  });
+
+  it('picked-up issue (session started): no "Jetzt starten"', async () => {
+    api.fetchBoard.mockResolvedValue({
+      ...board,
+      items: [{ ...item, mwMarkers: [{ kind: 'start', attrs: { session: 's' }, at: '' }] }],
+    });
+    renderModal();
+    await screen.findByText('Rückfrage?');
+    expect(screen.queryByRole('button', { name: /Jetzt starten/ })).toBeNull();
   });
 
   it('Escape closes', async () => {

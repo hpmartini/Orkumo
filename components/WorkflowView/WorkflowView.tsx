@@ -6,6 +6,7 @@ import type { AgentContext, AgentSession, WorkflowRunInfo } from '../../types';
 import { useBoard } from '../BoardView/useBoard';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { fetchAgentContexts } from '../../services/agentsApi';
+import { goDoneText } from './GoButton';
 import {
   fetchRepoPath,
   fetchWorkflowDoc,
@@ -226,12 +227,8 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
   const go = async (card: Card) => {
     if (!card.state.go) return;
     try {
-      await sendWorkflowGo(card.item.itemId, card.state.go);
-      toast.success(
-        card.state.go.kind === 'build'
-          ? `GO für ${card.key}: mw:build gesetzt`
-          : `GO für ${card.key}: ${card.state.go.stage} freigegeben`
-      );
+      const res = await sendWorkflowGo(card.item.itemId, card.state.go);
+      toast.success(goDoneText(card.key, card.state.go, res.pollError));
       await Promise.all([refresh(), loadRuns(true)]);
     } catch (e) {
       toast.error((e as Error).message);

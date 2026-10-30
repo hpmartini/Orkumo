@@ -66,6 +66,7 @@ import {
   matchesQuickFilter,
   mergeServers,
   collectPullRequests,
+  type PullRequestRow,
   summarizeContext,
   formatModelName,
   groupRepoSlug,
@@ -81,6 +82,7 @@ import { AgentList, AgentRowAction } from './AgentList';
 import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
+import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
 import { ServersPanel, type ServerRow } from './ServersPanel';
 import {
   TaskComposerModal,
@@ -104,6 +106,12 @@ import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
 import { promptWithImages } from '../../utils/composer';
+import {
+  groupDirectories,
+  samePath,
+  shortenHome,
+  type DirectoryChoice,
+} from '../../utils/directoryGroups';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -565,6 +573,30 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
   const navigate = useNavigate();
+  const openPrCode = useCallback(
+    async ({ pr, agents }: PullRequestRow) => {
+      // Agents on the PR's head branch sit in its worktree; else the repo's checkout
+      const folder =
+        agents.map((a) => agentFolder(a, contexts[a.id])).find(Boolean) ??
+        (await fetchRepoPath(pr.repoSlug).catch(() => null));
+      if (folder) navigate(codeUrl(folder));
+      else toast.error(`No local checkout of ${pr.repoSlug}`);
+    },
+    [contexts, navigate]
+  );
+  // Read by the /pulls container in App.tsx (ConnectedPullRequestsPage)
+  const pullsData = useMemo<PullRequestsPageProps>(
+    () => ({
+      rows: pullRows,
+      sessions,
+      contexts,
+      repoFilter: prRepo,
+      onClearRepo: () => setPrRepo(null),
+      onSelectAgent: attach,
+      onOpenCode: openPrCode,
+    }),
+    [pullRows, sessions, contexts, prRepo, attach, openPrCode]
+  );
   // New issue dialog; repo null = the user picks one of `issueRepos`
   const [issueDialog, setIssueDialog] = useState<{ repo: string | null } | null>(null);
   const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
@@ -1570,6 +1602,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         setPrRepo(null);
         setPanel('prs');
       }),
+      cmd('panel.prs-full', 'Open pull requests (full view)', 'Panels', () => navigate('/pulls')),
       cmd('panel.servers', 'Show running servers', 'Panels', () => setPanel('servers')),
       cmd('settings', 'Dispatch defaults and settings', 'Agents', () => setShowSettings(true)),
       cmd('shortcuts', 'Show keyboard shortcuts', 'Agents', () => setShowHelp(true), {
@@ -1611,6 +1644,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     copyJson,
     sessions,
     attach,
+    navigate,
   ]);
   useRegisterCommands('agents', paletteCommands);
 
@@ -1711,14 +1745,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             repoFilter={prRepo}
             onClearRepo={() => setPrRepo(null)}
             onSelectAgent={attach}
-            onOpenCode={async ({ pr, agents }) => {
-              // Agents on the PR's head branch sit in its worktree; else the repo's checkout
-              const folder =
-                agents.map((a) => agentFolder(a, contexts[a.id])).find(Boolean) ??
-                (await fetchRepoPath(pr.repoSlug).catch(() => null));
-              if (folder) navigate(codeUrl(folder));
-              else toast.error(`No local checkout of ${pr.repoSlug}`);
-            }}
+            onOpenCode={openPrCode}
+            onMaximize={() => navigate('/pulls')}
             onClose={() => setPanel(null)}
           />
         )}
@@ -2011,7 +2039,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         </div>
 
         {/* Main area of the other routes; the workspace below stays mounted so terminals survive */}
-        <div className={active ? 'hidden' : 'flex-1 min-w-0 min-h-0 relative'}>{children}</div>
+        <div className={active ? 'hidden' : 'flex-1 min-w-0 min-h-0 relative'}>
+          <PullRequestsDataContext.Provider value={pullsData}>
+            {children}
+          </PullRequestsDataContext.Provider>
+        </div>
 
         {/* Workspace */}
         <div
@@ -2182,6 +2214,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               : directoryChoices
           }
           current={composerCwd}
+          home={homeDir}
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
             if (composerMode === 'agent') setAgentCwd(path);
@@ -2247,18 +2280,21 @@ const PromptEditor: React.FC<{
   );
 };
 
-/** Directory picker for the dispatch target */
+/** Directory picker for the dispatch target, grouped by parent directory (#158) */
 const DirectoryPicker: React.FC<{
-  choices: { name: string; path: string; source: string }[];
+  choices: DirectoryChoice[];
   current: string | null;
+  home: string | null;
   onCancel: () => void;
   onPick: (path: string) => void;
-}> = ({ choices, current, onCancel, onPick }) => {
+}> = ({ choices, current, home, onCancel, onPick }) => {
   const [query, setQuery] = useState('');
   const [custom, setCustom] = useState(current || '');
-  const filtered = choices.filter((c) =>
-    `${c.name} ${c.path}`.toLowerCase().includes(query.toLowerCase())
+  const groups = useMemo(
+    () => groupDirectories(choices, { home, current, query }),
+    [choices, home, current, query]
   );
+  const first = groups[0]?.entries[0];
   return (
     <div
       className="fixed inset-0 z-[95] bg-black/60 flex items-start justify-center pt-24 p-4"
@@ -2277,25 +2313,43 @@ const DirectoryPicker: React.FC<{
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') onCancel();
-              if (e.key === 'Enter' && filtered[0]) onPick(filtered[0].path);
+              if (e.key === 'Enter' && first) onPick(first.path);
             }}
             placeholder="Directory for new sessions…"
             className="w-full bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none"
           />
         </div>
-        <div className="max-h-[45vh] overflow-y-auto">
-          {filtered.map((choice) => (
-            <button
-              key={choice.path}
-              onClick={() => onPick(choice.path)}
-              className={`w-full text-left px-4 py-2 flex items-center gap-3 hover:bg-gray-800 ${choice.path === current ? 'bg-gray-800/60' : ''}`}
-            >
-              <span className="text-sm text-gray-100">{choice.name}</span>
-              <span className="text-xs text-gray-500 font-mono truncate">{choice.path}</span>
-              <span className="ml-auto text-[10px] text-gray-500">{choice.source}</span>
-            </button>
+        <div className="max-h-[45vh] overflow-y-auto pb-1">
+          {groups.map((group) => (
+            <div key={group.key} role="group" aria-label={group.label ?? 'Current and home'}>
+              {group.label && (
+                <div
+                  className="px-4 pt-3 pb-1 text-[11px] font-mono text-gray-400 truncate border-t border-gray-800/70"
+                  title={group.label}
+                >
+                  {group.label}
+                </div>
+              )}
+              {group.entries.map((entry) => (
+                <button
+                  key={entry.path}
+                  data-testid="dir-choice"
+                  title={entry.path}
+                  onClick={() => onPick(entry.path)}
+                  className={`w-full text-left px-4 py-1.5 flex items-center gap-3 min-w-0 whitespace-nowrap hover:bg-gray-800 ${entry === first ? 'bg-gray-800/40' : ''} ${samePath(entry.path, current) ? 'text-blue-300' : 'text-gray-100'}`}
+                >
+                  <span className="text-sm truncate min-w-0">{entry.name}</span>
+                  <span className="text-xs text-gray-500 font-mono truncate min-w-0 flex-1 basis-0">
+                    {group.label ? entry.detail : shortenHome(entry.path, home)}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-gray-500">
+                    {entry.sources.join(' · ')}
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
-          {filtered.length === 0 && (
+          {groups.length === 0 && (
             <div className="px-4 py-4 text-sm text-gray-500">No matches.</div>
           )}
         </div>
