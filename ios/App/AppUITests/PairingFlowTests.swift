@@ -54,11 +54,12 @@ final class PairingFlowTests: XCTestCase {
             shot("04a-terminal-open")
             app.typeText("touch \(marker) && echo IOS-E2E-OK")
             pressReturn()
-            sleep(3)
+            // zsh may still be loading its rc files; give it time before the test ends and the PTY goes away.
+            sleep(10)
             shot("04-terminal")
         }
 
-        if let agent = env["ATTACH_ID"] {
+        if let agent = env["ATTACH_ID"], !agent.isEmpty {
             // Attach to a running agent session and send it a prompt through the attached terminal.
             open("devorbit://open?path=%2Fagents%3Fattach%3D\(agent)")
             sleep(10)
