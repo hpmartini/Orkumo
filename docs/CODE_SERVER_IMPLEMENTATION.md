@@ -17,16 +17,8 @@ DevOrbit Dashboard has **full code-server integration** already implemented and 
 
 #### WebIDEPanel (`components/CodingView/WebIDEPanel.tsx`)
 
-- **Dual Editor Support**:
-  - **Monaco Editor**: Lightweight (~300KB), instant load, basic editing
-  - **code-server**: Full VS Code experience with extensions, debugging, git
-- **Editor Switcher**: Toggle between Monaco and code-server in UI
-- **Features**:
-  - File tree explorer with expand/collapse
-  - Multiple open files with tabs
-  - Save functionality with modified state tracking
-  - Syntax highlighting (Monaco) and language detection
-  - Security: Path traversal prevention, iframe sandboxing
+- **code-server only**: full VS Code experience with extensions, debugging, git
+- **Security**: iframe sandboxing
 
 #### Path Mapping
 
@@ -40,28 +32,6 @@ Container Path: /home/coder/Projects/myapp
 - Validation to prevent path traversal attacks
 
 ### Backend Services
-
-#### File Operations API (`server/index.js`)
-
-**GET `/api/files/tree`**
-
-- Returns file tree structure for a directory
-- Parameters: `path` (required), `depth` (optional, default: 3)
-- Excludes: `node_modules`, `.git`, common build directories
-- Response: Nested file/directory structure
-
-**GET `/api/files/read`**
-
-- Reads file content
-- Parameters: `path` (required)
-- Returns: File content + detected language
-- Security: Path validation, file size limits
-
-**PUT `/api/files/write`**
-
-- Writes content to file
-- Body: `{ path, content }`
-- Security: Path validation, creates directories if needed
 
 ### Docker Infrastructure
 
@@ -255,19 +225,6 @@ docker compose up code-server -d
 5. Wait for code-server to load (~2-3 seconds)
 6. Enter password when prompted
 7. Start coding with full VS Code features!
-
-### 3. Editor Comparison
-
-| Feature       | Monaco Editor | code-server            |
-| ------------- | ------------- | ---------------------- |
-| Load Time     | Instant       | 2-3 seconds            |
-| Memory        | ~50MB         | ~200-500MB             |
-| Extensions    | ❌            | ✅ Full marketplace    |
-| Terminal      | ❌            | ✅ Integrated          |
-| Git UI        | ❌            | ✅ GitLens, etc.       |
-| Debugging     | ❌            | ✅ Full support        |
-| Settings Sync | ❌            | ✅ Via VS Code account |
-| **Best For**  | Quick edits   | Full development       |
 
 ## Troubleshooting
 
@@ -712,7 +669,6 @@ The implementation follows the research recommendations:
 ✅ **Password authentication** (as specified)
 ✅ **Resource limits configured** (2 CPU, 2GB RAM)
 ✅ **Security best practices** (password requirements, HTTPS guidance)
-✅ **Dual editor support** (Monaco for quick edits, code-server for full IDE)
 ✅ **Comprehensive documentation** (setup, troubleshooting, security)
 
 ## Conclusion

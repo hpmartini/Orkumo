@@ -107,22 +107,7 @@ Access the dashboard at `http://localhost:3000`.
 
 ## 💻 Web IDE: code-server Integration
 
-DevOrbit Dashboard includes an integrated web-based IDE powered by **code-server** (VS Code in the browser) alongside the lightweight **Monaco Editor**. This gives you the flexibility to choose between a fast embedded editor or a full-featured IDE experience.
-
-### Why Two Editors?
-
-| Feature                 | Monaco Editor             | code-server (VS Code)         |
-| ----------------------- | ------------------------- | ----------------------------- |
-| **Load Time**           | Instant                   | 2-3 seconds                   |
-| **Memory Usage**        | ~50MB                     | ~200-500MB                    |
-| **Extensions**          | ❌ No                     | ✅ Full VS Code marketplace   |
-| **Integrated Terminal** | ❌ No                     | ✅ Yes                        |
-| **Git Integration**     | ❌ Limited                | ✅ Full GitLens, etc.         |
-| **Debugging**           | ❌ No                     | ✅ Full debugging support     |
-| **Settings Sync**       | ❌ No                     | ✅ Yes (with VS Code account) |
-| **Best For**            | Quick edits, config files | Full development, debugging   |
-
-**Recommendation:** Use Monaco for quick edits and code-server when you need the full IDE experience.
+DevOrbit Dashboard embeds **code-server** (VS Code in the browser) as its only integrated editor: extensions, integrated terminal, git and debugging, opened directly on the project folder.
 
 ### 🚀 Quick Setup
 

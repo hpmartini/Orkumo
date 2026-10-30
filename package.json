@@ -44,7 +44,6 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@monaco-editor/react": "^4.7.0",
     "@tanstack/react-virtual": "^3.13.15",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-web-links": "^0.12.0",

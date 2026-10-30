@@ -1,11 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket } from 'lucide-react';
+import { Rocket, Workflow, Kanban, Code2 } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ContextTabs } from './ContextTabs';
 import { isElectron } from '../utils/apiConfig';
 
 type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
   /** The rocket opens the dashboard */
   onOpenDashboard: () => void;
+};
+
+const VIEWS = [
+  { path: '/workflows', label: 'Workflows', icon: Workflow },
+  { path: '/board', label: 'Board', icon: Kanban },
+  { path: '/code', label: 'Code (VS Code)', icon: Code2 },
+];
+
+/** Toggles for the work modes: the route is the state, a second click returns to the agents */
+export const ViewToggles: React.FC = () => {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  return (
+    <div
+      className="flex items-center gap-1 px-2 shrink-0"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+    >
+      {VIEWS.map(({ path, label, icon: Icon }) => {
+        const active = pathname === path;
+        return (
+          <button
+            key={path}
+            onClick={() => navigate(active ? '/agents' : path)}
+            aria-pressed={active}
+            aria-label={label}
+            title={active ? `Close ${label}` : label}
+            className={`p-1.5 rounded transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${
+              active ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+          >
+            <Icon size={14} />
+          </button>
+        );
+      })}
+    </div>
+  );
 };
 
 export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, ...tabs }) => {
@@ -78,6 +115,8 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, ...tabs }) 
         <ContextTabs {...tabs} />
       </div>
       <div className="flex-1 h-full" />
+
+      <ViewToggles />
 
       {/* Window controls spacer for Windows (if needed in future) */}
       {/* <div className="w-[140px] shrink-0" /> */}

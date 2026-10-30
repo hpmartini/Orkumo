@@ -4,9 +4,8 @@ import { ChevronDown, GitPullRequest, Hand, Rocket } from 'lucide-react';
 import type { AgentSession } from '../../types';
 import type { WorkflowCard as Card } from '../../utils/workflows';
 import { shortRepo } from '../../utils/board';
-import { formatAge } from '../../utils/agentSessions';
-import { AgentGlyph, CheckIcon, LabelChip } from '../BoardView/BoardCard';
-import { WorkflowDetails, type WorkflowNav } from './WorkflowDetails';
+import { AgentGlyph, CheckIcon } from '../BoardView/BoardCard';
+import { WorkflowDetails, WorkflowStats, type WorkflowNav } from './WorkflowDetails';
 
 export const MODE_LABEL = {
   default: 'Standard',
@@ -21,11 +20,6 @@ const WAITING: Record<string, { text: string; className: string }> = {
   poll: { text: 'Wartet auf den Poll', className: 'text-gray-400' },
 };
 
-export const since = (iso: string | null) => {
-  const at = iso ? Date.parse(iso) : NaN;
-  return Number.isFinite(at) ? `seit ${formatAge(Date.now() - at)}` : null;
-};
-
 interface WorkflowCardProps {
   card: Card;
   session?: AgentSession;
@@ -37,7 +31,10 @@ interface WorkflowCardProps {
   nav: WorkflowNav;
 }
 
-/** Issue in a workflow stage: hover overlay with the essentials, expandable details, GO */
+/** Clicks on these stay with the control: GO, links, jumps in the details */
+const INTERACTIVE = 'button, a, input, select, textarea';
+
+/** Issue in a workflow stage: hover overlay with the essentials, a click anywhere expands, GO */
 export const WorkflowCard: React.FC<WorkflowCardProps> = ({
   card,
   session,
@@ -86,7 +83,19 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
         </div>
       )}
       <div
-        className={`relative rounded-xl border bg-gray-900/95 transition-colors ${
+        onClick={(e) => {
+          if (!(e.target as HTMLElement).closest(INTERACTIVE)) onToggle();
+        }}
+        tabIndex={0}
+        aria-label={`${card.key}: ${item.title}`}
+        onKeyDown={(e) => {
+          // Only the focused card itself; keys on GO and the jumps stay with them
+          if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) {
+            e.preventDefault();
+            onToggle();
+          }
+        }}
+        className={`relative cursor-pointer rounded-xl border bg-gray-900/95 transition-colors focus-visible:outline focus-visible:outline-1 focus-visible:outline-cursor ${
           needsGo ? 'border-transparent' : 'border-gray-750 hover:border-gray-700'
         } ${moved ? 'wf-moved' : ''}`}
       >
@@ -111,6 +120,20 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
             <span className="ml-auto shrink-0 rounded-full border border-gray-750 px-1.5 leading-[18px] text-gray-300">
               {MODE_LABEL[state.mode]}
             </span>
+            {/* The card toggles on click and Enter/Space; this button carries aria-expanded */}
+            <button
+              type="button"
+              onClick={onToggle}
+              aria-expanded={expanded}
+              aria-label={expanded ? `Details zu ${card.key} schließen` : `Details zu ${card.key}`}
+              title={expanded ? 'Weniger' : 'Details'}
+              className="-mr-1 shrink-0 rounded p-0.5 text-gray-400 hover:bg-gray-850 hover:text-gray-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-cursor"
+            >
+              <ChevronDown
+                size={14}
+                className={`transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}
+              />
+            </button>
           </div>
           <h3 className="mt-1.5 text-[13px] font-medium leading-snug text-gray-100 [text-wrap:balance] line-clamp-2">
             {item.title}
@@ -138,19 +161,6 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
               onGo={onGo}
             />
           )}
-
-          <button
-            type="button"
-            onClick={onToggle}
-            aria-expanded={expanded}
-            className="mt-2 -mb-1 flex w-full items-center justify-center gap-1 rounded-md py-0.5 text-[11px] text-gray-400 hover:bg-gray-850 hover:text-gray-200 focus-visible:outline focus-visible:outline-1 focus-visible:outline-cursor"
-          >
-            {expanded ? 'Weniger' : 'Details'}
-            <ChevronDown
-              size={12}
-              className={`transition-transform duration-300 ${expanded ? 'rotate-180' : ''}`}
-            />
-          </button>
         </div>
 
         <AnimatePresence initial={false}>
@@ -181,42 +191,7 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
             className="pointer-events-none absolute left-2 right-2 top-full mt-1.5 rounded-lg border border-gray-700 bg-gray-950/95 p-3 text-[11.5px] text-gray-300 shadow-[0_12px_32px_-8px_rgba(0,0,0,0.6)] backdrop-blur"
           >
             <p className="font-medium text-gray-100">{item.title}</p>
-            <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
-              <dt className="text-gray-500">Stufe</dt>
-              <dd>
-                {state.reason}
-                {since(state.since) && (
-                  <span className="text-gray-400"> · {since(state.since)}</span>
-                )}
-              </dd>
-              <dt className="text-gray-500">Agent</dt>
-              <dd>
-                {session
-                  ? `${session.name || session.id} · ${session.displayState}`
-                  : 'keine laufende Session'}
-              </dd>
-              {card.run && (
-                <>
-                  <dt className="text-gray-500">Run</dt>
-                  <dd className="tabular-nums">
-                    {card.run.runId} · {card.run.phases.length} Schritte
-                  </dd>
-                </>
-              )}
-              {item.assignees.length > 0 && (
-                <>
-                  <dt className="text-gray-500">Zugewiesen</dt>
-                  <dd>{item.assignees.join(', ')}</dd>
-                </>
-              )}
-            </dl>
-            {item.labels.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-1">
-                {item.labels.slice(0, 6).map((l) => (
-                  <LabelChip key={l.name} label={l} />
-                ))}
-              </div>
-            )}
+            <WorkflowStats card={card} session={session} />
           </motion.div>
         )}
       </AnimatePresence>

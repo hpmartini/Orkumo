@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Removed
+
+- Monaco editor and its editor switcher in the Web IDE panel; VS Code (code-server) is the only integrated editor (#139)
+- `/api/files/tree`, `/api/files/read`, `/api/files/write` (only used by Monaco)
+
 ### Changed
 
 - Switched package manager to bun (`bun install` / `bun run`; node remains the runtime for server, electron and pty scripts)
