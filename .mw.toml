@@ -1,0 +1,92 @@
+version = 1
+[runtime]
+base = "main"
+worktrees_dir = "../.mw-worktrees"
+timeout = 900
+max_tool_turns = 50
+gate_timeout = 300
+# Workflow tool + hint (the model decides): bool (all) or a list of planner/reviewer/plan_b/plan_merge; only claude/minimax have workflows (codex: warning)
+dynamic = false
+codex_wrapper = "scripts/mw-codex/run-codex.sh"
+mw_plan_bin = ""
+[workflow]
+chore_review = false
+[approval]
+approvers = ["hpmartini"]
+[report]
+journal = ""  # empty = ~/.local/state/mw/journal.jsonl; env MW_JOURNAL overrides, "off" disables
+timezone = ""  # empty = system local zone; IANA name; an invalid name falls back to UTC
+[auto]
+briefing = false
+plan = false
+pr = false
+auto_merge = false
+[roles.discovery]
+adapter = "claude"
+model = "claude-opus-5-5"
+effort = "high"
+[roles.plan_a]
+adapter = "codex"
+model = "gpt-6.1-sol"
+effort = "high"
+[roles.plan_b]
+adapter = "claude"
+model = "claude-opus-5-5"
+effort = "high"
+[roles.plan_merge]
+adapter = "claude"
+model = "claude-opus-5-5"
+effort = "high"
+[roles.ticketer]
+adapter = "claude"
+model = "claude-sonnet-5-5"
+effort = "medium"
+[roles.planner]
+adapter = "codex"
+model = "gpt-6.1-sol"
+effort = "high"
+[roles.builder]
+adapter = "minimax"
+model = "MiniMax-M3[1m]"
+effort = "none"
+[roles.reviewer]
+adapter = "codex"
+model = "gpt-6.1-sol"
+effort = "high"
+[roles.documenter]
+adapter = "minimax"
+model = "MiniMax-M3[1m]"
+effort = "none"
+[orchestrate]
+plan = "opus"
+build = "minimax"
+review = "sol"
+repair = 3
+worktrees_dir = "../.mw-worktrees"
+# seconds without any agent output before the call is killed as stuck
+idle_timeout = 900
+# seconds per gate (baseline + gates step + repair rechecks + CI-repair local gates)
+gate_timeout = 900
+# goal loop: run does one cycle and leaves publishing to finish (a repo sets top-level goal = false for the old behaviour)
+goal = true
+# open a PR after an accepted run (a repo sets top-level auto_pr = true in .orchestrate.toml)
+auto_pr = false
+# merge that PR via gh pr merge once its checks are green (implies a PR)
+auto_merge = false
+# Claude plan/review calls get the Workflow tool (a repo sets top-level dynamic = true in .orchestrate.toml; --dynamic/--no-dynamic per run)
+dynamic = false
+[orchestrate.routing]
+# Substrings matched (case-insensitive) against plan.scope paths to force
+# routing to the critical worker / reviewer even when the planner said not.
+# Repos extend by adding more entries under [routing] in .orchestrate.toml;
+# defaults and repo lists are unioned.
+critical_patterns = ["auth", "security", "secret", "token", "crypto", "payment", "api", "migration", "license", "compliance"]
+[orchestrate.aliases]
+opus = {adapter = "claude", model = "claude-opus-5-5", effort = "high", family = "anthropic"}
+fable = {adapter = "claude", model = "claude-fable-5-1", effort = "high", family = "anthropic"}
+sol = {adapter = "codex", model = "gpt-6.1-sol", effort = "high", family = "openai"}
+astra = {adapter = "codex", model = "gpt-6-astra", effort = "high", family = "openai"}
+minimax = {adapter = "minimax", model = "MiniMax-M3[1m]", effort = "none", family = "minimax"}
+haiku = {adapter = "claude", model = "claude-haiku-4-5-20251001", effort = "medium", family = "anthropic"}
+luna = {adapter = "codex", model = "gpt-6-luna", effort = "medium", family = "openai"}
+sonnet = {adapter = "claude", model = "claude-sonnet-5-5", effort = "high", family = "anthropic"}

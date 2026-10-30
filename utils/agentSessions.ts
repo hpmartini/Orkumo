@@ -10,6 +10,7 @@ import type {
   AgentPullRequest,
   AgentCardDetails,
 } from '../types';
+import { isCacheWarning } from './agentCache';
 
 export type GroupKey =
   | 'pinned'
@@ -292,6 +293,8 @@ export interface ServerApp {
 export interface SessionLookup {
   contexts?: Record<string, AgentContext | undefined>;
   servers?: Map<string, AgentServer[]>;
+  /** Clock for time-dependent filters (cache expiry); defaults to Date.now() */
+  now?: number;
 }
 
 export type AgentSortKey =
@@ -455,7 +458,8 @@ export type AgentQuickFilter =
   | 'failed'
   | 'pr'
   | 'server'
-  | 'subagents';
+  | 'subagents'
+  | 'cache-expiring';
 
 export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: string }[] = [
   { key: 'needs-input', label: 'Needs input', title: 'Agents waiting for your input' },
@@ -465,6 +469,11 @@ export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: strin
   { key: 'pr', label: 'Open PR', title: 'Agents with an open pull request' },
   { key: 'server', label: 'Server', title: 'Agents with a running dev server in their directory' },
   { key: 'subagents', label: 'Sub-agents', title: 'Agents with running sub-agents' },
+  {
+    key: 'cache-expiring',
+    label: 'Cache expiring',
+    title: 'Agents whose prompt cache expires within 10 minutes',
+  },
 ];
 
 const STATE_FILTERS: AgentQuickFilter[] = ['needs-input', 'working', 'completed', 'failed'];
@@ -489,6 +498,8 @@ export function matchesQuickFilter(
       return runningServerCount(session, lookup) > 0;
     case 'subagents':
       return (lookup?.contexts?.[session.id]?.subagents.running || 0) > 0;
+    case 'cache-expiring':
+      return isCacheWarning(lookup?.contexts?.[session.id]?.cache, lookup?.now ?? Date.now());
   }
 }
 

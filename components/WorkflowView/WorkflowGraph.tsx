@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useMemo } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import type { WorkflowCard } from '../../utils/workflows';
 import {
@@ -33,8 +33,25 @@ interface WorkflowGraphProps {
   popover: React.ReactNode;
 }
 
-const POP_W = 360;
 const POP_GAP = 12;
+/** Popover grid: one column per card up to three, each at least CARD_W wide */
+const CARD_W = 300;
+const GRID_GAP = 8;
+const POP_PAD = 22; // p-2.5 plus border
+const popWidth = (cards: number, room: number) => {
+  const cols = Math.min(Math.max(cards, 1), 3);
+  return Math.min(cols * CARD_W + (cols - 1) * GRID_GAP + POP_PAD, room);
+};
+
+const useViewportWidth = () => {
+  const [w, setW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return w;
+};
 
 /**
  * The mw workflows as a graph, top to bottom: stations are HTML buttons (click, keyboard, count),
@@ -75,11 +92,13 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   const sceneNodes = layout.nodes.map((n) => ({ x: n.x, y: n.y, count: count(n.id) }));
   const laneLabels = layout.nodes.filter((n) => n.lane !== 'shared' && n.col === 2);
   const sel = selected ? nodeById.get(selected) : undefined;
+  const viewport = useViewportWidth();
+  const POP_W = popWidth(sel ? count(sel.id) : 1, Math.min(layout.width, viewport) - 16);
   // Beside the station, flipped left at the right edge; lower half grows upwards
   const popLeft = sel
     ? sel.x + NODE_W / 2 + POP_GAP + POP_W <= layout.width
       ? sel.x + NODE_W / 2 + POP_GAP
-      : Math.max(8, sel.x - NODE_W / 2 - POP_GAP - POP_W)
+      : Math.max(8, Math.min(sel.x - NODE_W / 2 - POP_GAP - POP_W, layout.width - POP_W - 8))
     : 0;
   const popBelow = sel ? sel.y < layout.height / 2 : true;
 

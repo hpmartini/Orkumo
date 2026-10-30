@@ -1,11 +1,5 @@
 import { useState, useCallback } from 'react';
-import {
-  PerAppViewState,
-  DEFAULT_PER_APP_STATE,
-  EditorType,
-  DevToolsTab,
-  ConsoleFilter,
-} from '../types';
+import { PerAppViewState, DEFAULT_PER_APP_STATE, DevToolsTab, ConsoleFilter } from '../types';
 import type { TerminalTab } from './useSharedTerminals';
 
 /**
@@ -95,7 +89,6 @@ export function usePerAppState() {
 
       return {
         // View state
-        editorType: state.editorType,
         showDevTools: state.showDevTools,
         devToolsTab: state.devToolsTab,
         consoleFilter: state.consoleFilter,
@@ -103,7 +96,6 @@ export function usePerAppState() {
         isTerminalHidden: state.isTerminalHidden,
 
         // View state setters
-        setEditorType: (value: EditorType) => updateAppState(appId, { editorType: value }),
         setShowDevTools: (value: boolean) => updateAppState(appId, { showDevTools: value }),
         setDevToolsTab: (value: DevToolsTab) => updateAppState(appId, { devToolsTab: value }),
         setConsoleFilter: (value: ConsoleFilter) => updateAppState(appId, { consoleFilter: value }),

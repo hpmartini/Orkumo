@@ -4,7 +4,7 @@ import { TerminalsPanel } from './TerminalsPanel';
 import { WebIDEPanel } from './WebIDEPanel';
 import { WebIDEErrorBoundary } from './WebIDEErrorBoundary';
 import { BrowserPreviewPanel } from './BrowserPreviewPanel';
-import { AppConfig, EditorType, DevToolsTab, ConsoleFilter } from '../../types';
+import { AppConfig, DevToolsTab, ConsoleFilter } from '../../types';
 import './CodingView.css';
 
 // Custom resize hook for terminal panel (bypasses react-resizable-panels constraints bug)
@@ -69,10 +69,6 @@ interface CodingViewProps {
   app: AppConfig;
   /** Ref for the terminal slot - the terminal wrapper will be moved here */
   terminalSlotRef: RefObject<HTMLDivElement | null>;
-  /** Controlled editor type (Monaco or VS Code) */
-  editorType?: EditorType;
-  /** Callback when editor type changes */
-  onEditorTypeChange?: (type: EditorType) => void;
   /** Controlled devtools visibility */
   showDevTools?: boolean;
   /** Callback when devtools visibility changes */
@@ -104,8 +100,6 @@ interface CodingViewProps {
 export function CodingView({
   app,
   terminalSlotRef,
-  editorType,
-  onEditorTypeChange,
   showDevTools,
   onShowDevToolsChange,
   devToolsTab,
@@ -262,8 +256,6 @@ export function CodingView({
                 onShowTerminal={handleShowTerminal}
                 showBrowserButton={isBrowserHidden}
                 onShowBrowser={() => setIsBrowserHidden(false)}
-                editorType={editorType}
-                onEditorTypeChange={onEditorTypeChange}
                 appStatus={app.status}
                 onStart={onStart}
                 onStop={onStop}

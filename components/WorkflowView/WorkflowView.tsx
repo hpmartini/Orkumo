@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Kanban, RefreshCw, X } from 'lucide-react';
+import { ChevronsDownUp, ChevronsUpDown, Kanban, RefreshCw, X } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { AgentContext, AgentSession, WorkflowRunInfo } from '../../types';
 import { useBoard } from '../BoardView/useBoard';
@@ -28,6 +28,8 @@ import {
   stageMoves,
   type WorkflowCard as Card,
 } from '../../utils/workflows';
+import { shortRepo } from '../../utils/board';
+import { filterByProjects } from './projectFilter';
 import { agentFolder, boardUrl, codeUrl } from '../../utils/codeTarget';
 import { WorkflowCard } from './WorkflowCard';
 import type { WorkflowNav } from './WorkflowDetails';
@@ -35,6 +37,16 @@ import { WorkflowGraph, type GraphView } from './WorkflowGraph';
 import type { ScenePulse } from './WorkflowScene';
 
 const RUNS_POLL_MS = 30_000;
+const PROJECTS_KEY = 'devorbit.workflows.projects';
+
+const loadProjects = (): string[] => {
+  try {
+    const v = JSON.parse(localStorage.getItem(PROJECTS_KEY) || '[]');
+    return Array.isArray(v) ? v.filter((r) => typeof r === 'string') : [];
+  } catch {
+    return [];
+  }
+};
 const MOVED_MS = 2600;
 
 const usePrefersReducedMotion = () => {
@@ -71,6 +83,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
   const [pulses, setPulses] = useState<ScenePulse[]>([]);
   const [arrived, setArrived] = useState<Set<string>>(new Set());
   const [doc, setDoc] = useState<{ name: string; content: string } | null>(null);
+  const [projects, setProjects] = useState<string[]>(loadProjects);
   const reducedMotion = usePrefersReducedMotion();
   const prevNodes = useRef<Map<string, string> | null>(null);
 
@@ -91,7 +104,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
   }, [active, loadRuns]);
 
   const now = data?.fetchedAt ?? 0;
-  const allCards = useMemo(
+  const scopedCards = useMemo(
     () =>
       scopeWorkflowCards(
         buildWorkflowCards(data?.items ?? [], data?.statusField.options ?? [], runs, now),
@@ -99,6 +112,26 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
       ),
     [data, runs, now, repo, agent]
   );
+  const allCards = useMemo(() => filterByProjects(scopedCards, projects), [scopedCards, projects]);
+  // Choices: the repos with issues in mw, plus picked ones that have none right now
+  const repoChoices = useMemo(
+    () =>
+      [
+        ...new Set([
+          ...scopedCards.flatMap((c) => (c.item.repo ? [c.item.repo] : [])),
+          ...projects,
+        ]),
+      ].sort((a, b) => shortRepo(a).localeCompare(shortRepo(b))),
+    [scopedCards, projects]
+  );
+  const pickProjects = (next: string[]) => {
+    setProjects(next);
+    try {
+      localStorage.setItem(PROJECTS_KEY, JSON.stringify(next));
+    } catch {
+      // storage full or blocked: the filter still works for this session
+    }
+  };
   // An agent's workflow: open its station and card right away
   const agentKey = agent ? allCards[0]?.key : undefined;
   const agentNode = agent ? allCards[0]?.node.id : undefined;
@@ -210,6 +243,16 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
       return next;
     });
 
+  const setAll = (keys: string[], open: boolean) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      for (const k of keys) {
+        if (open) next.add(k);
+        else next.delete(k);
+      }
+      return next;
+    });
+
   const selectedNode = layout.nodes.find((n) => n.id === selected);
   const selectedCards = (selected && byNode.get(selected)) || [];
 
@@ -257,6 +300,43 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
           )}
         </span>
         <div className="ml-auto flex flex-wrap items-center gap-2">
+          {repoChoices.length > 1 && (
+            <div
+              role="group"
+              aria-label="Projekte filtern"
+              className="flex flex-wrap rounded-lg border border-gray-850 p-0.5 text-[12px]"
+            >
+              <button
+                type="button"
+                aria-pressed={projects.length === 0}
+                onClick={() => pickProjects([])}
+                className={`rounded-md px-2.5 py-1 transition-colors ${
+                  projects.length === 0 ? 'bg-sel text-white' : 'text-gray-400 hover:text-gray-100'
+                }`}
+              >
+                Alle Projekte
+              </button>
+              {repoChoices.map((r) => {
+                const on = projects.includes(r);
+                return (
+                  <button
+                    key={r}
+                    type="button"
+                    aria-pressed={on}
+                    title={r}
+                    onClick={() =>
+                      pickProjects(on ? projects.filter((p) => p !== r) : [...projects, r])
+                    }
+                    className={`rounded-md px-2.5 py-1 transition-colors ${
+                      on ? 'bg-sel text-white' : 'text-gray-400 hover:text-gray-100'
+                    }`}
+                  >
+                    {shortRepo(r)}
+                  </button>
+                );
+              })}
+            </div>
+          )}
           {showTypes && (
             <div
               role="radiogroup"
@@ -349,17 +429,49 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
                   <span className="tabular-nums text-[12px] text-gray-400">
                     {selectedCards.length}
                   </span>
+                  {selectedCards.length > 0 && (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAll(
+                            selectedCards.map((c) => c.key),
+                            true
+                          )
+                        }
+                        className="ml-auto rounded p-1 text-gray-400 hover:bg-gray-900 hover:text-gray-100"
+                        aria-label="Alle ausklappen"
+                        title="Alle ausklappen"
+                      >
+                        <ChevronsUpDown size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setAll(
+                            selectedCards.map((c) => c.key),
+                            false
+                          )
+                        }
+                        className="rounded p-1 text-gray-400 hover:bg-gray-900 hover:text-gray-100"
+                        aria-label="Alle einklappen"
+                        title="Alle einklappen"
+                      >
+                        <ChevronsDownUp size={14} />
+                      </button>
+                    </>
+                  )}
                   <button
                     type="button"
                     onClick={() => setSelected(null)}
-                    className="ml-auto rounded p-1 text-gray-400 hover:bg-gray-900 hover:text-gray-100"
+                    className={`${selectedCards.length ? '' : 'ml-auto '}rounded p-1 text-gray-400 hover:bg-gray-900 hover:text-gray-100`}
                     aria-label="Schließen"
                   >
                     <X size={14} />
                   </button>
                 </div>
                 {selectedCards.length ? (
-                  <div className="flex flex-col gap-2">
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(min(100%,300px),1fr))] items-start gap-2">
                     {selectedCards.map((card) => (
                       <WorkflowCard
                         key={card.key}

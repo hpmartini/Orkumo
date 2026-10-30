@@ -11,6 +11,7 @@ import {
   DEFAULT_SORT,
   sortSessionsBy,
   applyQuickFilters,
+  matchesQuickFilter,
   matchServers,
   summarizeContext,
   mainRepoPath,
@@ -21,7 +22,7 @@ import {
   sessionsInContext,
   type SessionLookup,
 } from '../utils/agentSessions';
-import type { AgentSession } from '../types';
+import type { AgentContext, AgentSession } from '../types';
 
 function session(partial: Partial<AgentSession>): AgentSession {
   return {
@@ -209,6 +210,54 @@ describe('sorting, quick filters and server matching', () => {
     expect(ids(applyQuickFilters(all, new Set(['needs-input', 'working']), lookup))).toBe('wb');
     expect(ids(applyQuickFilters(all, new Set(['working', 'server']), lookup))).toBe('w');
     expect(ids(applyQuickFilters(all, new Set(['server', 'needs-input']), lookup))).toBe('');
+  });
+
+  describe('cache-expiring filter', () => {
+    const MIN = 60_000;
+    const cache = (lastActivityAt: number) => ({
+      lastActivityAt,
+      ttlMs: 60 * MIN,
+      cachedTokens: 1000,
+      contextWindow: 200_000,
+      hits: 1,
+      turns: 1,
+      hitRatio: 1,
+    });
+    const ctx = (lastActivityAt: number) => ({ cache: cache(lastActivityAt) }) as AgentContext;
+    // now = 60 min: cache of 'w' has 5 min left, 'b' 30 min, 'd' expired, 'f' has no cache
+    const lookup: SessionLookup = {
+      now: 60 * MIN,
+      contexts: { w: ctx(5 * MIN), b: ctx(30 * MIN), d: ctx(-1 * MIN) },
+    };
+
+    it('matches only warm caches with at most 10 minutes left', () => {
+      expect(
+        all.filter((s) => matchesQuickFilter('cache-expiring', s, lookup)).map((s) => s.id)
+      ).toEqual(['w']);
+      expect(matchesQuickFilter('cache-expiring', working, {})).toBe(false);
+      // exactly 10 min left counts, one ms more does not
+      const edge = { contexts: { w: ctx(0) } };
+      expect(matchesQuickFilter('cache-expiring', working, { ...edge, now: 50 * MIN })).toBe(true);
+      expect(matchesQuickFilter('cache-expiring', working, { ...edge, now: 50 * MIN - 1 })).toBe(
+        false
+      );
+    });
+
+    it('follows the clock without new context data', () => {
+      const at = (now: number) =>
+        ids(applyQuickFilters(all, new Set(['cache-expiring']), { ...lookup, now }));
+      expect(at(40 * MIN)).toBe(''); // 'w' still has 25 min
+      expect(at(60 * MIN)).toBe('w');
+      expect(at(81 * MIN)).toBe('b'); // 'w' expired, 'b' entered the window
+    });
+
+    it('combines with state chips using AND', () => {
+      // 'w' is working, 'b' is blocked: only the working agent with an expiring cache stays
+      const both = { ...lookup, contexts: { ...lookup.contexts, b: ctx(5 * MIN) } };
+      expect(ids(applyQuickFilters(all, new Set(['cache-expiring']), both))).toBe('wb');
+      expect(ids(applyQuickFilters(all, new Set(['working', 'cache-expiring']), both))).toBe('w');
+      expect(ids(applyQuickFilters(all, new Set(['completed', 'cache-expiring']), both))).toBe('');
+    });
   });
 
   it('matches apps by directory in both directions and parses ports from addresses', () => {

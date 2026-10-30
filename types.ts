@@ -134,7 +134,6 @@ export interface KeyboardShortcuts {
 }
 
 // Per-app view state - stored separately for each app tab
-export type EditorType = 'monaco' | 'code-server';
 export type DevToolsTab = 'console' | 'network';
 export type ConsoleFilter = 'all' | 'log' | 'warn' | 'error';
 
@@ -142,9 +141,6 @@ export interface PerAppViewState {
   // Terminal state (tabs array is not stored here due to XTerm instances)
   activeTerminalTabId: string | null;
   showLogsTab: boolean;
-
-  // Editor state
-  editorType: EditorType;
 
   // DevTools state
   showDevTools: boolean;
@@ -159,7 +155,6 @@ export interface PerAppViewState {
 export const DEFAULT_PER_APP_STATE: PerAppViewState = {
   activeTerminalTabId: null,
   showLogsTab: true,
-  editorType: 'code-server',
   showDevTools: true,
   devToolsTab: 'console',
   consoleFilter: 'all',
