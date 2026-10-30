@@ -20,7 +20,8 @@ export default defineConfig(({ mode }) => {
       // VITE_PORT directly, so a silent fallback makes it load whatever other
       // project happens to own the configured port.
       strictPort: true,
-      host: '0.0.0.0',
+      // Remote mode: the proxy calls the API from localhost and would skip the token, so stay off the LAN.
+      host: env.DEVORBIT_REMOTE === 'true' ? '127.0.0.1' : '0.0.0.0',
       // UI preference writes (data/settings.json) must not full-reload the dev page
       watch: { ignored: ['**/data/**', '**/.playwright-mcp/**'] },
       proxy: {
