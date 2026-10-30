@@ -719,18 +719,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [toggleCollapsed, quickFilters, showHint]
   );
 
-  const activateItem = useCallback(
-    (item: NavItem | null) => {
-      if (!item) return;
-      if (item.type === 'group') toggleGroup(item.group);
-      else if (item.type === 'more') setExpandedCompleted(true);
-      else if (item.session.kind === 'interactive')
-        showHint('Interactive sessions run in their own terminal', 'info');
-      else attach(item.session.id);
-    },
-    [toggleGroup, attach, showHint]
-  );
-
   const activateRemote = useCallback(
     (session: AgentSession) => {
       if (session.kind === 'interactive')
@@ -742,7 +730,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   /** Opens an interactive `claude` PTY in `cwd` (for ~ and folders whose trust prompt is pending) */
   const openInteractiveClaude = useCallback(
-    (cwd: string, name: string) => {
+    (cwd: string, name: string, ptyArgs: string[] = []) => {
       const id = `interactive-${Date.now()}`;
       setCloudSessions((prev) => [
         ...prev,
@@ -754,7 +742,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           startedAt: Date.now(),
           name,
           state: null,
-          ptyArgs: [],
+          ptyArgs,
           pinned: false,
           order: null,
           links: [],
@@ -765,6 +753,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       attach(id);
     },
     [attach]
+  );
+
+  const activateItem = useCallback(
+    (item: NavItem | null) => {
+      if (!item) return;
+      if (item.type === 'group') toggleGroup(item.group);
+      else if (item.type === 'more') setExpandedCompleted(true);
+      else if (item.session.kind !== 'interactive') attach(item.session.id);
+      // Interactive and remote-control sessions keep their transcript locally: continue it here
+      else if (item.session.sessionId)
+        openInteractiveClaude(item.session.cwd, item.session.name, [
+          '--resume',
+          item.session.sessionId,
+        ]);
+      else showHint('Interactive sessions run in their own terminal', 'info');
+    },
+    [toggleGroup, attach, showHint, openInteractiveClaude]
   );
 
   const doDispatch = useCallback(
