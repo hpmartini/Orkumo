@@ -579,8 +579,6 @@ export const AppDetail: React.FC<AppDetailProps> = ({
           <CodingView
             app={app}
             terminalSlotRef={codingTerminalSlotRef}
-            editorType={perAppState?.editorType}
-            onEditorTypeChange={perAppState?.setEditorType}
             showDevTools={perAppState?.showDevTools}
             onShowDevToolsChange={perAppState?.setShowDevTools}
             devToolsTab={perAppState?.devToolsTab}

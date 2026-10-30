@@ -17,6 +17,7 @@ import {
   removeDirectory,
 } from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
+import { migrateDirectorySpelling } from './services/directoryMigration.js';
 import {
   startProcess,
   stopProcess,
@@ -55,12 +56,8 @@ import { getAgentContexts, getKnownServerPids } from './services/agentContextSer
 import * as boardService from './services/boardService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowService from './services/workflowService.js';
-import {
-  BUILD_LABEL,
-  deriveWorkflowState,
-  isWorkflowItem,
-  sameGo,
-} from '../utils/workflowStage.js';
+import { applyGo, workflowGoSchema } from './services/workflowGo.js';
+import { deriveWorkflowState, isWorkflowItem } from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
@@ -146,13 +143,6 @@ const portConfigLimiter = rateLimit({
   windowMs: 60 * 1000,
   max: 5, // limit port configuration to 5 per minute
   message: { error: 'Too many port configuration requests, please slow down' },
-});
-
-// Rate limit for file system operations (more permissive for multi-tab support)
-const fileSystemLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100, // allow 100 file operations per minute (for multi-tab browsing)
-  message: { error: 'Too many file system requests, please slow down' },
 });
 
 // Browser origins allowed to call the API: loopback on any port (dashboard, Vite, Electron dev),
@@ -1422,182 +1412,6 @@ app.post(
     }
   }
 );
-
-// ============================================
-// File System Endpoints (for Monaco Editor)
-// ============================================
-
-/**
- * GET /api/files/tree
- * Get file tree for a directory
- */
-app.get('/api/files/tree', fileSystemLimiter, async (req, res) => {
-  try {
-    const { path: dirPath, depth = 3 } = req.query;
-    if (!dirPath) {
-      return res.status(400).json({ error: 'path is required' });
-    }
-
-    const { default: fs } = await import('fs');
-    const { default: pathModule } = await import('path');
-
-    const buildTree = (dir, currentDepth = 0, maxDepth = parseInt(depth)) => {
-      if (currentDepth >= maxDepth) return [];
-
-      try {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        return entries
-          .filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules')
-          .sort((a, b) => {
-            // Directories first
-            if (a.isDirectory() && !b.isDirectory()) return -1;
-            if (!a.isDirectory() && b.isDirectory()) return 1;
-            return a.name.localeCompare(b.name);
-          })
-          .map((entry) => {
-            const fullPath = pathModule.join(dir, entry.name);
-            const node = {
-              name: entry.name,
-              path: fullPath,
-              isDirectory: entry.isDirectory(),
-            };
-            if (entry.isDirectory()) {
-              node.children = buildTree(fullPath, currentDepth + 1, maxDepth);
-            }
-            return node;
-          });
-      } catch (err) {
-        return [];
-      }
-    };
-
-    const tree = buildTree(dirPath);
-    res.json({ tree });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/files/read
- * Read a file's content
- */
-app.get('/api/files/read', async (req, res) => {
-  try {
-    const { path: filePath } = req.query;
-    if (!filePath) {
-      return res.status(400).json({ error: 'path is required' });
-    }
-
-    const { default: fs } = await import('fs');
-    const { default: pathModule } = await import('path');
-
-    // Security: ensure path is within allowed directories
-    const config = getConfig();
-    const allowedDirs = config.directories || [];
-    const realPath = fs.realpathSync(filePath);
-    const isAllowed = allowedDirs.some((dir) => realPath.startsWith(fs.realpathSync(dir)));
-
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-    const stats = fs.statSync(filePath);
-    if (stats.isDirectory()) {
-      return res.status(400).json({ error: 'Cannot read directory' });
-    }
-
-    // Limit file size to 1MB
-    if (stats.size > 1024 * 1024) {
-      return res.status(400).json({ error: 'File too large (max 1MB)' });
-    }
-
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const ext = pathModule.extname(filePath).slice(1);
-
-    res.json({
-      path: filePath,
-      content,
-      language: getLanguageFromExtension(ext),
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * PUT /api/files/write
- * Write content to a file
- */
-app.put('/api/files/write', async (req, res) => {
-  try {
-    const { path: filePath, content } = req.body;
-    if (!filePath || content === undefined) {
-      return res.status(400).json({ error: 'path and content are required' });
-    }
-
-    const { default: fs } = await import('fs');
-
-    // Security: ensure path is within allowed directories
-    const config = getConfig();
-    const allowedDirs = config.directories || [];
-    const realPath = fs.existsSync(filePath) ? fs.realpathSync(filePath) : filePath;
-    const isAllowed = allowedDirs.some((dir) => {
-      const realDir = fs.realpathSync(dir);
-      return realPath.startsWith(realDir);
-    });
-
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    fs.writeFileSync(filePath, content, 'utf-8');
-    res.json({ success: true, path: filePath });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Helper to map file extensions to Monaco language IDs
-function getLanguageFromExtension(ext) {
-  const map = {
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    tsx: 'typescript',
-    json: 'json',
-    html: 'html',
-    htm: 'html',
-    css: 'css',
-    scss: 'scss',
-    less: 'less',
-    md: 'markdown',
-    py: 'python',
-    rb: 'ruby',
-    go: 'go',
-    rs: 'rust',
-    java: 'java',
-    c: 'c',
-    cpp: 'cpp',
-    h: 'c',
-    hpp: 'cpp',
-    sh: 'shell',
-    bash: 'shell',
-    zsh: 'shell',
-    yaml: 'yaml',
-    yml: 'yaml',
-    xml: 'xml',
-    sql: 'sql',
-    graphql: 'graphql',
-    vue: 'vue',
-    svelte: 'svelte',
-  };
-  return map[ext] || 'plaintext';
-}
 
 /**
  * GET /api/apps/:id/package
@@ -3468,18 +3282,6 @@ app.get('/api/workflows/runs', agentLimiter, async (req, res) => {
   }
 });
 
-const workflowGoSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('build') }).strict(),
-  z
-    .object({
-      kind: z.literal('approve'),
-      runId: z.string().regex(/^[a-z]+-\d+$/),
-      stage: z.enum(['briefing', 'plan', 'pr']),
-      sha: z.string().regex(/^[0-9a-f]{7,40}$/),
-    })
-    .strict(),
-]);
-
 // GO for the next stage; refused unless it is exactly the GO the fresh state offers
 app.post(
   '/api/workflows/go',
@@ -3488,18 +3290,10 @@ app.post(
   async (req, res) => {
     try {
       const ctx = await workflowContext(req.body.itemId, { refresh: true });
-      if (!sameGo(ctx.state.go, req.body.go)) {
-        return res
-          .status(409)
-          .json({ error: 'Dieses GO ist nicht (mehr) offen', state: ctx.state });
-      }
-      if (req.body.go.kind === 'build') {
-        const labels = [...ctx.item.labels.map((l) => l.name), BUILD_LABEL];
-        const item = await boardService.updateIssue(ctx.source, ctx.item.itemId, { labels });
-        return res.json({ ok: true, item });
-      }
-      const { stage, sha } = req.body.go;
-      res.json(await workflowService.approve(ctx.run, stage, sha));
+      const { status, body } = await applyGo(ctx, req.body.go, {
+        updateIssue: boardService.updateIssue,
+      });
+      res.status(status).json(body);
     } catch (error) {
       sendAgentError(res, error);
     }
@@ -4224,6 +4018,11 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
 
 // Initialize database before starting server
 async function startServer() {
+  try {
+    migrateDirectorySpelling();
+  } catch (error) {
+    console.error('[Config] Directory spelling migration failed:', error);
+  }
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
   const modules = await moduleHost.load(getModulesDir());

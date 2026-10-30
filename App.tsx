@@ -33,13 +33,15 @@ import { useProjectContexts, ROUTE_KEY } from './hooks/useProjectContexts';
 import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
 import type { PaletteCommand } from './utils/commandPalette';
 import { generateProjectUrl } from './utils/routing';
+import { fetchConfig } from './services/api';
 import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
 import { WorkflowView } from './components/WorkflowView';
+import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
 import { CodeView } from './components/CodeView';
 
-type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code' | 'workflows';
+type ActiveTab = 'dashboard' | 'apps' | 'agents' | 'board' | 'code' | 'workflows' | 'pulls';
 
 function AppContent() {
   const navigate = useNavigate();
@@ -50,6 +52,7 @@ function AppContent() {
   const isBoardRoute = location.pathname === '/board';
   const isCodeRoute = location.pathname === '/code';
   const isWorkflowsRoute = location.pathname === '/workflows';
+  const isPullsRoute = location.pathname === '/pulls';
 
   const {
     apps,
@@ -88,6 +91,14 @@ function AppContent() {
     const members = new Set(contextAppIds);
     return apps.filter((app) => members.has(app.id));
   }, [apps, contextAppIds]);
+  // Configured project directories (admin panel): context dialog and tabs cluster by them
+  const [projectDirs, setProjectDirs] = useState<string[]>([]);
+  const loadProjectDirs = useCallback(() => {
+    fetchConfig()
+      .then((c) => setProjectDirs(c.directories))
+      .catch(() => setProjectDirs([]));
+  }, []);
+  useEffect(loadProjectDirs, [loadProjectDirs]);
   // Context id being edited in the dialog; 'new' creates one
   const [editingContext, setEditingContext] = useState<string | null>(null);
 
@@ -152,10 +163,21 @@ function AppContent() {
               ? 'code'
               : isWorkflowsRoute
                 ? 'workflows'
-                : 'agents'
+                : isPullsRoute
+                  ? 'pulls'
+                  : 'agents'
       );
     }
-  }, [projectId, apps, loading, isDashboardRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute]);
+  }, [
+    projectId,
+    apps,
+    loading,
+    isDashboardRoute,
+    isBoardRoute,
+    isCodeRoute,
+    isWorkflowsRoute,
+    isPullsRoute,
+  ]);
 
   // Each context keeps its own route (#97): it is parked with the context's ui on a switch
   const route = location.pathname + location.search;
@@ -395,6 +417,8 @@ function AppContent() {
         onReorder={contexts.reorder}
         onEdit={setEditingContext}
         onCreate={() => setEditingContext('new')}
+        apps={apps}
+        projectDirs={projectDirs}
         showPaneControls={activeTab === 'apps' && detailsViewMode === 'coding' && !!selectedAppId}
         isTerminalVisible={selectedAppId ? !getAppState(selectedAppId).isTerminalHidden : true}
         isBrowserVisible={selectedAppId ? !getAppState(selectedAppId).isBrowserHidden : true}
@@ -554,6 +578,13 @@ function AppContent() {
                 <WorkflowView active={activeTab === 'workflows'} />
               </div>
 
+              {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
+              {activeTab === 'pulls' && (
+                <div className="absolute inset-0 z-10 flex flex-col min-h-0">
+                  <ConnectedPullRequestsPage />
+                </div>
+              )}
+
               {/* Stays mounted on other routes so the Web-IDE and browser iframes survive navigation;
                   hidden off-screen with a clip because iframes bleed through visibility tricks */}
               {selectedApp && (
@@ -607,8 +638,10 @@ function AppContent() {
 
       {editingContext && (
         <ContextDialog
+          key={editingContext}
           context={contexts.contexts.find((c) => c.id === editingContext) ?? null}
           apps={apps}
+          projectDirs={projectDirs}
           canDelete={contexts.contexts.length > 1}
           onSave={(input) =>
             editingContext === 'new'
@@ -617,6 +650,10 @@ function AppContent() {
           }
           onDelete={() => contexts.remove(editingContext)}
           onClose={() => setEditingContext(null)}
+          onOpenSettings={() => {
+            setEditingContext(null);
+            setAdminPanelOpen(true);
+          }}
         />
       )}
 
@@ -624,7 +661,10 @@ function AppContent() {
       <AdminPanel
         isOpen={adminPanelOpen}
         onClose={() => setAdminPanelOpen(false)}
-        onConfigChange={refreshApps}
+        onConfigChange={() => {
+          refreshApps();
+          loadProjectDirs();
+        }}
       />
 
       <ModuleSlot />
@@ -641,6 +681,7 @@ function AppRouter() {
       <Route path="/board" element={<AppContent />} />
       <Route path="/code" element={<AppContent />} />
       <Route path="/workflows" element={<AppContent />} />
+      <Route path="/pulls" element={<AppContent />} />
       <Route path="/:projectName/:projectId" element={<AppContent />} />
     </Routes>
   );

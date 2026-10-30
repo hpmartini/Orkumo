@@ -302,3 +302,8 @@ export function extractNumberedChoices(output: string): { number: number; label:
   }
   return contiguous;
 }
+
+/** `claude --bg` refuses a folder whose trust prompt was never accepted (needs an interactive run there) */
+export function isUntrustedWorkspaceError(message: string): boolean {
+  return /workspace not trusted/i.test(message);
+}

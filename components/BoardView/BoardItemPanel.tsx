@@ -12,7 +12,10 @@ import {
   X,
 } from 'lucide-react';
 import type { AgentSession, BoardIssueDetails, BoardItem, BoardStatusOption } from '../../types';
-import { fetchIssueDetails } from '../../services/boardApi';
+import toast from 'react-hot-toast';
+import { fetchIssueDetails, sendWorkflowGo } from '../../services/boardApi';
+import { deriveWorkflowState, isWorkflowItem } from '../../utils/workflowStage.js';
+import { GoButton, goDoneText, goLabel } from '../WorkflowView/GoButton';
 import { issueKey, itemKey, type AgentIssueLink } from '../../utils/board';
 import { AgentGlyph, CheckIcon, ItemIcon, LabelChip } from './BoardCard';
 import {
@@ -115,6 +118,11 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
   const none = <Muted>keine</Muted>;
   const subs = items.filter((i) => i.parent && issueKey(i.parent.repo, i.parent.number) === key);
   const statusName = (id: string | null) => options.find((o) => o.id === id)?.name ?? '–';
+  // waiting on the mw-board poll: start it now (#145); other GOs stay in the workflow view
+  const go = isWorkflowItem(item)
+    ? deriveWorkflowState(item, options.find((o) => o.id === item.statusOptionId)?.name ?? null).go
+    : null;
+  const pollGo = go?.kind === 'poll' ? go : null;
   const parentKey = item.parent ? issueKey(item.parent.repo, item.parent.number) : null;
   const parentOnBoard = !!parentKey && items.some((i) => itemKey(i) === parentKey);
   const parentView = item.parent ? (
@@ -308,6 +316,18 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
         </dl>
 
         {editable && <FlowControls labels={item.labels} repoOptions={repoOptions} onSave={save} />}
+
+        {editable && pollGo && (
+          <GoButton
+            label={goLabel(pollGo)}
+            onGo={() =>
+              sendWorkflowGo(item.itemId, pollGo).then(
+                () => void toast.success(goDoneText(key, pollGo)),
+                (e) => void toast.error(e instanceof Error ? e.message : 'Poll nicht gestartet')
+              )
+            }
+          />
+        )}
 
         {editable && <IssueBody body={details?.body ?? null} error={detailsError} onSave={save} />}
 

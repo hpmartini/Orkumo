@@ -78,9 +78,9 @@ describe('isWorkflowItem / workflowMode', () => {
 });
 
 describe('deriveWorkflowState', () => {
-  it('Todo without marker: released, waits for the poll', () => {
+  it('Todo without marker: released, waits for the poll, offers to start it now', () => {
     const s = deriveWorkflowState(item(), 'Todo');
-    expect(s).toMatchObject({ stage: 'released', waitingOn: 'poll', go: null });
+    expect(s).toMatchObject({ stage: 'released', waitingOn: 'poll', go: { kind: 'poll' } });
   });
 
   it('picked up (start marker): briefing by the agent, session id kept', () => {
@@ -111,12 +111,28 @@ describe('deriveWorkflowState', () => {
     });
   });
 
-  it('briefed with mw:build set: GO given, waits for the poll, no second GO', () => {
+  it('briefed with mw:build set: GO given, waits for the poll, offers to start it now', () => {
     const s = deriveWorkflowState(
       item({ comments: [startC(), briefedC], labels: ['mw:go', 'mw:build'] }),
       'In Progress'
     );
-    expect(s).toMatchObject({ stage: 'awaiting', waitingOn: 'poll', go: null });
+    expect(s).toMatchObject({ stage: 'awaiting', waitingOn: 'poll', go: { kind: 'poll' } });
+  });
+
+  it('only states waiting on the poll offer the poll GO', () => {
+    const others = [
+      [item({ comments: [startC()] }), 'In Progress'],
+      [item({ comments: [startC(), askC], labels: ['mw:go', 'need-input'] }), 'In Progress'],
+      [item({ comments: [startC(), briefedC] }), 'In Progress'],
+      [item({ comments: [startC(), briefedC, goalC] }), 'In Progress'],
+      [item({ comments: [startC(), briefedC, goalC] }), 'to Review'],
+      [item({ state: 'CLOSED' }), 'Done'],
+    ];
+    for (const [i, status] of others) {
+      const s = deriveWorkflowState(i, status);
+      expect(s.waitingOn).not.toBe('poll');
+      expect(s.go?.kind).not.toBe('poll');
+    }
   });
 
   it('goal after the briefing: building', () => {
@@ -186,5 +202,8 @@ describe('phaseGroup / sameGo', () => {
     expect(sameGo(offered, { ...offered, sha: 'b' })).toBe(false);
     expect(sameGo(null, { kind: 'build' })).toBe(false);
     expect(sameGo({ kind: 'build' }, { kind: 'build' })).toBe(true);
+    expect(sameGo({ kind: 'poll' }, { kind: 'poll' })).toBe(true);
+    expect(sameGo(null, { kind: 'poll' })).toBe(false);
+    expect(sameGo({ kind: 'build' }, { kind: 'poll' })).toBe(false);
   });
 });

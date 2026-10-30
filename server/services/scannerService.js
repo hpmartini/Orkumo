@@ -10,7 +10,7 @@ import { FRAMEWORK_PORTS } from '../../config/defaults.js';
 /**
  * Generate a unique ID from a project path using hash
  */
-function generateProjectId(projectPath) {
+export function generateProjectId(projectPath) {
   return crypto.createHash('sha256').update(projectPath).digest('hex').slice(0, 16);
 }
 

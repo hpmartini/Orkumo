@@ -14,6 +14,7 @@ import type {
   AgentCardSlot,
 } from '../types';
 import { DEFAULT_AGENT_CARD_FIELDS } from '../types';
+import { isCacheWarning } from './agentCache';
 
 export type GroupKey =
   | 'pinned'
@@ -298,6 +299,8 @@ export interface SessionLookup {
   servers?: Map<string, AgentServer[]>;
   /** Session id -> board issue key ("owner/repo#12") of agents mw board started (#159) */
   workflowIssues?: Map<string, string>;
+  /** Clock for time-dependent filters (cache expiry); defaults to Date.now() */
+  now?: number;
 }
 
 /** Name prefix mw board gives the sessions it starts: "MACC <repo>#<number> <title>" */
@@ -513,7 +516,8 @@ export type AgentQuickFilter =
   | 'server'
   | 'subagents'
   | 'local'
-  | 'workflow';
+  | 'workflow'
+  | 'cache-expiring';
 
 export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: string }[] = [
   { key: 'needs-input', label: 'Needs input', title: 'Agents waiting for your input' },
@@ -525,6 +529,11 @@ export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: strin
   { key: 'subagents', label: 'Sub-agents', title: 'Agents with running sub-agents' },
   { key: 'local', label: 'Local', title: 'Agents you started yourself' },
   { key: 'workflow', label: 'Workflow', title: 'Agents mw board started for a GitHub issue' },
+  {
+    key: 'cache-expiring',
+    label: 'Cache expiring',
+    title: 'Agents whose prompt cache expires within 10 minutes',
+  },
 ];
 
 const STATE_FILTERS: AgentQuickFilter[] = ['needs-input', 'working', 'completed', 'failed'];
@@ -554,6 +563,8 @@ export function matchesQuickFilter(
       return !isWorkflowSession(session, lookup);
     case 'workflow':
       return isWorkflowSession(session, lookup);
+    case 'cache-expiring':
+      return isCacheWarning(lookup?.contexts?.[session.id]?.cache, lookup?.now ?? Date.now());
   }
 }
 

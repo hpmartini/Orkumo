@@ -17,6 +17,7 @@ import { execFile as execFileCb } from 'child_process';
 import os from 'os';
 import fs from 'fs';
 import crypto from 'crypto';
+import { isAllowedExec } from './execPolicy.js';
 
 const PORT = process.env.PTY_HOST_PORT || 3096;
 const HTTP_PORT = process.env.PTY_HOST_HTTP_PORT || 3097;
@@ -304,7 +305,7 @@ const httpServer = http.createServer(async (req, res) => {
     }
 
     const { command, args = [], cwd, timeout = 60000 } = body || {};
-    if (typeof command !== 'string' || !ALLOWED_COMMANDS.has(command)) {
+    if (!isAllowedExec(command, args)) {
       res.writeHead(403, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'Command not allowed' }));
       return;
@@ -315,7 +316,8 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
-    const bin = resolveBinary(command) || command;
+    // fixed path: resolveBinary prefers CLAUDE_CLI_PATH for any name
+    const bin = command === 'launchctl' ? '/bin/launchctl' : resolveBinary(command) || command;
     const resolvedCwd =
       typeof cwd === 'string' && cwd.trim() && fs.existsSync(cwd)
         ? cwd

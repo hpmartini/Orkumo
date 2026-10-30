@@ -1,16 +1,76 @@
 import React, { useEffect, useState } from 'react';
-import { Bot, Code2, ExternalLink, FileText, GitPullRequest, CircleDot } from 'lucide-react';
+import {
+  Bot,
+  Code2,
+  ExternalLink,
+  FileText,
+  GitPullRequest,
+  CircleDot,
+  Loader2,
+} from 'lucide-react';
 import type { AgentSession, WorkflowDetails as Details } from '../../types';
 import type { WorkflowCard } from '../../utils/workflows';
 import { phaseGroup } from '../../utils/workflowStage.js';
 import { fetchWorkflowDetails } from '../../services/boardApi';
-import { CheckIcon } from '../BoardView/BoardCard';
+import { formatAge } from '../../utils/agentSessions';
+import { CheckIcon, LabelChip } from '../BoardView/BoardCard';
 
 export interface WorkflowNav {
   openAgent: (card: WorkflowCard, session?: AgentSession) => void;
-  openCode: (card: WorkflowCard, session?: AgentSession) => void;
+  openCode: (card: WorkflowCard, session?: AgentSession) => Promise<void> | void;
   openDoc: (card: WorkflowCard, doc: { name: string; path: string }) => void;
 }
+
+export const since = (iso: string | null) => {
+  const at = iso ? Date.parse(iso) : NaN;
+  return Number.isFinite(at) ? `seit ${formatAge(Date.now() - at)}` : null;
+};
+
+/** The card's essentials: shared by the hover overlay and the expanded details */
+export const WorkflowStats: React.FC<{ card: WorkflowCard; session?: AgentSession }> = ({
+  card,
+  session,
+}) => {
+  const { item, state } = card;
+  return (
+    <>
+      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
+        <dt className="text-gray-500">Stufe</dt>
+        <dd>
+          {state.reason}
+          {since(state.since) && <span className="text-gray-400"> · {since(state.since)}</span>}
+        </dd>
+        <dt className="text-gray-500">Agent</dt>
+        <dd>
+          {session
+            ? `${session.name || session.id} · ${session.displayState}`
+            : 'keine laufende Session'}
+        </dd>
+        {card.run && (
+          <>
+            <dt className="text-gray-500">Run</dt>
+            <dd className="tabular-nums">
+              {card.run.runId} · {card.run.phases.length} Schritte
+            </dd>
+          </>
+        )}
+        {item.assignees.length > 0 && (
+          <>
+            <dt className="text-gray-500">Zugewiesen</dt>
+            <dd>{item.assignees.join(', ')}</dd>
+          </>
+        )}
+      </dl>
+      {item.labels.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {item.labels.slice(0, 6).map((l) => (
+            <LabelChip key={l.name} label={l} />
+          ))}
+        </div>
+      )}
+    </>
+  );
+};
 
 const RESULT_TONE: Record<string, string> = {
   passed: 'bg-emerald-400',
@@ -35,6 +95,7 @@ export const WorkflowDetails: React.FC<{
   nav: WorkflowNav;
 }> = ({ card, session, nav }) => {
   const { item } = card;
+  const [opening, setOpening] = useState(false);
   const [details, setDetails] = useState<Details | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -52,6 +113,10 @@ export const WorkflowDetails: React.FC<{
 
   return (
     <div className="border-t border-gray-750 px-3 pb-3 pt-2.5 text-[11.5px] text-gray-300">
+      <Section title="Stand">
+        <WorkflowStats card={card} session={session} />
+      </Section>
+
       <Section title="Ablauf">
         {phases.length ? (
           <ol className="flex flex-wrap items-center gap-x-1 gap-y-1.5">
@@ -168,8 +233,23 @@ export const WorkflowDetails: React.FC<{
               <GitPullRequest size={12} /> PR #{pr.number}
             </a>
           ))}
-          <button type="button" className={linkClass} onClick={() => nav.openCode(card, session)}>
-            <Code2 size={12} /> Code
+          <button
+            type="button"
+            className={`${linkClass} disabled:cursor-wait disabled:opacity-70`}
+            disabled={opening}
+            aria-busy={opening}
+            onClick={() => {
+              setOpening(true);
+              // Resolving the checkout can take a while; the spinner shows it is on the way
+              Promise.resolve(nav.openCode(card, session)).finally(() => setOpening(false));
+            }}
+          >
+            {opening ? (
+              <Loader2 size={12} className="motion-safe:animate-spin" />
+            ) : (
+              <Code2 size={12} />
+            )}{' '}
+            {opening ? 'Öffne…' : 'Code'}
           </button>
         </div>
       </Section>

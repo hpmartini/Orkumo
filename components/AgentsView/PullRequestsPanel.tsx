@@ -5,6 +5,7 @@ import {
   Code2,
   ExternalLink,
   GitPullRequest,
+  Maximize2,
   X,
   XCircle,
 } from 'lucide-react';
@@ -68,32 +69,40 @@ const REVIEW: Record<string, string> = {
   REVIEW_REQUIRED: 'Review required',
 };
 
-interface PullRequestsPanelProps {
+export const filterPullRows = (rows: PullRequestRow[], repoFilter: string | null) =>
+  repoFilter ? rows.filter((r) => r.pr.repoSlug === repoFilter) : rows;
+
+export interface PullRequestListProps {
   rows: PullRequestRow[];
   sessions: AgentSession[];
   contexts: Record<string, AgentContext | undefined>;
   /** Only show this repo ("owner/repo") */
   repoFilter: string | null;
-  onClearRepo: () => void;
   onSelectAgent: (id: string) => void;
   /** Opens the Code mode in the PR branch's worktree (or the repo) */
   onOpenCode: (row: PullRequestRow) => void;
-  onClose: () => void;
+  /** Set: the PR title opens in the app and only the icon links out */
+  onOpenPr?: (pr: AgentPullRequest) => void;
+  /** URL of the PR open next to the list, highlighted */
+  openUrl?: string | null;
+  /** Called after an action that leaves the list (agent, code) */
+  onDone?: () => void;
 }
 
-export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({
+/** PR rows shared by the summary-bar popover and the full /pulls view */
+export const PullRequestList: React.FC<PullRequestListProps> = ({
   rows,
   sessions,
   contexts,
   repoFilter,
-  onClearRepo,
   onSelectAgent,
   onOpenCode,
-  onClose,
+  onOpenPr,
+  openUrl,
+  onDone,
 }) => {
-  const ref = usePopover(onClose);
   const loading = Object.keys(contexts).length === 0;
-  const shown = repoFilter ? rows.filter((r) => r.pr.repoSlug === repoFilter) : rows;
+  const shown = filterPullRows(rows, repoFilter);
   // pulls === null means gh could not answer for that repo; never show it as 0
   const unavailable = [
     ...new Set(
@@ -105,52 +114,50 @@ export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({
   ].filter((name) => !repoFilter || name === repoFilter);
 
   return (
-    <div
-      ref={ref}
-      tabIndex={-1}
-      role="dialog"
-      aria-label="Open pull requests"
-      className="absolute right-4 top-full mt-1 z-40 w-[min(900px,calc(100vw-2rem))] max-h-[70vh] flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl outline-none"
-    >
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800 shrink-0 text-sm">
-        <GitPullRequest size={14} className="text-gray-400" />
-        <span className="font-medium">Open pull requests</span>
-        <span className="text-gray-500 tabular-nums text-xs">{shown.length}</span>
-        {repoFilter && (
-          <button
-            onClick={onClearRepo}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-blue-300 hover:text-white hover:bg-gray-800"
-            title="Show all repositories"
-          >
-            {repoFilter} <X size={10} />
-          </button>
-        )}
-        <div className="flex-1" />
-        <button
-          onClick={onClose}
-          aria-label="Close"
-          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-        >
-          <X size={14} />
-        </button>
-      </div>
-      <div className="overflow-y-auto min-h-0">
-        {loading ? (
-          <p className="px-3 py-4 text-xs text-gray-500">Loading pull requests…</p>
-        ) : shown.length === 0 ? (
-          <p className="px-3 py-4 text-xs text-gray-500">
-            No open pull requests{repoFilter ? ` in ${repoFilter}` : ''}.
-          </p>
-        ) : (
-          <ul className="divide-y divide-gray-800">
-            {shown.map((row) => {
-              const { pr, agents } = row;
-              const ci = CI[pr.ci];
-              const merge = mergeState(pr);
-              return (
-                <li key={`${pr.repoSlug}#${pr.number}`} className="px-3 py-2 text-xs space-y-1">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span className="text-gray-500 shrink-0">{pr.repoSlug}</span>
+    <>
+      {loading ? (
+        <p className="px-3 py-4 text-xs text-gray-500">Loading pull requests…</p>
+      ) : shown.length === 0 ? (
+        <p className="px-3 py-4 text-xs text-gray-500">
+          No open pull requests{repoFilter ? ` in ${repoFilter}` : ''}.
+        </p>
+      ) : (
+        <ul className="divide-y divide-gray-800">
+          {shown.map((row) => {
+            const { pr, agents } = row;
+            const ci = CI[pr.ci];
+            const merge = mergeState(pr);
+            const isOpen = !!openUrl && openUrl === pr.url;
+            return (
+              <li
+                key={`${pr.repoSlug}#${pr.number}`}
+                className={`px-3 py-2 text-xs space-y-1 ${isOpen ? 'bg-gray-800/60' : ''}`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <span className="text-gray-500 shrink-0">{pr.repoSlug}</span>
+                  {onOpenPr ? (
+                    <>
+                      <button
+                        onClick={() => onOpenPr(pr)}
+                        aria-current={isOpen || undefined}
+                        className="flex items-center gap-1 min-w-0 text-left text-gray-100 hover:text-blue-300 hover:underline"
+                        title="Open next to the list"
+                      >
+                        <span className="font-mono shrink-0">#{pr.number}</span>
+                        <span className="truncate">{pr.title}</span>
+                      </button>
+                      <a
+                        href={pr.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="shrink-0 text-gray-400 hover:text-blue-300"
+                        title="Open in browser"
+                        aria-label={`Open #${pr.number} in browser`}
+                      >
+                        <ExternalLink size={10} />
+                      </a>
+                    </>
+                  ) : (
                     <a
                       href={pr.url}
                       target="_blank"
@@ -161,66 +168,148 @@ export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({
                       <span className="truncate">{pr.title}</span>
                       <ExternalLink size={10} className="shrink-0" />
                     </a>
-                    {pr.isDraft && (
-                      <span className="px-1 rounded border border-gray-600 text-gray-400 shrink-0">
-                        Draft
+                  )}
+                  {pr.isDraft && (
+                    <span className="px-1 rounded border border-gray-600 text-gray-400 shrink-0">
+                      Draft
+                    </span>
+                  )}
+                </div>
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-gray-400">
+                  <span className={`flex items-center gap-1 ${ci.tone}`}>
+                    {ci.icon}
+                    {ci.label}
+                    {pr.ci !== 'none' && (
+                      <span className="tabular-nums text-gray-500">
+                        {pr.ciPassed} passed, {pr.ciFailed} failed, {pr.ciPending} pending
                       </span>
                     )}
-                  </div>
-                  <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-gray-400">
-                    <span className={`flex items-center gap-1 ${ci.tone}`}>
-                      {ci.icon}
-                      {ci.label}
-                      {pr.ci !== 'none' && (
-                        <span className="tabular-nums text-gray-500">
-                          {pr.ciPassed} passed, {pr.ciFailed} failed, {pr.ciPending} pending
-                        </span>
-                      )}
-                    </span>
-                    <span className={merge.tone}>{merge.label}</span>
-                    {pr.reviewDecision && <span>{REVIEW[pr.reviewDecision]}</span>}
-                    {pr.author && <span>by {pr.author}</span>}
-                    <span className="tabular-nums" title={pr.updatedAt}>
-                      updated {formatAge(Date.now() - Date.parse(pr.updatedAt))} ago
-                    </span>
-                    <span className="font-mono text-gray-500 truncate max-w-[16rem]">
-                      {pr.headRef} to {pr.baseRef}
-                    </span>
-                    {agents.map((agent) => (
-                      <button
-                        key={agent.id}
-                        onClick={() => {
-                          onSelectAgent(agent.id);
-                          onClose();
-                        }}
-                        className="px-1.5 rounded text-blue-300 hover:text-white hover:bg-gray-800"
-                        title="Select this agent"
-                      >
-                        {agent.name}
-                      </button>
-                    ))}
+                  </span>
+                  <span className={merge.tone}>{merge.label}</span>
+                  {pr.reviewDecision && <span>{REVIEW[pr.reviewDecision]}</span>}
+                  {pr.author && <span>by {pr.author}</span>}
+                  <span className="tabular-nums" title={pr.updatedAt}>
+                    updated {formatAge(Date.now() - Date.parse(pr.updatedAt))} ago
+                  </span>
+                  <span className="font-mono text-gray-500 truncate max-w-[16rem]">
+                    {pr.headRef} to {pr.baseRef}
+                  </span>
+                  {agents.map((agent) => (
                     <button
+                      key={agent.id}
                       onClick={() => {
-                        onOpenCode(row);
-                        onClose();
+                        onSelectAgent(agent.id);
+                        onDone?.();
                       }}
-                      className="flex items-center gap-1 px-1.5 rounded text-gray-300 hover:text-white hover:bg-gray-800"
-                      title="Open the branch in Code mode (agent worktree, else the repo)"
+                      className="px-1.5 rounded text-blue-300 hover:text-white hover:bg-gray-800"
+                      title="Select this agent"
                     >
-                      <Code2 size={11} /> Code
+                      {agent.name}
                     </button>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-        {unavailable.length > 0 && (
-          <p className="px-3 py-2 text-[11px] text-yellow-400/90 border-t border-gray-800">
-            Pull requests unavailable (gh missing, not signed in or no access):{' '}
-            {unavailable.join(', ')}
-          </p>
-        )}
+                  ))}
+                  <button
+                    onClick={() => {
+                      onOpenCode(row);
+                      onDone?.();
+                    }}
+                    className="flex items-center gap-1 px-1.5 rounded text-gray-300 hover:text-white hover:bg-gray-800"
+                    title="Open the branch in Code mode (agent worktree, else the repo)"
+                  >
+                    <Code2 size={11} /> Code
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      {unavailable.length > 0 && (
+        <p className="px-3 py-2 text-[11px] text-yellow-400/90 border-t border-gray-800">
+          Pull requests unavailable (gh missing, not signed in or no access):{' '}
+          {unavailable.join(', ')}
+        </p>
+      )}
+    </>
+  );
+};
+
+/** Title row with count and repo filter; children are the trailing buttons */
+export const PullRequestsHeader: React.FC<{
+  count: number;
+  repoFilter: string | null;
+  onClearRepo: () => void;
+  children?: React.ReactNode;
+}> = ({ count, repoFilter, onClearRepo, children }) => (
+  <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800 shrink-0 text-sm">
+    <GitPullRequest size={14} className="text-gray-400" />
+    <span className="font-medium">Open pull requests</span>
+    <span className="text-gray-500 tabular-nums text-xs">{count}</span>
+    {repoFilter && (
+      <button
+        onClick={onClearRepo}
+        className="flex items-center gap-1 px-1.5 py-0.5 rounded text-xs text-blue-300 hover:text-white hover:bg-gray-800"
+        title="Show all repositories"
+      >
+        {repoFilter} <X size={10} />
+      </button>
+    )}
+    <div className="flex-1" />
+    {children}
+  </div>
+);
+
+interface PullRequestsPanelProps extends Omit<
+  PullRequestListProps,
+  'onOpenPr' | 'openUrl' | 'onDone'
+> {
+  onClearRepo: () => void;
+  /** Opens the list as its own view in the content panel */
+  onMaximize: () => void;
+  onClose: () => void;
+}
+
+export const PullRequestsPanel: React.FC<PullRequestsPanelProps> = ({
+  onClearRepo,
+  onMaximize,
+  onClose,
+  ...list
+}) => {
+  const ref = usePopover(onClose);
+
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="dialog"
+      aria-label="Open pull requests"
+      className="absolute right-4 top-full mt-1 z-40 w-[min(900px,calc(100vw-2rem))] max-h-[70vh] flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-2xl outline-none"
+    >
+      <PullRequestsHeader
+        count={filterPullRows(list.rows, list.repoFilter).length}
+        repoFilter={list.repoFilter}
+        onClearRepo={onClearRepo}
+      >
+        <button
+          onClick={() => {
+            onMaximize();
+            onClose();
+          }}
+          aria-label="Maximize pull requests"
+          title="Open as full view"
+          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+        >
+          <Maximize2 size={14} />
+        </button>
+        <button
+          onClick={onClose}
+          aria-label="Close"
+          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+        >
+          <X size={14} />
+        </button>
+      </PullRequestsHeader>
+      <div className="overflow-y-auto min-h-0">
+        <PullRequestList {...list} onDone={onClose} />
       </div>
     </div>
   );
