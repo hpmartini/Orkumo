@@ -277,7 +277,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
     [sessions, apps, contexts]
   );
-  const lookup = useMemo(() => ({ contexts, servers }), [contexts, servers]);
+  const lookup = useMemo(() => ({ contexts, servers, now }), [contexts, servers, now]);
   const [panel, setPanel] = useState<'prs' | 'servers' | null>(null);
   useEffect(() => {
     if (!active) setPanel(null);
@@ -1682,7 +1682,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         <div className="min-w-0 flex items-center gap-3">
           <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
-            counts={{ ...counts, completed: chipCounts.completed }}
+            counts={{
+              ...counts,
+              completed: chipCounts.completed,
+              cacheExpiring: chipCounts['cache-expiring'],
+            }}
             openPrs={totals.openPrs}
             runningServers={totals.runningServers}
             daemon={daemon}
