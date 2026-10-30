@@ -12,7 +12,7 @@
  * @typedef {{ stage: string, sha: string }} PendingApproval
  * @typedef {{ runId: string, repoPath: string, mode: 'orchestrate'|'pipeline', phases: RunPhase[],
  *   pendingApproval: PendingApproval | null }} WorkflowRun
- * @typedef {{ kind: 'build' } | { kind: 'approve', runId: string, stage: string, sha: string }} WorkflowGo
+ * @typedef {{ kind: 'build' } | { kind: 'poll' } | { kind: 'approve', runId: string, stage: string, sha: string }} WorkflowGo
  */
 
 /** The abstract stages, in order (one shared track for all mw modes) */
@@ -28,6 +28,9 @@ export const WORKFLOW_STAGES = /** @type {const} */ ([
 export const GO_LABEL = 'mw:go';
 export const BUILD_LABEL = 'mw:build';
 export const NEED_INPUT_LABEL = 'need-input';
+
+/** Waiting on the mw-board poll: Hape may start it now instead of waiting for the next tick */
+const POLL = /** @type {WorkflowGo} */ ({ kind: 'poll' });
 
 const MARKER_RE = /<!--\s*mw-board:([a-z_-]+)((?:\s+[a-z_]+=\S+)*)\s*-->/g;
 
@@ -170,7 +173,7 @@ export function deriveWorkflowState(item, statusName, run = null) {
     );
   if (iBriefed > iGoal) {
     return labels.has(BUILD_LABEL)
-      ? state('awaiting', 'poll', 'GO gegeben, startet beim nächsten Poll', at(iBriefed))
+      ? state('awaiting', 'poll', 'GO gegeben, startet beim nächsten Poll', at(iBriefed), POLL)
       : state('awaiting', 'hape', 'Briefing wartet auf GO', at(iBriefed), { kind: 'build' });
   }
   if (iGoal >= 0 || lastPhase)
@@ -187,7 +190,7 @@ export function deriveWorkflowState(item, statusName, run = null) {
       mode === 'default' ? 'Interview & Briefing' : 'Plan entsteht',
       at(iStart)
     );
-  return state('released', 'poll', 'Wartet auf den Poll', null);
+  return state('released', 'poll', 'Wartet auf den Poll', null, POLL);
 }
 
 /**
@@ -197,7 +200,7 @@ export function deriveWorkflowState(item, statusName, run = null) {
  */
 export function sameGo(offered, requested) {
   if (!offered || offered.kind !== requested.kind) return false;
-  if (offered.kind === 'build') return true;
+  if (offered.kind === 'build' || offered.kind === 'poll') return true;
   return (
     requested.kind === 'approve' &&
     offered.runId === requested.runId &&

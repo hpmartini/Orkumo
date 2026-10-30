@@ -147,7 +147,10 @@ export async function fetchWorkflowRuns(refresh = false): Promise<Record<string,
 }
 
 /** GO for the next stage; the server refuses (409) unless it is the GO the fresh state offers */
-export function sendWorkflowGo(itemId: string, go: WorkflowGo): Promise<{ ok: true }> {
+export function sendWorkflowGo(
+  itemId: string,
+  go: WorkflowGo
+): Promise<{ ok: true; pollError?: string | null }> {
   return request('/workflows/go', { method: 'POST', body: JSON.stringify({ itemId, go }) });
 }
 
