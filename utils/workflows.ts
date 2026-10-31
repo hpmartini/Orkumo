@@ -1,7 +1,7 @@
 /**
  * Workflow view model: board items in an mw workflow, each with its derived stage.
  */
-import type { BoardItem, BoardStatusOption, WorkflowRunInfo } from '../types';
+import type { BoardItem, BoardStatusOption } from '../types';
 import { itemKey, withinDoneWindow } from './board';
 import { deriveNode } from './workflowGraph.js';
 import {
@@ -15,7 +15,6 @@ import {
 export interface WorkflowCard {
   key: string;
   item: BoardItem;
-  run: WorkflowRunInfo | null;
   state: WorkflowState;
   /** graph station and, inside a loop, its round */
   node: { id: string; round: string | null };
@@ -27,7 +26,6 @@ export const stageIndex = (id: WorkflowStageId) => WORKFLOW_STAGES.findIndex((s)
 export function buildWorkflowCards(
   items: BoardItem[],
   options: BoardStatusOption[],
-  runs: Record<string, WorkflowRunInfo>,
   now: number
 ): WorkflowCard[] {
   const statusName = new Map(options.map((o) => [o.id, o.name]));
@@ -35,10 +33,9 @@ export function buildWorkflowCards(
     .filter((i) => i.type === 'Issue' && isWorkflowItem(i))
     .map((item) => {
       const key = itemKey(item);
-      const run = runs[key] ?? null;
       const status = item.statusOptionId ? (statusName.get(item.statusOptionId) ?? null) : null;
-      const state = deriveWorkflowState(item, status, run);
-      return { key, item, run, state, node: deriveNode(item, state, run, status) };
+      const state = deriveWorkflowState(item, status);
+      return { key, item, state, node: deriveNode(item, state) };
     })
     .filter((c) => c.state.stage !== 'done' || withinDoneWindow(c.item, now))
     .sort(

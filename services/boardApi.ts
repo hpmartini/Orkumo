@@ -13,7 +13,6 @@ import type {
   IssueComment,
   IssueSummary,
   WorkflowDetails,
-  WorkflowRunInfo,
 } from '../types';
 import type { WorkflowGo } from '../utils/workflowStage.js';
 
@@ -137,14 +136,6 @@ export function updateBoardSettings(patch: Partial<BoardSettings>): Promise<Boar
 }
 
 // --- Workflows (#87) ---
-
-/** Local mw run per issue key ("owner/name#n") of the board's workflow items */
-export async function fetchWorkflowRuns(refresh = false): Promise<Record<string, WorkflowRunInfo>> {
-  const { runs } = await request<{ runs: Record<string, WorkflowRunInfo> }>(
-    `/workflows/runs${refresh ? '?refresh=1' : ''}`
-  );
-  return runs;
-}
 
 /** GO for the next stage; the server refuses (409) unless it is the GO the fresh state offers */
 export function sendWorkflowGo(

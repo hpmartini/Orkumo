@@ -1,10 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('../server/services/agentService.js', () => ({ runOnHost: vi.fn() }));
-vi.mock('../server/services/workflowService.js', () => ({ approve: vi.fn() }));
 
 const { runOnHost } = await import('../server/services/agentService.js');
-const { approve } = await import('../server/services/workflowService.js');
 const { applyGo, kickPoll, workflowGoSchema, MW_BOARD_JOB } =
   await import('../server/services/workflowGo.js');
 
@@ -12,7 +10,6 @@ const KICK = ['kickstart', `gui/${process.getuid()}/${MW_BOARD_JOB}`];
 const ctx = (go) => ({
   source: 'src',
   item: { itemId: 'PVTI_1', labels: [{ name: 'mw:go' }] },
-  run: { runId: 'r-1' },
   state: { go },
 });
 
@@ -20,7 +17,6 @@ describe('workflowGo', () => {
   let updateIssue;
   beforeEach(() => {
     vi.mocked(runOnHost).mockReset().mockResolvedValue({ code: 0, stdout: '', stderr: '' });
-    vi.mocked(approve).mockReset();
     updateIssue = vi.fn().mockResolvedValue({ itemId: 'PVTI_1' });
   });
 
@@ -76,12 +72,12 @@ describe('workflowGo', () => {
     expect(r.body.pollError).toMatch(/Could not find service/);
   });
 
-  it('approve GO still goes to the mw run', async () => {
-    const go = { kind: 'approve', runId: 'r-1', stage: 'plan', sha: 'abcdef1' };
-    vi.mocked(approve).mockResolvedValue({ ok: true });
-    const r = await applyGo(ctx(go), go, { updateIssue });
-    expect(approve).toHaveBeenCalledWith({ runId: 'r-1' }, 'plan', 'abcdef1');
-    expect(r).toEqual({ status: 200, body: { ok: true } });
+  it('#136 AC-4: stale build GO (state no longer offers it): 409, no label', async () => {
+    for (const offered of [null, { kind: 'poll' }]) {
+      const r = await applyGo(ctx(offered), { kind: 'build' }, { updateIssue });
+      expect(r.status).toBe(409);
+    }
+    expect(updateIssue).not.toHaveBeenCalled();
     expect(runOnHost).not.toHaveBeenCalled();
   });
 
@@ -94,5 +90,12 @@ describe('workflowGo', () => {
     expect(workflowGoSchema.safeParse({ kind: 'poll' }).success).toBe(true);
     expect(workflowGoSchema.safeParse({ kind: 'poll', args: ['-k'] }).success).toBe(false);
     expect(workflowGoSchema.safeParse({ kind: 'kick' }).success).toBe(false);
+  });
+
+  it('#136 AC-4: schema takes build and poll only; mw 6 approve is rejected (400)', () => {
+    expect(workflowGoSchema.safeParse({ kind: 'build' }).success).toBe(true);
+    expect(workflowGoSchema.safeParse({ kind: 'build', label: 'x' }).success).toBe(false);
+    const approve = { kind: 'approve', runId: 'r-1', stage: 'plan', sha: 'abcdef1' };
+    expect(workflowGoSchema.safeParse(approve).success).toBe(false);
   });
 });
