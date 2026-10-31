@@ -64,7 +64,8 @@ final class PairingFlowTests: XCTestCase {
             open("devorbit://open?path=%2Fagents%3Fattach%3D\(agent)")
             sleep(10)
             shot("05a-attach-open")
-            app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.75)).tap()
+            // Mid-height: the keyboard from the terminal step is still up, and at 0.75 the tap hit its "h" key on iPhone.
+            app.webViews.firstMatch.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             sleep(1)
             app.typeText(env["ATTACH_PROMPT"] ?? "Antworte nur mit OK")
             pressReturn()
