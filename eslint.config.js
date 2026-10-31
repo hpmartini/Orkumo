@@ -170,6 +170,7 @@ export default [
       '.claude/**',
       'dist-server/**',
       'dist-electron/**',
+      'dist-landing/**',
       '*.config.js',
       '*.config.ts',
     ],
