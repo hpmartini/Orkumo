@@ -16,6 +16,8 @@
   --color-signal-mint: #7fe0b5;
   --color-signal-sky: #7db8ff;
   --color-paper: #f2f0ea;
+  /* secondary text, ≥ 7:1 on ground and panel */
+  --color-muted: #a3acb9;
   /* andon stack lights, status only */
   --color-andon-red: #ff3b30;
   --color-andon-amber: #ffb020;

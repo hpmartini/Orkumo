@@ -1,0 +1,433 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-10-31T01:59:01.498Z",
+  "title": "Design System: DevOrbit Landing (landing/)",
+  "extensions": {
+    "colorMeta": {
+      "signal-yellow": {
+        "role": "primary",
+        "displayName": "Signal Yellow",
+        "canonical": "oklch(84.2% 0.168 90)",
+        "tonalRamp": [
+          "oklch(15% 0.168 90)",
+          "oklch(26% 0.168 90)",
+          "oklch(37% 0.168 90)",
+          "oklch(48% 0.168 90)",
+          "oklch(60% 0.168 90)",
+          "oklch(72% 0.168 90)",
+          "oklch(84% 0.168 90)",
+          "oklch(95% 0.168 90)"
+        ]
+      },
+      "andon-red": {
+        "role": "tertiary",
+        "displayName": "Andon Red",
+        "canonical": "oklch(65.4% 0.232 29)",
+        "tonalRamp": [
+          "oklch(15% 0.232 29)",
+          "oklch(26% 0.232 29)",
+          "oklch(37% 0.232 29)",
+          "oklch(48% 0.232 29)",
+          "oklch(60% 0.232 29)",
+          "oklch(72% 0.232 29)",
+          "oklch(84% 0.232 29)",
+          "oklch(95% 0.232 29)"
+        ]
+      },
+      "andon-amber": {
+        "role": "tertiary",
+        "displayName": "Andon Amber",
+        "canonical": "oklch(81.3% 0.165 75)",
+        "tonalRamp": [
+          "oklch(15% 0.165 75)",
+          "oklch(26% 0.165 75)",
+          "oklch(37% 0.165 75)",
+          "oklch(48% 0.165 75)",
+          "oklch(60% 0.165 75)",
+          "oklch(72% 0.165 75)",
+          "oklch(84% 0.165 75)",
+          "oklch(95% 0.165 75)"
+        ]
+      },
+      "andon-green": {
+        "role": "tertiary",
+        "displayName": "Andon Green",
+        "canonical": "oklch(79.3% 0.18 154)",
+        "tonalRamp": [
+          "oklch(15% 0.18 154)",
+          "oklch(26% 0.18 154)",
+          "oklch(37% 0.18 154)",
+          "oklch(48% 0.18 154)",
+          "oklch(60% 0.18 154)",
+          "oklch(72% 0.18 154)",
+          "oklch(84% 0.18 154)",
+          "oklch(95% 0.18 154)"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Powder-Coat Ground",
+        "canonical": "oklch(16.7% 0.012 254)",
+        "tonalRamp": [
+          "oklch(15% 0.012 254)",
+          "oklch(26% 0.012 254)",
+          "oklch(37% 0.012 254)",
+          "oklch(48% 0.012 254)",
+          "oklch(60% 0.012 254)",
+          "oklch(72% 0.012 254)",
+          "oklch(84% 0.012 254)",
+          "oklch(95% 0.012 254)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel Steel",
+        "canonical": "oklch(21.9% 0.021 255)",
+        "tonalRamp": [
+          "oklch(15% 0.021 255)",
+          "oklch(26% 0.021 255)",
+          "oklch(37% 0.021 255)",
+          "oklch(48% 0.021 255)",
+          "oklch(60% 0.021 255)",
+          "oklch(72% 0.021 255)",
+          "oklch(84% 0.021 255)",
+          "oklch(95% 0.021 255)"
+        ]
+      },
+      "panel-2": {
+        "role": "neutral",
+        "displayName": "Panel Steel Light",
+        "canonical": "oklch(25.5% 0.027 260)",
+        "tonalRamp": [
+          "oklch(15% 0.027 260)",
+          "oklch(26% 0.027 260)",
+          "oklch(37% 0.027 260)",
+          "oklch(48% 0.027 260)",
+          "oklch(60% 0.027 260)",
+          "oklch(72% 0.027 260)",
+          "oklch(84% 0.027 260)",
+          "oklch(95% 0.027 260)"
+        ]
+      },
+      "slot": {
+        "role": "neutral",
+        "displayName": "Recessed Slot",
+        "canonical": "oklch(18% 0.015 253)",
+        "tonalRamp": [
+          "oklch(15% 0.015 253)",
+          "oklch(26% 0.015 253)",
+          "oklch(37% 0.015 253)",
+          "oklch(48% 0.015 253)",
+          "oklch(60% 0.015 253)",
+          "oklch(72% 0.015 253)",
+          "oklch(84% 0.015 253)",
+          "oklch(95% 0.015 253)"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline Rail",
+        "canonical": "oklch(29.5% 0.027 258)",
+        "tonalRamp": [
+          "oklch(15% 0.027 258)",
+          "oklch(26% 0.027 258)",
+          "oklch(37% 0.027 258)",
+          "oklch(48% 0.027 258)",
+          "oklch(60% 0.027 258)",
+          "oklch(72% 0.027 258)",
+          "oklch(84% 0.027 258)",
+          "oklch(95% 0.027 258)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Paper",
+        "canonical": "oklch(95.5% 0.008 91)",
+        "tonalRamp": [
+          "oklch(15% 0.008 91)",
+          "oklch(26% 0.008 91)",
+          "oklch(37% 0.008 91)",
+          "oklch(48% 0.008 91)",
+          "oklch(60% 0.008 91)",
+          "oklch(72% 0.008 91)",
+          "oklch(84% 0.008 91)",
+          "oklch(95% 0.008 91)"
+        ]
+      },
+      "label-ink": {
+        "role": "neutral",
+        "displayName": "Label Ink",
+        "canonical": "oklch(87.4% 0.016 257)",
+        "tonalRamp": [
+          "oklch(15% 0.016 257)",
+          "oklch(26% 0.016 257)",
+          "oklch(37% 0.016 257)",
+          "oklch(48% 0.016 257)",
+          "oklch(60% 0.016 257)",
+          "oklch(72% 0.016 257)",
+          "oklch(84% 0.016 257)",
+          "oklch(95% 0.016 257)"
+        ]
+      },
+      "command-well": {
+        "role": "neutral",
+        "displayName": "Command Well",
+        "canonical": "oklch(14.8% 0.01 255)",
+        "tonalRamp": [
+          "oklch(15% 0.01 255)",
+          "oklch(26% 0.01 255)",
+          "oklch(37% 0.01 255)",
+          "oklch(48% 0.01 255)",
+          "oklch(60% 0.01 255)",
+          "oklch(72% 0.01 255)",
+          "oklch(84% 0.01 255)",
+          "oklch(95% 0.01 255)"
+        ]
+      },
+      "shot-well": {
+        "role": "neutral",
+        "displayName": "Screenshot Well",
+        "canonical": "oklch(14.3% 0.01 253)",
+        "tonalRamp": [
+          "oklch(15% 0.01 253)",
+          "oklch(26% 0.01 253)",
+          "oklch(37% 0.01 253)",
+          "oklch(48% 0.01 253)",
+          "oklch(60% 0.01 253)",
+          "oklch(72% 0.01 253)",
+          "oklch(84% 0.01 253)",
+          "oklch(95% 0.01 253)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Hero headline only; uppercase."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings; closing headline clamp(2.25rem, 5vw, 4rem) and walk claim clamp(1.6rem, 2.6vw, 2.35rem) are in-between steps."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Panel and mode headings; uppercase."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Panel copy, answers, step text; leads 1.125rem, lists 14px, notes 0.75rem."
+      },
+      "label": {
+        "displayName": "Label tape",
+        "purpose": "Uppercase labels on nav, board rail, slot headers and slot-rail buttons; 0.625rem / 0.06em under 640px."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Commands, URLs, branches, issue IDs, machine names only."
+      }
+    },
+    "shadows": [
+      {
+        "name": "panel-rest",
+        "value": "inset 0 1px 0 rgb(255 255 255 / 0.04), 0 22px 48px -30px rgb(0 0 0 / 0.85)",
+        "purpose": "Every panel."
+      },
+      {
+        "name": "board-rest",
+        "value": "inset 0 1px 0 rgb(255 255 255 / 0.04), 0 26px 60px -36px rgb(0 0 0 / 0.9)",
+        "purpose": "The planning board frame."
+      },
+      {
+        "name": "card-in-slot",
+        "value": "0 3px 6px -2px rgb(0 0 0 / 0.55), 0 12px 22px -14px rgb(0 0 0 / 0.95)",
+        "purpose": "The T-card on the board."
+      },
+      {
+        "name": "trail-card",
+        "value": "0 10px 18px -14px rgb(0 0 0 / 0.95)",
+        "purpose": "The compact card in the static trail row."
+      },
+      {
+        "name": "action-lift",
+        "value": "0 6px 14px -6px rgb(0 0 0 / 0.8)",
+        "purpose": "Primary button."
+      },
+      {
+        "name": "focus-ring",
+        "value": "outline: 2px solid #f5c518; outline-offset: 3px",
+        "purpose": "Global :focus-visible."
+      }
+    ],
+    "motion": [
+      {
+        "name": "reveal",
+        "value": "opacity 0→1, y 22px→0, 0.55s cubic-bezier(0.22, 1, 0.36, 1), once, stagger 0.06s",
+        "purpose": "Sections and panels entering the viewport."
+      },
+      {
+        "name": "step-swap",
+        "value": "opacity 0→1, y 14px→0, 0.35s cubic-bezier(0.22, 1, 0.36, 1)",
+        "purpose": "Step text and screenshot when the walk changes slot."
+      },
+      {
+        "name": "card-walk",
+        "value": "translate by --i slot units, scroll-linked over a 500vh sticky wrapper",
+        "purpose": "The T-card walking ISSUE to CODE."
+      },
+      {
+        "name": "andon-blink",
+        "value": "opacity 1→0.3→1, 1.7s ease-in-out infinite",
+        "purpose": "Red lamp only."
+      },
+      {
+        "name": "magnetic",
+        "value": "spring stiffness 150, damping 25, mass 0.1; strength 0.3, max 16px",
+        "purpose": "Primary download button in the hero."
+      },
+      {
+        "name": "screenshot-tilt",
+        "value": "rotateDepth 3deg, translateDepth 4px, spring; hover scale 1.05 inside a clipped frame",
+        "purpose": "Mode screenshots."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animations and transitions collapse to 0.001ms; walk replaced by static ghosted trail; magnetic and tilt off",
+        "purpose": "prefers-reduced-motion: reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "container",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Download action; label follows the detected OS.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Download for macOS</a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 24px; border: 1px solid rgb(0 0 0 / 0.7); border-radius: 5px; background: var(--color-signal-yellow, #f5c518); color: var(--color-ground, #0b0f14); font-size: 15px; font-weight: 700; text-decoration: none; box-shadow: 0 6px 14px -6px rgb(0 0 0 / 0.8); transition: background-color 0.15s; } .ds-btn-primary:hover { background: #ffd43b; } .ds-btn-primary:focus-visible { outline: 2px solid var(--color-signal-yellow, #f5c518); outline-offset: 3px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Secondary action next to the primary button.",
+      "html": "<a class=\"ds-btn-ghost\" href=\"#\">Run from source <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M7 7h10v10\"/><path d=\"M7 17 17 7\"/></svg></a>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 20px; border: 1px solid var(--color-hairline, #242d3a); border-radius: 5px; background: transparent; color: var(--color-paper, #f2f0ea); font-size: 15px; font-weight: 600; text-decoration: none; transition: border-color 0.15s, background-color 0.15s; } .ds-btn-ghost:hover { border-color: rgb(242 240 234 / 0.5); background: rgb(255 255 255 / 0.05); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--color-signal-yellow, #f5c518); outline-offset: 3px; }"
+    },
+    {
+      "name": "Header Navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Sticky steel header rail with wordmark and label-tape links.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Main\"><a class=\"ds-nav-mark\" href=\"#\">DevOrbit</a><span class=\"ds-nav-links\"><a class=\"ds-nav-link\" href=\"#\">How it works</a><a class=\"ds-nav-link\" href=\"#\">Modes</a><a class=\"ds-nav-link\" href=\"#\">Install</a><a class=\"ds-nav-link ds-nav-gh\" href=\"#\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4\"/><path d=\"M9 18c-4.51 2-5-2-5-4\"/></svg> GitHub</a></span></nav>",
+      "css": ".ds-nav { display: flex; align-items: center; gap: 20px; height: 56px; padding: 0 20px; border-bottom: 1px solid var(--color-hairline, #242d3a); background: rgb(11 15 20 / 0.85); backdrop-filter: blur(12px); } .ds-nav-mark { font-family: var(--font-display, 'Big Shoulders Display Variable', sans-serif); font-weight: 800; letter-spacing: 0.005em; text-transform: uppercase; font-size: 1.25rem; color: var(--color-paper, #f2f0ea); text-decoration: none; } .ds-nav-links { margin-left: auto; display: flex; gap: 24px; } .ds-nav-link { font-family: var(--font-body, 'Archivo Variable', sans-serif); font-size: 0.6875rem; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; display: inline-flex; align-items: center; gap: 6px; min-height: 44px; color: var(--color-paper, #f2f0ea); text-decoration: none; transition: color 0.15s; } .ds-nav-link:hover { color: var(--color-paper, #f2f0ea); } .ds-nav-gh:hover { color: var(--color-signal-yellow, #f5c518); } .ds-nav-link:focus-visible, .ds-nav-mark:focus-visible { outline: 2px solid var(--color-signal-yellow, #f5c518); outline-offset: 3px; }"
+    },
+    {
+      "name": "T-Card",
+      "kind": "card",
+      "refersTo": "tcard",
+      "description": "The task card: mono ID, andon stack, title, branch meta.",
+      "html": "<div class=\"ds-tcard\"><div class=\"ds-tcard-head\"><span class=\"ds-tcard-id\">#142</span><span class=\"ds-andon\"><span class=\"ds-lamp ds-lamp--red\"></span><span class=\"ds-lamp\"></span><span class=\"ds-lamp\"></span></span></div><p class=\"ds-tcard-title\">Add retry to webhook</p><p class=\"ds-tcard-meta\">feat/webhook-retry</p></div>",
+      "css": ".ds-tcard { display: flex; flex-direction: column; gap: 0.3rem; width: 150px; height: 150px; border: 2px solid #0b0f14; border-radius: 3px; background: var(--color-signal-yellow, #f5c518); padding: 0.5rem 0.55rem; color: #0b0f14; box-shadow: 0 3px 6px -2px rgb(0 0 0 / 0.55), 0 12px 22px -14px rgb(0 0 0 / 0.95); } .ds-tcard-head { display: flex; justify-content: space-between; align-items: flex-start; } .ds-tcard-id { font-family: var(--font-mono, 'JetBrains Mono Variable', monospace); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.02em; } .ds-tcard-title { margin: 0; font-size: 0.8125rem; font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; } .ds-tcard-meta { margin: auto 0 0; font-family: var(--font-mono, 'JetBrains Mono Variable', monospace); font-size: 0.625rem; opacity: 0.72; } .ds-andon { display: inline-flex; flex-direction: column; gap: 3px; } .ds-lamp { width: 8px; height: 8px; border: 1px solid rgb(0 0 0 / 0.55); border-radius: 50%; background: #1d2531; } .ds-lamp--red { background: var(--color-andon-red, #ff3b30); animation: ds-blink 1.7s ease-in-out infinite; } .ds-lamp--amber { background: var(--color-andon-amber, #ffb020); } .ds-lamp--green { background: var(--color-andon-green, #3ddc84); } @keyframes ds-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }"
+    },
+    {
+      "name": "Planning Board",
+      "kind": "custom",
+      "refersTo": "tcard",
+      "description": "Five labelled recessed slots with the card standing in AGENT and a ghost in ISSUE.",
+      "html": "<div class=\"ds-board\"><div class=\"ds-board-rail\"><span class=\"ds-tape\">Planning board</span><span class=\"ds-tape\">Example</span></div><div class=\"ds-board-slots\"><div class=\"ds-board-col\"><div class=\"ds-board-label ds-tape\">ISSUE</div><div class=\"ds-board-slot\"><div class=\"ds-tcard ds-tcard--ghost\"><div class=\"ds-tcard-head\"><span class=\"ds-tcard-id\">#142</span><span class=\"ds-andon\"><span class=\"ds-lamp\"></span><span class=\"ds-lamp\"></span><span class=\"ds-lamp\"></span></span></div></div></div></div><div class=\"ds-board-col\"><div class=\"ds-board-label ds-tape\">AGENT</div><div class=\"ds-board-slot\"><div class=\"ds-tcard\"><div class=\"ds-tcard-head\"><span class=\"ds-tcard-id\">#142</span><span class=\"ds-andon\"><span class=\"ds-lamp ds-lamp--red\"></span><span class=\"ds-lamp\"></span><span class=\"ds-lamp\"></span></span></div><p class=\"ds-tcard-title\">Add retry to webhook</p></div></div></div><div class=\"ds-board-col\"><div class=\"ds-board-label ds-tape\">WORKTREE</div><div class=\"ds-board-slot\"></div></div><div class=\"ds-board-col\"><div class=\"ds-board-label ds-tape\">PR</div><div class=\"ds-board-slot\"></div></div><div class=\"ds-board-col\"><div class=\"ds-board-label ds-tape\">CODE</div><div class=\"ds-board-slot\"></div></div></div></div>",
+      "css": ".ds-board { width: 560px; border: 1px solid var(--color-hairline, #242d3a); border-radius: 10px; background: linear-gradient(180deg, #141b25 0%, #0f151d 100%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 26px 60px -36px rgb(0 0 0 / 0.9); overflow: hidden; color: var(--color-paper, #f2f0ea); } .ds-tape { font-family: var(--font-body, 'Archivo Variable', sans-serif); font-size: 0.6875rem; font-weight: 650; letter-spacing: 0.1em; text-transform: uppercase; } .ds-board-rail { display: flex; justify-content: space-between; padding: 0.5rem 0.85rem; border-bottom: 1px solid var(--color-hairline, #242d3a); } .ds-board-slots { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); height: 208px; } .ds-board-col { display: grid; grid-template-rows: 2rem minmax(0, 1fr); border-right: 1px solid var(--color-hairline, #242d3a); } .ds-board-col:last-child { border-right: 0; } .ds-board-label { display: flex; align-items: center; justify-content: center; border-bottom: 1px solid var(--color-hairline, #242d3a); background: #0e141b; color: #cfd6e0; } .ds-board-slot { padding: 12px 7px; background: repeating-linear-gradient(180deg, rgb(255 255 255 / 0.022) 0 1px, transparent 1px 26px), var(--color-slot, #0d1218); } .ds-tcard { display: flex; flex-direction: column; gap: 0.3rem; width: 150px; height: 150px; border: 2px solid #0b0f14; border-radius: 3px; background: var(--color-signal-yellow, #f5c518); padding: 0.5rem 0.55rem; color: #0b0f14; box-shadow: 0 3px 6px -2px rgb(0 0 0 / 0.55), 0 12px 22px -14px rgb(0 0 0 / 0.95); } .ds-tcard-head { display: flex; justify-content: space-between; align-items: flex-start; } .ds-tcard-id { font-family: var(--font-mono, 'JetBrains Mono Variable', monospace); font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.02em; } .ds-tcard-title { margin: 0; font-size: 0.8125rem; font-weight: 700; line-height: 1.15; letter-spacing: -0.01em; } .ds-tcard-meta { margin: auto 0 0; font-family: var(--font-mono, 'JetBrains Mono Variable', monospace); font-size: 0.625rem; opacity: 0.72; } .ds-andon { display: inline-flex; flex-direction: column; gap: 3px; } .ds-lamp { width: 8px; height: 8px; border: 1px solid rgb(0 0 0 / 0.55); border-radius: 50%; background: #1d2531; } .ds-lamp--red { background: var(--color-andon-red, #ff3b30); animation: ds-blink 1.7s ease-in-out infinite; } .ds-lamp--amber { background: var(--color-andon-amber, #ffb020); } .ds-lamp--green { background: var(--color-andon-green, #3ddc84); } @keyframes ds-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } } .ds-board-slot .ds-tcard { width: auto; height: calc(100% - 4px); box-sizing: border-box; } .ds-tcard--ghost { background: #2a3240; color: #7c8794; box-shadow: none; opacity: 0.55; filter: saturate(0.2); }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "The single container for modes, steps, install and mesh.",
+      "html": "<article class=\"ds-panel\"><h3 class=\"ds-panel-title\">Agents</h3><p class=\"ds-panel-claim\">Every agent, one list.</p><p class=\"ds-panel-body\">Peek and reply without attaching to the session.</p></article>",
+      "css": ".ds-panel { max-width: 380px; padding: 20px; border: 1px solid var(--color-hairline, #242d3a); border-radius: 10px; background: linear-gradient(180deg, var(--color-panel-2, #1b2330) 0%, var(--color-panel, #141b24) 100%); box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.04), 0 22px 48px -30px rgb(0 0 0 / 0.85); color: var(--color-paper, #f2f0ea); } .ds-panel-title { margin: 0; font-family: var(--font-display, 'Big Shoulders Display Variable', sans-serif); font-weight: 800; letter-spacing: 0.005em; text-transform: uppercase; font-size: 1.5rem; line-height: 1.25; } .ds-panel-claim { margin: 8px 0 0; font-size: 15px; color: rgb(242 240 234 / 0.85); } .ds-panel-body { margin: 16px 0 0; font-size: 14px; }"
+    },
+    {
+      "name": "Copy Block",
+      "kind": "input",
+      "refersTo": "copy-block",
+      "description": "Copyable commands with a yellow prompt and an icon copy button.",
+      "html": "<div class=\"ds-copy\"><pre class=\"ds-copy-pre\"><span class=\"ds-copy-p\">$ </span>bun install\n<span class=\"ds-copy-p\">$ </span>bun run dev:full</pre><button class=\"ds-copy-btn\" type=\"button\" aria-label=\"Copy commands\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\" ry=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/></svg></button></div>",
+      "css": ".ds-copy { display: flex; align-items: flex-start; gap: 8px; max-width: 520px; border: 1px solid var(--color-hairline, #242d3a); border-radius: 6px; background: #080b0f; } .ds-copy-pre { flex: 1; margin: 0; padding: 12px; overflow-x: auto; font-family: var(--font-mono, 'JetBrains Mono Variable', monospace); font-size: 13px; line-height: 24px; color: rgb(242 240 234 / 0.9); } .ds-copy-p { color: var(--color-signal-yellow, #f5c518); user-select: none; } .ds-copy-btn { display: grid; place-items: center; width: 44px; height: 44px; margin: 6px 6px 0 0; border: 0; border-radius: 4px; background: #080b0f; color: var(--color-paper, #f2f0ea); cursor: pointer; } .ds-copy-btn:hover { background: #151b23; color: var(--color-paper, #f2f0ea); } .ds-copy-btn:focus-visible { outline: 2px solid var(--color-signal-yellow, #f5c518); outline-offset: 3px; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Night-Shift Planning Wall",
+    "overview": "The page is a factory planning wall after hours: blue-black powder-coated steel, a faint horizontal brushed grain over everything, hairline rails dividing the wall into slots, and one card-stock T-card in signal yellow that travels those slots. The board is the page's object, not a decoration: the hero shows it, the \"How it works\" section drives the same card through five slots on scroll, and the static fallback repeats the five slots as a compact row.\n\nDensity is calm and strict. Repeated identical units (five slots, mode panels, build rows) are the ruler; panels share one surface treatment, one radius and one hairline. Colour is almost absent: steel neutrals, paper text, one yellow for the card and every interactive accent, and three andon lamp colours that mean status and nothing else.\n\nDepth comes from the physical metaphor: slots are recessed, cards and panels sit on soft, downward offset shadows, nothing emits light.",
+    "keyCharacteristics": [
+      "Blue-black steel ground with a fixed fractal-noise grain at 5.5% opacity and one top-right radial lift.",
+      "One yellow T-card with black keyline ink as the sole saturated surface.",
+      "Andon lamps (red, amber, green) used only as task status.",
+      "Condensed heavy uppercase display, plain Archivo body, mono only for commands, paths and IDs.",
+      "Hairline borders and recessed slots instead of fills to separate regions."
+    ],
+    "rules": [
+      {
+        "name": "The One Card Colour Rule",
+        "body": "Signal yellow is the only saturated fill on the page. It marks the task card and the action; nothing else may be filled with it.",
+        "section": "colors"
+      },
+      {
+        "name": "The Andon Means Status Rule",
+        "body": "Red, amber and green appear only as lamp states on a card, each paired with screen-reader text. Never as decoration, headings or buttons.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tape Not Kicker Rule",
+        "body": "Label tape names a physical thing (a slot, a board, a nav target). It never sits above a heading as a section label.",
+        "section": "typography"
+      },
+      {
+        "name": "The Mono Is Evidence Rule",
+        "body": "JetBrains Mono appears only for literal strings a user would type or read off a tool: commands, URLs, branches, issue numbers, machine names.",
+        "section": "typography"
+      },
+      {
+        "name": "The Fixed Ruler Rule",
+        "body": "Slot counts and slot widths never change between views: always five, always equal. The card moves by exactly one slot width per step.",
+        "section": "layout"
+      },
+      {
+        "name": "The Soft Offset Rule",
+        "body": "Shadows are soft, black and fall downward. No hard offset shadows, no coloured shadows.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do keep every panel on the same surface: 10px radius, hairline border, panel gradient, rest shadow.",
+      "Do use signal yellow for the card and for every interactive accent, and nothing else.",
+      "Do pair each andon lamp with screen-reader status text.",
+      "Do keep five equal slots in every board view and move the card by exactly one slot per step.",
+      "Do keep a static, ghosted equivalent for every scroll or hover motion under reduced motion.",
+      "Do keep tap targets at 44px minimum (48px for buttons)."
+    ],
+    "donts": [
+      "Don't use andon red, amber or green outside lamp states.",
+      "Don't put label tape above headings as an eyebrow; it labels objects.",
+      "Don't add glow, coloured shadows or hard offset shadows; depth is soft and black.",
+      "Don't set display text in anything but the condensed display face, or commands in anything but mono.",
+      "Don't fill large regions with yellow beyond the card and the primary button."
+    ]
+  }
+}
