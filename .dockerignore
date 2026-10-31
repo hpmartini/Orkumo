@@ -45,8 +45,8 @@ docker-compose*.yml
 .git
 .gitignore
 
-# Private module code
-data/modules
+# Local app data (projects, settings) - never in an image
+data
 
 # Documentation
 README.md

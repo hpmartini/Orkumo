@@ -1,6 +1,6 @@
 name: Release
 
-# Baut die Electron-App für macOS/Linux und hängt die Installer an das Release.
+# Baut die Electron-App für macOS/Linux und die Docker-Images (GHCR) und hängt Installer und Compose ans Release.
 on:
   release:
     types: [published]
@@ -61,4 +61,63 @@ jobs:
               gh release upload "${{ github.event.release.tag_name }}" "$f" --clobber
             done
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Baut die Docker-Images (API + Frontend) für amd64/arm64, pusht sie nach GHCR
+  # und hängt die Release-Compose-Datei samt DB-Schema ans Release.
+  docker:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        image: [api, frontend]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # <version> immer, latest nur für reguläre Releases (nicht für Pre-Releases wie -rc).
+      - id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        with:
+          images: ghcr.io/hpmartini/devhub-${{ matrix.image }}
+          flavor: latest=false
+          tags: |
+            type=semver,pattern={{version}},value=${{ github.event.release.tag_name }}
+            type=raw,value=latest,enable=${{ !github.event.release.prerelease }}
+
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: Dockerfile.${{ matrix.image }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
+
+      # Release-Compose mit fest eingetragener Version, damit ein Download genau dieses Release startet.
+      - name: Upload compose files to release
+        if: matrix.image == 'api'
+        shell: bash
+        run: |
+          mkdir -p release-assets
+          sed "s/\${DEVHUB_VERSION:-latest}/\${DEVHUB_VERSION:-${TAG#v}}/" docker/docker-compose.release.yml > release-assets/docker-compose.release.yml
+          grep -q "devhub-api:\${DEVHUB_VERSION:-${TAG#v}}" release-assets/docker-compose.release.yml
+          cp docker/init-db.sql release-assets/init-db.sql
+          gh release upload "$TAG" release-assets/docker-compose.release.yml release-assets/init-db.sql --clobber
+        env:
+          TAG: ${{ github.event.release.tag_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
