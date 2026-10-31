@@ -115,7 +115,7 @@ function Shot({ step, contain }: { step: Step; contain?: boolean }) {
 
 function StepList() {
   return (
-    <div className="mx-auto max-w-7xl px-5 pb-24 sm:px-9">
+    <div className="mx-auto max-w-7xl px-5 pt-10 pb-24 sm:px-9">
       <ol className="grid gap-5">
         {STEPS.map((step, index) => (
           <li key={step.slot} className="grid gap-4">

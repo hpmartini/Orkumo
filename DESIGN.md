@@ -147,7 +147,7 @@ Steel neutrals and paper text carry the page; signal yellow is the single accent
 - **Command Well** (command-well): background of copyable command blocks and the mesh command line.
 - **Screenshot Well** (shot-well): frame behind product screenshots.
 
-The card-stock set named in the direction (salmon, mint, sky) is declared in `@theme` but not shipped; the build uses yellow only.
+The card stock is yellow only; the salmon, mint and sky tokens from the direction were dropped because nothing used them.
 
 ### Named Rules
 
@@ -223,7 +223,7 @@ Yellow card stock, 2px ground keyline, 3px radius, mono ID top left, three-lamp 
 
 ### Planning Board (signature)
 
-A hairline-ruled frame with a label-tape rail ("Planning board" / "Example"), five labelled recessed slots and an absolute card layer whose position is a CSS variable in slot units, so the scroll walk moves the card without re-rendering. Below it in the walk sits the slot rail: five label-tape buttons, active one in yellow with an arrow.
+A hairline-ruled frame with a label-tape rail ("Planning board" / "Example"), five labelled recessed slots and an absolute card layer whose position is a CSS variable in slot units, so the scroll walk moves the card without re-rendering. Below it in the walk sits the slot rail: five label-tape buttons, active one in yellow with an arrow. Slot names sit on black tape strips (1px top highlight, soft offset shadow); the active slot of a static board is on red tape.
 
 ### Copy Block
 
@@ -235,7 +235,7 @@ Sticky 56px header in ground at 85% with backdrop blur and a bottom hairline. Wo
 
 ### Screenshot Frame
 
-Screenshot well, hairline, 6 to 8px radius. In Modes the image tilts on hover (3 degrees, 4px translate, spring); reduced motion shows it flat. The tilt component also ships a white hover glare (40%, overlay blend) as a library default; it sits outside the no-glow system and is not a pattern to repeat.
+Screenshot well, hairline, 6 to 8px radius. In Modes the image tilts on hover (3 degrees, 4px translate, spring); reduced motion shows it flat. The library glare layer is removed (no-glow system).
 
 ## Do's and Don'ts
 

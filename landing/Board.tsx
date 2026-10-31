@@ -71,7 +71,11 @@ export function Board({
   const layerRef = useRef<HTMLDivElement>(null);
   const still = useMotionValue(typeof index === 'number' ? index : 0);
   const position = typeof index === 'number' ? still : index;
-  const fixed = typeof index === 'number' ? ({ '--i': index } as CSSProperties) : undefined;
+  // the slot has to be in the markup: the prerendered HTML shows the card before the bundle runs
+  const start = useRef(position.get()).current;
+  const fixed = { '--i': typeof index === 'number' ? index : start } as CSSProperties;
+  // only a plain number names the active slot, a motion value has no readable index here
+  const active = typeof index === 'number' ? SLOTS[Math.round(index)] : undefined;
 
   useMotionValueEvent(position, 'change', (value) => {
     layerRef.current?.style.setProperty('--i', value.toFixed(4));
@@ -80,13 +84,15 @@ export function Board({
   return (
     <div className="board">
       <div className="board-rail">
-        <span className="label-tape text-paper/90">Planning board</span>
+        <span className="tape label-tape">Planning board</span>
         <span className="label-tape text-muted">{caption ?? 'Example'}</span>
       </div>
       <div className="board-slots">
         {SLOTS.map((slot) => (
           <div className="board-col" key={slot}>
-            <div className="board-label label-tape">{slot}</div>
+            <div className="board-label label-tape">
+              <span className={cn('tape', slot === active && 'tape--red')}>{slot}</span>
+            </div>
             <div className="board-slot" />
           </div>
         ))}
@@ -114,7 +120,9 @@ export function Trail({ index, andon }: { index: number; andon: Andon }) {
     <ol className="trail">
       {SLOTS.map((slot, i) => (
         <li key={slot} className="trail-slot">
-          <span className="trail-label label-tape">{slot}</span>
+          <span className="trail-label label-tape">
+            <span className="tape">{slot}</span>
+          </span>
           {i < index && <span className="trail-card trail-card--ghost" aria-hidden />}
           {i === index && (
             <span className="trail-card">

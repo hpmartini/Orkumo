@@ -5,16 +5,12 @@
 @theme {
   /* powder-coated steel, blue-black */
   --color-ground: #0b0f14;
-  --color-ground-2: #121821;
   --color-panel: #141b24;
   --color-panel-2: #1b2330;
   --color-slot: #0d1218;
   --color-hairline: #242d3a;
   /* card stock */
   --color-signal-yellow: #f5c518;
-  --color-signal-salmon: #ff8a65;
-  --color-signal-mint: #7fe0b5;
-  --color-signal-sky: #7db8ff;
   --color-paper: #f2f0ea;
   /* secondary text, ≥ 7:1 on ground and panel */
   --color-muted: #a3acb9;
@@ -133,6 +129,23 @@
   text-transform: uppercase;
 }
 
+/* the label itself as a strip of tape on the slot */
+.tape {
+  display: inline-block;
+  padding: 0.18rem 0.45rem;
+  border-radius: 2px;
+  background: #05070a;
+  color: #f2f0ea;
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.1),
+    0 2px 4px -1px rgb(0 0 0 / 0.7);
+}
+
+.tape--red {
+  background: #b3261e;
+  color: #fff4f2;
+}
+
 /* --- T-card planning board ------------------------------------------- */
 
 .board {
@@ -223,7 +236,11 @@
     border-bottom: 0;
     border-right: 1px solid var(--color-hairline);
     justify-content: flex-start;
-    padding-left: 0.6rem;
+    padding-left: 0.45rem;
+  }
+  .board-label .tape {
+    padding-inline: 0.3rem;
+    letter-spacing: 0.04em;
   }
   .board-card-layer {
     inset: 0 0 0 84px;
@@ -404,6 +421,9 @@
   .trail-label {
     font-size: 0.5625rem;
     letter-spacing: 0.02em;
+  }
+  .trail-label .tape {
+    padding-inline: 0.2rem;
   }
 }
 

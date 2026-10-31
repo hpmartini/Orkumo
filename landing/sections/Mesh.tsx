@@ -1,3 +1,4 @@
+import { Minus } from 'lucide-react';
 import { Reveal } from '../components/Reveal';
 
 const INTRO =
@@ -27,9 +28,7 @@ export function Mesh() {
           <ul className="mt-6 space-y-3 text-[15px] text-muted">
             {POINTS.map((point) => (
               <li key={point} className="flex gap-2.5">
-                <span aria-hidden className="text-signal-yellow">
-                  —
-                </span>
+                <Minus size={14} aria-hidden className="mt-1 shrink-0 text-signal-yellow" />
                 <span>{point}</span>
               </li>
             ))}

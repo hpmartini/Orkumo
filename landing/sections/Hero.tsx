@@ -1,4 +1,6 @@
+import { useEffect } from 'react';
 import { ArrowUpRight } from 'lucide-react';
+import { animate, useMotionValue } from 'motion/react';
 import { useReduceMotion } from '../lib/media';
 import { Board } from '../Board';
 import { CopyBlock } from '../components/CopyBlock';
@@ -14,6 +16,22 @@ const NOTE = 'Pre-release · macOS & Linux · open source on GitHub';
 export function Hero() {
   const reduce = useReduceMotion();
   const label = useDownloadLabel();
+  // the card starts in its slot, so the prerendered HTML matches; the effect walks it in
+  const index = useMotionValue(1);
+
+  useEffect(() => {
+    if (reduce) {
+      index.set(1);
+      return;
+    }
+    index.set(0);
+    const controls = animate(index, 1, {
+      duration: 0.9,
+      delay: 0.4,
+      ease: [0.22, 1, 0.36, 1],
+    });
+    return () => controls.stop();
+  }, [index, reduce]);
 
   return (
     <section
@@ -43,7 +61,7 @@ export function Hero() {
         <p className="mt-4 text-xs text-muted">{NOTE}</p>
       </div>
       <div className="lg:col-span-6">
-        <Board index={1} andon="red" caption="Example" />
+        <Board index={index} andon="red" caption="Example" />
       </div>
     </section>
   );

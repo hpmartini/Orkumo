@@ -1,3 +1,4 @@
+import { Minus } from 'lucide-react';
 import { useReduceMotion } from '../lib/media';
 import { CometCard } from '../components/ui/comet-card';
 import { Reveal } from '../components/Reveal';
@@ -112,9 +113,7 @@ function ModeCard({ mode, index }: { mode: Mode; index: number }) {
         <ul className="mt-4 space-y-2 text-[14px] text-muted">
           {mode.points.map((point) => (
             <li key={point} className="flex gap-2.5">
-              <span aria-hidden className="text-signal-yellow">
-                —
-              </span>
+              <Minus size={14} aria-hidden className="mt-1 shrink-0 text-signal-yellow" />
               <span>{point}</span>
             </li>
           ))}

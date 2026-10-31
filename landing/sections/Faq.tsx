@@ -1,3 +1,5 @@
+import { Plus } from 'lucide-react';
+
 const FAQ = [
   {
     question: 'Do I need an API key?',
@@ -44,12 +46,11 @@ export function Faq() {
               <details key={item.question} className="group border-b border-hairline">
                 <summary className="flex min-h-14 cursor-pointer list-none items-center justify-between gap-4 py-4 text-[15px] font-semibold text-paper [&::-webkit-details-marker]:hidden">
                   {item.question}
-                  <span
+                  <Plus
+                    size={20}
                     aria-hidden
-                    className="text-xl text-signal-yellow transition-transform duration-200 group-open:rotate-45"
-                  >
-                    +
-                  </span>
+                    className="shrink-0 text-signal-yellow transition-transform duration-200 group-open:rotate-45"
+                  />
                 </summary>
                 <p className="max-w-2xl pb-5 text-[15px] text-muted">{item.answer}</p>
               </details>
