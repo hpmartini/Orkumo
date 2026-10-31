@@ -9,10 +9,8 @@ import { BUILD_LABEL, sameGo } from '../../utils/workflowStage.js';
 /** launchd job of `mw board install` */
 export const MW_BOARD_JOB = 'de.martini-labs.mw-board';
 
-export const workflowGoSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('build') }).strict(),
-  z.object({ kind: z.literal('poll') }).strict(),
-]);
+/** Body `go` of POST /api/workflows/go: only the build GO; the poll has its own route */
+export const workflowGoSchema = z.object({ kind: z.literal('build') }).strict();
 
 /**
  * Starts the mw-board poll now. No `-k`: mw relies on launchd never overlapping two polls, and

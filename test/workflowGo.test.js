@@ -86,15 +86,11 @@ describe('workflowGo', () => {
     expect(vi.mocked(runOnHost).mock.calls[0][1]).toEqual(['kickstart', `gui/501/${MW_BOARD_JOB}`]);
   });
 
-  it('schema: poll is strict, unknown kinds are rejected (route answers 400)', () => {
-    expect(workflowGoSchema.safeParse({ kind: 'poll' }).success).toBe(true);
-    expect(workflowGoSchema.safeParse({ kind: 'poll', args: ['-k'] }).success).toBe(false);
-    expect(workflowGoSchema.safeParse({ kind: 'kick' }).success).toBe(false);
-  });
-
-  it('#136 AC-4: schema takes build and poll only; mw 6 approve is rejected (400)', () => {
+  it('#136 AC-4: /workflows/go schema takes build only; poll, approve and extras are rejected (400)', () => {
     expect(workflowGoSchema.safeParse({ kind: 'build' }).success).toBe(true);
     expect(workflowGoSchema.safeParse({ kind: 'build', label: 'x' }).success).toBe(false);
+    expect(workflowGoSchema.safeParse({ kind: 'poll' }).success).toBe(false);
+    expect(workflowGoSchema.safeParse({ kind: 'kick' }).success).toBe(false);
     const approve = { kind: 'approve', runId: 'r-1', stage: 'plan', sha: 'abcdef1' };
     expect(workflowGoSchema.safeParse(approve).success).toBe(false);
   });

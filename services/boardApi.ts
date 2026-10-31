@@ -142,6 +142,9 @@ export function sendWorkflowGo(
   itemId: string,
   go: WorkflowGo
 ): Promise<{ ok: true; pollError?: string | null }> {
+  // the poll start has its own route; /workflows/go takes the build GO only (#136)
+  if (go.kind === 'poll')
+    return request('/workflows/poll', { method: 'POST', body: JSON.stringify({ itemId }) });
   return request('/workflows/go', { method: 'POST', body: JSON.stringify({ itemId, go }) });
 }
 

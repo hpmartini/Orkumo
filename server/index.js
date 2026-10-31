@@ -1574,22 +1574,29 @@ async function workflowDirs({ item, state }) {
   return [...new Set([worktree, clone].filter(Boolean))];
 }
 
-// GO for the next stage; refused unless it is exactly the GO the fresh state offers
+// GO (mw:build) or poll start; refused unless it is exactly the GO the fresh state offers
+const sendGo = (goOf) => async (req, res) => {
+  try {
+    const ctx = await workflowContext(req.body.itemId, { refresh: true });
+    const { status, body } = await applyGo(ctx, goOf(req.body), {
+      updateIssue: boardService.updateIssue,
+    });
+    res.status(status).json(body);
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+};
 app.post(
   '/api/workflows/go',
   agentLimiter,
   validate(z.object({ itemId: boardItemIdSchema, go: workflowGoSchema }).strict()),
-  async (req, res) => {
-    try {
-      const ctx = await workflowContext(req.body.itemId, { refresh: true });
-      const { status, body } = await applyGo(ctx, req.body.go, {
-        updateIssue: boardService.updateIssue,
-      });
-      res.status(status).json(body);
-    } catch (error) {
-      sendAgentError(res, error);
-    }
-  }
+  sendGo((b) => b.go)
+);
+app.post(
+  '/api/workflows/poll',
+  agentLimiter,
+  validate(z.object({ itemId: boardItemIdSchema }).strict()),
+  sendGo(() => ({ kind: 'poll' }))
 );
 
 app.get('/api/workflows/details', agentLimiter, async (req, res) => {
