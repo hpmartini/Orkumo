@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
 import { BrowserPreviewPanel } from './CodingView/BrowserPreviewPanel';
-import { registerShellBrowser, SHELL_BROWSER_KEY } from '../utils/links';
+import { registerShellBrowser, routeLink, SHELL_BROWSER_KEY } from '../utils/links';
 
 const readUrl = () => {
   try {
-    return localStorage.getItem(SHELL_BROWSER_KEY);
+    const url = localStorage.getItem(SHELL_BROWSER_KEY);
+    // parked state is stored input: only http(s) may reach the iframe
+    return url && routeLink(url, 'builtin') === 'builtin' ? url : null;
   } catch {
     return null;
   }

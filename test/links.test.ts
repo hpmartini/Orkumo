@@ -68,6 +68,15 @@ describe('openLink', () => {
     expect(open).not.toHaveBeenCalled();
   });
 
+  it('system refused by Electron (localhost in prod) falls back to the built-in browser', async () => {
+    setLinkTarget('system');
+    const openExternal = vi.fn().mockResolvedValue({ success: false, error: 'Invalid URL' });
+    window.electronAPI = { openExternal } as unknown as typeof window.electronAPI;
+    const pane = vi.fn();
+    openLink('http://localhost:5173/', pane);
+    await vi.waitFor(() => expect(pane).toHaveBeenCalledWith('http://localhost:5173/'));
+  });
+
   it('blocked urls open nowhere', () => {
     const pane = vi.fn();
     const open = vi.spyOn(window, 'open');
@@ -93,8 +102,8 @@ describe('interceptAnchorClick', () => {
   it('routes target=_blank http(s) anchors into the shell browser', () => {
     const shell = vi.fn();
     const unregister = registerShellBrowser(shell);
-    expect(click('https://github.com/pr/1').defaultPrevented).toBe(true);
-    expect(shell).toHaveBeenCalledWith('https://github.com/pr/1');
+    expect(click('https://example.org/pr/1').defaultPrevented).toBe(true);
+    expect(shell).toHaveBeenCalledWith('https://example.org/pr/1');
     unregister();
   });
 
@@ -105,7 +114,7 @@ describe('interceptAnchorClick', () => {
     const row = document.createElement('div');
     row.addEventListener('click', (e) => e.stopPropagation());
     const a = document.createElement('a');
-    a.href = 'https://github.com/o/r/issues';
+    a.href = 'https://example.org/o/r/issues';
     a.target = '_blank';
     row.appendChild(a);
     document.body.appendChild(row);
@@ -117,7 +126,7 @@ describe('interceptAnchorClick', () => {
     expect(fire({ metaKey: true })).toBe(false);
     expect(shell).not.toHaveBeenCalled();
     expect(fire()).toBe(true);
-    expect(shell).toHaveBeenCalledWith('https://github.com/o/r/issues');
+    expect(shell).toHaveBeenCalledWith('https://example.org/o/r/issues');
     uninstall();
     row.remove();
     unregister();
@@ -129,6 +138,22 @@ describe('interceptAnchorClick', () => {
     expect(click('https://a.de', '').defaultPrevented).toBe(false);
     expect(click('mailto:a@b.de').defaultPrevented).toBe(false);
     expect(shell).not.toHaveBeenCalled();
+    unregister();
+  });
+});
+
+describe('web mode (no Electron BrowserView)', () => {
+  it('github.com refuses iframes: opens externally instead of a blank panel', () => {
+    const shell = vi.fn();
+    const unregister = registerShellBrowser(shell);
+    const open = vi.spyOn(window, 'open').mockReturnValue(null);
+    const pr = 'https://github.com/o/r/pull/1';
+    expect(openLink(pr)).toBe('system');
+    expect(open).toHaveBeenCalledWith(pr, '_blank', 'noopener,noreferrer');
+    expect(shell).not.toHaveBeenCalled();
+    window.electronAPI = { browserView: {} } as unknown as typeof window.electronAPI;
+    expect(openLink(pr)).toBe('builtin');
+    expect(shell).toHaveBeenCalledWith(pr);
     unregister();
   });
 });

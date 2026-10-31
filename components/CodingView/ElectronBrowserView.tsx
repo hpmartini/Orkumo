@@ -132,10 +132,17 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
     if (!api || !containerRef.current) return;
 
     const viewId = viewIdRef.current;
+    let lastBounds = '';
 
     const updateBounds = () => {
-      const bounds = calculateBounds();
-      if (bounds) {
+      // The native view paints above all HTML: collapse it while a modal is open (#140)
+      const bounds = document.querySelector('[aria-modal="true"]')
+        ? { x: 0, y: 0, width: 0, height: 0 }
+        : calculateBounds();
+      // body mutations fire constantly (terminals); only send real changes over IPC
+      const key = JSON.stringify(bounds);
+      if (bounds && key !== lastBounds) {
+        lastBounds = key;
         api.resize(viewId, bounds).catch(console.error);
       }
     };
@@ -149,6 +156,8 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
     });
 
     observer.observe(containerRef.current);
+    const modalObserver = new MutationObserver(updateBounds);
+    modalObserver.observe(document.body, { childList: true, subtree: true });
 
     // Also listen for window resize/scroll events
     window.addEventListener('resize', updateBounds);
@@ -156,6 +165,7 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
 
     return () => {
       observer.disconnect();
+      modalObserver.disconnect();
       window.removeEventListener('resize', updateBounds);
       window.removeEventListener('scroll', updateBounds, true);
     };

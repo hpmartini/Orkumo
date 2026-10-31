@@ -22,6 +22,13 @@ export function routeLink(url: string, target: LinkTarget): LinkRoute {
   return target === 'builtin' ? 'builtin' : 'system';
 }
 
+/**
+ * Web mode embeds via iframe, which these hosts refuse (X-Frame-Options/frame-ancestors) -> blank panel.
+ * shortcut: known hosts only, other refusing sites still show the refused page; Electron's BrowserView is unaffected.
+ */
+const FRAME_REFUSING_HOST = /(^|\.)github\.com$/i;
+const refusesFraming = (url: string) => FRAME_REFUSING_HOST.test(new URL(url).hostname);
+
 /** URL of the shell browser panel; per context like the attached agent tabs (UI_KEYS in useProjectContexts) */
 export const SHELL_BROWSER_KEY = 'devOrbitShellBrowser';
 
@@ -42,9 +49,17 @@ export function registerShellBrowser(open: (url: string) => void) {
 }
 
 /** System browser, bypassing the built-in one (Electron's window.open is routed back into the app) */
-export function openInSystemBrowser(url: string) {
+export function openInSystemBrowser(url: string, onRefused?: (url: string) => void) {
   if (window.electronAPI?.openExternal) {
-    window.electronAPI.openExternal(url).catch(console.error);
+    // main refuses e.g. localhost in production builds; without a fallback the click would do nothing
+    window.electronAPI
+      .openExternal(url)
+      .then((result) => {
+        if (result.success) return;
+        if (onRefused) onRefused(url);
+        else console.warn(`[links] system browser refused ${url}: ${result.error ?? 'unknown'}`);
+      })
+      .catch(console.error);
     return;
   }
   window.open(url, '_blank', 'noopener,noreferrer');
@@ -55,10 +70,12 @@ export function openInSystemBrowser(url: string) {
  * (agent terminals open a split pane next to themselves instead).
  */
 export function openLink(url: string, builtin?: (url: string) => void): LinkRoute {
-  const route = routeLink(url, linkTarget);
+  let route = routeLink(url, linkTarget);
+  if (route === 'builtin' && !window.electronAPI?.browserView && refusesFraming(url))
+    route = 'system';
   const openBuiltin = builtin ?? shellBrowser;
   if (route === 'builtin' && openBuiltin) openBuiltin(url);
-  else if (route !== 'blocked') openInSystemBrowser(url);
+  else if (route !== 'blocked') openInSystemBrowser(url, openBuiltin ?? undefined);
   return route;
 }
 
