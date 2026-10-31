@@ -1,12 +1,17 @@
 // Fonts load as separate files: @font-face in the CSS gets inlined as base64 by the Tailwind
 // plugin, which would make the stylesheet ~270 KB and block the first paint. Latin subset only.
 import archivo from '../node_modules/@fontsource-variable/archivo/files/archivo-latin-wdth-normal.woff2';
+import display from '../node_modules/@fontsource-variable/big-shoulders-display/files/big-shoulders-display-latin-wght-normal.woff2';
 import mono from '../node_modules/@fontsource-variable/jetbrains-mono/files/jetbrains-mono-latin-wght-normal.woff2';
 
 const faces = [
   new FontFace('Archivo Variable', `url(${archivo}) format('woff2')`, {
     weight: '100 900',
     stretch: '62% 125%',
+    display: 'swap',
+  }),
+  new FontFace('Big Shoulders Display Variable', `url(${display}) format('woff2')`, {
+    weight: '100 900',
     display: 'swap',
   }),
   new FontFace('JetBrains Mono Variable', `url(${mono}) format('woff2')`, {

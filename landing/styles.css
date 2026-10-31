@@ -1,89 +1,435 @@
-@import "tailwindcss" source(none);
+@import 'tailwindcss' source(none);
 
 @source "./";
 
 @theme {
-  --color-ground: #07080b;
-  --color-case: #0e1014;
-  --color-panel: #16181d;
-  --color-panel-2: #1d2027;
-  --color-rail: #2a2d35;
-  --color-ink: #ece9e2;
-  --color-muted: #a2a5ae;
-  --color-signal-blue: #3b82f6;
-  --color-signal-violet: #8b5cf6;
-  --color-signal-green: #a3e635;
-  --color-led: #ff3b30;
-  --font-display: "Archivo Variable", "Archivo", ui-sans-serif, sans-serif;
-  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+  /* powder-coated steel, blue-black */
+  --color-ground: #0b0f14;
+  --color-ground-2: #121821;
+  --color-panel: #141b24;
+  --color-panel-2: #1b2330;
+  --color-slot: #0d1218;
+  --color-hairline: #242d3a;
+  /* card stock */
+  --color-signal-yellow: #f5c518;
+  --color-signal-salmon: #ff8a65;
+  --color-signal-mint: #7fe0b5;
+  --color-signal-sky: #7db8ff;
+  --color-paper: #f2f0ea;
+  /* andon stack lights, status only */
+  --color-andon-red: #ff3b30;
+  --color-andon-amber: #ffb020;
+  --color-andon-green: #3ddc84;
+  --font-display: 'Big Shoulders Display Variable', 'Archivo Variable', ui-sans-serif, sans-serif;
+  --font-body: 'Archivo Variable', ui-sans-serif, sans-serif;
+  --font-sans: var(--font-body);
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
 }
 
 @layer base {
   html {
-    background: var(--color-ground);
-    color: var(--color-ink);
-    font-family: var(--font-display);
+    background-color: var(--color-ground);
+    color: var(--color-paper);
+    font-family: var(--font-body);
     scroll-behavior: smooth;
-    scrollbar-color: var(--color-rail) var(--color-ground);
+    scrollbar-color: #2b3543 var(--color-ground);
     -webkit-font-smoothing: antialiased;
+    /* clip, not hidden: keeps position: sticky working */
+    overflow-x: clip;
   }
+
   body {
     min-height: 100dvh;
     background:
-      radial-gradient(120% 60% at 70% 0%, #11141c 0%, transparent 60%),
-      var(--color-ground);
-    caret-color: var(--color-signal-green);
+      radial-gradient(130% 68% at 84% -14%, #17212d 0%, transparent 58%), var(--color-ground);
+    caret-color: var(--color-signal-yellow);
   }
-  /* faint grain on the anodised case */
+
+  /* brushed grain on the steel */
   body::before {
-    content: "";
+    content: '';
     position: fixed;
     inset: 0;
+    z-index: 60;
     pointer-events: none;
-    z-index: 50;
-    opacity: 0.06;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    opacity: 0.055;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85 .02' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
+
   ::selection {
-    background: var(--color-signal-green);
-    color: var(--color-ground);
+    background: var(--color-signal-yellow);
+    color: #0b0f14;
   }
+
   :focus-visible {
-    outline: 2px solid var(--color-signal-green);
+    outline: 2px solid var(--color-signal-yellow);
     outline-offset: 3px;
-    border-radius: 4px;
+    border-radius: 3px;
   }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: var(--color-ground);
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #2b3543;
+    border-radius: 999px;
+  }
+
   @media (prefers-reduced-motion: reduce) {
     html {
       scroll-behavior: auto;
     }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
   }
 }
 
-@utility silk {
-  font-stretch: 125%;
+/* condensed industrial display face */
+@utility display-face {
+  font-family: var(--font-display);
   font-weight: 800;
+  letter-spacing: 0.005em;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
-/* rack rail with screw holes */
-@utility rail {
-  background:
-    radial-gradient(circle at 14px 50%, #050608 3px, #3a3e48 4px, transparent 5px) left / 100% 100% no-repeat,
-    radial-gradient(circle at calc(100% - 14px) 50%, #050608 3px, #3a3e48 4px, transparent 5px) left / 100% 100% no-repeat,
-    linear-gradient(180deg, #2b2e36 0%, #1a1c22 100%);
-  box-shadow:
-    inset 0 1px 0 #3d414b,
-    0 2px 6px rgb(0 0 0 / 0.5);
+/* display sizes, kept out of the markup so the tags stay short */
+@utility head-hero {
+  font-size: clamp(3rem, 7vw, 6rem);
+  line-height: 0.9;
 }
 
-@utility module {
-  background: linear-gradient(180deg, var(--color-panel-2) 0%, var(--color-panel) 100%);
-  border: 1px solid #262931;
-  border-radius: 6px;
+@utility head-section {
+  font-size: clamp(2rem, 4.5vw, 3.5rem);
+  line-height: 1;
+}
+
+@utility head-close {
+  font-size: clamp(2.25rem, 5vw, 4rem);
+  line-height: 1;
+}
+
+@utility head-claim {
+  font-size: clamp(1.6rem, 2.6vw, 2.35rem);
+  line-height: 1.05;
+}
+
+/* label tape: caps on the board, mono stays for commands and ids */
+@utility label-tape {
+  font-family: var(--font-body);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+/* --- T-card planning board ------------------------------------------- */
+
+.board {
+  position: relative;
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: linear-gradient(180deg, #141b25 0%, #0f151d 100%);
   box-shadow:
     inset 0 1px 0 rgb(255 255 255 / 0.04),
-    0 18px 40px -18px rgb(0 0 0 / 0.8),
-    0 2px 4px rgb(0 0 0 / 0.4);
+    0 26px 60px -36px rgb(0 0 0 / 0.9);
+  overflow: hidden;
+}
+
+.board-rail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  border-bottom: 1px solid var(--color-hairline);
+  padding: 0.5rem 0.85rem;
+}
+
+.board-slots {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  height: 208px;
+}
+
+.board-col {
+  display: grid;
+  grid-template-rows: 2rem minmax(0, 1fr);
+  min-width: 0;
+  border-right: 1px solid var(--color-hairline);
+}
+.board-col:last-child {
+  border-right: 0;
+}
+
+.board-label {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-bottom: 1px solid var(--color-hairline);
+  background: #0e141b;
+  color: #cfd6e0;
+}
+
+.board-slot {
+  min-width: 0;
+  background:
+    repeating-linear-gradient(180deg, rgb(255 255 255 / 0.022) 0 1px, transparent 1px 26px),
+    var(--color-slot);
+}
+
+.board-card-layer {
+  position: absolute;
+  inset: 2rem 0 0 0;
+  pointer-events: none;
+}
+
+/* the box is exactly one slot wide, so 100% of itself is one slot step */
+.board-card {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 20%;
+  transform: translateX(calc(var(--i, 0) * 100%));
+}
+
+@media (max-width: 767px) {
+  .board-slots {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: repeat(5, minmax(0, 1fr));
+    height: 460px;
+  }
+  .board-col {
+    grid-template-columns: 84px minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+    border-right: 0;
+    border-bottom: 1px solid var(--color-hairline);
+  }
+  .board-col:last-child {
+    border-bottom: 0;
+  }
+  .board-label {
+    border-bottom: 0;
+    border-right: 1px solid var(--color-hairline);
+    justify-content: flex-start;
+    padding-left: 0.6rem;
+  }
+  .board-card-layer {
+    inset: 0 0 0 84px;
+  }
+  .board-card {
+    top: 0;
+    right: 0;
+    bottom: auto;
+    width: auto;
+    height: 20%;
+    transform: translateY(calc(var(--i, 0) * 100%));
+  }
+}
+
+/* --- the card itself -------------------------------------------------- */
+
+.tcard {
+  display: flex;
+  height: calc(100% - 24px);
+  flex-direction: column;
+  gap: 0.3rem;
+  margin: 12px 7px;
+  border: 2px solid #0b0f14;
+  border-radius: 3px;
+  background: var(--color-signal-yellow);
+  padding: 0.5rem 0.55rem;
+  color: #0b0f14;
+  box-shadow:
+    0 3px 6px -2px rgb(0 0 0 / 0.55),
+    0 12px 22px -14px rgb(0 0 0 / 0.95);
+}
+
+@media (max-width: 767px) {
+  .tcard {
+    height: calc(100% - 10px);
+    margin: 5px;
+  }
+  /* the branch line is the first thing to go when the slot gets narrow */
+  .tcard-meta {
+    display: none;
+  }
+}
+
+.tcard--ghost {
+  background: #2a3240;
+  border-color: #0b0f14;
+  color: #7c8794;
+  box-shadow: none;
+  opacity: 0.55;
+  filter: saturate(0.2);
+}
+
+.tcard-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.tcard-id {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.tcard-title {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+}
+
+.tcard-meta {
+  margin-top: auto;
+  font-family: var(--font-mono);
+  font-size: 0.625rem;
+  opacity: 0.72;
+}
+
+/* andon stack light: red needs input, amber working, green ready */
+.andon {
+  display: inline-flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.andon-lamp {
+  width: 8px;
+  height: 8px;
+  border: 1px solid rgb(0 0 0 / 0.55);
+  border-radius: 50%;
+  background: #1d2531;
+}
+
+.andon-lamp[data-state='on'][data-color='red'] {
+  background: var(--color-andon-red);
+  animation: andon-blink 1.7s ease-in-out infinite;
+}
+.andon-lamp[data-state='on'][data-color='amber'] {
+  background: var(--color-andon-amber);
+}
+.andon-lamp[data-state='on'][data-color='green'] {
+  background: var(--color-andon-green);
+}
+
+@keyframes andon-blink {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.3;
+  }
+}
+
+/* the five slot labels have to fit into a fifth of a phone screen */
+@media (max-width: 640px) {
+  .slot-rail .label-tape {
+    font-size: 0.625rem;
+    letter-spacing: 0.06em;
+  }
+}
+
+/* --- compact board row: the static walk ------------------------------- */
+
+.trail {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.trail-slot {
+  display: grid;
+  align-content: start;
+  gap: 5px;
+  min-width: 0;
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-slot);
+  padding: 6px;
+}
+
+.trail-label {
+  color: #cfd6e0;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.trail-card {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  height: 48px;
+  border: 2px solid #0b0f14;
+  border-radius: 3px;
+  background: var(--color-signal-yellow);
+  padding: 5px;
+  box-shadow: 0 10px 18px -14px rgb(0 0 0 / 0.95);
+}
+
+.trail-card--ghost {
+  background: #2a3240;
+  opacity: 0.55;
+  filter: saturate(0.2);
+  box-shadow: none;
+}
+
+.trail-card--empty {
+  border: 1px dashed var(--color-hairline);
+  background: transparent;
+  box-shadow: none;
+}
+
+@media (max-width: 640px) {
+  .trail-label {
+    font-size: 0.5625rem;
+    letter-spacing: 0.02em;
+  }
+}
+
+/* --- misc ------------------------------------------------------------- */
+
+.panel {
+  border: 1px solid var(--color-hairline);
+  border-radius: 10px;
+  background: linear-gradient(180deg, var(--color-panel-2) 0%, var(--color-panel) 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / 0.04),
+    0 22px 48px -30px rgb(0 0 0 / 0.85);
+}
+
+/* recessed slot, e.g. a machine row inside the mesh board */
+.inset {
+  border: 1px solid var(--color-hairline);
+  border-radius: 6px;
+  background: var(--color-slot);
+}
+
+.band {
+  border-top: 1px solid var(--color-hairline);
+  border-bottom: 1px solid var(--color-hairline);
+  background: #0d1218;
+}
+
+.band-top {
+  border-top: 1px solid var(--color-hairline);
+  background: #0d1218;
 }

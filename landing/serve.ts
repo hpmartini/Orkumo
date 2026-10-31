@@ -12,7 +12,13 @@ Bun.serve({
     const rel = pathname.slice(BASE.length) || 'index.html';
     if (rel.includes('..')) return new Response('Not found', { status: 404 });
     const file = Bun.file(`dist-landing/${rel}`);
-    return (await file.exists()) ? new Response(file) : new Response('Not found', { status: 404 });
+    if (!(await file.exists())) return new Response('Not found', { status: 404 });
+    // Pages gzips text responses; without it local Lighthouse runs measure a slower site
+    if (!/\.(html|css|js|svg)$/.test(rel) || !req.headers.get('accept-encoding')?.includes('gzip'))
+      return new Response(file);
+    return new Response(Bun.gzipSync(await file.bytes()), {
+      headers: { 'Content-Type': file.type, 'Content-Encoding': 'gzip' },
+    });
   },
 });
 // eslint-disable-next-line no-console -- CLI output

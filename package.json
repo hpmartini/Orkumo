@@ -89,6 +89,7 @@
     "@electron/notarize": "^2.5.0",
     "@electron/rebuild": "^4.0.1",
     "@fontsource-variable/archivo": "^5.3.0",
+    "@fontsource-variable/big-shoulders-display": "^5.3.0",
     "@fontsource-variable/jetbrains-mono": "^5.3.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.1",
