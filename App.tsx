@@ -37,7 +37,7 @@ import { WorkflowView } from './components/WorkflowView';
 import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
 import { CodeView } from './components/CodeView';
 import { ShellBrowser } from './components/ShellBrowser';
-import { interceptAnchorClick, openLink, setLinkTarget } from './utils/links';
+import { installAnchorInterception, openLink, setLinkTarget } from './utils/links';
 
 type ActiveTab = 'dashboard' | 'usage' | 'agents' | 'board' | 'code' | 'workflows' | 'pulls';
 
@@ -129,10 +129,10 @@ function AppContent() {
     if (linkTarget) setLinkTarget(linkTarget);
   }, [linkTarget]);
   useEffect(() => {
-    document.addEventListener('click', interceptAnchorClick);
+    const offAnchors = installAnchorInterception();
     const offOpenLink = window.electronAPI?.onOpenLink?.((url) => openLink(url));
     return () => {
-      document.removeEventListener('click', interceptAnchorClick);
+      offAnchors();
       offOpenLink?.();
     };
   }, []);

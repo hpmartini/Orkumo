@@ -67,10 +67,21 @@ export function openLink(url: string, builtin?: (url: string) => void): LinkRout
  * so the individual components keep plain anchors (copy link, middle-click) without their own logic.
  */
 export function interceptAnchorClick(event: MouseEvent) {
+  // modifier clicks keep the browser's own "open in new tab/window"
   if (event.defaultPrevented || event.button !== 0) return;
+  if (event.metaKey || event.ctrlKey || event.shiftKey) return;
   const anchor = (event.target as HTMLElement | null)?.closest?.<HTMLAnchorElement>('a[href]');
   // mailto: and friends keep the browser's default handling
   if (!anchor || anchor.target !== '_blank' || !/^https?:/i.test(anchor.href)) return;
   event.preventDefault();
   openLink(anchor.href);
+}
+
+/**
+ * Capture phase: rail anchors stop propagation (so the row doesn't toggle), which would hide
+ * the click from a bubbling document listener. Returns the cleanup.
+ */
+export function installAnchorInterception() {
+  document.addEventListener('click', interceptAnchorClick, true);
+  return () => document.removeEventListener('click', interceptAnchorClick, true);
 }

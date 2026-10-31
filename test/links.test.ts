@@ -5,6 +5,7 @@ import {
   setLinkTarget,
   registerShellBrowser,
   interceptAnchorClick,
+  installAnchorInterception,
 } from '../utils/links';
 
 afterEach(() => {
@@ -94,6 +95,31 @@ describe('interceptAnchorClick', () => {
     const unregister = registerShellBrowser(shell);
     expect(click('https://github.com/pr/1').defaultPrevented).toBe(true);
     expect(shell).toHaveBeenCalledWith('https://github.com/pr/1');
+    unregister();
+  });
+
+  it('sees anchors whose row stops propagation, leaves modifier clicks to the browser', () => {
+    const shell = vi.fn();
+    const unregister = registerShellBrowser(shell);
+    const uninstall = installAnchorInterception();
+    const row = document.createElement('div');
+    row.addEventListener('click', (e) => e.stopPropagation());
+    const a = document.createElement('a');
+    a.href = 'https://github.com/o/r/issues';
+    a.target = '_blank';
+    row.appendChild(a);
+    document.body.appendChild(row);
+    const fire = (init: { metaKey?: boolean } = {}) => {
+      const event = new MouseEvent('click', { bubbles: true, cancelable: true, ...init });
+      a.dispatchEvent(event);
+      return event.defaultPrevented;
+    };
+    expect(fire({ metaKey: true })).toBe(false);
+    expect(shell).not.toHaveBeenCalled();
+    expect(fire()).toBe(true);
+    expect(shell).toHaveBeenCalledWith('https://github.com/o/r/issues');
+    uninstall();
+    row.remove();
     unregister();
   });
 
