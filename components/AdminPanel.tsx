@@ -13,6 +13,7 @@ import {
   CheckCircle,
   Kanban,
   Pencil,
+  Globe,
 } from 'lucide-react';
 import {
   fetchConfig,
@@ -27,7 +28,9 @@ import {
   IDE,
   fetchSettings,
   updateKeyboardShortcuts,
+  updateLinkTarget,
 } from '../services/api';
+import { setLinkTarget as applyLinkTarget, type LinkTarget } from '../utils/links';
 import { fetchBoardSettings, updateBoardSettings } from '../services/boardApi';
 import {
   KeyboardShortcuts,
@@ -64,6 +67,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [shortcutsLoading, setShortcutsLoading] = useState(false);
   const [editingShortcut, setEditingShortcut] = useState<keyof KeyboardShortcuts | null>(null);
   const [shortcutsDirty, setShortcutsDirty] = useState(false);
+
+  // Where clicked links open (#140)
+  const [linkTarget, setLinkTarget] = useState<LinkTarget>('builtin');
 
   // Board source state
   const [boardSource, setBoardSource] = useState<BoardSource>({ owner: '', number: 0 });
@@ -105,6 +111,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     setShortcutsLoading(true);
     try {
       const settings = await fetchSettings();
+      setLinkTarget(settings.linkTarget ?? 'builtin');
       if (settings.keyboardShortcuts) {
         setShortcuts(settings.keyboardShortcuts);
       }
@@ -126,6 +133,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
       setError(err instanceof Error ? err.message : 'Failed to save keyboard shortcuts');
     } finally {
       setShortcutsLoading(false);
+    }
+  };
+
+  const handleLinkTargetChange = async (target: LinkTarget) => {
+    const previous = linkTarget;
+    setLinkTarget(target);
+    setError(null);
+    try {
+      applyLinkTarget((await updateLinkTarget(target)).linkTarget);
+    } catch (err) {
+      setLinkTarget(previous);
+      setError(err instanceof Error ? err.message : 'Failed to save link target');
     }
   };
 
@@ -480,6 +499,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               ))}
             </div>
           </div>
+
+          {/* Links Section (#140) */}
+          <fieldset className="pt-4 border-t border-gray-700">
+            <legend className="flex items-center gap-2 mb-3 text-sm font-medium text-gray-300">
+              <Globe className="text-blue-400" size={18} />
+              Open links in
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ['builtin', 'Built-in browser'],
+                  ['system', 'System browser'],
+                ] as const
+              ).map(([value, label]) => (
+                <label
+                  key={value}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded border text-sm cursor-pointer transition-colors ${
+                    linkTarget === value
+                      ? 'border-blue-500 bg-blue-500/10 text-white'
+                      : 'border-gray-600 text-gray-300 hover:border-gray-500'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="linkTarget"
+                    value={value}
+                    checked={linkTarget === value}
+                    onChange={() => handleLinkTargetChange(value)}
+                    className="accent-blue-500"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              Links from terminals (Cmd/Ctrl-click), the app and VS Code (desktop app). Pages in the
+              built-in browser keep an &quot;open externally&quot; button.
+            </p>
+          </fieldset>
 
           {/* IDE Settings Section */}
           <div className="pt-4 border-t border-gray-700">

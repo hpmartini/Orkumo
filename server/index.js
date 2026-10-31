@@ -391,6 +391,22 @@ app.put('/api/settings/keyboard-shortcuts', (req, res) => {
 });
 
 /**
+ * PUT /api/settings/link-target
+ * Where clicked links open (#140): built-in browser or system browser
+ */
+app.put(
+  '/api/settings/link-target',
+  validate(z.object({ linkTarget: z.enum(['builtin', 'system']) }).strict()),
+  (req, res) => {
+    try {
+      res.json({ linkTarget: settingsService.setLinkTarget(req.body.linkTarget) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
  * PUT /api/settings/archive/:id
  * Toggle or set archive status for an app
  */
@@ -1839,6 +1855,7 @@ const contextUiSchema = z
     devOrbitAgentWorkspace: contextUiValue,
     'devOrbitAgentRail.v1': contextUiValue,
     devOrbitContextRoute: contextUiValue,
+    devOrbitShellBrowser: contextUiValue,
   })
   .strict();
 

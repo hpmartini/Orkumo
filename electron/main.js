@@ -5,7 +5,7 @@ import { fork } from 'child_process';
 import * as fs from 'fs';
 import { createServer } from 'net';
 import dotenv from 'dotenv';
-import { isValidExternalUrl, validateDialogOptions } from './validation.js';
+import { isValidExternalUrl, validateDialogOptions, windowOpenRoute } from './validation.js';
 import { APP_NAME } from './constants.js';
 import { PORTS } from '../config/defaults.js';
 
@@ -88,9 +88,10 @@ function createWindow() {
   }
 
   // Handle external links with URL validation
+  // Links from the app and its frames (Web-IDE) open per the link setting in the renderer (#140)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (isValidExternalUrl(url, isDev)) {
-      shell.openExternal(url);
+    if (windowOpenRoute(url) === 'renderer') {
+      mainWindow.webContents.send('open-link', url);
     } else {
       console.warn('[Electron] Blocked attempt to open invalid URL:', url);
     }
@@ -669,6 +670,12 @@ function setupIpcHandlers() {
           }
         }
       );
+
+      // New windows from a page stay in this view instead of opening unsandboxed Electron windows
+      view.webContents.setWindowOpenHandler(({ url }) => {
+        if (windowOpenRoute(url) === 'renderer') view.webContents.loadURL(url).catch(() => {});
+        return { action: 'deny' };
+      });
 
       // Set bounds
       view.setBounds({

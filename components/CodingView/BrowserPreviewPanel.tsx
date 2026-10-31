@@ -20,6 +20,7 @@ import { ConsoleLogEntry } from './ConsoleLogEntry';
 import { NetworkLogEntry } from './NetworkLogEntry';
 import { DevToolsErrorBoundary } from './DevToolsErrorBoundary';
 import { ElectronBrowserView } from './ElectronBrowserView';
+import { openInSystemBrowser } from '../../utils/links';
 
 interface BrowserPreviewPanelProps {
   url: string;
@@ -287,6 +288,7 @@ const IframeBrowserPreview = ({
               onClick={onHide}
               className="p-1 hover:bg-gray-700 rounded transition-colors"
               title="Hide browser preview"
+              aria-label="Hide browser preview"
             >
               <X size={14} />
             </button>
@@ -316,9 +318,9 @@ const IframeBrowserPreview = ({
             onKeyDown={(e) => e.key === 'Enter' && handleRefresh()}
           />
           <button
-            onClick={() => window.open(currentUrl, '_blank')}
+            onClick={() => openInSystemBrowser(currentUrl)}
             className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-            title="Open in new tab"
+            title="Open in system browser"
           >
             <ExternalLink className="w-4 h-4" />
           </button>

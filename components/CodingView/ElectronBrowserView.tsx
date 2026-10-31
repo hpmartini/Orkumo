@@ -9,6 +9,7 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { openInSystemBrowser } from '../../utils/links';
 
 interface ElectronBrowserViewProps {
   url: string;
@@ -259,6 +260,7 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
               onClick={onHide}
               className="p-1 hover:bg-gray-700 rounded transition-colors"
               title="Hide browser preview"
+              aria-label="Hide browser preview"
             >
               <ExternalLink size={14} />
             </button>
@@ -288,9 +290,9 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
             onKeyDown={(e) => e.key === 'Enter' && handleRefresh()}
           />
           <button
-            onClick={() => window.open(currentUrl, '_blank')}
+            onClick={() => openInSystemBrowser(currentUrl)}
             className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-            title="Open in new window"
+            title="Open in system browser"
           >
             <ExternalLink className="w-4 h-4" />
           </button>
