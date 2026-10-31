@@ -19,6 +19,6 @@ if (!result.success) {
   for (const log of result.logs) console.error(log);
   process.exit(1);
 }
-// eslint-disable-next-line no-console -- CLI output
 for (const out of result.outputs)
+  // eslint-disable-next-line no-console -- CLI output
   console.log(out.kind.padEnd(10), out.path.replace(process.cwd() + '/', ''));
