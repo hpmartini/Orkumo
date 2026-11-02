@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
+  DELEGATE_LABEL,
+  REVIEW_LABEL,
   currentMode,
   insertIntoDraft,
   quoteComment,
@@ -25,7 +27,9 @@ describe('toggleLabel', () => {
 describe('mode labels', () => {
   it('reads default without mode label', () => {
     expect(currentMode(['bug', 'mw:go'])).toBe('default');
-    expect(currentMode(['mw:pipeline'])).toBe('pipeline');
+    expect(currentMode(['mw:image'])).toBe('image');
+    // mw 6 labels are no mode any more (#136)
+    expect(currentMode(['mw:pipeline'])).toBe('default');
   });
   it('sets exactly one mode label and keeps the rest', () => {
     expect(setMode(['bug', 'mw:orchestrate', 'mw:dynamic'], 'image')).toEqual([
@@ -34,6 +38,14 @@ describe('mode labels', () => {
       'mw:image',
     ]);
     expect(setMode(['bug', 'mw:image'], 'default')).toEqual(['bug']);
+  });
+  it('drops legacy mw 6 mode labels on any mode change', () => {
+    expect(setMode(['mw:pipeline', 'mw:orchestrate', 'x'], 'default')).toEqual(['x']);
+    expect(setMode(['mw:pipeline'], 'image')).toEqual(['mw:image']);
+  });
+  it('toggles the delegate and review switches', () => {
+    expect(toggleLabel(['mw:go'], DELEGATE_LABEL, true)).toEqual(['mw:go', 'mw:delegate']);
+    expect(toggleLabel(['mw:review', 'x'], REVIEW_LABEL, false)).toEqual(['x']);
   });
 });
 

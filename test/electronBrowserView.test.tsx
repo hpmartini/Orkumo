@@ -45,4 +45,39 @@ describe('ElectronBrowserView', () => {
     unmount();
     expect(api.destroy).toHaveBeenCalledTimes(1);
   });
+
+  it('collapses the native view while a modal is open (#140)', async () => {
+    const api = {
+      create: vi.fn(ok),
+      navigate: vi.fn(ok),
+      destroy: vi.fn(ok),
+      resize: vi.fn(ok),
+    };
+    (window as unknown as { electronAPI: unknown }).electronAPI = { browserView: api };
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 10,
+      y: 20,
+      width: 800,
+      height: 600,
+    } as never);
+    const { unmount } = render(<ElectronBrowserView url="https://a.test/" appId="" />);
+    await waitFor(() => expect(api.resize).toHaveBeenCalled());
+    const open = { x: 10, y: 20, width: 800, height: 600 };
+    expect(api.resize).toHaveBeenLastCalledWith(expect.any(String), open);
+
+    const modal = document.createElement('div');
+    modal.setAttribute('aria-modal', 'true');
+    document.body.appendChild(modal);
+    await waitFor(() =>
+      expect(api.resize).toHaveBeenLastCalledWith(expect.any(String), {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+      })
+    );
+    modal.remove();
+    await waitFor(() => expect(api.resize).toHaveBeenLastCalledWith(expect.any(String), open));
+    unmount();
+  });
 });

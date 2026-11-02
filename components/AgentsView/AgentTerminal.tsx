@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { openLink } from '../../utils/links';
 import '@xterm/xterm/css/xterm.css';
 import {
   RefreshCw,
@@ -27,18 +28,6 @@ import { stateGlyph } from '../../utils/agentSessions';
 /** Below this pane width the header actions fold into an overflow menu */
 const NARROW_PX = 360;
 const paneBtnFocus = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400';
-
-/** WebLinksAddon's default handler (not exported): new window without opener */
-function openExternally(uri: string) {
-  const win = window.open();
-  if (!win) return;
-  try {
-    win.opener = null;
-  } catch {
-    // Electron can throw
-  }
-  win.location.href = uri;
-}
 
 interface AgentTerminalProps {
   session: AgentSession;
@@ -152,11 +141,11 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     terminal.loadAddon(fitAddon);
     terminal.loadAddon(
       new WebLinksAddon((event, uri) => {
+        // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140)
+        if (!(event.metaKey || event.ctrlKey)) return;
         const open = onOpenLinkRef.current;
-        if (open && (event.metaKey || event.ctrlKey) && /^https?:\/\//i.test(uri)) {
-          // after xterm's own mouseup handling: opening the split remounts this terminal
-          setTimeout(() => open(uri));
-        } else openExternally(uri);
+        // after xterm's own mouseup handling: opening the split remounts this terminal
+        setTimeout(() => openLink(uri, open));
       })
     );
     terminal.open(container);

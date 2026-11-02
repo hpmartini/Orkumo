@@ -1,12 +1,24 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowDown, ArrowUp, ArrowUpDown, Check, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  Check,
+  CircleDot,
+  GitPullRequest,
+  ListFilter,
+  X,
+} from 'lucide-react';
 import type { AgentDaemonStatus } from '../../types';
 import {
   AgentQuickFilter,
   AgentSort,
+  LinkFilterEntry,
   QUICK_FILTERS,
   SORT_OPTIONS,
 } from '../../utils/agentSessions';
+import { usePopover } from './PullRequestsPanel';
 
 interface AgentSummaryBarProps {
   counts: {
@@ -59,7 +71,7 @@ export const AgentSummaryBar: React.FC<AgentSummaryBarProps> = ({
   );
 
   return (
-    <div className="flex items-center gap-0.5 text-xs text-gray-400 min-w-0 flex-wrap">
+    <div className="flex items-center gap-0.5 text-xs text-gray-400 min-w-0 flex-wrap whitespace-nowrap">
       <span
         className={`w-1.5 h-1.5 rounded-full mr-1.5 shrink-0 ${daemon?.running ? 'bg-emerald-500' : 'bg-gray-600'}`}
         title={`Supervisor ${daemon?.running ? 'running' : 'idle'}${daemon?.raw ? `\n${daemon.raw}` : ''}`}
@@ -134,7 +146,83 @@ interface AgentFilterBarProps {
   /** Any filter (chips or text filter) is narrowing the list */
   filtered: boolean;
   onClear: () => void;
+  /** Open PRs and linked issues of the agents in the current context */
+  linkEntries: LinkFilterEntry[];
+  linkSelected: ReadonlySet<string>;
+  onToggleLink: (key: string) => void;
 }
+
+/** Whether the quick-filter chips are expanded (collapsed by default) */
+export const CHIPS_OPEN_KEY = 'devOrbitAgentFilterChipsOpen';
+
+/** Searchable list of PRs and issues; a highlighted entry narrows the agent list to it. */
+const LinkFilterPanel: React.FC<{
+  entries: LinkFilterEntry[];
+  selected: ReadonlySet<string>;
+  onToggle: (key: string) => void;
+  onClose: () => void;
+}> = ({ entries, selected, onToggle, onClose }) => {
+  const ref = usePopover(onClose);
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const shown = q
+    ? entries.filter((e) => `${e.label} ${e.title}`.toLowerCase().includes(q))
+    : entries;
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="dialog"
+      aria-label="Filter by pull request or issue"
+      className="absolute left-0 top-full mt-1 z-30 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl outline-none"
+    >
+      <div className="p-2 border-b border-gray-700">
+        <input
+          autoFocus
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search PRs and issues"
+          aria-label="Search PRs and issues"
+          className="w-full bg-gray-900 px-2 py-1 rounded text-xs text-gray-200 placeholder-gray-500 outline-none focus:ring-1 focus:ring-blue-500"
+        />
+      </div>
+      <ul className="max-h-72 overflow-y-auto py-1" aria-label="PRs and issues">
+        {shown.length === 0 && (
+          <li className="px-3 py-2 text-xs text-gray-500">
+            {entries.length === 0 ? 'No open PRs or issues here' : 'No match'}
+          </li>
+        )}
+        {shown.map((entry) => {
+          const on = selected.has(entry.key);
+          const Icon = entry.kind === 'pr' ? GitPullRequest : CircleDot;
+          return (
+            <li key={entry.key}>
+              <button
+                role="checkbox"
+                aria-checked={on}
+                onClick={() => onToggle(entry.key)}
+                title={entry.title}
+                className={`w-full flex items-center gap-2 text-left px-3 py-1.5 text-xs transition-colors ${
+                  on
+                    ? 'bg-blue-500/20 text-blue-100 hover:bg-blue-500/30'
+                    : 'text-gray-300 hover:bg-gray-700 hover:text-white'
+                }`}
+              >
+                <Icon
+                  size={12}
+                  className={`shrink-0 ${entry.kind === 'pr' ? 'text-yellow-400' : 'text-emerald-400'}`}
+                  aria-hidden="true"
+                />
+                <span className="shrink-0 font-mono tabular-nums">{entry.label}</span>
+                <span className="truncate min-w-0">{entry.title}</span>
+              </button>
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+};
 
 /**
  * Sort menu, filter chips and the "N of M" count above the list.
@@ -149,8 +237,27 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
   total,
   filtered,
   onClear,
+  linkEntries,
+  linkSelected,
+  onToggleLink,
 }) => {
   const [open, setOpen] = useState(false);
+  const [chipsOpen, setChipsOpenState] = useState(() => {
+    try {
+      return localStorage.getItem(CHIPS_OPEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setChipsOpen = (open: boolean) => {
+    setChipsOpenState(open);
+    try {
+      localStorage.setItem(CHIPS_OPEN_KEY, open ? '1' : '0');
+    } catch {
+      // stays in memory only
+    }
+  };
+  const [linksOpen, setLinksOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const current = SORT_OPTIONS.find((o) => o.key === sort.key) || SORT_OPTIONS[0];
 
@@ -220,6 +327,43 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
         >
           {sort.dir === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
         </button>
+        <button
+          onClick={() => setChipsOpen(!chipsOpen)}
+          aria-expanded={chipsOpen}
+          aria-controls="agent-filter-chips"
+          title={chipsOpen ? 'Hide filters' : 'Show filters'}
+          aria-label={chipsOpen ? 'Hide filters' : 'Show filters'}
+          className={`flex items-center gap-1 px-1.5 py-1 rounded hover:bg-gray-800 ${
+            active.size > 0 ? 'text-blue-300' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          <ListFilter size={13} />
+          {active.size > 0 && <span className="tabular-nums">{active.size}</span>}
+        </button>
+        <div className="relative">
+          <button
+            onClick={() => setLinksOpen((v) => !v)}
+            data-popover-trigger
+            aria-haspopup="dialog"
+            aria-expanded={linksOpen}
+            title="Filter by pull request or issue"
+            aria-label="Filter by pull request or issue"
+            className={`flex items-center gap-1 px-1.5 py-1 rounded hover:bg-gray-800 ${
+              linkSelected.size > 0 ? 'text-blue-300' : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <GitPullRequest size={13} />
+            {linkSelected.size > 0 && <span className="tabular-nums">{linkSelected.size}</span>}
+          </button>
+          {linksOpen && (
+            <LinkFilterPanel
+              entries={linkEntries}
+              selected={linkSelected}
+              onToggle={onToggleLink}
+              onClose={() => setLinksOpen(false)}
+            />
+          )}
+        </div>
         <div className="flex-1" />
         <span className="text-gray-500 tabular-nums" aria-live="polite">
           {filtered ? `${shown} of ${total}` : `${total} ${total === 1 ? 'agent' : 'agents'}`}
@@ -234,29 +378,36 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
           </button>
         )}
       </div>
-      <div className="flex flex-wrap gap-1" role="group" aria-label="Filter agents">
-        {QUICK_FILTERS.map((chip) => {
-          const on = active.has(chip.key);
-          const count = chipCounts[chip.key];
-          return (
-            <button
-              key={chip.key}
-              onClick={() => onToggle(chip.key)}
-              aria-pressed={on}
-              title={chip.title}
-              className={`px-2 py-0.5 rounded-full text-[11px] border tabular-nums ${
-                on
-                  ? 'bg-blue-500/20 border-blue-500/50 text-blue-200'
-                  : count === 0
-                    ? 'border-gray-800 text-gray-500 hover:bg-gray-800'
-                    : 'border-gray-700 text-gray-300 hover:bg-gray-800'
-              }`}
-            >
-              {chip.label} <span className={on ? 'text-blue-300' : 'text-gray-500'}>{count}</span>
-            </button>
-          );
-        })}
-      </div>
+      {chipsOpen && (
+        <div
+          id="agent-filter-chips"
+          className="flex flex-wrap gap-1"
+          role="group"
+          aria-label="Filter agents"
+        >
+          {QUICK_FILTERS.map((chip) => {
+            const on = active.has(chip.key);
+            const count = chipCounts[chip.key];
+            return (
+              <button
+                key={chip.key}
+                onClick={() => onToggle(chip.key)}
+                aria-pressed={on}
+                title={chip.title}
+                className={`px-2 py-0.5 rounded-full text-[11px] border tabular-nums ${
+                  on
+                    ? 'bg-blue-500/20 border-blue-500/50 text-blue-200'
+                    : count === 0
+                      ? 'border-gray-800 text-gray-500 hover:bg-gray-800'
+                      : 'border-gray-700 text-gray-300 hover:bg-gray-800'
+                }`}
+              >
+                {chip.label} <span className={on ? 'text-blue-300' : 'text-gray-500'}>{count}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 };

@@ -6,11 +6,14 @@ import {
   sessionAgeMs,
   formatAge,
   prLabel,
+  dirName,
   documentTitle,
   COMPLETED_VISIBLE_LIMIT,
   DEFAULT_SORT,
   sortSessionsBy,
   applyQuickFilters,
+  applyLinkFilter,
+  collectLinkEntries,
   matchesQuickFilter,
   matchServers,
   summarizeContext,
@@ -158,8 +161,13 @@ describe('summaries and formatting', () => {
   it('renders PR labels with provider prefixes and counts', () => {
     expect(prLabel([openPr])).toMatchObject({ text: '#1', href: openPr.href });
     expect(prLabel([{ ...openPr, provider: 'gitlab', number: 9 }])?.text).toBe('!9');
-    expect(prLabel([openPr, { ...openPr, id: 'pr2', number: 2 }])?.text).toBe('2 PRs');
+    expect(prLabel([openPr, { ...openPr, id: 'pr2', number: 2 }])?.text).toBe('2');
     expect(prLabel([])).toBeNull();
+  });
+
+  it('names directory groups by project, worktrees with their folder', () => {
+    expect(dirName('/Users/x/PROJECTS/DevOrbitDashboard')).toBe('DevOrbitDashboard');
+    expect(dirName('/Users/x/PROJECTS/App/.claude/worktrees/fix-1')).toBe('App · fix-1');
   });
 
   it('builds the document title', () => {
@@ -536,5 +544,35 @@ describe('sessionsInContext (#133)', () => {
   it('keeps sessions whose most specific app is a member', () => {
     expect(sessionsInContext(all, apps, ['repo', 'other'])).toEqual([inRoot, inWorktree]);
     expect(sessionsInContext(all, apps, ['web'])).toEqual([inWeb]);
+  });
+});
+
+describe('PR / issue filter', () => {
+  const pr = session({ id: 'p', links: [openPr] });
+  const issue = session({ id: 'i' });
+  const none = session({ id: 'n' });
+  const issuesByAgent = new Map([['i', ['o/r#7']]]);
+
+  it('lists open PRs first, then linked issues, with titles', () => {
+    const entries = collectLinkEntries(
+      [pr, issue, none],
+      issuesByAgent,
+      undefined,
+      new Map([['o/r#7', 'Fix it']])
+    );
+    expect(entries.map((e) => [e.kind, e.label, e.title])).toEqual([
+      ['pr', '#1', openPr.href],
+      ['issue', '#7', 'Fix it'],
+    ]);
+  });
+
+  it('keeps sessions linked to any selected entry', () => {
+    const all = [pr, issue, none];
+    const ids = (list: { id: string }[]) => list.map((s) => s.id).join('');
+    expect(ids(applyLinkFilter(all, new Set(), issuesByAgent))).toBe('pin');
+    expect(ids(applyLinkFilter(all, new Set(['issue:o/r#7']), issuesByAgent))).toBe('i');
+    expect(
+      ids(applyLinkFilter(all, new Set([`pr:${openPr.href}`, 'issue:o/r#7']), issuesByAgent))
+    ).toBe('pi');
   });
 });

@@ -220,3 +220,37 @@ describe('useRailPreferences expanded rows', () => {
     expect(keepKnown(list, new Set(['b']))).toEqual(['b']);
   });
 });
+
+describe('useRailPreferences on a context switch', () => {
+  it('never writes the left context favorites into the new one, even from a child effect', async () => {
+    const { render } = await import('@testing-library/react');
+    const React = await import('react');
+    const { STORAGE_KEY } = await import('../hooks/useRailPreferences');
+    localStorage.clear();
+    let rail!: ReturnType<typeof useRailPreferences>;
+    // Like AgentList: a child effect reveals the active session whenever the context changes
+    const Child = ({ contextId, reveal }: { contextId: string; reveal: () => void }) => {
+      React.useEffect(reveal, [contextId, reveal]);
+      return null;
+    };
+    const Parent = ({ contextId }: { contextId: string }) => {
+      rail = useRailPreferences('project', contextId);
+      const reveal = React.useCallback(
+        () => rail.revealSession([], 'agent-a'),
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [rail.revealSession]
+      );
+      return <Child contextId={contextId} reveal={reveal} />;
+    };
+    const view = render(<Parent contextId="a" />);
+    act(() => rail.toggleFavoriteSession('agent-a'));
+    expect(rail.favoriteSessions.has('agent-a')).toBe(true);
+
+    // useProjectContexts swaps the stored prefs before the new context id arrives
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ modes: {}, favoriteSessions: [] }));
+    view.rerender(<Parent contextId="b" />);
+
+    expect(rail.favoriteSessions.size).toBe(0);
+    expect(JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}').favoriteSessions).toEqual([]);
+  });
+});

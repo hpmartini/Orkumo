@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { AgentFilterBar, AgentSummaryBar } from '../components/AgentsView/AgentSummaryBar';
+import {
+  AgentFilterBar,
+  AgentSummaryBar,
+  CHIPS_OPEN_KEY,
+} from '../components/AgentsView/AgentSummaryBar';
 import { QUICK_FILTERS, type AgentQuickFilter } from '../utils/agentSessions';
 
 const counts = { awaitingInput: 0, working: 2, completed: 1, failed: 0, cacheExpiring: 3 };
@@ -55,6 +59,7 @@ describe('cache-expiring quick filter', () => {
   });
 
   it('has a chip with count in the filter bar that toggles the same key', () => {
+    localStorage.removeItem(CHIPS_OPEN_KEY);
     const onToggle = vi.fn();
     const chipCounts = Object.fromEntries(QUICK_FILTERS.map((f) => [f.key, 0])) as Record<
       AgentQuickFilter,
@@ -72,11 +77,60 @@ describe('cache-expiring quick filter', () => {
         total={5}
         filtered={false}
         onClear={() => {}}
+        linkEntries={[]}
+        linkSelected={new Set()}
+        onToggleLink={() => {}}
       />
     );
+    // Chips start collapsed
+    expect(screen.queryByRole('button', { name: 'Cache expiring 3' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show filters' }));
+    // Remembered for the next render
+    expect(localStorage.getItem(CHIPS_OPEN_KEY)).toBe('1');
     const chip = screen.getByRole('button', { name: 'Cache expiring 3' });
     expect(chip).toHaveAttribute('title', 'Agents whose prompt cache expires within 10 minutes');
     fireEvent.click(chip);
     expect(onToggle).toHaveBeenCalledWith('cache-expiring');
+  });
+});
+
+describe('PR / issue filter dropdown', () => {
+  it('searches entries and toggles the clicked one', () => {
+    const onToggleLink = vi.fn();
+    render(
+      <AgentFilterBar
+        sort={{ key: 'attention', dir: 'desc' }}
+        onSort={() => {}}
+        active={new Set()}
+        onToggle={() => {}}
+        chipCounts={
+          Object.fromEntries(QUICK_FILTERS.map((f) => [f.key, 0])) as Record<
+            AgentQuickFilter,
+            number
+          >
+        }
+        shown={2}
+        total={2}
+        filtered={false}
+        onClear={() => {}}
+        linkEntries={[
+          { key: 'pr:u', kind: 'pr', label: '#5', title: 'Add login' },
+          { key: 'issue:o/r#7', kind: 'issue', label: '#7', title: 'Fix crash' },
+        ]}
+        linkSelected={new Set(['issue:o/r#7'])}
+        onToggleLink={onToggleLink}
+      />
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Filter by pull request or issue' }));
+    expect(screen.getByRole('checkbox', { name: /Fix crash/ })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+    fireEvent.change(screen.getByLabelText('Search PRs and issues'), {
+      target: { value: 'login' },
+    });
+    expect(screen.queryByRole('checkbox', { name: /Fix crash/ })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: /Add login/ }));
+    expect(onToggleLink).toHaveBeenCalledWith('pr:u');
   });
 });

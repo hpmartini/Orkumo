@@ -400,6 +400,12 @@ export function mainRepoPath(dir: string): string {
   return match ? match[1] : dir;
 }
 
+/** Project name of a directory: "Repo", or "Repo · folder" for a worktree */
+export function dirName(dir: string): string {
+  const main = mainRepoPath(dir);
+  return main === dir ? lastSegment(dir) : `${lastSegment(main)} · ${lastSegment(dir)}`;
+}
+
 /** Main repository name (never the worktree folder), falling back to the path-derived name */
 export function repoName(session: AgentSession, lookup?: SessionLookup): string {
   return (
@@ -588,6 +594,80 @@ export function applyQuickFilters(
   return sessions.filter(
     (s) =>
       matchesState(s) && matchesOrigin(s) && attrs.every((k) => matchesQuickFilter(k, s, lookup))
+  );
+}
+
+/** One open PR or linked issue offered by the PR / issue filter */
+export interface LinkFilterEntry {
+  /** "pr:<url>" or "issue:<owner/repo#n>" */
+  key: string;
+  kind: 'pr' | 'issue';
+  label: string;
+  title: string;
+}
+
+/** Filter keys of a session's open PRs and linked issues (board links plus its workflow issue). */
+export function sessionLinkKeys(
+  session: AgentSession,
+  issueKeys: string[] = [],
+  lookup?: SessionLookup
+): string[] {
+  const workflow = workflowIssue(session, lookup, issueKeys)?.key;
+  const issues = new Set(workflow ? [...issueKeys, workflow] : issueKeys);
+  return [
+    ...session.links.filter(isOpenPr).map((l) => `pr:${l.href}`),
+    ...[...issues].map((k) => `issue:${k}`),
+  ];
+}
+
+/** Every open PR and linked issue of the given sessions, deduped; PRs first, newest number first. */
+export function collectLinkEntries(
+  sessions: AgentSession[],
+  issuesByAgent?: Map<string, string[]>,
+  lookup?: SessionLookup,
+  issueTitles?: Map<string, string>
+): LinkFilterEntry[] {
+  const entries = new Map<string, LinkFilterEntry & { n: number }>();
+  for (const session of sessions) {
+    for (const link of session.links.filter(isOpenPr)) {
+      const key = `pr:${link.href}`;
+      const prefix = link.provider === 'gitlab' ? '!' : '#';
+      entries.set(key, {
+        key,
+        kind: 'pr',
+        label: link.number ? `${prefix}${link.number}` : 'PR',
+        title: link.title || link.href,
+        n: link.number || 0,
+      });
+    }
+    for (const key of sessionLinkKeys(session, issuesByAgent?.get(session.id), lookup)) {
+      if (!key.startsWith('issue:') || entries.has(key)) continue;
+      const issue = key.slice('issue:'.length);
+      const n = Number(issue.slice(issue.lastIndexOf('#') + 1)) || 0;
+      entries.set(key, {
+        key,
+        kind: 'issue',
+        label: `#${n}`,
+        title: issueTitles?.get(issue) || issue,
+        n,
+      });
+    }
+  }
+  return [...entries.values()]
+    .sort((a, b) => (a.kind === b.kind ? b.n - a.n : a.kind === 'pr' ? -1 : 1))
+    .map(({ n: _n, ...entry }) => entry);
+}
+
+/** Sessions linked to any selected PR or issue; all sessions when nothing is selected. */
+export function applyLinkFilter(
+  sessions: AgentSession[],
+  selected: ReadonlySet<string>,
+  issuesByAgent?: Map<string, string[]>,
+  lookup?: SessionLookup
+): AgentSession[] {
+  if (selected.size === 0) return sessions;
+  return sessions.filter((s) =>
+    sessionLinkKeys(s, issuesByAgent?.get(s.id), lookup).some((k) => selected.has(k))
   );
 }
 
@@ -881,7 +961,7 @@ export function prLabel(
 ): { text: string; className: string; href: string | null } | null {
   if (links.length === 0) return null;
   if (links.length > 1) {
-    return { text: `${links.length} PRs`, className: prClass(links[0].state), href: null };
+    return { text: String(links.length), className: prClass(links[0].state), href: null };
   }
   const link = links[0];
   const prefix = link.provider === 'gitlab' ? '!' : '#';

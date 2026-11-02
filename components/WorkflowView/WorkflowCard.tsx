@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
-import { ChevronDown, GitPullRequest, Hand } from 'lucide-react';
+import { AlertTriangle, ChevronDown, GitPullRequest, Hand } from 'lucide-react';
 import type { AgentSession } from '../../types';
 import type { WorkflowCard as Card } from '../../utils/workflows';
 import { shortRepo } from '../../utils/board';
@@ -10,10 +10,24 @@ import { GoButton, goLabel } from './GoButton';
 
 export const MODE_LABEL = {
   default: 'Standard',
-  orchestrate: 'Orchestrate',
-  pipeline: 'Pipeline',
   image: 'Bild',
 };
+
+/** Session switches worth a badge: the on-switches plus model and effort, if set */
+export const switchBadges = ({
+  dynamic,
+  delegate,
+  review,
+  model,
+  effort,
+}: Card['state']['switches']) =>
+  [
+    dynamic && 'dynamic',
+    delegate && 'delegate',
+    review && 'review',
+    model && `model ${model}`,
+    effort && `effort ${effort}`,
+  ].filter((b): b is string => !!b);
 
 const WAITING: Record<string, { text: string; className: string }> = {
   hape: { text: 'Wartet auf dich', className: 'text-amber-200' },
@@ -147,15 +161,40 @@ export const WorkflowCard: React.FC<WorkflowCardProps> = ({
                 {state.reason}
               </span>
             )}
-            {state.phase && state.stage === 'building' && (
-              <span className="rounded bg-gray-850 px-1.5 text-gray-200">{state.phase}</span>
-            )}
             {pr && (
               <span className="ml-auto inline-flex items-center gap-1 text-gray-400">
                 <GitPullRequest size={11} /> #{pr.number} <CheckIcon state={pr.checks} />
               </span>
             )}
           </div>
+
+          {state.error && (
+            <p
+              role="alert"
+              className="mt-2 rounded-md border border-red-400/40 bg-red-500/10 px-2 py-1 text-[11.5px] text-red-200"
+            >
+              <span className="inline-flex items-center gap-1 font-medium">
+                <AlertTriangle size={11} /> {state.error.label}
+              </span>
+              {state.error.note && (
+                <span className="mt-0.5 block line-clamp-3 text-red-200/80">
+                  {state.error.note}
+                </span>
+              )}
+            </p>
+          )}
+          {switchBadges(state.switches).length > 0 && (
+            <ul aria-label="Schalter" className="mt-2 flex flex-wrap gap-1 text-[10.5px]">
+              {switchBadges(state.switches).map((b) => (
+                <li
+                  key={b}
+                  className="rounded border border-gray-750 px-1.5 leading-[16px] text-gray-300"
+                >
+                  {b}
+                </li>
+              ))}
+            </ul>
+          )}
 
           {state.go && <GoButton label={goLabel(state.go)} onGo={onGo} />}
         </div>

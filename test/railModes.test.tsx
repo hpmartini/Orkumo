@@ -158,13 +158,11 @@ describe.each(MODES)(
 
     it('AC-3: groups and agents can be marked as favorites', async () => {
       render(<Rail grouping={grouping} />);
-      await userEvent.click(
-        within(header(second)).getByRole('button', { name: /^Add .* to favorites$/ })
-      );
+      // Group actions live in the header's dropdown menu
+      await userEvent.click(within(header(second)).getByRole('button', { name: /^Actions for / }));
+      await userEvent.click(screen.getByRole('menuitem', { name: 'Add to favorites' }));
       expect(indexOfTitle(second)).toBe(0);
-      expect(
-        within(header(second)).getByRole('button', { name: /^Remove .* from favorites$/ })
-      ).toBeTruthy();
+      expect(within(header(second)).getByLabelText('Favorite')).toBeTruthy();
 
       fireEvent.contextMenu(screen.getByText('alpha-worker'));
       await userEvent.click(screen.getByRole('menuitem', { name: 'Add to favorites' }));

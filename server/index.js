@@ -35,6 +35,7 @@ import { ideService } from './services/ideService.js';
 import * as healthService from './services/healthService.js';
 import * as agentService from './services/agentService.js';
 import * as meshService from './services/meshService.js';
+import * as remoteAccess from './services/remoteAccess.js';
 import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import { usageRouter, getUsage } from './services/usageService.js';
@@ -43,7 +44,7 @@ import * as boardService from './services/boardService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowService from './services/workflowService.js';
 import { applyGo, workflowGoSchema } from './services/workflowGo.js';
-import { deriveWorkflowState, isWorkflowItem } from '../utils/workflowStage.js';
+import { deriveWorkflowState } from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
@@ -121,6 +122,7 @@ const isAllowedOrigin = (origin) => {
   if (!origin) return true;
   if (origin === 'null') return process.env.ELECTRON_MODE === 'true';
   if (extraCorsOrigins.includes(origin)) return true;
+  if (origin === remoteAccess.CAPACITOR_ORIGIN) return remoteAccess.isRemoteEnabled();
   try {
     return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
   } catch {
@@ -128,6 +130,8 @@ const isAllowedOrigin = (origin) => {
   }
 };
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
+// After cors so preflights are answered; before every route so nothing is reachable without the token.
+app.use(remoteAccess.requireRemoteToken);
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
 app.use('/api/terminal/ghostty', ghosttyRoutes);
@@ -389,6 +393,22 @@ app.put('/api/settings/keyboard-shortcuts', (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+/**
+ * PUT /api/settings/link-target
+ * Where clicked links open (#140): built-in browser or system browser
+ */
+app.put(
+  '/api/settings/link-target',
+  validate(z.object({ linkTarget: z.enum(['builtin', 'system']) }).strict()),
+  (req, res) => {
+    try {
+      res.json({ linkTarget: settingsService.setLinkTarget(req.body.linkTarget) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 /**
  * PUT /api/settings/archive/:id
@@ -1228,6 +1248,20 @@ app.post(
 /**
  * GET /api/agents/remote - sessions of the other Tailscale devices (`ssh <host> claude agents --json`)
  */
+// Pairing data for the iOS app; only shown on this machine, never to a remote client.
+app.get('/api/remote/pairing', async (req, res) => {
+  if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
+  if (!remoteAccess.isRemoteEnabled()) return res.json({ enabled: false });
+  const dnsName = await meshService.getSelfDnsName();
+  const url = process.env.DEVORBIT_REMOTE_URL || (dnsName ? `https://${dnsName}` : null);
+  res.json({
+    enabled: true,
+    url,
+    token: remoteAccess.getToken(),
+    link: url ? remoteAccess.pairingLink(url) : null,
+  });
+});
+
 app.get('/api/agents/remote', agentLimiter, async (req, res) => {
   try {
     res.json(await meshService.listRemote());
@@ -1539,7 +1573,7 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Workflows (#87): mw runs per issue, GO actions, card details
+// Workflows (#87, mw 7 #136): GO actions, card details
 // ---------------------------------------------------------------------------
 
 async function findRepoInKnownDirs(slug) {
@@ -1547,7 +1581,7 @@ async function findRepoInKnownDirs(slug) {
   return boardService.findRepoPath(slug, [...roots, ...exact]);
 }
 
-/** Board item, its MACC column, local mw run and derived workflow state */
+/** Board item, its MACC column and derived workflow state */
 async function workflowContext(itemId, { refresh = false } = {}) {
   const { source } = settingsService.getBoardSettings();
   const board = await boardService.getBoard(source);
@@ -1558,9 +1592,7 @@ async function workflowContext(itemId, { refresh = false } = {}) {
     throw Object.assign(new Error('Issue not on the board'), { status: 404 });
   }
   const status = board.statusField.options.find((o) => o.id === item.statusOptionId)?.name ?? null;
-  const runs = await workflowService.getRuns([item], findRepoInKnownDirs, { refresh });
-  const run = runs[`${item.repo}#${item.number}`] ?? null;
-  return { source, item, run, state: deriveWorkflowState(item, status, run) };
+  return { source, item, state: deriveWorkflowState(item, status) };
 }
 
 /** Checkout and agent worktree of a workflow item (where its docs live) */
@@ -1576,36 +1608,29 @@ async function workflowDirs({ item, state }) {
   return [...new Set([worktree, clone].filter(Boolean))];
 }
 
-app.get('/api/workflows/runs', agentLimiter, async (req, res) => {
+// GO (mw:build) or poll start; refused unless it is exactly the GO the fresh state offers
+const sendGo = (goOf) => async (req, res) => {
   try {
-    const { source } = settingsService.getBoardSettings();
-    const board = await boardService.getBoard(source);
-    const items = board.items.filter((i) => i.type === 'Issue' && isWorkflowItem(i));
-    const runs = await workflowService.getRuns(items, findRepoInKnownDirs, {
-      refresh: req.query.refresh === '1',
+    const ctx = await workflowContext(req.body.itemId, { refresh: true });
+    const { status, body } = await applyGo(ctx, goOf(req.body), {
+      updateIssue: boardService.updateIssue,
     });
-    res.json({ runs });
+    res.status(status).json(body);
   } catch (error) {
     sendAgentError(res, error);
   }
-});
-
-// GO for the next stage; refused unless it is exactly the GO the fresh state offers
+};
 app.post(
   '/api/workflows/go',
   agentLimiter,
   validate(z.object({ itemId: boardItemIdSchema, go: workflowGoSchema }).strict()),
-  async (req, res) => {
-    try {
-      const ctx = await workflowContext(req.body.itemId, { refresh: true });
-      const { status, body } = await applyGo(ctx, req.body.go, {
-        updateIssue: boardService.updateIssue,
-      });
-      res.status(status).json(body);
-    } catch (error) {
-      sendAgentError(res, error);
-    }
-  }
+  sendGo((b) => b.go)
+);
+app.post(
+  '/api/workflows/poll',
+  agentLimiter,
+  validate(z.object({ itemId: boardItemIdSchema }).strict()),
+  sendGo(() => ({ kind: 'poll' }))
 );
 
 app.get('/api/workflows/details', agentLimiter, async (req, res) => {
@@ -1616,9 +1641,8 @@ app.get('/api/workflows/details', agentLimiter, async (req, res) => {
     const details = await workflowService.getDetails(ctx.item, {
       dirs: await workflowDirs(ctx),
       briefingPath: ctx.state.briefingPath,
-      runDir: ctx.run?.runDir ?? null,
     });
-    res.json({ ...details, state: ctx.state, phases: ctx.run?.phases ?? [] });
+    res.json({ ...details, state: ctx.state });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -1632,11 +1656,7 @@ app.get('/api/workflows/doc', agentLimiter, async (req, res) => {
   }
   try {
     const ctx = await workflowContext(itemId.data);
-    const docs = await workflowService.findDocs(
-      await workflowDirs(ctx),
-      ctx.state.briefingPath,
-      ctx.run?.runDir ?? null
-    );
+    const docs = await workflowService.findDocs(await workflowDirs(ctx), ctx.state.briefingPath);
     res.json(await workflowService.readDoc(docs, req.query.path));
   } catch (error) {
     sendAgentError(res, error);
@@ -1839,6 +1859,7 @@ const contextUiSchema = z
     devOrbitAgentWorkspace: contextUiValue,
     'devOrbitAgentRail.v1': contextUiValue,
     devOrbitContextRoute: contextUiValue,
+    devOrbitShellBrowser: contextUiValue,
   })
   .strict();
 
@@ -1950,7 +1971,11 @@ app.use((req, res) => {
 const server = createServer(app);
 
 // WebSocket server for PTY communication
-const wss = new WebSocketServer({ server, path: '/api/pty' });
+const wss = new WebSocketServer({
+  server,
+  path: '/api/pty',
+  verifyClient: ({ req }) => remoteAccess.isAuthorized(req),
+});
 
 // Store WebSocket -> sessionId mapping (for local PTY mode)
 const wsSessionMap = new Map();
@@ -2350,7 +2375,9 @@ async function startServer() {
     process.exit(1);
   });
 
-  server.listen(PORT, () => {
+  // Remote access goes through `tailscale serve` → loopback; never expose the remote mode on all interfaces.
+  const host = remoteAccess.isRemoteEnabled() ? '127.0.0.1' : undefined;
+  server.listen(PORT, host, () => {
     // Cold 30-day scan takes seconds; warm the file cache so the first page view is fast.
     getUsage({ days: 30 }).catch((err) => console.warn('Usage warm-up failed:', err.message));
     console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);

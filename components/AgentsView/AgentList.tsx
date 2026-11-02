@@ -5,13 +5,11 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
-  Code2,
   GitBranch,
   GitBranchPlus,
   Kanban,
   MoreHorizontal,
   Pin,
-  Plus,
   SquareTerminal,
   Star,
   Timer,
@@ -35,7 +33,7 @@ import {
   stateGlyph,
   sessionAgeMs,
   formatAge,
-  shortenPath,
+  dirName,
   displayRepo,
   cardDetailsVisible,
   cardSlots,
@@ -49,7 +47,7 @@ import type { AgentConfigLike } from './types';
 import { RailNavProps } from './ProjectsRail';
 import { IssuePill, PrPill, ServerLinks, SubagentsBadge } from './SessionLinks';
 import { CacheBadge } from './CacheBadge';
-import { isCacheWarning } from '../../utils/agentCache';
+import { cacheCountdown, isCacheWarning } from '../../utils/agentCache';
 
 /** Pointer has to rest this long on a card before its details open (hover mode) */
 const HOVER_DETAILS_DELAY_MS = 200;
@@ -118,8 +116,6 @@ interface AgentListProps {
   /** Rows whose details (PRs, issues, servers) are open */
   expandedSessionIds?: Set<string>;
   onToggleFavoriteGroup?: (key: string) => void;
-  /** "+ Issue" in a project group header; gets the group's GitHub repo ("owner/name") */
-  onCreateIssue?: (repo: string) => void;
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
   onMoveGroup?: (key: string, targetKey: string, visibleKeys: string[]) => void;
@@ -221,7 +217,6 @@ export const AgentList: React.FC<AgentListProps> = ({
   favoriteSessionIds,
   expandedSessionIds,
   onToggleFavoriteGroup,
-  onCreateIssue,
   onToggleFavoriteSession,
   onMoveGroup,
   issuesByAgent,
@@ -551,15 +546,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                             .map((s) => contexts[s.id]?.issues)
                             .find((i) => i && i.open > 0) || null
                         : null;
-                    // Repo of the project's agents; groups without a GitHub origin get no "+ Issue"
-                    const groupRepo =
-                      onCreateIssue && grouping === 'project' && !isFavSection
-                        ? item.group.sessions
-                            .map((s) => contexts[s.id]?.repo?.slug)
-                            .find(Boolean) || null
-                        : null;
                     const groupFav = isFavGroup(groupKey);
-                    const headerActions = isFavSection ? [] : groupActions(item.group);
                     const groupSessions = [...item.group.sessions, ...item.group.hidden];
                     const attachedCount = groupSessions.filter((s) => openIds.has(s.id)).length;
                     const groupHasActive =
@@ -636,7 +623,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         ) : (
                           <span className="truncate min-w-0">
                             {grouping === 'directory'
-                              ? shortenPath(item.group.title, 42)
+                              ? dirName(item.group.title)
                               : item.group.title}
                           </span>
                         )}
@@ -675,37 +662,31 @@ export const AgentList: React.FC<AgentListProps> = ({
                             {groupIssues.open}
                           </a>
                         )}
-                        <ActionButton
-                          action={headerActions.find((a) => a.id === 'view-code')}
-                          icon={<Code2 size={12} />}
-                        />
-                        <ActionButton
-                          action={headerActions.find((a) => a.id === 'view-board')}
-                          icon={<Kanban size={12} />}
-                        />
-                        {groupRepo && (
+                        {isFavSection || groupFav ? (
+                          <Star
+                            size={11}
+                            className="shrink-0 fill-amber-400 text-amber-400"
+                            aria-label="Favorite"
+                          />
+                        ) : null}
+                        {!isFavSection && (
+                          // Project actions (code, board, new issue, favorite, …) live in the group menu
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              onCreateIssue?.(groupRepo);
+                              const r = e.currentTarget.getBoundingClientRect();
+                              onSelectIndex(index);
+                              menuByKeyboard.current = e.detail === 0;
+                              setMenu({ index, x: r.left, y: r.bottom + 2 });
                             }}
-                            className="shrink-0 p-0.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                            title={`Neues Issue in ${groupRepo}`}
-                            aria-label={`Neues Issue in ${groupRepo}`}
+                            aria-haspopup="menu"
+                            aria-expanded={menu?.index === index}
+                            className="shrink-0 p-0.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                            title="Project actions"
+                            aria-label={`Actions for ${item.group.title}`}
                           >
-                            <Plus size={12} />
+                            <MoreHorizontal size={12} />
                           </button>
-                        )}
-                        {isFavSection ? (
-                          <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
-                        ) : (
-                          onToggleFavoriteGroup && (
-                            <FavoriteButton
-                              active={groupFav}
-                              label={`${groupFav ? 'Remove' : 'Add'} ${item.group.title} ${groupFav ? 'from' : 'to'} favorites`}
-                              onToggle={() => onToggleFavoriteGroup(groupKey)}
-                            />
-                          )
                         )}
                       </div>
                     );
@@ -836,7 +817,9 @@ export const AgentList: React.FC<AgentListProps> = ({
                         )}
                       </span>
                     ),
-                    metrics: ctx?.cache && <CacheBadge cache={ctx.cache} />,
+                    metrics: ctx?.cache && !cacheCountdown(ctx.cache, now).expired && (
+                      <CacheBadge cache={ctx.cache} />
+                    ),
                     status: extra && <span className="truncate min-w-0">{extra}</span>,
                     links: issueKeys
                       .filter((key) => key !== workflow?.key)

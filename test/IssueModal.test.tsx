@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import type { BoardData, BoardItem, IssueComment } from '../types';
 
@@ -105,11 +105,13 @@ beforeEach(() => {
   api.fetchIssueComments.mockResolvedValue([comment]);
   api.fetchRepoOptions.mockResolvedValue({
     repositoryId: 'R',
-    labels: ['bug', 'mw:go', 'mw:build', 'mw:dynamic', 'mw:pipeline'].map((name, i) => ({
-      id: `L${i}`,
-      name,
-      color: '000000',
-    })),
+    labels: ['bug', 'mw:go', 'mw:build', 'mw:dynamic', 'mw:delegate', 'mw:image'].map(
+      (name, i) => ({
+        id: `L${i}`,
+        name,
+        color: '000000',
+      })
+    ),
     assignees: [],
     milestones: [],
   });
@@ -169,14 +171,29 @@ describe('IssueModal (#104)', () => {
         labels: ['bug', 'mw:go', 'mw:build'],
       })
     );
-    fireEvent.click(screen.getByRole('radio', { name: 'Pipeline' }));
+    fireEvent.click(screen.getByRole('radio', { name: 'Image' }));
     await waitFor(() =>
       expect(api.updateBoardIssue).toHaveBeenLastCalledWith('PVTI_1', {
-        labels: ['bug', 'mw:go', 'mw:build', 'mw:pipeline'],
+        labels: ['bug', 'mw:go', 'mw:build', 'mw:image'],
       })
     );
+    fireEvent.click(screen.getByRole('button', { name: 'Delegate' }));
+    await waitFor(() =>
+      expect(api.updateBoardIssue).toHaveBeenLastCalledWith('PVTI_1', {
+        labels: ['bug', 'mw:go', 'mw:build', 'mw:image', 'mw:delegate'],
+      })
+    );
+    // #136 AC-6: modes Default and Image only, switches dynamic/delegate/review
+    expect(
+      within(screen.getByRole('radiogroup', { name: 'mw-Modus' }))
+        .getAllByRole('radio')
+        .map((b) => b.textContent)
+    ).toEqual(['Default', 'Image']);
+    expect(screen.getByRole('button', { name: 'Dynamic' })).toBeTruthy();
     // Label missing in the repo: button disabled
-    expect((screen.getByRole('radio', { name: 'Image' }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: 'Review' }) as HTMLButtonElement).disabled).toBe(
+      true
+    );
   });
 
   it('issue not on the board: title, body, labels, control buttons and comments', async () => {

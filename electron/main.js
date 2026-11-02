@@ -5,7 +5,7 @@ import { fork } from 'child_process';
 import * as fs from 'fs';
 import { createServer } from 'net';
 import dotenv from 'dotenv';
-import { isValidExternalUrl, validateDialogOptions } from './validation.js';
+import { isValidExternalUrl, validateDialogOptions, windowOpenRoute } from './validation.js';
 import { APP_NAME } from './constants.js';
 import { PORTS } from '../config/defaults.js';
 
@@ -25,6 +25,17 @@ let isShuttingDown = false;
 // BrowserView instances for embedded browser previews
 // Map of viewId -> { view: BrowserView, devToolsWindow: BrowserWindow | null }
 const browserViews = new Map();
+
+function destroyBrowserView(viewId) {
+  const entry = browserViews.get(viewId);
+  if (!entry) return;
+  browserViews.delete(viewId);
+  if (entry.devToolsWindow && !entry.devToolsWindow.isDestroyed()) entry.devToolsWindow.close();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.removeBrowserView(entry.view);
+  // removeBrowserView only detaches; without close() the page keeps running (and playing audio)
+  if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close();
+  console.log(`[BrowserView] Destroyed view ${viewId}`);
+}
 
 const isDev = !app.isPackaged;
 const VITE_PORT = parseInt(process.env.VITE_PORT || String(PORTS.devhub), 10);
@@ -74,6 +85,11 @@ function createWindow() {
       );
     }
   );
+  // A reload (Cmd+R, ErrorBoundary) skips React cleanup: native views would stay on top
+  // of the new page with no pane left to close them. SPA route changes are same-document.
+  mainWindow.webContents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
+    if (isMainFrame && !isSameDocument) [...browserViews.keys()].forEach(destroyBrowserView);
+  });
   mainWindow.webContents.on('did-finish-load', () => {
     console.log('[Electron] Renderer finished loading', mainWindow.webContents.getURL());
   });
@@ -88,9 +104,10 @@ function createWindow() {
   }
 
   // Handle external links with URL validation
+  // Links from the app and its frames (Web-IDE) open per the link setting in the renderer (#140)
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (isValidExternalUrl(url, isDev)) {
-      shell.openExternal(url);
+    if (windowOpenRoute(url) === 'renderer') {
+      mainWindow.webContents.send('open-link', url);
     } else {
       console.warn('[Electron] Blocked attempt to open invalid URL:', url);
     }
@@ -670,6 +687,12 @@ function setupIpcHandlers() {
         }
       );
 
+      // New windows from a page stay in this view instead of opening unsandboxed Electron windows
+      view.webContents.setWindowOpenHandler(({ url }) => {
+        if (windowOpenRoute(url) === 'renderer') view.webContents.loadURL(url).catch(() => {});
+        return { action: 'deny' };
+      });
+
       // Set bounds
       view.setBounds({
         x: Math.round(bounds.x),
@@ -747,18 +770,7 @@ function setupIpcHandlers() {
     }
 
     try {
-      // Close DevTools window if open
-      if (entry.devToolsWindow && !entry.devToolsWindow.isDestroyed()) {
-        entry.devToolsWindow.close();
-      }
-
-      // Remove from main window and destroy
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.removeBrowserView(entry.view);
-      }
-
-      browserViews.delete(viewId);
-      console.log(`[BrowserView] Destroyed view ${viewId}`);
+      destroyBrowserView(viewId);
       return { success: true };
     } catch (error) {
       console.error(`[BrowserView] Failed to destroy view ${viewId}:`, error);

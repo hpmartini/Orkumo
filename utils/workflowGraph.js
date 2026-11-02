@@ -1,77 +1,32 @@
 /**
- * Martini Workflows (mw) as a directed graph: the real stations per mode (mw plugin 6.29 and the
- * trace phases of real runs), the layout of the graph, and which station an issue is on.
+ * Martini Workflows (mw 7) as a directed graph: the stations per mode (mw board, plugin 7.0), the
+ * layout of the graph, and which station an issue is on.
  * Plain JS like workflowStage.js, so it is unit-tested without the DOM.
  */
 
-/** @typedef {'default'|'orchestrate'|'pipeline'|'image'} GraphMode */
-/** @typedef {'feature'|'bug'|'hotfix'|'chore'} PipelineType */
-/** @typedef {{ id: string, label: string, lane: string, col: number, y: number, x: number,
- *   types?: PipelineType[] }} GraphNode */
+/** @typedef {'default'|'image'} GraphMode */
+/** @typedef {{ id: string, label: string, lane: string, col: number, y: number, x: number }} GraphNode */
 /** @typedef {{ id: string, from: string, to: string, back: boolean, label?: string }} GraphEdge */
 
-export const GRAPH_MODES = /** @type {const} */ (['default', 'orchestrate', 'pipeline', 'image']);
-export const PIPELINE_TYPES = /** @type {const} */ (['feature', 'bug', 'hotfix', 'chore']);
-export const MODE_NAMES = {
-  default: 'Standard',
-  orchestrate: 'Orchestrate',
-  pipeline: 'Pipeline',
-  image: 'Bild',
-};
+export const GRAPH_MODES = /** @type {const} */ (['default', 'image']);
+export const MODE_NAMES = { default: 'Standard', image: 'Bild' };
 
-const ALL = PIPELINE_TYPES;
-const lane = (
-  /** @type {string} */ mode,
-  /** @type {[string, string, PipelineType[]?][]} */ rows
-) => rows.map(([key, label, types]) => ({ key, id: `${mode}.${key}`, label, types }));
+const lane = (/** @type {string} */ mode, /** @type {[string, string][]} */ rows) =>
+  rows.map(([key, label]) => ({ key, id: `${mode}.${key}`, label }));
 
-/**
- * Stations between "Abgeholt" and "PR", in order. `back` edges are loops; `max` caps the rounds.
- * shortcut: which pipeline types skip a station is assumed from the chain names (short_plan for
- * hotfix/chore, red_repro for bug/hotfix), adjust here when mw's chains differ.
- */
+/** Stations between "Abgeholt" and "PR", in order. `back` edges are loops. */
 const LANES = {
   default: {
     nodes: lane('default', [
       ['interview', 'Interview'],
-      ['briefing', 'Briefing'],
-      ['go_build', 'GO'],
-      ['impl', 'Umsetzung'],
-    ]),
-    back: [['interview', 'interview', 'Rückfrage']],
-  },
-  orchestrate: {
-    nodes: lane('orchestrate', [
-      ['plan', 'Plan'],
-      ['build', 'Build'],
-      ['gates', 'Gates'],
-      ['review', 'Review'],
-      ['check', 'Check'],
+      ['contract', 'Ziel-Vertrag'],
+      ['go_build', 'GO (mw:build)'],
+      ['impl', 'Umsetzung /goal'],
     ]),
     back: [
-      ['review', 'build', 'Fix-Runde'],
-      ['check', 'plan', 'Goal-Schleife'],
+      ['interview', 'interview', 'Rückfrage'],
+      ['go_build', 'contract', 'Rückmeldung'],
     ],
-  },
-  pipeline: {
-    nodes: lane('pipeline', [
-      ['discovery', 'Discovery', ['feature']],
-      ['briefing_approval', 'Briefing-Freigabe', ['feature', 'bug']],
-      ['plan', 'Plan', ['feature', 'bug']],
-      ['short_plan', 'Kurzplan', ['hotfix', 'chore']],
-      ['plan_approval', 'Plan-Freigabe', ['feature', 'bug']],
-      ['red_repro', 'Red-Repro', ['bug', 'hotfix']],
-      ['build', 'Build', ALL.slice()],
-      ['gates', 'Gates', ALL.slice()],
-      ['full_review', 'Full Review', ['feature', 'bug']],
-      ['correction', 'Korrektur', ['feature', 'bug']],
-      ['document', 'Doku', ['feature']],
-      ['gates2', 'Gates', ALL.slice()],
-      ['delta_review', 'Delta Review', ALL.slice()],
-      ['draft_pr', 'Draft-PR', ALL.slice()],
-      ['pr_approval', 'PR-Freigabe', ALL.slice()],
-    ]),
-    back: [],
   },
   image: { nodes: lane('image', [['images', 'Bilder erzeugen']]), back: [] },
 };
@@ -81,11 +36,11 @@ const START = [
   { id: 'picked', label: 'Abgeholt' },
 ];
 const END = [
-  { id: 'pr', label: 'PR' },
+  { id: 'pr', label: 'PR + Nachweise' },
   { id: 'to_review', label: 'to Review' },
   { id: 'merge', label: 'Merge' },
-  { id: 'wrapup', label: 'Wrap-up' },
   { id: 'deploy', label: 'to Deploy / Done' },
+  { id: 'wrapup', label: 'Abschluss' },
   { id: 'ended', label: 'Session entfernt' },
 ];
 
@@ -144,7 +99,6 @@ export function layoutGraph(view) {
         col: 2 + i,
         x,
         y: laneTop + i * ROW_H,
-        types: n.types,
       })
     );
     edge('picked', ns[0].id);
@@ -154,20 +108,6 @@ export function layoutGraph(view) {
   });
 
   return { nodes, edges, width, height: endY + PAD_Y };
-}
-
-/** Whether a pipeline station exists in this type's chain (others are dimmed) */
-export const inChain = (/** @type {GraphNode} */ node, /** @type {PipelineType} */ type) =>
-  !node.types || node.types.includes(type);
-
-/** feature unless a label says bug, hotfix or chore */
-export function pipelineType(/** @type {{ labels: { name: string }[] }} */ item) {
-  const names = item.labels.map((l) => l.name.toLowerCase());
-  return /** @type {PipelineType} */ (
-    PIPELINE_TYPES.find(
-      (t) => t !== 'feature' && names.some((n) => n === t || n.endsWith(`:${t}`))
-    ) ?? 'feature'
-  );
 }
 
 /** Forward path of edge ids from a node to another (shortest by hops), [] when none */
@@ -190,75 +130,34 @@ export function graphPath(
   return [];
 }
 
-/** Station of an orchestrate or pipeline trace phase, null when unknown */
-function phaseKey(
-  /** @type {'orchestrate'|'pipeline'} */ mode,
-  /** @type {string} */ phase,
-  /** @type {{ phase: string }[]} */ phases
-) {
-  const p = phase.toLowerCase();
-  if (mode === 'orchestrate') {
-    if (/check/.test(p)) return 'check';
-    if (/review/.test(p)) return 'review';
-    if (/gate/.test(p)) return 'gates';
-    if (/plan/.test(p)) return 'plan';
-    return /build|fix|correct|repair/.test(p) ? 'build' : null;
-  }
-  if (/discovery/.test(p)) return 'discovery';
-  if (/short_plan/.test(p)) return 'short_plan';
-  if (/plan_approval/.test(p)) return 'plan_approval';
-  if (/plan/.test(p)) return 'plan';
-  if (/red_repro/.test(p)) return 'red_repro';
-  if (/gate/.test(p)) return phases.some((x) => /^document/.test(x.phase)) ? 'gates2' : 'gates';
-  if (/delta/.test(p)) return 'delta_review';
-  if (/review/.test(p)) return 'full_review';
-  if (/correction|repair|fix/.test(p)) return 'correction';
-  if (/doc/.test(p)) return 'document';
-  if (/draft|^pr/.test(p)) return 'draft_pr';
-  return /build/.test(p) ? 'build' : null;
-}
-
 /**
  * The station an issue is on, plus the loop round shown at the node (null outside a loop).
  * @param {{ mwMarkers?: { kind: string }[] }} item
  * @param {import('./workflowStage.js').WorkflowState} state
- * @param {import('./workflowStage.js').WorkflowRun | null} run
- * @param {string | null} statusName
  * @returns {{ id: string, round: string | null }}
  */
-export function deriveNode(item, state, run, statusName) {
+export function deriveNode(item, state) {
   const { mode, stage } = state;
-  const phases = run?.phases ?? [];
+  const markers = item.mwMarkers ?? [];
+  const count = (/** @type {string} */ kind) => markers.filter((m) => m.kind === kind).length;
   const node = (/** @type {string} */ id, round = null) => ({ id, round });
-  const pending = state.go?.kind === 'approve' ? state.go.stage : null;
 
-  if (stage === 'done')
-    return node((statusName ?? '').toLowerCase() === 'to deploy' ? 'deploy' : 'ended');
-  if (stage === 'review') return node(pending === 'pr' ? 'pipeline.pr_approval' : 'to_review');
+  if (stage === 'done') {
+    if (markers.some((m) => m.kind === 'removed')) return node('ended');
+    return node(markers.some((m) => m.kind === 'wrap') ? 'wrapup' : 'deploy');
+  }
+  if (stage === 'review') return node('to_review');
   if (stage === 'released') return node('go');
   if (mode === 'image') return node('image.images');
-
-  if (mode === 'default') {
-    if (stage === 'awaiting') return node('default.go_build');
-    if (stage === 'building') return node('default.impl');
-    const asks = (item.mwMarkers ?? []).filter((m) => m.kind === 'ask').length;
-    return node('default.interview', asks ? `Rückfrage ${asks}` : null);
-  }
-
-  if (pending && mode === 'pipeline')
-    return node(
-      `pipeline.${pending === 'plan' ? 'plan_approval' : pending === 'pr' ? 'pr_approval' : 'briefing_approval'}`
-    );
-  const last = phases.at(-1);
-  const key = last ? phaseKey(mode, last.phase, phases) : null;
-  if (!key) return node(mode === 'orchestrate' ? 'orchestrate.plan' : 'pipeline.discovery');
-  // Fix rounds: every build after the first is one trip back from review (max 2)
-  const fixes = Math.min(
-    2,
-    Math.max(0, phases.filter((p) => phaseKey(mode, p.phase, phases) === 'build').length - 1)
-  );
-  const looped = mode === 'orchestrate' && fixes > 0 && (key === 'build' || key === 'review');
-  return node(`${mode}.${key}`, looped ? `Fix-Runde ${fixes}/2` : null);
+  if (stage === 'awaiting') return node('default.go_build');
+  if (stage === 'building') return node('default.impl');
+  const kinds = markers.map((m) => m.kind);
+  // Feedback (fed) or an answer (resumed) on the latest contract: the session revises it
+  const iBriefed = kinds.lastIndexOf('briefed');
+  if (iBriefed >= 0 && Math.max(kinds.lastIndexOf('fed'), kinds.lastIndexOf('resumed')) > iBriefed)
+    return node('default.contract', `Runde ${count('fed') + 1}`);
+  const asks = count('ask');
+  return node('default.interview', asks ? `Rückfrage ${asks}` : null);
 }
 
 export const NODE_W = 136;

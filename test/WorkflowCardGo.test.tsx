@@ -15,18 +15,18 @@ const card = (go: WorkflowGo | null, waitingOn: WorkflowState['waitingOn']): Car
       labels: [{ name: 'mw:go', color: '000000' }],
       pullRequests: [],
     },
-    run: null,
     node: { id: 'released', round: null },
     state: {
       stage: 'released',
       mode: 'default',
       waitingOn,
       reason: 'Wartet auf den Poll',
-      phase: null,
       since: null,
       go,
       briefingPath: null,
       sessionId: null,
+      switches: { dynamic: true, delegate: false, review: false, model: null, effort: null },
+      error: null,
     },
   }) as unknown as Card;
 

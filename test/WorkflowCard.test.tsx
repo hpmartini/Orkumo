@@ -2,13 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import React, { useState } from 'react';
-import type { BoardItem, WorkflowRunInfo } from '../types';
+import type { BoardItem } from '../types';
 import { buildWorkflowCards } from '../utils/workflows';
 import { WorkflowCard } from '../components/WorkflowView/WorkflowCard';
 import type { WorkflowNav } from '../components/WorkflowView/WorkflowDetails';
 
 vi.mock('../services/boardApi', () => ({
-  fetchWorkflowDetails: vi.fn(() => Promise.resolve({ docs: [], screenshots: [], phases: [] })),
+  fetchWorkflowDetails: vi.fn(() => Promise.resolve({ docs: [], screenshots: [] })),
 }));
 
 const item: BoardItem = {
@@ -36,18 +36,9 @@ const item: BoardItem = {
   updatedAt: '2026-10-01T00:00:00Z',
   closedAt: null,
 } as BoardItem;
-const run: WorkflowRunInfo = {
-  runId: 'run-42',
-  repoPath: '/tmp/r',
-  mode: 'orchestrate',
-  phases: [{ phase: 'build', result: 'passed', at: '2026-10-01T00:00:00Z' }],
-  pendingApproval: null,
-  runDir: '/tmp/r/run-42',
-} as WorkflowRunInfo;
 const [card] = buildWorkflowCards(
   [item],
   [{ id: 'prog', name: 'In Progress', color: 'BLUE' }],
-  { 'o/r#7': run },
   Date.parse('2026-10-02T00:00:00Z')
 );
 
@@ -92,7 +83,7 @@ describe('WorkflowCard', () => {
     expect(onToggle).toHaveBeenCalledTimes(1);
     expect(toggleButton()).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('Springen zu')).toBeInTheDocument();
-    fireEvent.click(screen.getByText('Ablauf'));
+    fireEvent.click(screen.getByText('Laufende Prozesse'));
     expect(toggleButton()).toHaveAttribute('aria-expanded', 'false');
   });
 
@@ -129,7 +120,7 @@ describe('WorkflowCard', () => {
     expect(nav.openCode).toHaveBeenCalledTimes(1);
   });
 
-  it('AC-3: expanded details show stage, agent, run, assignees and labels', () => {
+  it('AC-3: expanded details show stage, agent, assignees and labels', () => {
     setup();
     fireEvent.click(screen.getByText('Karte sieben'));
     const stand = screen.getByText('Stand').closest('section')!;
@@ -137,7 +128,6 @@ describe('WorkflowCard', () => {
     expect(s.getByText('Stufe')).toBeInTheDocument();
     expect(s.getByText(card.state.reason)).toBeInTheDocument();
     expect(s.getByText('keine laufende Session')).toBeInTheDocument();
-    expect(s.getByText('run-42 · 1 Schritte')).toBeInTheDocument();
     expect(s.getByText('hpmartini')).toBeInTheDocument();
     expect(s.getByText('mw:go')).toBeInTheDocument();
   });
@@ -155,5 +145,76 @@ describe('WorkflowCard', () => {
     expect(openCode).toHaveBeenCalledTimes(1);
     done();
     expect(await screen.findByRole('button', { name: /Code/ })).toBeEnabled();
+  });
+
+  it('#136 AC-5: switch badges for dynamic, delegate, review, model and effort', () => {
+    const [c] = buildWorkflowCards(
+      [
+        {
+          ...item,
+          labels: [
+            ...item.labels,
+            { name: 'model:opus', color: 'a' },
+            { name: 'effort:high', color: 'a' },
+          ],
+          mwMarkers: [
+            {
+              kind: 'start',
+              attrs: { session: 's', dynamic: 'on', delegate: 'on', review: 'on' },
+              at: '',
+            },
+          ],
+        } as BoardItem,
+      ],
+      [{ id: 'prog', name: 'In Progress', color: 'BLUE' }],
+      0
+    );
+    render(
+      <WorkflowCard
+        card={c}
+        expanded={false}
+        moved={false}
+        onToggle={() => {}}
+        onGo={() => Promise.resolve()}
+        nav={{ openAgent: vi.fn(), openCode: vi.fn(), openDoc: vi.fn() }}
+      />
+    );
+    const badges = within(screen.getByRole('list', { name: 'Schalter' }));
+    expect(badges.getAllByRole('listitem').map((b) => b.textContent)).toEqual([
+      'dynamic',
+      'delegate',
+      'review',
+      'model opus',
+      'effort high',
+    ]);
+  });
+
+  it('#136 AC-2: an error marker shows its label and reason', () => {
+    const [c] = buildWorkflowCards(
+      [
+        {
+          ...item,
+          mwMarkers: [
+            { kind: 'noclone', attrs: {}, at: '', note: 'Kein Klon von o/r unter ~/PROJECTS' },
+          ],
+        } as BoardItem,
+      ],
+      [{ id: 'prog', name: 'In Progress', color: 'BLUE' }],
+      0
+    );
+    render(
+      <WorkflowCard
+        card={c}
+        expanded={false}
+        moved={false}
+        onToggle={() => {}}
+        onGo={() => Promise.resolve()}
+        nav={{ openAgent: vi.fn(), openCode: vi.fn(), openDoc: vi.fn() }}
+      />
+    );
+    const alert = screen.getByRole('alert');
+    expect(alert).toHaveTextContent('Kein lokaler Klon');
+    expect(alert).toHaveTextContent('Kein Klon von o/r unter ~/PROJECTS');
+    expect(screen.queryByRole('button', { name: /GO/ })).toBeNull();
   });
 });

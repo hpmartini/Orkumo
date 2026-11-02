@@ -1,5 +1,6 @@
 import { AppConfig, KeyboardShortcuts } from '../types';
 import { API_BASE_URL } from '../utils/apiConfig';
+import type { LinkTarget } from '../utils/links';
 
 const API_BASE = API_BASE_URL;
 
@@ -144,6 +145,8 @@ export interface AppSettings {
   preferredIDEs?: Record<string, string>;
   favoritesSortMode: FavoritesSortMode;
   keyboardShortcuts?: KeyboardShortcuts;
+  /** Where clicked links open (#140); missing on old servers means built-in */
+  linkTarget?: LinkTarget;
   version: number;
 }
 
@@ -194,6 +197,23 @@ export async function updateKeyboardShortcuts(
   });
   if (!response.ok) {
     throw new Error('Failed to update keyboard shortcuts');
+  }
+  return response.json();
+}
+
+/**
+ * Set where clicked links open (#140)
+ */
+export async function updateLinkTarget(
+  linkTarget: LinkTarget
+): Promise<{ linkTarget: LinkTarget }> {
+  const response = await fetch(`${API_BASE}/settings/link-target`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ linkTarget }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to update link target');
   }
   return response.json();
 }

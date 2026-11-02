@@ -56,6 +56,7 @@ export default [
         HTMLInputElement: 'readonly',
         HTMLTextAreaElement: 'readonly',
         HTMLButtonElement: 'readonly',
+        HTMLAnchorElement: 'readonly',
         EventTarget: 'readonly',
         Notification: 'readonly',
         requestAnimationFrame: 'readonly',
@@ -171,6 +172,7 @@ export default [
       'dist-server/**',
       'dist-electron/**',
       'dist-landing/**',
+      'ios/**', // Capacitor project; ios/App/App/public is a copy of dist
       '*.config.js',
       '*.config.ts',
     ],
