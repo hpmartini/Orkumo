@@ -1,13 +1,11 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   Activity,
   Cpu,
   HardDrive,
   MemoryStick,
-  AlertTriangle,
   AlertCircle,
   Info,
-  CheckCircle2,
   RefreshCw,
   ChevronDown,
   ChevronRight,
@@ -15,24 +13,12 @@ import {
   Package,
   GitBranch,
   Container,
-  X,
-  Clock,
+  Layers,
 } from 'lucide-react';
-import {
-  fetchSystemHealth,
-  SystemHealthReport,
-  SystemRecommendation,
-  fetchHiddenRecommendations,
-  dismissRecommendation,
-  snoozeRecommendation,
-  HiddenRecommendations,
-} from '../services/api';
-import toast from 'react-hot-toast';
+import { fetchSystemHealth, SystemHealthReport } from '../services/api';
 
 interface SystemHealthProps {
   className?: string;
-  onRestartApp?: (appId: string) => Promise<void>;
-  onInstallDeps?: (appId: string) => Promise<void>;
 }
 
 const formatBytes = (bytes: number): string => {
@@ -51,19 +37,6 @@ const formatUptime = (seconds: number): string => {
   if (days > 0) return `${days}d ${hours}h`;
   if (hours > 0) return `${hours}h ${mins}m`;
   return `${mins}m`;
-};
-
-const SeverityIcon: React.FC<{ severity: string }> = ({ severity }) => {
-  switch (severity) {
-    case 'error':
-      return <AlertCircle size={16} className="text-red-400" />;
-    case 'warning':
-      return <AlertTriangle size={16} className="text-yellow-400" />;
-    case 'info':
-      return <Info size={16} className="text-blue-400" />;
-    default:
-      return <CheckCircle2 size={16} className="text-emerald-400" />;
-  }
 };
 
 const VersionIcon: React.FC<{ tool: string }> = ({ tool }) => {
@@ -101,21 +74,53 @@ const ProgressBar: React.FC<{ value: number; className?: string }> = ({
   );
 };
 
-// Generate a unique key for a recommendation
-const getRecommendationKey = (rec: SystemRecommendation): string => {
-  return `${rec.type}-${rec.title.toLowerCase().replace(/\s+/g, '-')}`;
-};
+interface ProcessRow {
+  key: string | number;
+  name: string;
+  detail: string;
+  title: string;
+  cpuPercent: number;
+  rssBytes: number;
+}
 
-export const SystemHealth: React.FC<SystemHealthProps> = ({
-  className = '',
-  onRestartApp,
-  onInstallDeps,
-}) => {
+const ProcessList: React.FC<{
+  title: string;
+  icon: React.ReactNode;
+  rows: ProcessRow[];
+  highlight: 'cpu' | 'rss';
+}> = ({ title, icon, rows, highlight }) => (
+  <div className="bg-gray-900 rounded-lg p-3 min-w-0">
+    <div className="flex items-center gap-2 mb-2">
+      {icon}
+      <span className="text-xs text-gray-400">{title}</span>
+    </div>
+    {rows.length === 0 ? (
+      <div className="text-xs text-gray-500">No data</div>
+    ) : (
+      <ul className="space-y-1">
+        {rows.map((row) => (
+          <li key={row.key} className="flex items-baseline gap-2 text-xs" title={row.title}>
+            <span className="truncate text-gray-200 flex-1 min-w-0">{row.name}</span>
+            <span className="text-gray-500 font-mono shrink-0">{row.detail}</span>
+            <span
+              className={`font-mono shrink-0 w-12 text-right ${highlight === 'cpu' ? 'text-white' : 'text-gray-400'}`}
+            >
+              {row.cpuPercent.toFixed(1)}%
+            </span>
+            <span
+              className={`font-mono shrink-0 w-16 text-right ${highlight === 'rss' ? 'text-white' : 'text-gray-400'}`}
+            >
+              {formatBytes(row.rssBytes)}
+            </span>
+          </li>
+        ))}
+      </ul>
+    )}
+  </div>
+);
+
+export const SystemHealth: React.FC<SystemHealthProps> = ({ className = '' }) => {
   const [health, setHealth] = useState<SystemHealthReport | null>(null);
-  const [hiddenRecs, setHiddenRecs] = useState<HiddenRecommendations>({
-    dismissed: [],
-    snoozed: {},
-  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState(true);
@@ -124,9 +129,7 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
   const loadHealth = useCallback(async () => {
     try {
       setLoading(true);
-      const [data, hidden] = await Promise.all([fetchSystemHealth(), fetchHiddenRecommendations()]);
-      setHealth(data);
-      setHiddenRecs(hidden);
+      setHealth(await fetchSystemHealth());
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load system health');
@@ -141,49 +144,6 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
     const interval = setInterval(loadHealth, 120000);
     return () => clearInterval(interval);
   }, [loadHealth]);
-
-  // Filter out hidden recommendations
-  const visibleRecommendations = useMemo(() => {
-    if (!health) return [];
-    const now = Date.now();
-    return health.recommendations.filter((rec) => {
-      const key = getRecommendationKey(rec);
-      // Check if dismissed
-      if (hiddenRecs.dismissed.includes(key)) return false;
-      // Check if snoozed and not expired
-      const snoozeExpiry = hiddenRecs.snoozed[key];
-      if (snoozeExpiry && snoozeExpiry > now) return false;
-      return true;
-    });
-  }, [health, hiddenRecs]);
-
-  const handleDismiss = async (rec: SystemRecommendation) => {
-    const key = getRecommendationKey(rec);
-    try {
-      await dismissRecommendation(key);
-      setHiddenRecs((prev) => ({
-        ...prev,
-        dismissed: [...prev.dismissed, key],
-      }));
-      toast.success('Recommendation dismissed');
-    } catch {
-      toast.error('Failed to dismiss');
-    }
-  };
-
-  const handleSnooze = async (rec: SystemRecommendation) => {
-    const key = getRecommendationKey(rec);
-    try {
-      const expiry = await snoozeRecommendation(key);
-      setHiddenRecs((prev) => ({
-        ...prev,
-        snoozed: { ...prev.snoozed, [key]: expiry },
-      }));
-      toast.success('Snoozed for 24 hours');
-    } catch {
-      toast.error('Failed to snooze');
-    }
-  };
 
   if (loading && !health) {
     return (
@@ -212,7 +172,15 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
 
   if (!health) return null;
 
-  const { system } = health;
+  const { system, topProcesses } = health;
+  const toRow = (p: SystemHealthReport['topProcesses']['byCpu'][number]): ProcessRow => ({
+    key: p.pid,
+    name: p.name,
+    detail: String(p.pid),
+    title: p.command,
+    cpuPercent: p.cpuPercent,
+    rssBytes: p.rssBytes,
+  });
 
   return (
     <div className={`bg-gray-800 rounded-xl border border-gray-700 ${className}`}>
@@ -224,12 +192,6 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
         <div className="flex items-center gap-3">
           <Activity className="text-blue-400" size={20} />
           <h3 className="font-semibold text-white">System Health</h3>
-          {visibleRecommendations.length > 0 && (
-            <span className="px-2 py-0.5 text-xs rounded-full bg-yellow-500/20 text-yellow-400 border border-yellow-500/30">
-              {visibleRecommendations.length}{' '}
-              {visibleRecommendations.length === 1 ? 'issue' : 'issues'}
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -293,6 +255,36 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Top processes */}
+          {/* stacked: the card sits in a half-width dashboard column, so viewport breakpoints don't apply */}
+          <div className="grid grid-cols-1 gap-3">
+            <ProcessList
+              title="Top CPU"
+              icon={<Cpu size={14} className="text-blue-400" />}
+              rows={topProcesses.byCpu.map(toRow)}
+              highlight="cpu"
+            />
+            <ProcessList
+              title="Top Speicher"
+              icon={<MemoryStick size={14} className="text-purple-400" />}
+              rows={topProcesses.byMemory.map(toRow)}
+              highlight="rss"
+            />
+            <ProcessList
+              title="Top Apps (Summe je Name)"
+              icon={<Layers size={14} className="text-emerald-400" />}
+              rows={topProcesses.byApp.map((a) => ({
+                key: a.name,
+                name: a.name,
+                detail: `×${a.processCount}`,
+                title: `${a.name}: ${a.processCount} Prozesse`,
+                cpuPercent: a.cpuPercent,
+                rssBytes: a.rssBytes,
+              }))}
+              highlight="rss"
+            />
           </div>
 
           {/* Tool Versions */}
@@ -363,23 +355,6 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
             )}
           </div>
 
-          {/* Recommendations */}
-          {visibleRecommendations.length > 0 && (
-            <div className="space-y-2">
-              <h4 className="text-sm font-medium text-gray-400">Recommendations</h4>
-              {visibleRecommendations.map((rec) => (
-                <RecommendationCard
-                  key={getRecommendationKey(rec)}
-                  recommendation={rec}
-                  onRestartApp={onRestartApp}
-                  onInstallDeps={onInstallDeps}
-                  onDismiss={() => handleDismiss(rec)}
-                  onSnooze={() => handleSnooze(rec)}
-                />
-              ))}
-            </div>
-          )}
-
           {/* System Info Footer */}
           <div className="flex items-center justify-between text-xs text-gray-500 pt-2 border-t border-gray-700">
             <span>
@@ -389,159 +364,6 @@ export const SystemHealth: React.FC<SystemHealthProps> = ({
           </div>
         </div>
       )}
-    </div>
-  );
-};
-
-interface RecommendationCardProps {
-  recommendation: SystemRecommendation;
-  onRestartApp?: (appId: string) => Promise<void>;
-  onInstallDeps?: (appId: string) => Promise<void>;
-  onDismiss?: () => void;
-  onSnooze?: () => void;
-}
-
-const RecommendationCard: React.FC<RecommendationCardProps> = ({
-  recommendation,
-  onRestartApp,
-  onInstallDeps,
-  onDismiss,
-  onSnooze,
-}) => {
-  const [showAction, setShowAction] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-
-  const severityColors = {
-    error: 'border-red-500/30 bg-red-500/10',
-    warning: 'border-yellow-500/30 bg-yellow-500/10',
-    info: 'border-blue-500/30 bg-blue-500/10',
-  };
-
-  // Extract appId from recommendation message if present (e.g., "App 'my-app' (id123) has...")
-  const extractAppId = (): string | null => {
-    const match = recommendation.message.match(/\(([a-f0-9]+)\)/);
-    return match ? match[1] : null;
-  };
-
-  // Determine if this recommendation has a one-click action
-  const getQuickAction = (): { label: string; handler: () => Promise<void> } | null => {
-    const appId = extractAppId();
-
-    // Project-related recommendations with actionable fixes
-    if (recommendation.type === 'project' && appId) {
-      if (
-        recommendation.title.toLowerCase().includes('crashed') ||
-        recommendation.title.toLowerCase().includes('failed') ||
-        recommendation.title.toLowerCase().includes('error')
-      ) {
-        if (onRestartApp) {
-          return {
-            label: 'Restart App',
-            handler: async () => {
-              await onRestartApp(appId);
-            },
-          };
-        }
-      }
-
-      if (
-        recommendation.title.toLowerCase().includes('dependencies') ||
-        recommendation.title.toLowerCase().includes('node_modules')
-      ) {
-        if (onInstallDeps) {
-          return {
-            label: 'Install Dependencies',
-            handler: async () => {
-              await onInstallDeps(appId);
-            },
-          };
-        }
-      }
-    }
-
-    return null;
-  };
-
-  const quickAction = getQuickAction();
-
-  const handleQuickAction = async () => {
-    if (!quickAction) return;
-
-    setIsExecuting(true);
-    try {
-      await quickAction.handler();
-      toast.success(`${quickAction.label} completed`);
-    } catch (err) {
-      toast.error(`Failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-    } finally {
-      setIsExecuting(false);
-    }
-  };
-
-  return (
-    <div
-      className={`p-3 rounded-lg border ${severityColors[recommendation.severity] || severityColors.info}`}
-    >
-      <div className="flex items-start gap-2">
-        <SeverityIcon severity={recommendation.severity} />
-        <div className="flex-1">
-          <div className="flex items-start justify-between gap-2">
-            <div className="font-medium text-white text-sm">{recommendation.title}</div>
-            <div className="flex items-center gap-1 shrink-0">
-              {onSnooze && (
-                <button
-                  onClick={onSnooze}
-                  className="p-1 text-gray-500 hover:text-yellow-400 hover:bg-gray-700/50 rounded transition-colors"
-                  title="Snooze for 24 hours"
-                >
-                  <Clock size={14} />
-                </button>
-              )}
-              {onDismiss && (
-                <button
-                  onClick={onDismiss}
-                  className="p-1 text-gray-500 hover:text-red-400 hover:bg-gray-700/50 rounded transition-colors"
-                  title="Dismiss permanently"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-          </div>
-          <div className="text-xs text-gray-400 mt-0.5">{recommendation.message}</div>
-          <div className="flex items-center gap-2 mt-2">
-            {quickAction && (
-              <button
-                onClick={handleQuickAction}
-                disabled={isExecuting}
-                className="px-2 py-1 text-xs bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 border border-blue-500/30 rounded transition-colors disabled:opacity-50"
-              >
-                {isExecuting ? (
-                  <span className="flex items-center gap-1">
-                    <RefreshCw size={12} className="animate-spin" />
-                    Running...
-                  </span>
-                ) : (
-                  quickAction.label
-                )}
-              </button>
-            )}
-            {recommendation.action && (
-              <button
-                onClick={() => setShowAction(!showAction)}
-                className="text-xs text-gray-400 hover:text-gray-300"
-              >
-                {showAction ? 'Hide command' : 'Show command'}
-              </button>
-            )}
-          </div>
-          {showAction && recommendation.action && (
-            <code className="block mt-2 text-xs bg-gray-900 text-emerald-400 p-2 rounded font-mono">
-              {recommendation.action}
-            </code>
-          )}
-        </div>
-      </div>
     </div>
   );
 };

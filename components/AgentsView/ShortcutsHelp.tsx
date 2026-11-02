@@ -25,11 +25,11 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
     ],
   },
   {
-    title: 'New task (composer)',
+    title: 'New task / agent (composer)',
     rows: [
-      ['Enter', 'Dispatch a new background session'],
-      ['Ctrl+Enter', 'Dispatch and attach immediately'],
-      ['Shift+Enter / Ctrl+J', 'Insert a newline'],
+      ['Cmd/Ctrl+Enter', 'Dispatch (New agent: start and attach)'],
+      ['Cmd/Ctrl+Shift+Enter', 'Dispatch and attach immediately'],
+      ['Enter / Ctrl+J', 'Insert a newline'],
       ['Tab', 'Apply the highlighted suggestion'],
       ['Esc', 'Close the composer (the draft is kept)'],
       ['Ctrl+G', 'Edit the prompt in a larger editor'],

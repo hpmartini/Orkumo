@@ -6,11 +6,15 @@ import {
   sessionAgeMs,
   formatAge,
   prLabel,
+  dirName,
   documentTitle,
   COMPLETED_VISIBLE_LIMIT,
   DEFAULT_SORT,
   sortSessionsBy,
   applyQuickFilters,
+  applyLinkFilter,
+  collectLinkEntries,
+  matchesQuickFilter,
   matchServers,
   summarizeContext,
   mainRepoPath,
@@ -21,7 +25,7 @@ import {
   sessionsInContext,
   type SessionLookup,
 } from '../utils/agentSessions';
-import type { AgentSession } from '../types';
+import type { AgentContext, AgentSession } from '../types';
 
 function session(partial: Partial<AgentSession>): AgentSession {
   return {
@@ -157,8 +161,13 @@ describe('summaries and formatting', () => {
   it('renders PR labels with provider prefixes and counts', () => {
     expect(prLabel([openPr])).toMatchObject({ text: '#1', href: openPr.href });
     expect(prLabel([{ ...openPr, provider: 'gitlab', number: 9 }])?.text).toBe('!9');
-    expect(prLabel([openPr, { ...openPr, id: 'pr2', number: 2 }])?.text).toBe('2 PRs');
+    expect(prLabel([openPr, { ...openPr, id: 'pr2', number: 2 }])?.text).toBe('2');
     expect(prLabel([])).toBeNull();
+  });
+
+  it('names directory groups by project, worktrees with their folder', () => {
+    expect(dirName('/Users/x/PROJECTS/DevOrbitDashboard')).toBe('DevOrbitDashboard');
+    expect(dirName('/Users/x/PROJECTS/App/.claude/worktrees/fix-1')).toBe('App · fix-1');
   });
 
   it('builds the document title', () => {
@@ -209,6 +218,54 @@ describe('sorting, quick filters and server matching', () => {
     expect(ids(applyQuickFilters(all, new Set(['needs-input', 'working']), lookup))).toBe('wb');
     expect(ids(applyQuickFilters(all, new Set(['working', 'server']), lookup))).toBe('w');
     expect(ids(applyQuickFilters(all, new Set(['server', 'needs-input']), lookup))).toBe('');
+  });
+
+  describe('cache-expiring filter', () => {
+    const MIN = 60_000;
+    const cache = (lastActivityAt: number) => ({
+      lastActivityAt,
+      ttlMs: 60 * MIN,
+      cachedTokens: 1000,
+      contextWindow: 200_000,
+      hits: 1,
+      turns: 1,
+      hitRatio: 1,
+    });
+    const ctx = (lastActivityAt: number) => ({ cache: cache(lastActivityAt) }) as AgentContext;
+    // now = 60 min: cache of 'w' has 5 min left, 'b' 30 min, 'd' expired, 'f' has no cache
+    const lookup: SessionLookup = {
+      now: 60 * MIN,
+      contexts: { w: ctx(5 * MIN), b: ctx(30 * MIN), d: ctx(-1 * MIN) },
+    };
+
+    it('matches only warm caches with at most 10 minutes left', () => {
+      expect(
+        all.filter((s) => matchesQuickFilter('cache-expiring', s, lookup)).map((s) => s.id)
+      ).toEqual(['w']);
+      expect(matchesQuickFilter('cache-expiring', working, {})).toBe(false);
+      // exactly 10 min left counts, one ms more does not
+      const edge = { contexts: { w: ctx(0) } };
+      expect(matchesQuickFilter('cache-expiring', working, { ...edge, now: 50 * MIN })).toBe(true);
+      expect(matchesQuickFilter('cache-expiring', working, { ...edge, now: 50 * MIN - 1 })).toBe(
+        false
+      );
+    });
+
+    it('follows the clock without new context data', () => {
+      const at = (now: number) =>
+        ids(applyQuickFilters(all, new Set(['cache-expiring']), { ...lookup, now }));
+      expect(at(40 * MIN)).toBe(''); // 'w' still has 25 min
+      expect(at(60 * MIN)).toBe('w');
+      expect(at(81 * MIN)).toBe('b'); // 'w' expired, 'b' entered the window
+    });
+
+    it('combines with state chips using AND', () => {
+      // 'w' is working, 'b' is blocked: only the working agent with an expiring cache stays
+      const both = { ...lookup, contexts: { ...lookup.contexts, b: ctx(5 * MIN) } };
+      expect(ids(applyQuickFilters(all, new Set(['cache-expiring']), both))).toBe('wb');
+      expect(ids(applyQuickFilters(all, new Set(['working', 'cache-expiring']), both))).toBe('w');
+      expect(ids(applyQuickFilters(all, new Set(['completed', 'cache-expiring']), both))).toBe('');
+    });
   });
 
   it('matches apps by directory in both directions and parses ports from addresses', () => {
@@ -352,6 +409,24 @@ describe('groupSessions (project)', () => {
     ]);
   });
 
+  it('groups a worktree outside the repo with its main checkout once contexts load', () => {
+    const sessions = [
+      session({ id: 'm', cwd: '/code/proj' }),
+      session({ id: 'w', cwd: '/w/x' }),
+      session({ id: 'c', cwd: '/code/proj/.claude/worktrees/feat' }),
+    ];
+    const lookup: SessionLookup = {
+      contexts: {
+        m: repoCtx('/code/proj', null),
+        w: repoCtx('/code/proj', null),
+        c: repoCtx('/code/proj', null),
+      },
+    };
+    expect(
+      groupSessions(sessions, 'project', { lookup }).map((g) => [g.key, g.title, g.sessions.length])
+    ).toEqual([['project:dir:/code/proj', 'proj', 3]]);
+  });
+
   it('titles by the GitHub repo name, folder in parentheses only when it differs', () => {
     const sessions = [session({ id: 'a', cwd: '/x/web' }), session({ id: 'b', cwd: '/x/old' })];
     const lookup: SessionLookup = {
@@ -469,5 +544,35 @@ describe('sessionsInContext (#133)', () => {
   it('keeps sessions whose most specific app is a member', () => {
     expect(sessionsInContext(all, apps, ['repo', 'other'])).toEqual([inRoot, inWorktree]);
     expect(sessionsInContext(all, apps, ['web'])).toEqual([inWeb]);
+  });
+});
+
+describe('PR / issue filter', () => {
+  const pr = session({ id: 'p', links: [openPr] });
+  const issue = session({ id: 'i' });
+  const none = session({ id: 'n' });
+  const issuesByAgent = new Map([['i', ['o/r#7']]]);
+
+  it('lists open PRs first, then linked issues, with titles', () => {
+    const entries = collectLinkEntries(
+      [pr, issue, none],
+      issuesByAgent,
+      undefined,
+      new Map([['o/r#7', 'Fix it']])
+    );
+    expect(entries.map((e) => [e.kind, e.label, e.title])).toEqual([
+      ['pr', '#1', openPr.href],
+      ['issue', '#7', 'Fix it'],
+    ]);
+  });
+
+  it('keeps sessions linked to any selected entry', () => {
+    const all = [pr, issue, none];
+    const ids = (list: { id: string }[]) => list.map((s) => s.id).join('');
+    expect(ids(applyLinkFilter(all, new Set(), issuesByAgent))).toBe('pin');
+    expect(ids(applyLinkFilter(all, new Set(['issue:o/r#7']), issuesByAgent))).toBe('i');
+    expect(
+      ids(applyLinkFilter(all, new Set([`pr:${openPr.href}`, 'issue:o/r#7']), issuesByAgent))
+    ).toBe('pi');
   });
 });

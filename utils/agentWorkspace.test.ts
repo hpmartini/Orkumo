@@ -19,6 +19,8 @@ import {
   pruneMissing,
   tabTitle,
   migrateWorkspace,
+  openBrowser,
+  browserUrl,
   type Workspace,
 } from './agentWorkspace';
 
@@ -219,7 +221,7 @@ describe('moveTab / setTabLayout / focus', () => {
     expect(activateTab(ws, 't1').activeTabId).toBe('t1');
   });
 
-  it('focusSession on a pane makes it the tab\'s active session (drives the rail reveal)', () => {
+  it("focusSession on a pane makes it the tab's active session (drives the rail reveal)", () => {
     const ws = splitInto(open('a', 'b'), 'b', 'a', 'right');
     const tab = ws.tabs.find((t) => t.panes.includes('a'))!;
     const other = tab.panes.find((id) => id !== tab.activeSessionId)!;
@@ -269,5 +271,48 @@ describe('migrateWorkspace', () => {
     expect(shape(fixed)).toEqual(['columns:a,b', 'single:c']);
     expect(fixed.tabs[0].activeSessionId).toBe('a');
     expect(fixed.activeTabId).toBe('y');
+  });
+});
+
+describe('openBrowser', () => {
+  const url = 'http://localhost:5173/';
+  it('splits a browser pane right of the clicking pane', () => {
+    const ws = openBrowser(splitInto(open('a', 'b'), 'b', 'a', 'right'), 'a', url);
+    const tab = activeTab(ws)!;
+    expect(tab.panes.map((p) => browserUrl(p) ?? p)).toEqual(['a', url, 'b']);
+    expect(tab.layout).toBe('columns');
+    expect(browserUrl(tab.activeSessionId)).toBe(url);
+  });
+
+  it("reuses the tab's browser pane for the next link", () => {
+    const first = openBrowser(open('a'), 'a', url);
+    const ws = openBrowser(first, 'a', 'https://github.com/x');
+    expect(activeTab(ws)!.panes.map((p) => browserUrl(p) ?? p)).toEqual([
+      'a',
+      'https://github.com/x',
+    ]);
+  });
+
+  it('gives each tab its own browser pane', () => {
+    const ws = openBrowser(openBrowser(open('a', 'b'), 'a', url), 'b', url);
+    const browsers = ws.tabs.flatMap((t) => t.panes).filter((p) => browserUrl(p));
+    expect(new Set(browsers).size).toBe(2);
+  });
+
+  it('ignores unknown panes and non-http urls', () => {
+    const ws = open('a');
+    expect(openBrowser(ws, 'zz', url)).toBe(ws);
+    expect(openBrowser(ws, 'a', 'file:///etc/passwd')).toBe(ws);
+  });
+
+  it('survives prune and migration', () => {
+    const ws = openBrowser(open('a'), 'a', url);
+    expect(pruneMissing(ws, new Set(['a']))).toEqual(ws);
+    expect(migrateWorkspace(JSON.parse(JSON.stringify(ws)))).toEqual(ws);
+  });
+
+  it('parses only browser pane ids', () => {
+    expect(browserUrl('abc123')).toBeNull();
+    expect(browserUrl('browser:1:https://a.b/c?d=1:2')).toBe('https://a.b/c?d=1:2');
   });
 });

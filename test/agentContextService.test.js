@@ -220,6 +220,14 @@ describe('agentContextService - gitInfo with a real git worktree', () => {
         worktreeName: 'feature-x',
         branch: 'feature-x',
       });
+      const outside = path.join(root, 'outside-wt');
+      git('worktree', 'add', '-q', '-b', 'outside', outside);
+      expect(await gitInfo(outside)).toMatchObject({
+        name: 'main-repo',
+        root: main,
+        isWorktree: true,
+        worktreeName: 'outside-wt',
+      });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }

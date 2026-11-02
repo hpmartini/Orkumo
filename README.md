@@ -2,17 +2,14 @@
 
 > **Vision:** DevOrbit ist die komplette Arbeitsumgebung für agentische Entwicklung (ADE): Issues planen, Agents steuern, Code editieren, Terminal, über alle Geräte hinweg, verbunden über den Kontext Issue ↔ Agent ↔ Worktree ↔ PR ↔ Code. Details: [docs/VISION.md](docs/VISION.md).
 
-**DevOrbit Dashboard** is an advanced local development environment manager that monitors, controls, and optimizes your development workflow. It integrates with Gemini AI to analyze project configurations and provide intelligent recommendations, making it easier to manage complex microservice architectures and local setups.
+**DevOrbit Dashboard** is a workspace for agentic development: agents, code, board, workflows and terminal around your local projects.
 
 ## 🚀 Features
 
-- **Project Management**: Monitor and control local applications (Start, Stop, Restart).
-- **Intelligent Analysis**: Uses Gemini AI to scan project structures and suggest run configurations.
-- **Port Management**: Automatic detection of port conflicts with resolution options (kill process or pick new port).
-- **System Monitoring**: Real-time CPU and Memory usage tracking for managed services.
+- **Overview**: agent situation (needs input, cache expiring, compaction needed), usage card, system health with top processes.
+- **Usage** (`/usage`): tokens per day, model and provider (Claude Code, Codex accounts via `DEVORBIT_CODEX_HOMES`, MiniMax) and plan limits from local logs.
 - **Integrated Terminal**: Full-featured web-based terminal emulator for interacting with your services.
 - **IDE Integration**: Seamlessly open projects in VS Code, Cursor, WebStorm, and other IDEs.
-- **Docker Support**: Manage Docker containers and compose services directly from the dashboard.
 - **Claude Code Agents**: Browser version of `claude agents` - dispatch, peek, reply, attach (in tabs or tiled), pin, rename, stop and delete background Claude Code sessions.
 
 ## 🛠️ Tech Stack
@@ -21,13 +18,11 @@
 - **Backend**: Node.js, Express, WebSocket (ws), node-pty
 - **Database**: PostgreSQL (via Drizzle ORM)
 - **Caching**: Redis
-- **AI**: Google Gemini API
 
 ## 📋 Prerequisites
 
 - **Node.js** (v18+ recommended)
 - **Docker** & Docker Compose
-- **Google Gemini API Key** (for AI features)
 
 ## 🏁 Getting Started
 
@@ -44,7 +39,7 @@ bun install
 Create an `.env.local` file in the root directory:
 
 ```bash
-GEMINI_API_KEY=your_api_key_here
+# DEVORBIT_CODEX_HOMES=Codex A=~/.codex,Codex B=~/.codex-b
 # Optional: data persistence paths
 # SCAN_DIRECTORIES=/Users/username/projects
 ```
@@ -138,26 +133,24 @@ docker compose up --build
 
 Access the dashboard at `http://localhost:3000`.
 
+### Docker from a release (no checkout, no build)
+
+Every [release](https://github.com/hpmartini/DevHub/releases) ships the desktop installers (`.dmg`, `.AppImage`, `.deb`, `.rpm`, see [DESKTOP.md](DESKTOP.md)) and multi-arch images (`ghcr.io/hpmartini/devhub-api`, `devhub-frontend`, amd64 + arm64).
+
+```bash
+mkdir devorbit && cd devorbit
+gh release download <tag> --repo hpmartini/DevHub -p docker-compose.release.yml -p init-db.sql  # <tag> from the releases page, e.g. v1.0.0
+docker compose -f docker-compose.release.yml up -d   # http://localhost:3000
+```
+
+Optional `.env` next to the compose file: `POSTGRES_PASSWORD`, `GEMINI_API_KEY`, `DEVORBIT_PORT` (default 3000), `DEVORBIT_PROJECTS_DIR` (default `~/Projects`), `PTY_HOST_HTTP_TOKEN`.
+Terminals need the PTY-Host on the host: `git clone` this repo, `bun run pty-host:install && bun run pty-host` (ports 3096/3097). It binds to `127.0.0.1`, which Docker Desktop reaches; on Linux set `PTY_HOST_BIND` to the `docker0` IP (usually `172.17.0.1`), not `0.0.0.0`.
+
 ---
 
 ## 💻 Web IDE: code-server Integration
 
-DevOrbit Dashboard includes an integrated web-based IDE powered by **code-server** (VS Code in the browser) alongside the lightweight **Monaco Editor**. This gives you the flexibility to choose between a fast embedded editor or a full-featured IDE experience.
-
-### Why Two Editors?
-
-| Feature                 | Monaco Editor             | code-server (VS Code)         |
-| ----------------------- | ------------------------- | ----------------------------- |
-| **Load Time**           | Instant                   | 2-3 seconds                   |
-| **Memory Usage**        | ~50MB                     | ~200-500MB                    |
-| **Extensions**          | ❌ No                     | ✅ Full VS Code marketplace   |
-| **Integrated Terminal** | ❌ No                     | ✅ Yes                        |
-| **Git Integration**     | ❌ Limited                | ✅ Full GitLens, etc.         |
-| **Debugging**           | ❌ No                     | ✅ Full debugging support     |
-| **Settings Sync**       | ❌ No                     | ✅ Yes (with VS Code account) |
-| **Best For**            | Quick edits, config files | Full development, debugging   |
-
-**Recommendation:** Use Monaco for quick edits and code-server when you need the full IDE experience.
+DevOrbit Dashboard embeds **code-server** (VS Code in the browser) as its only integrated editor: extensions, integrated terminal, git and debugging, opened directly on the project folder.
 
 ### 🚀 Quick Setup
 

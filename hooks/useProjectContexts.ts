@@ -8,11 +8,12 @@ import {
   LEGACY_STORAGE_KEY as WORKSPACE_LEGACY_KEY,
 } from './useAgentWorkspace';
 import { STORAGE_KEY as RAIL_KEY } from './useRailPreferences';
+import { SHELL_BROWSER_KEY } from '../utils/links';
 
 /** Last route (path + query) of a context, so board/workflows stay in the context they were opened in */
 export const ROUTE_KEY = 'devOrbitContextRoute';
-/** localStorage entries that belong to the active context: attached agent tabs, rail prefs, route */
-const UI_KEYS = [WORKSPACE_KEY, WORKSPACE_LEGACY_KEY, RAIL_KEY, ROUTE_KEY];
+/** localStorage entries that belong to the active context: attached agent tabs, rail prefs, route, shell browser */
+const UI_KEYS = [WORKSPACE_KEY, WORKSPACE_LEGACY_KEY, RAIL_KEY, ROUTE_KEY, SHELL_BROWSER_KEY];
 /** Context the local UI_KEYS belong to; differs from the server's after another device switched */
 const MARKER_KEY = 'devOrbitContextId';
 

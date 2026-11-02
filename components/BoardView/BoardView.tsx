@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { AlertTriangle, Eye, EyeOff, RefreshCw, Search, Star } from 'lucide-react';
-import type { AgentSession, BoardItem, BoardSliceKind, BoardSwimlaneMode } from '../../types';
+import type { BoardItem, BoardSliceKind, BoardSwimlaneMode } from '../../types';
 import {
   boardColumns,
   buildLanes,
@@ -19,9 +19,7 @@ import {
   type SliceEntry,
 } from '../../utils/board';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
-import { fetchRepoPath } from '../../services/boardApi';
-import { fetchAgentContexts } from '../../services/agentsApi';
-import { codeUrl, linkedAgentFolder } from '../../utils/codeTarget';
+import { openCodeFor, sessionsByLinkId, startAgentOn } from './panelActions';
 import { undoToast, useBoard } from './useBoard';
 import { BoardGrid } from './BoardGrid';
 import { BoardItemPanel } from './BoardItemPanel';
@@ -147,17 +145,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
   const links = useMemo(() => deriveAgentLinks(items, sessions), [items, sessions]);
   const agentsByIssue = useMemo(() => linksByIssue(links), [links]);
   const issuesByAgent = useMemo(() => linksByAgent(links), [links]);
-  const sessionsById = useMemo(
-    // Links carry the job id or the first 8 chars of the session UUID (mw-board)
-    () =>
-      new Map<string, AgentSession>(
-        sessions.flatMap((s) => [
-          ...(s.sessionId ? [[s.sessionId.slice(0, 8), s] as const] : []),
-          [s.id, s] as const,
-        ])
-      ),
-    [sessions]
-  );
+  const sessionsById = useMemo(() => sessionsByLinkId(sessions), [sessions]);
 
   const slices = useMemo(() => buildSlices(items, sliceKind, prefs), [items, sliceKind, prefs]);
   const allCount = useMemo(
@@ -455,21 +443,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
           onSave={(patch, optimistic) => editIssue(openItem.itemId, patch, optimistic)}
           onOpenKey={(key) => setParam('item', key)}
           onAttach={(jobId) => navigate(`/agents?attach=${encodeURIComponent(jobId)}`)}
-          onStartAgent={async (it) => {
-            // No local checkout found (or lookup failed): composer keeps its own directory
-            const cwd = it.repo ? await fetchRepoPath(it.repo).catch(() => null) : null;
-            navigate('/agents', { state: { dispatch: `Bearbeite ${it.url} `, cwd } });
-          }}
-          onOpenCode={async (jobIds) => {
-            const repo = openItem.repo;
-            // An agent's cwd can be the main checkout while it works in a worktree
-            const contexts = jobIds.length ? await fetchAgentContexts().catch(() => ({})) : {};
-            const folder =
-              linkedAgentFolder(jobIds, sessionsById, contexts) ??
-              (repo ? await fetchRepoPath(repo).catch(() => null) : null);
-            if (folder) navigate(codeUrl(folder));
-            else toast.error(`Kein lokaler Checkout von ${repo ?? 'diesem Issue'} gefunden`);
-          }}
+          onStartAgent={(it) => startAgentOn(navigate, it)}
+          onOpenCode={(jobIds) => openCodeFor(navigate, jobIds, sessionsById, openItem.repo)}
           onAgentIssues={(jobId) =>
             setSearchParams((prev) => {
               const next = new URLSearchParams(prev);

@@ -8,7 +8,13 @@ import type {
   AgentPrLink,
   AgentContext,
   AgentPullRequest,
+  AgentCardDetails,
+  AgentCardElement,
+  AgentCardFields,
+  AgentCardSlot,
 } from '../types';
+import { DEFAULT_AGENT_CARD_FIELDS } from '../types';
+import { isCacheWarning } from './agentCache';
 
 export type GroupKey =
   | 'pinned'
@@ -291,6 +297,60 @@ export interface ServerApp {
 export interface SessionLookup {
   contexts?: Record<string, AgentContext | undefined>;
   servers?: Map<string, AgentServer[]>;
+  /** Session id -> board issue key ("owner/repo#12") of agents mw board started (#159) */
+  workflowIssues?: Map<string, string>;
+  /** Clock for time-dependent filters (cache expiry); defaults to Date.now() */
+  now?: number;
+}
+
+/** Name prefix mw board gives the sessions it starts: "MACC <repo>#<number> <title>" */
+const WORKFLOW_NAME = /^MACC (\S+)#(\d+)(?: +(.*))?$/;
+
+export interface WorkflowName {
+  repo: string;
+  number: number;
+  /** Name without the prefix; the full name when nothing follows it */
+  title: string;
+}
+
+/** Splits an mw board session name; null for every other name */
+export function parseWorkflowName(name: string | null | undefined): WorkflowName | null {
+  const match = WORKFLOW_NAME.exec((name || '').trim());
+  if (!match) return null;
+  const title = (match[3] || '').trim();
+  return { repo: match[1], number: Number(match[2]), title: title || match[0].trim() };
+}
+
+/** Started by the mw board workflow for a GitHub issue, not by hand */
+export function isWorkflowSession(
+  session: Pick<AgentSession, 'id' | 'name'>,
+  lookup?: SessionLookup
+): boolean {
+  return !!parseWorkflowName(session.name) || !!lookup?.workflowIssues?.has(session.id);
+}
+
+/**
+ * Board issue a workflow agent works on: the mw-board link, else the name prefix resolved
+ * against the agent's linked issues or its repo slug (key null if neither matches).
+ * null for hand-started agents.
+ */
+export function workflowIssue(
+  session: Pick<AgentSession, 'id' | 'name'>,
+  lookup?: SessionLookup,
+  issueKeys: string[] = []
+): { key: string | null; number: number } | null {
+  const linked = lookup?.workflowIssues?.get(session.id);
+  if (linked) return { key: linked, number: Number(linked.slice(linked.lastIndexOf('#') + 1)) };
+  const parsed = parseWorkflowName(session.name);
+  if (!parsed) return null;
+  const suffix = `/${parsed.repo}#${parsed.number}`.toLowerCase();
+  const fromLinks = issueKeys.find((k) => k.toLowerCase().endsWith(suffix));
+  const slug = lookup?.contexts?.[session.id]?.repo?.slug;
+  const fromSlug =
+    slug && slug.toLowerCase().endsWith(`/${parsed.repo.toLowerCase()}`)
+      ? `${slug}#${parsed.number}`
+      : null;
+  return { key: fromLinks || fromSlug, number: parsed.number };
 }
 
 export type AgentSortKey =
@@ -332,12 +392,18 @@ const lastSegment = (path: string) => path.split('/').filter(Boolean).pop() || p
 /**
  * Main checkout of a Claude/git worktree path ("<main>/.claude/worktrees/x" or
  * "<main>/.worktrees/x"), derived from the path alone so it works before contexts load.
- * shortcut: worktrees created elsewhere (`git worktree add ../x`) are only resolved by the
- * server context (repo.name), not grouped with the main checkout; revisit if that gets common.
+ * Worktrees created elsewhere (`git worktree add ../x`) join their main checkout once the
+ * server context delivers repo.root.
  */
 export function mainRepoPath(dir: string): string {
   const match = dir.match(/^(.+?)\/(?:\.claude\/worktrees|\.worktrees)(?:\/|$)/);
   return match ? match[1] : dir;
+}
+
+/** Project name of a directory: "Repo", or "Repo · folder" for a worktree */
+export function dirName(dir: string): string {
+  const main = mainRepoPath(dir);
+  return main === dir ? lastSegment(dir) : `${lastSegment(main)} · ${lastSegment(dir)}`;
 }
 
 /** Main repository name (never the worktree folder), falling back to the path-derived name */
@@ -454,7 +520,10 @@ export type AgentQuickFilter =
   | 'failed'
   | 'pr'
   | 'server'
-  | 'subagents';
+  | 'subagents'
+  | 'local'
+  | 'workflow'
+  | 'cache-expiring';
 
 export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: string }[] = [
   { key: 'needs-input', label: 'Needs input', title: 'Agents waiting for your input' },
@@ -464,9 +533,17 @@ export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: strin
   { key: 'pr', label: 'Open PR', title: 'Agents with an open pull request' },
   { key: 'server', label: 'Server', title: 'Agents with a running dev server in their directory' },
   { key: 'subagents', label: 'Sub-agents', title: 'Agents with running sub-agents' },
+  { key: 'local', label: 'Local', title: 'Agents you started yourself' },
+  { key: 'workflow', label: 'Workflow', title: 'Agents mw board started for a GitHub issue' },
+  {
+    key: 'cache-expiring',
+    label: 'Cache expiring',
+    title: 'Agents whose prompt cache expires within 10 minutes',
+  },
 ];
 
 const STATE_FILTERS: AgentQuickFilter[] = ['needs-input', 'working', 'completed', 'failed'];
+const ORIGIN_FILTERS: AgentQuickFilter[] = ['local', 'workflow'];
 
 export function matchesQuickFilter(
   key: AgentQuickFilter,
@@ -488,22 +565,109 @@ export function matchesQuickFilter(
       return runningServerCount(session, lookup) > 0;
     case 'subagents':
       return (lookup?.contexts?.[session.id]?.subagents.running || 0) > 0;
+    case 'local':
+      return !isWorkflowSession(session, lookup);
+    case 'workflow':
+      return isWorkflowSession(session, lookup);
+    case 'cache-expiring':
+      return isCacheWarning(lookup?.contexts?.[session.id]?.cache, lookup?.now ?? Date.now());
   }
 }
 
-/** State chips combine with OR (they are alternatives), attribute chips with AND. */
+/** State chips and origin chips each combine with OR (alternatives), attribute chips with AND. */
 export function applyQuickFilters(
   sessions: AgentSession[],
   active: ReadonlySet<AgentQuickFilter>,
   lookup?: SessionLookup
 ): AgentSession[] {
   if (active.size === 0) return sessions;
-  const states = [...active].filter((k) => STATE_FILTERS.includes(k));
-  const attrs = [...active].filter((k) => !STATE_FILTERS.includes(k));
+  const anyOf = (group: AgentQuickFilter[]) => {
+    const keys = [...active].filter((k) => group.includes(k));
+    return (s: AgentSession) =>
+      keys.length === 0 || keys.some((k) => matchesQuickFilter(k, s, lookup));
+  };
+  const matchesState = anyOf(STATE_FILTERS);
+  const matchesOrigin = anyOf(ORIGIN_FILTERS);
+  const attrs = [...active].filter(
+    (k) => !STATE_FILTERS.includes(k) && !ORIGIN_FILTERS.includes(k)
+  );
   return sessions.filter(
     (s) =>
-      (states.length === 0 || states.some((k) => matchesQuickFilter(k, s, lookup))) &&
-      attrs.every((k) => matchesQuickFilter(k, s, lookup))
+      matchesState(s) && matchesOrigin(s) && attrs.every((k) => matchesQuickFilter(k, s, lookup))
+  );
+}
+
+/** One open PR or linked issue offered by the PR / issue filter */
+export interface LinkFilterEntry {
+  /** "pr:<url>" or "issue:<owner/repo#n>" */
+  key: string;
+  kind: 'pr' | 'issue';
+  label: string;
+  title: string;
+}
+
+/** Filter keys of a session's open PRs and linked issues (board links plus its workflow issue). */
+export function sessionLinkKeys(
+  session: AgentSession,
+  issueKeys: string[] = [],
+  lookup?: SessionLookup
+): string[] {
+  const workflow = workflowIssue(session, lookup, issueKeys)?.key;
+  const issues = new Set(workflow ? [...issueKeys, workflow] : issueKeys);
+  return [
+    ...session.links.filter(isOpenPr).map((l) => `pr:${l.href}`),
+    ...[...issues].map((k) => `issue:${k}`),
+  ];
+}
+
+/** Every open PR and linked issue of the given sessions, deduped; PRs first, newest number first. */
+export function collectLinkEntries(
+  sessions: AgentSession[],
+  issuesByAgent?: Map<string, string[]>,
+  lookup?: SessionLookup,
+  issueTitles?: Map<string, string>
+): LinkFilterEntry[] {
+  const entries = new Map<string, LinkFilterEntry & { n: number }>();
+  for (const session of sessions) {
+    for (const link of session.links.filter(isOpenPr)) {
+      const key = `pr:${link.href}`;
+      const prefix = link.provider === 'gitlab' ? '!' : '#';
+      entries.set(key, {
+        key,
+        kind: 'pr',
+        label: link.number ? `${prefix}${link.number}` : 'PR',
+        title: link.title || link.href,
+        n: link.number || 0,
+      });
+    }
+    for (const key of sessionLinkKeys(session, issuesByAgent?.get(session.id), lookup)) {
+      if (!key.startsWith('issue:') || entries.has(key)) continue;
+      const issue = key.slice('issue:'.length);
+      const n = Number(issue.slice(issue.lastIndexOf('#') + 1)) || 0;
+      entries.set(key, {
+        key,
+        kind: 'issue',
+        label: `#${n}`,
+        title: issueTitles?.get(issue) || issue,
+        n,
+      });
+    }
+  }
+  return [...entries.values()]
+    .sort((a, b) => (a.kind === b.kind ? b.n - a.n : a.kind === 'pr' ? -1 : 1))
+    .map(({ n: _n, ...entry }) => entry);
+}
+
+/** Sessions linked to any selected PR or issue; all sessions when nothing is selected. */
+export function applyLinkFilter(
+  sessions: AgentSession[],
+  selected: ReadonlySet<string>,
+  issuesByAgent?: Map<string, string[]>,
+  lookup?: SessionLookup
+): AgentSession[] {
+  if (selected.size === 0) return sessions;
+  return sessions.filter((s) =>
+    sessionLinkKeys(s, issuesByAgent?.get(s.id), lookup).some((k) => selected.has(k))
   );
 }
 
@@ -639,6 +803,26 @@ export function flattenGroups(
   return items;
 }
 
+/** Rail rows for a grouping: empty project/directory groups and an empty Interactive group are left out */
+export function railItems(
+  groups: SessionGroup[],
+  collapsed: Set<string>,
+  grouping: AgentGrouping
+): NavItem[] {
+  return flattenGroups(
+    groups,
+    collapsed,
+    grouping === 'directory' || grouping === 'project'
+  ).filter(
+    (item) =>
+      !(
+        item.type === 'group' &&
+        item.group.key === 'interactive' &&
+        item.group.sessions.length === 0
+      )
+  );
+}
+
 export function summarizeSessions(sessions: AgentSession[]): {
   awaitingInput: number;
   working: number;
@@ -710,6 +894,65 @@ export function stateGlyph(state: AgentDisplayState): {
   }
 }
 
+/** Card elements in display order within a slot, with their settings labels (#159) */
+export const CARD_ELEMENTS: { key: AgentCardElement; label: string }[] = [
+  { key: 'issue', label: 'Workflow issue (#nr)' },
+  { key: 'pr', label: 'Pull request' },
+  { key: 'project', label: 'Project name' },
+  { key: 'branch', label: 'Branch / worktree' },
+  { key: 'git', label: 'Git status (dirty, ahead, behind)' },
+  { key: 'metrics', label: 'Context and cache' },
+  { key: 'status', label: 'Status text (working on, waiting for)' },
+  { key: 'links', label: 'Linked issues' },
+  { key: 'servers', label: 'Dev servers' },
+  { key: 'subagents', label: 'Running sub-agents' },
+];
+
+export const CARD_SLOTS: { key: AgentCardSlot; label: string }[] = [
+  { key: 'left', label: 'Left, under the status icon' },
+  { key: 'title', label: 'After the name' },
+  { key: 'row2', label: 'Row 2' },
+  { key: 'row3', label: 'Row 3 (joins row 2 when compact)' },
+  { key: 'row4', label: 'Row 4' },
+  { key: 'details', label: 'Details (hover / pinned)' },
+  { key: 'hidden', label: 'Hidden' },
+];
+
+/**
+ * Sorts rendered card elements into their slots. Empty elements (null, false, empty list)
+ * are dropped, so a slot without content is an empty array. `wrap` keys rendered nodes.
+ */
+export function cardSlots<T, U = T>(
+  fields: Partial<AgentCardFields>,
+  nodes: Record<AgentCardElement, T>,
+  wrap: (node: T, key: AgentCardElement) => U = (node) => node as unknown as U
+): Record<AgentCardSlot, U[]> {
+  const slots = Object.fromEntries(CARD_SLOTS.map(({ key }) => [key, [] as U[]])) as Record<
+    AgentCardSlot,
+    U[]
+  >;
+  for (const { key } of CARD_ELEMENTS) {
+    const node = nodes[key];
+    if (node === null || node === undefined || node === false || node === '') continue;
+    if (Array.isArray(node) && node.length === 0) continue;
+    slots[fields[key] || DEFAULT_AGENT_CARD_FIELDS[key]].push(wrap(node, key));
+  }
+  return slots;
+}
+
+/**
+ * Whether a session card shows its details. "Keep details open" pins them in every mode;
+ * in `hover` mode the hovered card and the keyboard-selected card (rail focused) show them too.
+ */
+export function cardDetailsVisible(
+  mode: AgentCardDetails,
+  state: { hasDetails: boolean; pinned: boolean; hovered: boolean; focused: boolean }
+): boolean {
+  if (!state.hasDetails) return false;
+  if (mode === 'always' || state.pinned) return true;
+  return mode === 'hover' && (state.hovered || state.focused);
+}
+
 /**
  * PR label for the right edge of a row.
  */
@@ -718,7 +961,7 @@ export function prLabel(
 ): { text: string; className: string; href: string | null } | null {
   if (links.length === 0) return null;
   if (links.length > 1) {
-    return { text: `${links.length} PRs`, className: prClass(links[0].state), href: null };
+    return { text: String(links.length), className: prClass(links[0].state), href: null };
   }
   const link = links[0];
   const prefix = link.provider === 'gitlab' ? '!' : '#';

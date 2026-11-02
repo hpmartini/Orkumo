@@ -23,6 +23,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // External links
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
+  // window.open from the app or the Web-IDE, routed back for the link setting (#140)
+  onOpenLink: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = (event, url) => callback(url);
+    ipcRenderer.on('open-link', handler);
+    return () => ipcRenderer.removeListener('open-link', handler);
+  },
 
   // Native dialogs
   showMessageBox: (options) => ipcRenderer.invoke('show-message-box', options),

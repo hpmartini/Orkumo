@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import {
   RefreshCw,
   ExternalLink,
@@ -12,9 +12,6 @@ import {
   ChevronDown,
   ChevronUp,
   Search,
-  Zap,
-  ZapOff,
-  Loader2,
   X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -22,8 +19,8 @@ import type { ConsoleLog, NetworkLog } from '../../types';
 import { ConsoleLogEntry } from './ConsoleLogEntry';
 import { NetworkLogEntry } from './NetworkLogEntry';
 import { DevToolsErrorBoundary } from './DevToolsErrorBoundary';
-import { API_BASE_URL } from '../../utils/apiConfig';
 import { ElectronBrowserView } from './ElectronBrowserView';
+import { openInSystemBrowser } from '../../utils/links';
 
 interface BrowserPreviewPanelProps {
   url: string;
@@ -53,13 +50,6 @@ const VIEWPORTS: Record<Viewport, { width: string; label: string; icon: LucideIc
 };
 
 const MAX_LOGS = 500;
-
-interface DevToolsStatus {
-  detected: boolean;
-  framework?: string;
-  injected: boolean;
-  file?: string;
-}
 
 export const BrowserPreviewPanel = ({
   url,
@@ -99,7 +89,6 @@ export const BrowserPreviewPanel = ({
 // Iframe-based browser preview for non-Electron environments
 const IframeBrowserPreview = ({
   url,
-  appId,
   showDevTools: controlledShowDevTools,
   onShowDevToolsChange,
   activeTab: controlledActiveTab,
@@ -149,79 +138,6 @@ const IframeBrowserPreview = ({
       setInternalFilter(f);
     }
   };
-
-  // DevTools logger injection state
-  const [devToolsStatus, setDevToolsStatus] = useState<DevToolsStatus | null>(null);
-  const [devToolsLoading, setDevToolsLoading] = useState(false);
-  const [devToolsError, setDevToolsError] = useState<string | null>(null);
-
-  // Check DevTools status on mount and when appId changes
-  const checkDevToolsStatus = useCallback(async () => {
-    if (!appId) return;
-    try {
-      const res = await fetch(`${API_BASE_URL}/apps/${appId}/devtools-status`);
-      if (res.ok) {
-        const status = await res.json();
-        setDevToolsStatus(status);
-        setDevToolsError(null);
-      }
-    } catch (err) {
-      console.error('[BrowserPreview] Failed to check devtools status:', err);
-    }
-  }, [appId]);
-
-  // Inject logger into project
-  const handleInjectLogger = useCallback(async () => {
-    if (!appId) return;
-    setDevToolsLoading(true);
-    setDevToolsError(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/apps/${appId}/inject-logger`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        await checkDevToolsStatus();
-        // Refresh iframe to pick up new script
-        setIframeKey((prev) => prev + 1);
-      } else {
-        setDevToolsError(data.error || 'Failed to inject logger');
-      }
-    } catch (err) {
-      setDevToolsError(err instanceof Error ? err.message : 'Failed to inject logger');
-    } finally {
-      setDevToolsLoading(false);
-    }
-  }, [appId, checkDevToolsStatus]);
-
-  // Remove logger from project
-  const handleRemoveLogger = useCallback(async () => {
-    if (!appId) return;
-    setDevToolsLoading(true);
-    setDevToolsError(null);
-    try {
-      const res = await fetch(`${API_BASE_URL}/apps/${appId}/remove-logger`, {
-        method: 'POST',
-      });
-      const data = await res.json();
-      if (res.ok && data.success) {
-        await checkDevToolsStatus();
-        // Refresh iframe
-        setIframeKey((prev) => prev + 1);
-      } else {
-        setDevToolsError(data.error || 'Failed to remove logger');
-      }
-    } catch (err) {
-      setDevToolsError(err instanceof Error ? err.message : 'Failed to remove logger');
-    } finally {
-      setDevToolsLoading(false);
-    }
-  }, [appId, checkDevToolsStatus]);
-
-  // Check status on mount
-  useEffect(() => {
-    checkDevToolsStatus();
-  }, [checkDevToolsStatus]);
 
   // For console/network capture, apps need to include the logger script themselves
   // or we can try to inject it via the proxy (limited support for Vite/HMR apps)
@@ -372,6 +288,7 @@ const IframeBrowserPreview = ({
               onClick={onHide}
               className="p-1 hover:bg-gray-700 rounded transition-colors"
               title="Hide browser preview"
+              aria-label="Hide browser preview"
             >
               <X size={14} />
             </button>
@@ -401,9 +318,9 @@ const IframeBrowserPreview = ({
             onKeyDown={(e) => e.key === 'Enter' && handleRefresh()}
           />
           <button
-            onClick={() => window.open(currentUrl, '_blank')}
+            onClick={() => openInSystemBrowser(currentUrl)}
             className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-            title="Open in new tab"
+            title="Open in system browser"
           >
             <ExternalLink className="w-4 h-4" />
           </button>
@@ -500,56 +417,6 @@ const IframeBrowserPreview = ({
                     <Globe className="w-3 h-3" />
                     Network ({networkLogs.length})
                   </button>
-                </div>
-
-                {/* Logger Injection Button */}
-                <div className="flex items-center gap-2">
-                  {devToolsLoading ? (
-                    <div className="flex items-center gap-1 px-2 py-1 text-xs text-gray-400">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      <span>Processing...</span>
-                    </div>
-                  ) : !devToolsStatus ? (
-                    <button
-                      onClick={checkDevToolsStatus}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-500 hover:text-gray-300 hover:bg-gray-800 transition-colors"
-                      title="Check capture status"
-                    >
-                      <ZapOff className="w-3 h-3" />
-                      <span>Check Status</span>
-                    </button>
-                  ) : devToolsStatus.injected ? (
-                    <button
-                      onClick={handleRemoveLogger}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-green-600/20 text-green-400 hover:bg-green-600/30 transition-colors"
-                      title={`Logger active (${devToolsStatus.framework}) - Click to remove`}
-                    >
-                      <Zap className="w-3 h-3" />
-                      <span>Capturing</span>
-                    </button>
-                  ) : devToolsStatus.detected ? (
-                    <button
-                      onClick={handleInjectLogger}
-                      className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-yellow-600/20 text-yellow-400 hover:bg-yellow-600/30 transition-colors"
-                      title={`Enable console/network capture for ${devToolsStatus.framework}`}
-                    >
-                      <ZapOff className="w-3 h-3" />
-                      <span>Enable Capture</span>
-                    </button>
-                  ) : (
-                    <div
-                      className="flex items-center gap-1 px-2 py-1 text-xs text-gray-500"
-                      title="Framework not detected"
-                    >
-                      <ZapOff className="w-3 h-3" />
-                      <span>No framework</span>
-                    </div>
-                  )}
-                  {devToolsError && (
-                    <span className="text-xs text-red-400" title={devToolsError}>
-                      <AlertCircle className="w-3 h-3" />
-                    </span>
-                  )}
                 </div>
               </div>
 

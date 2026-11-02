@@ -1,15 +1,13 @@
-import React, { Suspense, lazy, useMemo } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import type { WorkflowCard } from '../../utils/workflows';
 import {
   NODE_H,
   NODE_W,
   edgeGeometry,
-  inChain,
   layoutGraph,
   MODE_NAMES,
   type GraphMode,
-  type PipelineType,
 } from '../../utils/workflowGraph.js';
 import { supportsWebGL, type ScenePulse } from './WorkflowScene';
 
@@ -20,7 +18,6 @@ export type GraphView = 'all' | GraphMode;
 interface WorkflowGraphProps {
   active: boolean;
   view: GraphView;
-  pipelineType: PipelineType;
   /** cards on the graph, by station id */
   byNode: Map<string, WorkflowCard[]>;
   selected: string | null;
@@ -33,8 +30,25 @@ interface WorkflowGraphProps {
   popover: React.ReactNode;
 }
 
-const POP_W = 360;
 const POP_GAP = 12;
+/** Popover grid: one column per card up to three, each at least CARD_W wide */
+const CARD_W = 300;
+const GRID_GAP = 8;
+const POP_PAD = 22; // p-2.5 plus border
+const popWidth = (cards: number, room: number) => {
+  const cols = Math.min(Math.max(cards, 1), 3);
+  return Math.min(cols * CARD_W + (cols - 1) * GRID_GAP + POP_PAD, room);
+};
+
+const useViewportWidth = () => {
+  const [w, setW] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const on = () => setW(window.innerWidth);
+    window.addEventListener('resize', on);
+    return () => window.removeEventListener('resize', on);
+  }, []);
+  return w;
+};
 
 /**
  * The mw workflows as a graph, top to bottom: stations are HTML buttons (click, keyboard, count),
@@ -44,7 +58,6 @@ const POP_GAP = 12;
 export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   active,
   view,
-  pipelineType,
   byNode,
   selected,
   onSelect,
@@ -61,10 +74,6 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   );
   const webgl = useMemo(supportsWebGL, []);
   const count = (id: string) => byNode.get(id)?.length ?? 0;
-  const dimmed = (id: string) => {
-    const n = nodeById.get(id)!;
-    return n.lane === 'pipeline' && !inChain(n, pipelineType) && count(id) === 0;
-  };
 
   const sceneEdges = geo.map(({ e, g }) => ({
     id: e.id,
@@ -75,11 +84,13 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   const sceneNodes = layout.nodes.map((n) => ({ x: n.x, y: n.y, count: count(n.id) }));
   const laneLabels = layout.nodes.filter((n) => n.lane !== 'shared' && n.col === 2);
   const sel = selected ? nodeById.get(selected) : undefined;
+  const viewport = useViewportWidth();
+  const POP_W = popWidth(sel ? count(sel.id) : 1, Math.min(layout.width, viewport) - 16);
   // Beside the station, flipped left at the right edge; lower half grows upwards
   const popLeft = sel
     ? sel.x + NODE_W / 2 + POP_GAP + POP_W <= layout.width
       ? sel.x + NODE_W / 2 + POP_GAP
-      : Math.max(8, sel.x - NODE_W / 2 - POP_GAP - POP_W)
+      : Math.max(8, Math.min(sel.x - NODE_W / 2 - POP_GAP - POP_W, layout.width - POP_W - 8))
     : 0;
   const popBelow = sel ? sel.y < layout.height / 2 : true;
 
@@ -182,13 +193,12 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
         const cards = byNode.get(n.id) ?? [];
         const waiting = cards.some((c) => c.state.waitingOn === 'hape');
         const rounds = [...new Set(cards.map((c) => c.node.round).filter(Boolean))];
-        const off = dimmed(n.id);
         return (
           <button
             key={n.id}
             type="button"
             aria-pressed={selected === n.id}
-            aria-label={`${n.label}, ${cards.length} Issues${off ? ', nicht in dieser Kette' : ''}`}
+            aria-label={`${n.label}, ${cards.length} Issues`}
             onClick={() => onSelect(selected === n.id ? null : n.id)}
             className={`wf-node absolute flex flex-col justify-center rounded-lg border px-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
               selected === n.id
@@ -198,7 +208,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
                   : cards.length
                     ? 'border-gray-700 bg-gray-900 hover:border-gray-600'
                     : 'border-gray-850 bg-gray-950/80 hover:border-gray-700'
-            } ${off ? 'opacity-40' : ''} ${arrived.has(n.id) ? 'wf-arrive' : ''}`}
+            } ${arrived.has(n.id) ? 'wf-arrive' : ''}`}
             style={{ left: n.x - NODE_W / 2, top: n.y - NODE_H / 2, width: NODE_W, height: NODE_H }}
           >
             <span className="flex items-baseline gap-2">

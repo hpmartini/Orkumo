@@ -3,7 +3,7 @@ import { Timer } from 'lucide-react';
 import type { AgentCacheInfo } from '../../types';
 import { cacheCountdown, formatCountdown, formatTokens } from '../../utils/agentCache';
 
-/** Prompt-cache countdown, context fill and hits of one session; ticks every second while warm */
+/** Prompt-cache countdown, context fill and hits of one session; ticks every second while warm, hidden once expired */
 export const CacheBadge: React.FC<{ cache: AgentCacheInfo }> = ({ cache }) => {
   const [now, setNow] = useState(Date.now());
   const { remainingMs, expired, warning } = cacheCountdown(cache, now);
@@ -14,12 +14,12 @@ export const CacheBadge: React.FC<{ cache: AgentCacheInfo }> = ({ cache }) => {
     return () => clearInterval(timer);
   }, [expired, cache]);
 
+  if (expired) return null;
+
   const fill = Math.min(1, cache.cachedTokens / cache.contextWindow);
   const percent = Math.round(fill * 100);
   const title = [
-    expired
-      ? 'Prompt cache expired: the next turn re-reads the whole context'
-      : `Prompt cache expires in ${formatCountdown(remainingMs)} (TTL ${cache.ttlMs / 60_000} min)`,
+    `Prompt cache expires in ${formatCountdown(remainingMs)} (TTL ${cache.ttlMs / 60_000} min)`,
     `Context: ${formatTokens(cache.cachedTokens)} / ${formatTokens(cache.contextWindow)} tokens (${percent}%)`,
     `Cache hits: ${cache.hits} of ${cache.turns} turns, ${Math.round(cache.hitRatio * 100)}% of input tokens read from cache`,
   ].join('\n');
@@ -27,14 +27,12 @@ export const CacheBadge: React.FC<{ cache: AgentCacheInfo }> = ({ cache }) => {
   return (
     <span
       className={`shrink-0 flex items-center gap-1 tabular-nums ${
-        warning ? 'text-amber-300' : expired ? 'text-gray-500' : 'text-gray-400'
+        warning ? 'text-amber-300' : 'text-gray-400'
       }`}
       title={title}
     >
       <Timer size={10} aria-hidden="true" className="shrink-0" />
-      <span className={warning ? 'font-semibold' : ''}>
-        {expired ? 'expired' : formatCountdown(remainingMs)}
-      </span>
+      <span className={warning ? 'font-semibold' : ''}>{formatCountdown(remainingMs)}</span>
       <span
         className="w-8 h-1 rounded-full bg-gray-700 overflow-hidden"
         role="meter"

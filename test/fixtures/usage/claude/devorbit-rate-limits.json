@@ -1,0 +1,7 @@
+{
+  "capturedAt": 1793268000000,
+  "rate_limits": {
+    "five_hour": { "used_percentage": 80, "resets_at": 1793271600 },
+    "seven_day": { "used_percentage": 42, "resets_at": 1793700000 }
+  }
+}

@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { openLink } from '../../utils/links';
 import '@xterm/xterm/css/xterm.css';
 import {
   RefreshCw,
@@ -47,6 +48,8 @@ interface AgentTerminalProps {
   solo?: boolean;
   /** Linked PRs, issues and running processes, shown after the connection dot */
   meta?: React.ReactNode;
+  /** Cmd/Ctrl-click on a link: open it in the built-in browser instead of externally */
+  onOpenLink?: (url: string) => void;
 }
 
 /**
@@ -82,6 +85,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   headerProps,
   solo,
   meta,
+  onOpenLink,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
@@ -95,6 +99,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   // Cmd+W is bound once at terminal creation; close through the latest prop
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const onOpenLinkRef = useRef(onOpenLink);
+  onOpenLinkRef.current = onOpenLink;
   const ghostty = useGhosttyTheme();
   const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
   const optionsRef = useRef(options);
@@ -133,7 +139,15 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     });
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon());
+    terminal.loadAddon(
+      new WebLinksAddon((event, uri) => {
+        // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140)
+        if (!(event.metaKey || event.ctrlKey)) return;
+        const open = onOpenLinkRef.current;
+        // after xterm's own mouseup handling: opening the split remounts this terminal
+        setTimeout(() => openLink(uri, open));
+      })
+    );
     terminal.open(container);
     try {
       fitAddon.fit();

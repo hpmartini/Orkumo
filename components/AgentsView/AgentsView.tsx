@@ -47,20 +47,29 @@ import {
   respawnAgent,
   stopAgent,
   openCloudSession,
+  uploadAgentImage,
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
 import { agentFolder, boardUrl, codeUrl, workflowsUrl } from '../../utils/codeTarget';
-import { parseDispatchInput, parseFilter, applySessionFilter } from '../../utils/agentInput';
+import {
+  parseDispatchInput,
+  parseFilter,
+  applySessionFilter,
+  isUntrustedWorkspaceError,
+} from '../../utils/agentInput';
 import {
   groupSessions,
-  flattenGroups,
+  railItems,
   documentTitle,
   applyQuickFilters,
+  applyLinkFilter,
+  collectLinkEntries,
   sessionsInContext,
   matchesQuickFilter,
   mergeServers,
   collectPullRequests,
+  type PullRequestRow,
   summarizeContext,
   formatModelName,
   groupRepoSlug,
@@ -76,6 +85,7 @@ import { AgentList, AgentRowAction } from './AgentList';
 import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
+import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
 import { ServersPanel, type ServerRow } from './ServersPanel';
 import {
   TaskComposerModal,
@@ -94,9 +104,17 @@ import { ShortcutsHelp } from './ShortcutsHelp';
 import { AgentSettingsPanel } from './AgentSettingsPanel';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchBoard } from '../../services/boardApi';
-import { deriveAgentLinks, linksByAgent } from '../../utils/board';
+import { deriveAgentLinks, itemKey as boardItemKey, linksByAgent } from '../../utils/board';
 import type { BoardData } from '../../types';
-import { IssueCreateModal } from '../BoardView/IssueCreateModal';
+import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
+import { IssueModal } from '../BoardView/IssueModal';
+import { promptWithImages } from '../../utils/composer';
+import {
+  groupDirectories,
+  samePath,
+  shortenHome,
+  type DirectoryChoice,
+} from '../../utils/directoryGroups';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -188,6 +206,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [peekId, setPeekId] = useState<string | null>(null);
+  // Issue pill clicked: issue as modal over the agents view (#104)
+  const [issueModalKey, setIssueModalKey] = useState<string | null>(null);
   const {
     workspace,
     parked,
@@ -205,6 +225,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     query: '',
   });
   const [composerOpen, setComposerOpen] = useState(false);
+  // 'agent' = New agent (#105): interactive session in agentCwd, attached right away
+  const [composerMode, setComposerMode] = useState<'task' | 'agent'>('task');
+  const [agentCwd, setAgentCwd] = useState<string | null>(null);
+  const [composerImages, setComposerImages] = useState<File[]>([]);
+  const [homeDir, setHomeDir] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
   const [dispatching, setDispatching] = useState(false);
@@ -263,7 +288,34 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
     [sessions, apps, contexts]
   );
-  const lookup = useMemo(() => ({ contexts, servers }), [contexts, servers]);
+  // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
+  const [board, setBoard] = useState<BoardData | null>(null);
+  useEffect(() => {
+    // server caches the board ~60 s
+    const load = () =>
+      fetchBoard()
+        .then(setBoard)
+        .catch(() => {});
+    load();
+    const interval = setInterval(load, BOARD_REFRESH_MS);
+    return () => clearInterval(interval);
+  }, []);
+  const issueLinks = useMemo(
+    () => (board ? deriveAgentLinks(board.items, sessions) : undefined),
+    [board, sessions]
+  );
+  const issuesByAgent = useMemo(() => issueLinks && linksByAgent(issueLinks), [issueLinks]);
+  const workflowIssues = useMemo(
+    () =>
+      new Map(
+        (issueLinks || []).filter((l) => l.via === 'mw-board').map((l) => [l.jobId, l.issueKey])
+      ),
+    [issueLinks]
+  );
+  const lookup = useMemo(
+    () => ({ contexts, servers, workflowIssues, now }),
+    [contexts, servers, workflowIssues, now]
+  );
   const [panel, setPanel] = useState<'prs' | 'servers' | null>(null);
   useEffect(() => {
     if (!active) setPanel(null);
@@ -299,14 +351,35 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       return next;
     });
   }, []);
+  const [linkFilter, setLinkFilter] = useState<Set<string>>(() => new Set());
+  const toggleLinkFilter = useCallback((key: string) => {
+    setLinkFilter((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+  const filterActive = quickFilters.size > 0 || linkFilter.size > 0;
+  const contextSessions = useMemo(
+    () => sessionsInContext(visibleSessions, apps, contextAppIds, lookup),
+    [visibleSessions, apps, contextAppIds, lookup]
+  );
+  const issueTitles = useMemo(
+    () => new Map((board?.items || []).map((item) => [boardItemKey(item), item.title])),
+    [board]
+  );
+  const linkEntries = useMemo(
+    () => collectLinkEntries(contextSessions, issuesByAgent, lookup, issueTitles),
+    [contextSessions, issuesByAgent, lookup, issueTitles]
+  );
   const shownSessions = useMemo(
     () =>
       applyQuickFilters(
-        sessionsInContext(visibleSessions, apps, contextAppIds, lookup),
+        applyLinkFilter(contextSessions, linkFilter, issuesByAgent, lookup),
         quickFilters,
         lookup
       ),
-    [visibleSessions, apps, contextAppIds, quickFilters, lookup]
+    [contextSessions, linkFilter, issuesByAgent, quickFilters, lookup]
   );
   const chipCounts = useMemo(() => {
     const result = {} as Record<AgentQuickFilter, number>;
@@ -318,6 +391,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
   // An active quick filter must not hide its matches inside collapsed groups
   const rail = useRailPreferences(settings.grouping, contextId);
+  const { expandedSessions, toggleExpandedSession } = rail;
   const {
     arrange,
     toggleCollapsed,
@@ -327,8 +401,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     favoriteGroups,
   } = rail;
   const collapsed = useMemo(
-    () => (quickFilters.size ? new Set<string>() : rail.collapsed),
-    [rail.collapsed, quickFilters]
+    () => (filterActive ? new Set<string>() : rail.collapsed),
+    [rail.collapsed, filterActive]
   );
   const groups = useMemo(
     () =>
@@ -349,22 +423,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     return id && sessions.some((s) => s.id === id) ? id : null;
   }, [workspace.tabs, workspace.activeTabId, sessions]);
   const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
-  const items = useMemo(() => {
-    const flat = flattenGroups(
-      groups,
-      collapsed,
-      settings.grouping === 'directory' || settings.grouping === 'project'
-    );
-    // The interactive group only shows up when there are interactive sessions
-    return flat.filter(
-      (item) =>
-        !(
-          item.type === 'group' &&
-          item.group.key === 'interactive' &&
-          item.group.sessions.length === 0
-        )
-    );
-  }, [groups, collapsed, settings.grouping]);
+  const items = useMemo(
+    () => railItems(groups, collapsed, settings.grouping),
+    [groups, collapsed, settings.grouping]
+  );
 
   const itemKey = (item: NavItem): string =>
     item.type === 'group'
@@ -392,13 +454,62 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       null
     : null;
 
+  // Item that was selected when a directory was chosen explicitly: that choice beats the selection's cwd until the selection changes
+  const [cwdPickedFor, setCwdPickedFor] = useState<string | null>(null);
+  const selectedItemKey = selectedItem ? itemKey(selectedItem) : null;
+  const pickDispatchCwd = useCallback(
+    (cwd: string | null) => {
+      setDispatchCwd(cwd);
+      setCwdPickedFor(selectedItemKey);
+    },
+    [selectedItemKey]
+  );
+
   const targetCwd: string | null = useMemo(() => {
-    if ((settings.grouping === 'directory' || settings.grouping === 'project') && selectedItem) {
+    if (
+      (settings.grouping === 'directory' || settings.grouping === 'project') &&
+      selectedItem &&
+      cwdPickedFor !== selectedItemKey
+    ) {
       if (selectedItem.type === 'group' && selectedItem.group.cwd) return selectedItem.group.cwd;
       if (selectedItem.type === 'session') return selectedItem.session.cwd;
     }
     return dispatchCwd || settings.scopeCwd || defaultCwd;
-  }, [settings.grouping, selectedItem, dispatchCwd, settings.scopeCwd, defaultCwd]);
+  }, [
+    settings.grouping,
+    selectedItem,
+    selectedItemKey,
+    cwdPickedFor,
+    dispatchCwd,
+    settings.scopeCwd,
+    defaultCwd,
+  ]);
+
+  const openComposer = useCallback((mode: 'task' | 'agent', cwd: string | null = null) => {
+    setComposerMode(mode);
+    if (mode === 'agent') setAgentCwd(cwd);
+    setComposerOpen(true);
+  }, []);
+  const composerCwd = composerMode === 'agent' ? agentCwd || homeDir : targetCwd;
+
+  // GitHub repos of the known sessions
+  const issueRepos = useMemo(
+    () =>
+      [...new Set(Object.values(contexts).map((c) => c.repo?.slug))].filter(
+        (slug): slug is string => !!slug
+      ),
+    [contexts]
+  );
+  const selectedRepo =
+    selectedItem?.type === 'group'
+      ? groupRepoSlug(selectedItem.group, contexts)
+      : selectedItem?.type === 'session'
+        ? contexts[selectedItem.session.id]?.repo?.slug || null
+        : null;
+  const openIssueDialog = useCallback(
+    (repo: string | null) => setIssueDialog({ repo: repo || lastIssueRepo(issueRepos) }),
+    [issueRepos]
+  );
 
   const directoryChoices = useMemo(() => {
     const seen = new Map<string, { name: string; path: string; source: string }>();
@@ -448,13 +559,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     const scope = settings.scopeCwd;
     Promise.all([
       fetchSubagents(scope).catch(() => []),
-      fetchAgentRepos(scope).catch(() => ({ cwd: null, repos: [] })),
+      fetchAgentRepos(scope).catch(() => ({ cwd: null, repos: [], home: undefined })),
       fetchAgentCommands(scope).catch(() => []),
     ]).then(([agentsList, repoData, commandList]) => {
       if (cancelled) return;
       setSubagents(agentsList);
       setRepos(repoData.repos);
       setDefaultCwd(repoData.cwd);
+      if (repoData.home) setHomeDir(repoData.home);
       setCommands(commandList);
     });
     return () => {
@@ -504,7 +616,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
   const navigate = useNavigate();
-  const [createIssueRepo, setCreateIssueRepo] = useState<string | null>(null);
+  const openPrCode = useCallback(
+    async ({ pr, agents }: PullRequestRow) => {
+      // Agents on the PR's head branch sit in its worktree; else the repo's checkout
+      const folder =
+        agents.map((a) => agentFolder(a, contexts[a.id])).find(Boolean) ??
+        (await fetchRepoPath(pr.repoSlug).catch(() => null));
+      if (folder) navigate(codeUrl(folder));
+      else toast.error(`No local checkout of ${pr.repoSlug}`);
+    },
+    [contexts, navigate]
+  );
+  // Read by the /pulls container in App.tsx (ConnectedPullRequestsPage)
+  const pullsData = useMemo<PullRequestsPageProps>(
+    () => ({
+      rows: pullRows,
+      sessions,
+      contexts,
+      repoFilter: prRepo,
+      onClearRepo: () => setPrRepo(null),
+      onSelectAgent: attach,
+      onOpenCode: openPrCode,
+    }),
+    [pullRows, sessions, contexts, prRepo, attach, openPrCode]
+  );
+  // New issue dialog; repo null = the user picks one of `issueRepos`
+  const [issueDialog, setIssueDialog] = useState<{ repo: string | null } | null>(null);
   const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
   useEffect(() => {
     if (!attachParam || loading) return;
@@ -518,27 +655,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   useEffect(() => {
     if (typeof prefill?.dispatch !== 'string') return;
     setInput(prefill.dispatch);
-    if (typeof prefill.cwd === 'string' && prefill.cwd) setDispatchCwd(prefill.cwd);
-    setComposerOpen(true);
+    if (typeof prefill.cwd === 'string' && prefill.cwd) pickDispatchCwd(prefill.cwd);
+    openComposer('task');
     navigate('/agents', { replace: true, state: null });
-  }, [prefill, navigate]);
-
-  // Agent -> board issue chips. Board fetch failures are ignored so /agents never breaks.
-  const [board, setBoard] = useState<BoardData | null>(null);
-  useEffect(() => {
-    // server caches the board ~60 s
-    const load = () =>
-      fetchBoard()
-        .then(setBoard)
-        .catch(() => {});
-    load();
-    const interval = setInterval(load, BOARD_REFRESH_MS);
-    return () => clearInterval(interval);
-  }, []);
-  const issuesByAgent = useMemo(
-    () => (board ? linksByAgent(deriveAgentLinks(board.items, sessions)) : undefined),
-    [board, sessions]
-  );
+  }, [prefill, navigate, openComposer, pickDispatchCwd]);
 
   const openCloud = useCallback(
     async (target?: string) => {
@@ -620,22 +740,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const toggleGroup = useCallback(
     (group: SessionGroup) => {
       // Quick filters force all groups open, so a toggle would change nothing visible
-      if (quickFilters.size > 0) showHint('Clear the filters to collapse groups', 'info');
+      if (filterActive) showHint('Clear the filters to collapse groups', 'info');
       else toggleCollapsed(group.key);
     },
-    [toggleCollapsed, quickFilters, showHint]
-  );
-
-  const activateItem = useCallback(
-    (item: NavItem | null) => {
-      if (!item) return;
-      if (item.type === 'group') toggleGroup(item.group);
-      else if (item.type === 'more') setExpandedCompleted(true);
-      else if (item.session.kind === 'interactive')
-        showHint('Interactive sessions run in their own terminal', 'info');
-      else attach(item.session.id);
-    },
-    [toggleGroup, attach, showHint]
+    [toggleCollapsed, filterActive, showHint]
   );
 
   const activateRemote = useCallback(
@@ -647,6 +755,50 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [attachRemote, showHint]
   );
 
+  /** Opens an interactive `claude` PTY in `cwd` (for ~ and folders whose trust prompt is pending) */
+  const openInteractiveClaude = useCallback(
+    (cwd: string, name: string, ptyArgs: string[] = []) => {
+      const id = `interactive-${Date.now()}`;
+      setCloudSessions((prev) => [
+        ...prev,
+        {
+          id,
+          sessionId: null,
+          kind: 'interactive',
+          cwd,
+          startedAt: Date.now(),
+          name,
+          state: null,
+          ptyArgs,
+          pinned: false,
+          order: null,
+          links: [],
+          displayState: 'idle',
+        },
+      ]);
+      setComposerOpen(false);
+      attach(id);
+    },
+    [attach]
+  );
+
+  const activateItem = useCallback(
+    (item: NavItem | null) => {
+      if (!item) return;
+      if (item.type === 'group') toggleGroup(item.group);
+      else if (item.type === 'more') setExpandedCompleted(true);
+      else if (item.session.kind !== 'interactive') attach(item.session.id);
+      // Interactive and remote-control sessions keep their transcript locally: continue it here
+      else if (item.session.sessionId)
+        openInteractiveClaude(item.session.cwd, item.session.name, [
+          '--resume',
+          item.session.sessionId,
+        ]);
+      else showHint('Interactive sessions run in their own terminal', 'info');
+    },
+    [toggleGroup, attach, showHint, openInteractiveClaude]
+  );
+
   const doDispatch = useCallback(
     async (
       extra: {
@@ -656,6 +808,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         agent?: string | null;
         cwd?: string | null;
         name?: string | null;
+        idle?: boolean;
       },
       attachAfter = false
     ) => {
@@ -673,6 +826,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           cwd,
         });
         setInput('');
+        setComposerImages([]);
         setComposerOpen(false);
         setHighlightedId(result.id);
         setSelectedKey(result.id);
@@ -685,12 +839,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         refresh();
         if (attachAfter) attach(result.id);
       } catch (err) {
-        showHint(err instanceof Error ? err.message : 'Dispatch failed', 'error', 6000);
+        const message = err instanceof Error ? err.message : 'Dispatch failed';
+        if (isUntrustedWorkspaceError(message)) {
+          // Input stays in the composer so the user can retry once the folder is trusted
+          openInteractiveClaude(cwd, `claude · ${cwd.split(/[\\/]/).filter(Boolean).pop() || cwd}`);
+          showHint(
+            'Folder not trusted yet: accept the trust prompt in the terminal, then start the agent again',
+            'info',
+            10000
+          );
+          return;
+        }
+        showHint(message, 'error', 6000);
       } finally {
         setDispatching(false);
       }
     },
-    [targetCwd, settings.dispatch, showHint, refresh, attach]
+    [targetCwd, settings.dispatch, showHint, refresh, attach, openInteractiveClaude]
   );
 
   const handleCommand = useCallback(
@@ -734,8 +899,42 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [doDispatch, updateSettings, settings.dispatch, showHint]
   );
 
+  /** Stores the composer images on the server; null when an upload failed (hint shown) */
+  const uploadComposerImages = useCallback(async (): Promise<string[] | null> => {
+    if (composerImages.length === 0) return [];
+    setDispatching(true);
+    try {
+      return await Promise.all(composerImages.map(uploadAgentImage));
+    } catch (err) {
+      showHint(err instanceof Error ? err.message : 'Image upload failed', 'error', 6000);
+      return null;
+    } finally {
+      setDispatching(false);
+    }
+  }, [composerImages, showHint]);
+
   const handleSubmit = useCallback(
     async ({ attach: attachAfter }: { attach: boolean }) => {
+      if (composerMode === 'agent') {
+        // The CLI refuses `--bg` in ~ (trusted one session at a time): run it interactively there
+        if (homeDir && composerCwd === homeDir) {
+          if (input.trim() || composerImages.length > 0) {
+            showHint(
+              'In ~ Claude Code only runs interactively: start without prompt and type it in the terminal, or pick a project folder',
+              'error',
+              8000
+            );
+            return;
+          }
+          openInteractiveClaude(homeDir, 'claude · ~');
+          return;
+        }
+        const paths = await uploadComposerImages();
+        if (!paths) return;
+        const prompt = promptWithImages(input, paths);
+        await doDispatch({ prompt: prompt || undefined, idle: true, cwd: composerCwd }, true);
+        return;
+      }
       const parsed = parseDispatchInput(input, { subagents, repos });
       switch (parsed.kind) {
         case 'empty':
@@ -772,19 +971,37 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         case 'exec':
           await doDispatch({ exec: parsed.command }, attachAfter);
           return;
-        case 'dispatch':
+        case 'dispatch': {
+          const paths = await uploadComposerImages();
+          if (!paths) return;
           await doDispatch(
             {
-              prompt: parsed.prompt,
+              prompt: promptWithImages(parsed.prompt, paths),
               agent: parsed.agent ?? undefined,
               cwd: parsed.repo?.path || undefined,
             },
             attachAfter
           );
           return;
+        }
       }
     },
-    [input, subagents, repos, sessions, showHint, attach, handleCommand, doDispatch]
+    [
+      composerMode,
+      composerCwd,
+      homeDir,
+      composerImages.length,
+      uploadComposerImages,
+      input,
+      subagents,
+      repos,
+      sessions,
+      showHint,
+      attach,
+      handleCommand,
+      doDispatch,
+      openInteractiveClaude,
+    ]
   );
 
   const handleRename = useCallback(
@@ -985,7 +1202,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       // Global (also inside text inputs)
       if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyN') {
         e.preventDefault();
-        setComposerOpen(true);
+        openComposer('task');
         return;
       }
       if (ctrl && key === 's' && !e.shiftKey) {
@@ -1081,7 +1298,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         case 'n':
           if (e.ctrlKey || e.metaKey || e.altKey) break;
           e.preventDefault();
-          setComposerOpen(true);
+          openComposer('task');
           break;
         case 'F': // Shift+F: plain F is the app-wide "open favorites" shortcut
           if (e.ctrlKey || e.metaKey || e.altKey || !selectedItem) break;
@@ -1100,6 +1317,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     document.addEventListener('keydown', handler, { capture: true });
     return () => document.removeEventListener('keydown', handler, { capture: true });
   }, [
+    openComposer,
     active,
     showSettings,
     showHelp,
@@ -1171,6 +1389,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           },
         },
         {
+          // Replaces the card chevron (#159)
+          id: 'details',
+          label: expandedSessions.has(session.id) ? 'Hide details' : 'Keep details open',
+          onSelect: () => toggleExpandedSession(session.id),
+        },
+        {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
           disabled: !bg,
@@ -1222,6 +1446,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       contexts,
       navigate,
       issuesByAgent,
+      expandedSessions,
+      toggleExpandedSession,
     ]
   );
 
@@ -1264,12 +1490,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             },
           ]
         : []),
+      {
+        id: 'new-issue',
+        label: groupRepoSlug(group, contexts) ? 'New issue' : 'New issue (no GitHub repo)',
+        disabled: !groupRepoSlug(group, contexts),
+        onSelect: () => openIssueDialog(groupRepoSlug(group, contexts)),
+      },
       ...(group.cwd
         ? [
             {
               id: 'dispatch-here',
               label: 'Dispatch into this directory',
-              onSelect: () => setDispatchCwd(group.cwd || null),
+              onSelect: () => pickDispatchCwd(group.cwd || null),
+            },
+            {
+              id: 'new-agent',
+              label: 'New agent here',
+              onSelect: () => openComposer('agent', group.cwd || null),
             },
           ]
         : []),
@@ -1280,7 +1517,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onSelect: () => handleStopOrDelete({ type: 'group', group }),
       },
     ],
-    [collapsed, toggleGroup, handleStopOrDelete, nav, navigate, contexts]
+    [
+      collapsed,
+      toggleGroup,
+      handleStopOrDelete,
+      nav,
+      navigate,
+      contexts,
+      openIssueDialog,
+      openComposer,
+    ]
   );
 
   // ---------------------------------------------------------------------
@@ -1294,6 +1540,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Command palette entries
   // ---------------------------------------------------------------------
 
+  const collapseAllGroups = useCallback(
+    () => rail.collapseAll([FAVORITES_GROUP_KEY, ...groups.map((g) => g.key)]),
+    [rail.collapseAll, groups]
+  );
+  const expandAllGroups = useCallback(() => rail.expandAll(), [rail.expandAll]);
+
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const newTask: PaletteCommand = {
       id: 'agents.new-task',
@@ -1304,12 +1556,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       shortcut: 'N',
       run: () => {
         onOpenView();
-        setComposerOpen(true);
+        openComposer('task');
       },
       runWithText: (text) => {
         onOpenView();
         setInput(text);
-        setComposerOpen(true);
+        openComposer('task');
       },
     };
     // The rest acts on the visible view only; the task composer works from every page
@@ -1364,10 +1616,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         )
       );
     }
-    if (quickFilters.size > 0 || filter) {
+    // A quick filter keeps every group open, like the disabled header buttons
+    if (!filterActive) {
+      list.push(
+        cmd('groups.collapse', 'Collapse all groups', 'Rail', collapseAllGroups),
+        cmd('groups.expand', 'Expand all groups', 'Rail', expandAllGroups)
+      );
+    }
+    if (filterActive || filter) {
       list.push(
         cmd('filter.clear', 'Clear all filters', 'Rail', () => {
           setQuickFilters(new Set());
+          setLinkFilter(new Set());
           setInput('');
         })
       );
@@ -1395,6 +1655,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         setPrRepo(null);
         setPanel('prs');
       }),
+      cmd('panel.prs-full', 'Open pull requests (full view)', 'Panels', () => navigate('/pulls')),
       cmd('panel.servers', 'Show running servers', 'Panels', () => setPanel('servers')),
       cmd('settings', 'Dispatch defaults and settings', 'Agents', () => setShowSettings(true)),
       cmd('shortcuts', 'Show keyboard shortcuts', 'Agents', () => setShowHelp(true), {
@@ -1417,6 +1678,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     }
     return list;
   }, [
+    openComposer,
     active,
     onOpenView,
     onExit,
@@ -1426,8 +1688,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     updateSettings,
     setSort,
     quickFilters,
+    filterActive,
     filter,
     toggleQuickFilter,
+    collapseAllGroups,
+    expandAllGroups,
     workspace.tabs,
     workspace.activeTabId,
     workspaceActions,
@@ -1435,6 +1700,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     copyJson,
     sessions,
     attach,
+    navigate,
   ]);
   useRegisterCommands('agents', paletteCommands);
 
@@ -1506,7 +1772,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
           <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
-            counts={{ ...counts, completed: chipCounts.completed }}
+            counts={{
+              ...counts,
+              completed: chipCounts.completed,
+              cacheExpiring: chipCounts['cache-expiring'],
+            }}
             openPrs={totals.openPrs}
             runningServers={totals.runningServers}
             daemon={daemon}
@@ -1531,14 +1801,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             repoFilter={prRepo}
             onClearRepo={() => setPrRepo(null)}
             onSelectAgent={attach}
-            onOpenCode={async ({ pr, agents }) => {
-              // Agents on the PR's head branch sit in its worktree; else the repo's checkout
-              const folder =
-                agents.map((a) => agentFolder(a, contexts[a.id])).find(Boolean) ??
-                (await fetchRepoPath(pr.repoSlug).catch(() => null));
-              if (folder) navigate(codeUrl(folder));
-              else toast.error(`No local checkout of ${pr.repoSlug}`);
-            }}
+            onOpenCode={openPrCode}
+            onMaximize={() => navigate('/pulls')}
             onClose={() => setPanel(null)}
           />
         )}
@@ -1647,11 +1911,27 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
             <button
               type="button"
-              onClick={() => setComposerOpen(true)}
+              onClick={() => openComposer('task')}
               className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
               title="New task (N or Alt+N)"
             >
               <Plus size={14} aria-hidden /> New task
+            </button>
+            <button
+              type="button"
+              onClick={() => openComposer('agent')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
+              title="New interactive agent session, attached right away"
+            >
+              <Plus size={13} aria-hidden /> Agent
+            </button>
+            <button
+              type="button"
+              onClick={() => openIssueDialog(selectedRepo)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
+              title="New GitHub issue"
+            >
+              <Plus size={13} aria-hidden /> Issue
             </button>
             <button
               type="button"
@@ -1668,11 +1948,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             nav={nav}
             grouping={settings.grouping}
             onGrouping={(grouping) => updateSettings({ grouping })}
-            onCollapseAll={() =>
-              rail.collapseAll([FAVORITES_GROUP_KEY, ...groups.map((g) => g.key)])
-            }
-            onExpandAll={() => rail.expandAll()}
-            collapseDisabled={quickFilters.size > 0}
+            onCollapseAll={collapseAllGroups}
+            onExpandAll={expandAllGroups}
+            collapseDisabled={filterActive}
           />
           <AgentFilterBar
             sort={sort}
@@ -1682,11 +1960,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             chipCounts={chipCounts}
             shown={shownSessions.length}
             total={sessions.length}
-            filtered={quickFilters.size > 0 || !!filter}
+            filtered={filterActive || !!filter}
             onClear={() => {
               setQuickFilters(new Set());
+              setLinkFilter(new Set());
               if (filter) setInput('');
             }}
+            linkEntries={linkEntries}
+            linkSelected={linkFilter}
+            onToggleLink={toggleLinkFilter}
           />
           {loading && sessions.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
@@ -1705,9 +1987,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               onFocusOpen={focusOpen}
               now={now}
               grouping={settings.grouping}
+              cardDetails={settings.cardDetails}
+              cardDensity={settings.cardDensity}
+              cardFields={settings.cardFields}
+              lookup={lookup}
               contexts={contexts}
               servers={servers}
-              filtered={quickFilters.size > 0 || !!filter}
+              filtered={filterActive || !!filter}
               onOpenPrs={(repo) => {
                 setPrRepo(repo);
                 setPanel('prs');
@@ -1725,15 +2011,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               favoriteGroupKeys={rail.favoriteGroups}
               favoriteSessionIds={rail.favoriteSessions}
               expandedSessionIds={rail.expandedSessions}
-              onToggleExpanded={rail.toggleExpandedSession}
               onToggleFavoriteGroup={rail.toggleFavoriteGroup}
               onToggleFavoriteSession={rail.toggleFavoriteSession}
               onMoveGroup={rail.moveGroup}
               appsById={appsById}
               nav={nav}
               issuesByAgent={issuesByAgent}
-              onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
-              onCreateIssue={setCreateIssueRepo}
+              onOpenIssue={setIssueModalKey}
               bottom={
                 remoteEnabled ? (
                   <RemoteAgents
@@ -1752,11 +2036,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               }
               top={
                 settings.grouping === 'state' ? (
-                  <ProjectsSection
-                    apps={apps}
-                    nav={nav}
-                    filtered={quickFilters.size > 0 || !!filter}
-                  />
+                  <ProjectsSection apps={apps} nav={nav} filtered={filterActive || !!filter} />
                 ) : undefined
               }
             />
@@ -1813,7 +2093,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         </div>
 
         {/* Main area of the other routes; the workspace below stays mounted so terminals survive */}
-        <div className={active ? 'hidden' : 'flex-1 min-w-0 min-h-0 relative'}>{children}</div>
+        <div className={active ? 'hidden' : 'flex-1 min-w-0 min-h-0 relative'}>
+          <PullRequestsDataContext.Provider value={pullsData}>
+            {children}
+          </PullRequestsDataContext.Provider>
+        </div>
 
         {/* Workspace */}
         <div
@@ -1846,6 +2130,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     onMoveTab={live ? workspaceActions.moveTab : noop}
                     onSplit={live ? workspaceActions.split : noop}
                     onDetach={live ? workspaceActions.detach : noop}
+                    onOpenLink={live ? workspaceActions.openBrowser : undefined}
                     onSetLayout={live ? workspaceActions.setLayout : noop}
                     onPeek={live ? (sid) => setPeekId(sid) : noop}
                     focusZone={focusZone}
@@ -1855,7 +2140,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                         ctx={contexts[x.id]}
                         servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
                         issueKeys={issuesByAgent?.get(x.id) || []}
-                        onOpenIssue={(key) => navigate(`/board?item=${encodeURIComponent(key)}`)}
+                        onOpenIssue={setIssueModalKey}
                         onOpenPrs={(repo) => {
                           setPrRepo(repo);
                           setPanel('prs');
@@ -1896,10 +2181,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
       {/* Modals */}
       <ShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
-      {createIssueRepo && (
+      {issueModalKey && (
+        <IssueModal
+          issueKey={issueModalKey}
+          sessions={sessions}
+          onClose={() => setIssueModalKey(null)}
+        />
+      )}
+      {issueDialog && (
         <IssueCreateModal
-          repo={createIssueRepo}
-          onClose={() => setCreateIssueRepo(null)}
+          repo={issueDialog.repo}
+          repos={issueRepos}
+          onClose={() => setIssueDialog(null)}
           onCreated={(item) => {
             const key = `${item.repo}#${item.number}`;
             toast(
@@ -1941,7 +2234,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onSubmit={handleSubmit}
         onOpenEditor={() => setEditorOpen(true)}
         onPickDirectory={() => setPickDirOpen(true)}
-        targetCwd={targetCwd}
+        targetCwd={composerCwd}
+        variant={composerMode}
+        images={composerImages}
+        onImagesChange={setComposerImages}
         hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
         hintTone={hint?.tone}
         disabled={dispatching}
@@ -1973,11 +2269,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       )}
       {pickDirOpen && (
         <DirectoryPicker
-          choices={directoryChoices}
-          current={targetCwd}
+          choices={
+            composerMode === 'agent' && homeDir
+              ? [{ name: '~ (home)', path: homeDir, source: 'home' }, ...directoryChoices]
+              : directoryChoices
+          }
+          current={composerCwd}
+          home={homeDir}
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
-            setDispatchCwd(path);
+            if (composerMode === 'agent') setAgentCwd(path);
+            else pickDispatchCwd(path);
             setPickDirOpen(false);
             inputRef.current?.focus();
           }}
@@ -1996,7 +2298,7 @@ const PromptEditor: React.FC<{
   const [text, setText] = useState(value);
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-center justify-center p-4"
+      className="fixed inset-0 z-[95] bg-black/60 flex items-center justify-center p-4"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
@@ -2039,21 +2341,24 @@ const PromptEditor: React.FC<{
   );
 };
 
-/** Directory picker for the dispatch target */
+/** Directory picker for the dispatch target, grouped by parent directory (#158) */
 const DirectoryPicker: React.FC<{
-  choices: { name: string; path: string; source: string }[];
+  choices: DirectoryChoice[];
   current: string | null;
+  home: string | null;
   onCancel: () => void;
   onPick: (path: string) => void;
-}> = ({ choices, current, onCancel, onPick }) => {
+}> = ({ choices, current, home, onCancel, onPick }) => {
   const [query, setQuery] = useState('');
   const [custom, setCustom] = useState(current || '');
-  const filtered = choices.filter((c) =>
-    `${c.name} ${c.path}`.toLowerCase().includes(query.toLowerCase())
+  const groups = useMemo(
+    () => groupDirectories(choices, { home, current, query }),
+    [choices, home, current, query]
   );
+  const first = groups[0]?.entries[0];
   return (
     <div
-      className="fixed inset-0 z-50 bg-black/60 flex items-start justify-center pt-24 p-4"
+      className="fixed inset-0 z-[95] bg-black/60 flex items-start justify-center pt-24 p-4"
       onClick={onCancel}
       role="dialog"
       aria-modal="true"
@@ -2069,25 +2374,43 @@ const DirectoryPicker: React.FC<{
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Escape') onCancel();
-              if (e.key === 'Enter' && filtered[0]) onPick(filtered[0].path);
+              if (e.key === 'Enter' && first) onPick(first.path);
             }}
             placeholder="Directory for new sessions…"
             className="w-full bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none"
           />
         </div>
-        <div className="max-h-[45vh] overflow-y-auto">
-          {filtered.map((choice) => (
-            <button
-              key={choice.path}
-              onClick={() => onPick(choice.path)}
-              className={`w-full text-left px-4 py-2 flex items-center gap-3 hover:bg-gray-800 ${choice.path === current ? 'bg-gray-800/60' : ''}`}
-            >
-              <span className="text-sm text-gray-100">{choice.name}</span>
-              <span className="text-xs text-gray-500 font-mono truncate">{choice.path}</span>
-              <span className="ml-auto text-[10px] text-gray-500">{choice.source}</span>
-            </button>
+        <div className="max-h-[45vh] overflow-y-auto pb-1">
+          {groups.map((group) => (
+            <div key={group.key} role="group" aria-label={group.label ?? 'Current and home'}>
+              {group.label && (
+                <div
+                  className="px-4 pt-3 pb-1 text-[11px] font-mono text-gray-400 truncate border-t border-gray-800/70"
+                  title={group.label}
+                >
+                  {group.label}
+                </div>
+              )}
+              {group.entries.map((entry) => (
+                <button
+                  key={entry.path}
+                  data-testid="dir-choice"
+                  title={entry.path}
+                  onClick={() => onPick(entry.path)}
+                  className={`w-full text-left px-4 py-1.5 flex items-center gap-3 min-w-0 whitespace-nowrap hover:bg-gray-800 ${entry === first ? 'bg-gray-800/40' : ''} ${samePath(entry.path, current) ? 'text-blue-300' : 'text-gray-100'}`}
+                >
+                  <span className="text-sm truncate min-w-0">{entry.name}</span>
+                  <span className="text-xs text-gray-500 font-mono truncate min-w-0 flex-1 basis-0">
+                    {group.label ? entry.detail : shortenHome(entry.path, home)}
+                  </span>
+                  <span className="shrink-0 text-[10px] text-gray-500">
+                    {entry.sources.join(' · ')}
+                  </span>
+                </button>
+              ))}
+            </div>
           ))}
-          {filtered.length === 0 && (
+          {groups.length === 0 && (
             <div className="px-4 py-4 text-sm text-gray-500">No matches.</div>
           )}
         </div>

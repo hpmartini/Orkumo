@@ -8,7 +8,10 @@ import type {
   AgentDaemonStatus,
   AgentRepo,
   AgentCapabilities,
+  AgentCardSlot,
 } from '../../types';
+import { DEFAULT_AGENT_CARD_FIELDS } from '../../types';
+import { CARD_ELEMENTS, CARD_SLOTS } from '../../utils/agentSessions';
 import { stopAgentDaemon, respawnAllAgents } from '../../services/agentsApi';
 
 interface AgentSettingsPanelProps {
@@ -142,7 +145,83 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                   <option value="directory">Directory</option>
                 </select>
               </div>
+              <div>
+                <label className={label} htmlFor="agent-card-details">
+                  Card details (issues, PRs, servers)
+                </label>
+                <select
+                  id="agent-card-details"
+                  className={field}
+                  value={settings.cardDetails}
+                  onChange={(e) =>
+                    onUpdate({ cardDetails: e.target.value as AgentViewSettings['cardDetails'] })
+                  }
+                >
+                  <option value="hover">On hover or keyboard selection</option>
+                  <option value="click">Only when kept open (context menu)</option>
+                  <option value="always">Always</option>
+                </select>
+              </div>
+              <div>
+                <label className={label} htmlFor="agent-card-density">
+                  Card density
+                </label>
+                <select
+                  id="agent-card-density"
+                  className={field}
+                  value={settings.cardDensity}
+                  onChange={(e) =>
+                    onUpdate({ cardDensity: e.target.value as AgentViewSettings['cardDensity'] })
+                  }
+                >
+                  <option value="comfortable">Comfortable (metrics on their own line)</option>
+                  <option value="compact">Compact</option>
+                </select>
+              </div>
             </div>
+            <fieldset className="space-y-2">
+              <legend className={`${label} flex items-center gap-2 w-full`}>
+                Card fields: where each detail sits on an agent card
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ cardFields: DEFAULT_AGENT_CARD_FIELDS })}
+                  className="ml-auto text-[11px] text-blue-300 hover:text-white"
+                >
+                  Reset
+                </button>
+              </legend>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-1.5">
+                {CARD_ELEMENTS.map((element) => (
+                  <div key={element.key} className="flex items-center gap-2">
+                    <label
+                      htmlFor={`agent-card-field-${element.key}`}
+                      className="flex-1 min-w-0 truncate text-xs text-gray-300"
+                    >
+                      {element.label}
+                    </label>
+                    <select
+                      id={`agent-card-field-${element.key}`}
+                      className={`${field.replace('w-full', 'w-44')} shrink-0`}
+                      value={settings.cardFields[element.key]}
+                      onChange={(e) =>
+                        onUpdate({
+                          cardFields: {
+                            ...settings.cardFields,
+                            [element.key]: e.target.value as AgentCardSlot,
+                          },
+                        })
+                      }
+                    >
+                      {CARD_SLOTS.map((slot) => (
+                        <option key={slot.key} value={slot.key}>
+                          {slot.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            </fieldset>
             <div className="flex flex-wrap gap-4 text-sm text-gray-300">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input

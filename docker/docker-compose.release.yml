@@ -1,0 +1,91 @@
+# DevOrbit from prebuilt GHCR images - no repo checkout, no local build.
+# Download this file and init-db.sql from a GitHub release into one folder, then:
+#   docker compose -f docker-compose.release.yml up -d
+# Terminals need the PTY-Host on the host machine (see README "Docker from a release").
+# The release workflow pins DEVHUB_VERSION's default to the release version.
+services:
+  frontend:
+    image: ghcr.io/hpmartini/devhub-frontend:${DEVHUB_VERSION:-latest}
+    ports:
+      # Loopback only: the API has no auth. Drop "127.0.0.1:" deliberately to expose it on your LAN.
+      - "127.0.0.1:${DEVORBIT_PORT:-3000}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+
+  api:
+    image: ghcr.io/hpmartini/devhub-api:${DEVHUB_VERSION:-latest}
+    expose:
+      - "3099"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Docker socket is not mounted by default (it grants root on the host). To manage containers
+    # from DevOrbit, add "- /var/run/docker.sock:/var/run/docker.sock" here.
+    volumes:
+      - ${DEVORBIT_PROJECTS_DIR:-${HOME}/Projects}:/home/coder/Projects
+      - devorbit-data:/app/data
+      - devorbit-sessions:/app/sessions
+    environment:
+      - NODE_ENV=production
+      - SERVER_PORT=3099
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - DATABASE_URL=postgres://postgres:${POSTGRES_PASSWORD:-postgres}@db:5432/devorbit
+      - REDIS_URL=redis://redis:6379
+      - RUNNING_IN_DOCKER=true
+      - PTY_HOST_URL=ws://host.docker.internal:3096
+      - PTY_HOST_HTTP_URL=http://host.docker.internal:3097
+      - PTY_HOST_HTTP_TOKEN=${PTY_HOST_HTTP_TOKEN:-}
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+
+  db:
+    image: postgres:16-alpine
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    environment:
+      - POSTGRES_DB=devorbit
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-postgres}
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d devorbit"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    networks:
+      - devorbit-network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+# No fixed names: volumes/network are scoped to the compose project (folder name),
+# so this stack never shares or deletes the volumes of a repo-built stack.
+volumes:
+  devorbit-data:
+  devorbit-sessions:
+  postgres-data:
+  redis-data:
+
+networks:
+  devorbit-network:

@@ -34,6 +34,8 @@ Download the latest release for your platform from the [Releases](https://github
 - **macOS**: Download `.dmg` file (supports both Intel and Apple Silicon)
 - **Linux**: Download `.AppImage`, `.deb`, or `.rpm` based on your distribution
 
+Prefer Docker? Each release also ships GHCR images and a compose file, see [README: Docker from a release](README.md#docker-from-a-release-no-checkout-no-build).
+
 ### Building from Source
 
 1. **Clone the repository**
@@ -83,11 +85,9 @@ bun run electron:build:all
    - The app will automatically detect and analyze your development projects
 
 3. **Start managing your projects!**
-   - View all detected projects
-   - Start/stop applications
-   - Monitor CPU and memory usage
+   - See agent status, token usage and system load on the overview
+   - Open detected projects in Code mode
    - Access terminal sessions
-   - Get AI-powered recommendations
 
 ### Keyboard Shortcuts
 
@@ -188,8 +188,7 @@ To minimize security risks when using the desktop application:
 - **Verify checksums**: Check the SHA256 checksums of downloaded binaries against the official release notes
 - **Keep updated**: Install updates promptly to receive security patches
 - **Review permissions**: The app requests minimal system permissions - be cautious if it ever requests additional permissions
-- **Monitor network activity**: The app only makes network requests to configured project servers and (optionally) the Gemini API
-- **Audit projects**: Only run projects from trusted sources, as the app will execute their code with your user privileges
+- **Monitor network activity**: The app only makes network requests to configured project servers
 
 **For Developers:**
 
@@ -254,7 +253,6 @@ None - the app works out of the box!
 
 ### Optional
 
-- `GEMINI_API_KEY`: Enable AI-powered features (set in `.env.local`)
 - `DATABASE_URL`: PostgreSQL connection string (optional, uses file storage by default)
 - `SERVER_PORT`: Backend server port (default: 3001)
 - `NODE_ENV`: Set to `development` for development mode

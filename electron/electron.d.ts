@@ -46,6 +46,8 @@ export interface ElectronAPI {
 
   // External links
   openExternal: (url: string) => Promise<ExternalUrlResult>;
+  /** window.open from the app or the Web-IDE, routed back for the link setting (#140) */
+  onOpenLink: (callback: (url: string) => void) => () => void;
 
   // Window state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void;

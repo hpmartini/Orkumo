@@ -1,6 +1,8 @@
 # Frontend Build Stage
-FROM node:20-alpine AS builder
-COPY --from=oven/bun:1.2.18-alpine /usr/local/bin/bun /usr/local/bin/bun
+# Static output is arch-independent: build once on the runner's native platform instead of under QEMU
+FROM --platform=$BUILDPLATFORM oven/bun:1.2.18-alpine AS bun
+FROM --platform=$BUILDPLATFORM node:20-alpine AS builder
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
 WORKDIR /app

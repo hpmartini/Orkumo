@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Code2, ShieldAlert } from 'lucide-react';
+import { Code2, Loader2, ShieldAlert } from 'lucide-react';
 import type { AgentRepo, AppConfig } from '../../types';
 import { checkCodeFolder, fetchAgentRepos } from '../../services/agentsApi';
 import { codeFolders, codeUrl } from '../../utils/codeTarget';
@@ -100,7 +100,10 @@ export const CodeView: React.FC<CodeViewProps> = ({ active, apps }) => {
           </p>
         )}
         {folder.kind === 'checking' && (
-          <p className="m-auto text-sm text-gray-400">Checking {folder.path}…</p>
+          <p role="status" className="m-auto flex items-center gap-2 text-sm text-gray-400">
+            <Loader2 size={16} className="motion-safe:animate-spin text-blue-500" />
+            Opening {folder.path}…
+          </p>
         )}
         {folder.kind === 'error' && (
           <div role="alert" className="m-auto max-w-md text-center text-sm text-red-300 space-y-2">

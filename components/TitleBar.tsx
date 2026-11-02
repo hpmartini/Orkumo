@@ -1,28 +1,51 @@
 import React, { useState, useEffect } from 'react';
-import { Terminal, Globe, Rocket } from 'lucide-react';
+import { Rocket, Workflow, Kanban, Code2 } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { ContextTabs } from './ContextTabs';
 import { isElectron } from '../utils/apiConfig';
 
 type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
   /** The rocket opens the dashboard */
   onOpenDashboard: () => void;
-  // Pane visibility controls (only shown when in app/coding view)
-  showPaneControls?: boolean;
-  isTerminalVisible?: boolean;
-  isBrowserVisible?: boolean;
-  onToggleTerminal?: () => void;
-  onToggleBrowser?: () => void;
 };
 
-export const TitleBar: React.FC<TitleBarProps> = ({
-  onOpenDashboard,
-  showPaneControls = false,
-  isTerminalVisible = true,
-  isBrowserVisible = true,
-  onToggleTerminal,
-  onToggleBrowser,
-  ...tabs
-}) => {
+const VIEWS = [
+  { path: '/workflows', label: 'Workflows', icon: Workflow },
+  { path: '/board', label: 'Board', icon: Kanban },
+  { path: '/code', label: 'Code (VS Code)', icon: Code2 },
+];
+
+/** Toggles for the work modes: the route is the state, a second click returns to the agents */
+export const ViewToggles: React.FC = () => {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  return (
+    <div
+      className="flex items-center gap-1 px-2 shrink-0"
+      style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+    >
+      {VIEWS.map(({ path, label, icon: Icon }) => {
+        const active = pathname === path;
+        return (
+          <button
+            key={path}
+            onClick={() => navigate(active ? '/agents' : path)}
+            aria-pressed={active}
+            aria-label={label}
+            title={active ? `Close ${label}` : label}
+            className={`p-1.5 rounded transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${
+              active ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+          >
+            <Icon size={14} />
+          </button>
+        );
+      })}
+    </div>
+  );
+};
+
+export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, ...tabs }) => {
   // Track fullscreen state to hide traffic light spacer when in fullscreen
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -93,36 +116,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({
       </div>
       <div className="flex-1 h-full" />
 
-      {/* Pane controls - right side, like VS Code */}
-      {showPaneControls && (
-        <div
-          className="flex items-center gap-1 px-2 shrink-0"
-          style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
-        >
-          <button
-            onClick={onToggleTerminal}
-            className={`p-1.5 rounded transition-colors ${
-              isTerminalVisible
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
-            }`}
-            title={isTerminalVisible ? 'Hide Terminal' : 'Show Terminal'}
-          >
-            <Terminal size={14} />
-          </button>
-          <button
-            onClick={onToggleBrowser}
-            className={`p-1.5 rounded transition-colors ${
-              isBrowserVisible
-                ? 'bg-gray-700 text-white'
-                : 'text-gray-500 hover:text-gray-300 hover:bg-gray-800'
-            }`}
-            title={isBrowserVisible ? 'Hide Browser' : 'Show Browser'}
-          >
-            <Globe size={14} />
-          </button>
-        </div>
-      )}
+      <ViewToggles />
 
       {/* Window controls spacer for Windows (if needed in future) */}
       {/* <div className="w-[140px] shrink-0" /> */}

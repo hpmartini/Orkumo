@@ -10,13 +10,10 @@ import {
   Code,
   Plus,
   Keyboard,
-  Key,
-  Eye,
-  EyeOff,
   CheckCircle,
-  XCircle,
-  AlertCircle,
   Kanban,
+  Pencil,
+  Globe,
 } from 'lucide-react';
 import {
   fetchConfig,
@@ -31,12 +28,9 @@ import {
   IDE,
   fetchSettings,
   updateKeyboardShortcuts,
-  fetchApiKeys,
-  updateApiKey,
-  removeApiKey,
-  validateApiKey,
-  ApiKeyInfo,
+  updateLinkTarget,
 } from '../services/api';
+import { setLinkTarget as applyLinkTarget, type LinkTarget } from '../utils/links';
 import { fetchBoardSettings, updateBoardSettings } from '../services/boardApi';
 import {
   KeyboardShortcuts,
@@ -58,6 +52,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [newDirectory, setNewDirectory] = useState('');
+  /** Directory being replaced by the input value; null adds a new one */
+  const [editingDirectory, setEditingDirectory] = useState<string | null>(null);
   const [scanDepth, setScanDepth] = useState(2);
 
   // IDE settings state
@@ -67,22 +63,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
   const [newIDE, setNewIDE] = useState({ id: '', name: '', path: '' });
   const [ideLoading, setIdeLoading] = useState(false);
 
-  // API Keys state
-  const [apiKeys, setApiKeys] = useState<Record<string, ApiKeyInfo>>({});
-  const [apiKeyInput, setApiKeyInput] = useState('');
-  const [apiKeyLoading, setApiKeyLoading] = useState(false);
-  const [apiKeyEditing, setApiKeyEditing] = useState(false);
-  const [apiKeyVisible, setApiKeyVisible] = useState(false);
-  const [apiKeyStatus, setApiKeyStatus] = useState<'idle' | 'valid' | 'invalid' | 'validating'>(
-    'idle'
-  );
-  const [apiKeyStatusMessage, setApiKeyStatusMessage] = useState('');
-
   // Keyboard shortcuts state
   const [shortcuts, setShortcuts] = useState<KeyboardShortcuts>(DEFAULT_KEYBOARD_SHORTCUTS);
   const [shortcutsLoading, setShortcutsLoading] = useState(false);
   const [editingShortcut, setEditingShortcut] = useState<keyof KeyboardShortcuts | null>(null);
   const [shortcutsDirty, setShortcutsDirty] = useState(false);
+
+  // Where clicked links open (#140)
+  const [linkTarget, setLinkTarget] = useState<LinkTarget>('builtin');
 
   // Board source state
   const [boardSource, setBoardSource] = useState<BoardSource>({ owner: '', number: 0 });
@@ -94,7 +82,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
       loadConfig();
       loadIDEs();
       loadShortcuts();
-      loadApiKeys();
       loadBoardSource();
     }
   }, [isOpen]);
@@ -125,6 +112,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     setShortcutsLoading(true);
     try {
       const settings = await fetchSettings();
+      setLinkTarget(settings.linkTarget ?? 'builtin');
       if (settings.keyboardShortcuts) {
         setShortcuts(settings.keyboardShortcuts);
       }
@@ -146,6 +134,18 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
       setError(err instanceof Error ? err.message : 'Failed to save keyboard shortcuts');
     } finally {
       setShortcutsLoading(false);
+    }
+  };
+
+  const handleLinkTargetChange = async (target: LinkTarget) => {
+    const previous = linkTarget;
+    setLinkTarget(target);
+    setError(null);
+    try {
+      applyLinkTarget((await updateLinkTarget(target)).linkTarget);
+    } catch (err) {
+      setLinkTarget(previous);
+      setError(err instanceof Error ? err.message : 'Failed to save link target');
     }
   };
 
@@ -190,79 +190,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     }));
     setShortcutsDirty(true);
     setEditingShortcut(null);
-  };
-
-  const loadApiKeys = async () => {
-    try {
-      const keys = await fetchApiKeys();
-      setApiKeys(keys);
-      // Reset editing state when loading
-      setApiKeyEditing(false);
-      setApiKeyInput('');
-      setApiKeyVisible(false);
-      setApiKeyStatus(keys.gemini?.configured ? 'valid' : 'idle');
-      setApiKeyStatusMessage('');
-    } catch (err) {
-      console.error('Failed to load API keys:', err);
-    }
-  };
-
-  const handleSaveApiKey = async () => {
-    if (!apiKeyInput.trim()) return;
-    setApiKeyLoading(true);
-    setError(null);
-    try {
-      const result = await updateApiKey('gemini', apiKeyInput.trim());
-      setApiKeys((prev) => ({
-        ...prev,
-        gemini: { configured: true, maskedKey: result.maskedKey },
-      }));
-      setApiKeyEditing(false);
-      setApiKeyInput('');
-      setApiKeyVisible(false);
-      setApiKeyStatus('valid');
-      setApiKeyStatusMessage('Key saved successfully');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save API key');
-    } finally {
-      setApiKeyLoading(false);
-    }
-  };
-
-  const handleValidateApiKey = async () => {
-    const keyToValidate = apiKeyInput.trim();
-    if (!keyToValidate) return;
-    setApiKeyStatus('validating');
-    setApiKeyStatusMessage('');
-    try {
-      const result = await validateApiKey('gemini', keyToValidate);
-      setApiKeyStatus(result.valid ? 'valid' : 'invalid');
-      setApiKeyStatusMessage(result.message);
-    } catch (err) {
-      setApiKeyStatus('invalid');
-      setApiKeyStatusMessage(err instanceof Error ? err.message : 'Validation failed');
-    }
-  };
-
-  const handleRemoveApiKey = async () => {
-    setApiKeyLoading(true);
-    setError(null);
-    try {
-      await removeApiKey('gemini');
-      setApiKeys((prev) => {
-        const next = { ...prev };
-        delete next.gemini;
-        return next;
-      });
-      setApiKeyEditing(false);
-      setApiKeyInput('');
-      setApiKeyStatus('idle');
-      setApiKeyStatusMessage('');
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to remove API key');
-    } finally {
-      setApiKeyLoading(false);
-    }
   };
 
   const loadIDEs = async () => {
@@ -328,9 +255,14 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
     setLoading(true);
     setError(null);
     try {
-      const updated = await addDirectory(newDirectory.trim());
+      let updated = await addDirectory(newDirectory.trim());
+      // Editing = add the new path, then drop the old one (only if the new one was really added)
+      if (editingDirectory && updated.directories.length > (config?.directories.length ?? 0)) {
+        updated = await removeDirectory(editingDirectory);
+      }
       setConfig(updated);
       setNewDirectory('');
+      setEditingDirectory(null);
       onConfigChange();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to add directory');
@@ -397,6 +329,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Admin Panel"
         className="bg-gray-800 rounded-xl border border-gray-700 w-full max-w-2xl max-h-[80vh] overflow-hidden shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
@@ -408,7 +343,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
             </div>
             <div>
               <h2 className="text-xl font-semibold text-white">Admin Panel</h2>
-              <p className="text-sm text-gray-400">Configure directories to scan</p>
+              <p className="text-sm text-gray-400">Project directories, AI, IDEs and shortcuts</p>
             </div>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-gray-700 rounded-lg transition-colors">
@@ -425,19 +360,75 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
             </div>
           )}
 
-          {/* Add Directory */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Add Directory to Scan
+          {/* Project directories: the one list Dashboard, contexts and agent dispatch share */}
+          <section>
+            <h3 className="text-sm font-medium text-gray-200">Project Directories</h3>
+            <p className="text-xs text-gray-400 mt-1 mb-3">
+              The single source for the dashboard scan, the project list of contexts and the
+              directories agents may be dispatched in. Projects outside these folders only appear
+              while an agent runs there.
+            </p>
+            {loading && !config ? (
+              <div className="flex items-center justify-center py-8">
+                <RefreshCw className="animate-spin text-blue-500" size={24} />
+              </div>
+            ) : config?.directories.length === 0 ? (
+              <p className="text-gray-500 text-sm py-4">
+                No directories configured. Add a directory below to start scanning for projects.
+              </p>
+            ) : (
+              <ul className="space-y-2">
+                {config?.directories.map((dir) => (
+                  <li
+                    key={dir}
+                    className={`flex items-center gap-1 p-2 pl-3 bg-gray-900 rounded-lg border group ${
+                      editingDirectory === dir ? 'border-blue-500' : 'border-gray-700'
+                    }`}
+                  >
+                    <span
+                      className="flex-1 min-w-0 text-gray-300 font-mono text-sm truncate"
+                      title={dir}
+                    >
+                      {dir}
+                    </span>
+                    <button
+                      onClick={() => {
+                        setEditingDirectory(dir);
+                        setNewDirectory(dir);
+                      }}
+                      disabled={loading}
+                      className="p-2 text-gray-500 hover:text-white hover:bg-gray-700 rounded-lg opacity-60 group-hover:opacity-100 focus-visible:opacity-100 transition-all disabled:opacity-50"
+                      title="Edit directory"
+                      aria-label={`Edit ${dir}`}
+                    >
+                      <Pencil size={16} />
+                    </button>
+                    <button
+                      onClick={() => handleRemoveDirectory(dir)}
+                      disabled={loading}
+                      className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg opacity-60 group-hover:opacity-100 focus-visible:opacity-100 transition-all disabled:opacity-50"
+                      title="Remove directory"
+                      aria-label={`Remove ${dir}`}
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <label htmlFor="admin-new-directory" className="block text-xs text-gray-400 mt-4 mb-2">
+              {editingDirectory ? 'Replace directory' : 'Add directory'}
             </label>
             <div className="flex gap-2">
               <input
+                id="admin-new-directory"
                 type="text"
                 value={newDirectory}
                 onChange={(e) => setNewDirectory(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleAddDirectory()}
-                placeholder="/path/to/projects"
-                className="flex-1 px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                placeholder="/Users/you/PROJECTS"
+                className="flex-1 min-w-0 px-4 py-2 bg-gray-900 border border-gray-700 rounded-lg text-white font-mono text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
               />
               <button
                 onClick={handleBrowseDirectory}
@@ -447,51 +438,27 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               >
                 <FolderOpen size={18} />
               </button>
+              {editingDirectory && (
+                <button
+                  onClick={() => {
+                    setEditingDirectory(null);
+                    setNewDirectory('');
+                  }}
+                  className="px-3 py-2 text-gray-300 rounded-lg hover:bg-gray-700 transition-colors"
+                >
+                  Cancel
+                </button>
+              )}
               <button
                 onClick={handleAddDirectory}
                 disabled={loading || !newDirectory.trim()}
                 className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
               >
-                <FolderPlus size={18} />
-                Add
+                {editingDirectory ? <Save size={18} /> : <FolderPlus size={18} />}
+                {editingDirectory ? 'Save' : 'Add'}
               </button>
             </div>
-          </div>
-
-          {/* Directory List */}
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
-              Configured Directories
-            </label>
-            {loading && !config ? (
-              <div className="flex items-center justify-center py-8">
-                <RefreshCw className="animate-spin text-blue-500" size={24} />
-              </div>
-            ) : config?.directories.length === 0 ? (
-              <p className="text-gray-500 text-sm py-4">
-                No directories configured. Add a directory above to start scanning for projects.
-              </p>
-            ) : (
-              <div className="space-y-2">
-                {config?.directories.map((dir) => (
-                  <div
-                    key={dir}
-                    className="flex items-center justify-between p-3 bg-gray-900 rounded-lg border border-gray-700 group"
-                  >
-                    <span className="text-gray-300 font-mono text-sm truncate">{dir}</span>
-                    <button
-                      onClick={() => handleRemoveDirectory(dir)}
-                      disabled={loading}
-                      className="p-2 text-gray-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg opacity-0 group-hover:opacity-100 transition-all disabled:opacity-50"
-                      title="Remove directory"
-                    >
-                      <Trash2 size={16} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          </section>
 
           {/* Scan Depth */}
           <div>
@@ -536,6 +503,45 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               ))}
             </div>
           </div>
+
+          {/* Links Section (#140) */}
+          <fieldset className="pt-4 border-t border-gray-700">
+            <legend className="flex items-center gap-2 mb-3 text-sm font-medium text-gray-300">
+              <Globe className="text-blue-400" size={18} />
+              Open links in
+            </legend>
+            <div className="flex flex-wrap gap-2">
+              {(
+                [
+                  ['builtin', 'Built-in browser'],
+                  ['system', 'System browser'],
+                ] as const
+              ).map(([value, label]) => (
+                <label
+                  key={value}
+                  className={`flex items-center gap-2 px-3 py-1.5 rounded border text-sm cursor-pointer transition-colors ${
+                    linkTarget === value
+                      ? 'border-blue-500 bg-blue-500/10 text-white'
+                      : 'border-gray-600 text-gray-300 hover:border-gray-500'
+                  }`}
+                >
+                  <input
+                    type="radio"
+                    name="linkTarget"
+                    value={value}
+                    checked={linkTarget === value}
+                    onChange={() => handleLinkTargetChange(value)}
+                    className="accent-blue-500"
+                  />
+                  {label}
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-gray-500">
+              Links from terminals (Cmd/Ctrl-click), the app and VS Code (desktop app). Pages in the
+              built-in browser keep an &quot;open externally&quot; button.
+            </p>
+          </fieldset>
 
           {/* IDE Settings Section */}
           <div className="pt-4 border-t border-gray-700">
@@ -740,161 +746,6 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
                 </button>
               </div>
             </form>
-          </div>
-
-          {/* AI Configuration Section */}
-          <div className="pt-4 border-t border-gray-700">
-            <div className="flex items-center gap-2 mb-4">
-              <Key className="text-amber-400" size={18} />
-              <label className="text-sm font-medium text-gray-300">AI Configuration</label>
-            </div>
-
-            {/* Gemini API Key */}
-            <div className="p-4 bg-gray-900 rounded-lg border border-gray-700 space-y-3">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm text-white font-medium">Gemini API Key</p>
-                  <p className="text-xs text-gray-500">Used for AI-powered project analysis</p>
-                </div>
-                {/* Status indicator */}
-                {apiKeys.gemini?.configured && !apiKeyEditing && (
-                  <span className="flex items-center gap-1 text-xs text-green-400">
-                    <CheckCircle size={14} />
-                    Configured
-                  </span>
-                )}
-                {!apiKeys.gemini?.configured && !apiKeyEditing && (
-                  <span className="flex items-center gap-1 text-xs text-gray-500">
-                    <AlertCircle size={14} />
-                    Not set
-                  </span>
-                )}
-              </div>
-
-              {apiKeyEditing ? (
-                <>
-                  {/* Input field */}
-                  <div className="relative">
-                    <input
-                      type={apiKeyVisible ? 'text' : 'password'}
-                      value={apiKeyInput}
-                      onChange={(e) => {
-                        setApiKeyInput(e.target.value);
-                        setApiKeyStatus('idle');
-                        setApiKeyStatusMessage('');
-                      }}
-                      placeholder="Enter your Gemini API key"
-                      className="w-full px-3 py-2 pr-10 bg-gray-800 border border-gray-600 rounded text-white text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-amber-500 font-mono"
-                    />
-                    <button
-                      onClick={() => setApiKeyVisible(!apiKeyVisible)}
-                      className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-500 hover:text-gray-300"
-                      title={apiKeyVisible ? 'Hide key' : 'Show key'}
-                    >
-                      {apiKeyVisible ? <EyeOff size={16} /> : <Eye size={16} />}
-                    </button>
-                  </div>
-
-                  {/* Validation status */}
-                  {apiKeyStatus === 'validating' && (
-                    <div className="flex items-center gap-2 text-xs text-blue-400">
-                      <RefreshCw className="animate-spin" size={12} />
-                      Validating key...
-                    </div>
-                  )}
-                  {apiKeyStatus === 'valid' && apiKeyStatusMessage && (
-                    <div className="flex items-center gap-2 text-xs text-green-400">
-                      <CheckCircle size={12} />
-                      {apiKeyStatusMessage}
-                    </div>
-                  )}
-                  {apiKeyStatus === 'invalid' && (
-                    <div className="flex items-center gap-2 text-xs text-red-400">
-                      <XCircle size={12} />
-                      {apiKeyStatusMessage || 'Invalid key'}
-                    </div>
-                  )}
-
-                  {/* Action buttons */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleValidateApiKey}
-                      disabled={
-                        apiKeyLoading || !apiKeyInput.trim() || apiKeyStatus === 'validating'
-                      }
-                      className="px-3 py-1.5 text-xs bg-amber-600 hover:bg-amber-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      Validate
-                    </button>
-                    <button
-                      onClick={handleSaveApiKey}
-                      disabled={apiKeyLoading || !apiKeyInput.trim()}
-                      className="flex items-center gap-1 px-3 py-1.5 text-xs bg-blue-600 hover:bg-blue-700 text-white rounded disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-                    >
-                      <Save size={12} />
-                      Save
-                    </button>
-                    <button
-                      onClick={() => {
-                        setApiKeyEditing(false);
-                        setApiKeyInput('');
-                        setApiKeyVisible(false);
-                        setApiKeyStatus(apiKeys.gemini?.configured ? 'valid' : 'idle');
-                        setApiKeyStatusMessage('');
-                      }}
-                      className="px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </>
-              ) : (
-                <>
-                  {/* Masked key display and actions */}
-                  {apiKeys.gemini?.configured ? (
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-gray-400 font-mono">
-                        {apiKeys.gemini.maskedKey}
-                      </span>
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => setApiKeyEditing(true)}
-                          className="px-2 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 rounded transition-colors"
-                        >
-                          Change
-                        </button>
-                        <button
-                          onClick={handleRemoveApiKey}
-                          disabled={apiKeyLoading}
-                          className="px-2 py-1 text-xs text-red-400 hover:bg-red-500/10 rounded transition-colors disabled:opacity-50"
-                        >
-                          Remove
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setApiKeyEditing(true)}
-                      className="w-full px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 hover:text-white text-gray-400 border border-dashed border-gray-600 rounded transition-colors"
-                    >
-                      + Add API Key
-                    </button>
-                  )}
-                </>
-              )}
-
-              <p className="text-xs text-gray-500">
-                Get a key from{' '}
-                <a
-                  href="https://aistudio.google.com/apikey"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-blue-400 hover:text-blue-300 underline"
-                >
-                  Google AI Studio
-                </a>
-              </p>
-            </div>
           </div>
 
           <RemotePairingSection />

@@ -239,8 +239,42 @@ export function setTabLayout(ws: Workspace, tabId: string, layout: PaneLayout): 
 export function pruneMissing(ws: Workspace, existing: ReadonlySet<string>): Workspace {
   return ws.tabs
     .flatMap((t) => t.panes)
-    .filter((id) => !existing.has(id))
+    .filter((id) => !existing.has(id) && browserUrl(id) === null)
     .reduce(removeSession, ws);
+}
+
+// Browser panes live next to session panes; the url is part of the pane id so it persists
+const BROWSER_PREFIX = 'browser:';
+
+/** Url of a browser pane id (`browser:<n>:<url>`), null for session panes */
+export function browserUrl(paneId: string): string | null {
+  if (!paneId.startsWith(BROWSER_PREFIX)) return null;
+  const rest = paneId.slice(BROWSER_PREFIX.length);
+  const colon = rest.indexOf(':');
+  return colon < 0 ? null : rest.slice(colon + 1);
+}
+
+/**
+ * Show `url` in the browser pane of `fromId`'s tab: reuse that tab's browser pane,
+ * else split one in right of `fromId`. Only http(s); unknown panes change nothing.
+ */
+export function openBrowser(ws: Workspace, fromId: string, url: string): Workspace {
+  const tab = ws.tabs[tabIndexOf(ws, fromId)];
+  if (!tab || !/^https?:\/\//i.test(url)) return ws;
+  const used = new Set(ws.tabs.flatMap((t) => t.panes));
+  let n = 1;
+  while ([...used].some((id) => id.startsWith(`${BROWSER_PREFIX}${n}:`))) n++;
+  const id = `${BROWSER_PREFIX}${n}:${url}`;
+  const existing = tab.panes.find((p) => browserUrl(p) !== null);
+  if (!existing) return splitInto(ws, id, fromId, 'right');
+  return {
+    tabs: ws.tabs.map((t) =>
+      t === tab
+        ? { ...t, panes: t.panes.map((p) => (p === existing ? id : p)), activeSessionId: id }
+        : t
+    ),
+    activeTabId: tab.id,
+  };
 }
 
 /** Tab title: the name for one pane, "A + B" for two, "N agents" beyond */

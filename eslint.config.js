@@ -49,9 +49,14 @@ export default [
         URL: 'readonly',
         WebSocket: 'readonly',
         HTMLElement: 'readonly',
+        HTMLFormElement: 'readonly',
+        File: 'readonly',
+        FileList: 'readonly',
+        Blob: 'readonly',
         HTMLInputElement: 'readonly',
         HTMLTextAreaElement: 'readonly',
         HTMLButtonElement: 'readonly',
+        HTMLAnchorElement: 'readonly',
         EventTarget: 'readonly',
         Notification: 'readonly',
         requestAnimationFrame: 'readonly',
@@ -112,7 +117,7 @@ export default [
     },
   },
   {
-    files: ['**/*.{js,cjs}'],
+    files: ['**/*.{js,cjs,mjs}'],
     rules: {
       // optional catch binding is fine; unused catch params are not worth flagging
       'no-unused-vars': ['error', { caughtErrors: 'none', argsIgnorePattern: '^_' }],

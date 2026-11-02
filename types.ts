@@ -1,14 +1,3 @@
-export enum AppStatus {
-  STOPPED = 'STOPPED',
-  RUNNING = 'RUNNING',
-  ERROR = 'ERROR',
-  STARTING = 'STARTING',
-  ANALYZING = 'ANALYZING',
-  CANCELLED = 'CANCELLED',
-  WAITING = 'WAITING',
-  RESTARTING = 'RESTARTING',
-}
-
 export type AppType =
   | 'vite'
   | 'next'
@@ -35,16 +24,7 @@ export interface AppConfig {
   type: AppType;
   port?: number;
   addresses?: string[];
-  startCommand?: string;
   detectedFramework?: string;
-  status: AppStatus;
-  uptime: number; // seconds
-  logs: string[];
-  stats: {
-    cpu: number[]; // history
-    memory: number[]; // history (MB)
-  };
-  aiAnalysis?: string;
   isFavorite?: boolean;
   isArchived?: boolean;
   // Docker Compose specific fields
@@ -116,7 +96,6 @@ export interface KeyboardShortcuts {
   goToDashboardAlt: KeyboardShortcut;
   openSettings: KeyboardShortcut;
   openSettingsAlt: KeyboardShortcut;
-  toggleDetailsCoding: KeyboardShortcut;
   openAgents: KeyboardShortcut;
   goToTab1: KeyboardShortcut;
   goToTab2: KeyboardShortcut;
@@ -127,52 +106,13 @@ export interface KeyboardShortcuts {
   goToTab7: KeyboardShortcut;
   goToTab8: KeyboardShortcut;
   goToTab9: KeyboardShortcut;
-  // App control shortcuts
-  startApp: KeyboardShortcut;
-  stopApp: KeyboardShortcut;
-  restartApp: KeyboardShortcut;
 }
-
-// Per-app view state - stored separately for each app tab
-export type EditorType = 'monaco' | 'code-server';
-export type DevToolsTab = 'console' | 'network';
-export type ConsoleFilter = 'all' | 'log' | 'warn' | 'error';
-
-export interface PerAppViewState {
-  // Terminal state (tabs array is not stored here due to XTerm instances)
-  activeTerminalTabId: string | null;
-  showLogsTab: boolean;
-
-  // Editor state
-  editorType: EditorType;
-
-  // DevTools state
-  showDevTools: boolean;
-  devToolsTab: DevToolsTab;
-  consoleFilter: ConsoleFilter;
-
-  // Panel visibility
-  isBrowserHidden: boolean;
-  isTerminalHidden: boolean;
-}
-
-export const DEFAULT_PER_APP_STATE: PerAppViewState = {
-  activeTerminalTabId: null,
-  showLogsTab: true,
-  editorType: 'code-server',
-  showDevTools: true,
-  devToolsTab: 'console',
-  consoleFilter: 'all',
-  isBrowserHidden: false,
-  isTerminalHidden: true, // Default to hidden when first entering coding view
-};
 
 export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   goToDashboard: { key: 'h', description: 'Go to dashboard' },
   goToDashboardAlt: { key: 'd', description: 'Go to dashboard' },
   openSettings: { key: 's', description: 'Open settings' },
   openSettingsAlt: { key: ',', modifiers: { meta: true }, description: 'Open settings (Cmd+,)' },
-  toggleDetailsCoding: { key: 'c', description: 'Toggle Details/Coding view' },
   openAgents: { key: 'a', description: 'Open Claude agents view' },
   goToTab1: { key: '1', modifiers: { meta: true }, description: 'Go to context 1' },
   goToTab2: { key: '2', modifiers: { meta: true }, description: 'Go to context 2' },
@@ -183,14 +123,6 @@ export const DEFAULT_KEYBOARD_SHORTCUTS: KeyboardShortcuts = {
   goToTab7: { key: '7', modifiers: { meta: true }, description: 'Go to context 7' },
   goToTab8: { key: '8', modifiers: { meta: true }, description: 'Go to context 8' },
   goToTab9: { key: '9', modifiers: { meta: true }, description: 'Go to context 9' },
-  // App control shortcuts
-  startApp: { key: 'Enter', modifiers: { meta: true }, description: 'Start selected app' },
-  stopApp: { key: '.', modifiers: { meta: true }, description: 'Stop selected app' },
-  restartApp: {
-    key: 'r',
-    modifiers: { meta: true, shift: true },
-    description: 'Restart selected app',
-  },
 };
 
 // ============================================
@@ -397,6 +329,24 @@ export interface AgentCapabilities {
 
 export type AgentGrouping = 'state' | 'directory' | 'project' | 'none';
 export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
+/** When a session card shows its details (issues, PRs, servers, sub-agents) */
+export type AgentCardDetails = 'hover' | 'click' | 'always';
+export type AgentCardDensity = 'comfortable' | 'compact';
+/** Detail elements of an agent card (#159); each sits in one AgentCardSlot */
+export type AgentCardElement =
+  | 'issue'
+  | 'pr'
+  | 'project'
+  | 'branch'
+  | 'git'
+  | 'metrics'
+  | 'status'
+  | 'links'
+  | 'servers'
+  | 'subagents';
+/** left = column under the status glyph, title = after the name, row2-4 = lines below it */
+export type AgentCardSlot = 'left' | 'title' | 'row2' | 'row3' | 'row4' | 'details' | 'hidden';
+export type AgentCardFields = Record<AgentCardElement, AgentCardSlot>;
 
 export interface AgentDispatchDefaults {
   model: string | null;
@@ -421,6 +371,9 @@ export interface AgentViewSettings {
   collapsedGroups: string[];
   notifications: boolean;
   desktopNotifications: boolean;
+  cardDetails: AgentCardDetails;
+  cardDensity: AgentCardDensity;
+  cardFields: AgentCardFields;
   disabled: boolean;
   dispatch: AgentDispatchDefaults;
   version: number;
@@ -432,6 +385,8 @@ export interface AgentDispatchRequest extends Partial<AgentDispatchDefaults> {
   resume?: string;
   name?: string | null;
   cwd: string;
+  /** Start without a prompt ("New agent"); the session waits for input */
+  idle?: boolean;
 }
 
 export interface AgentDispatchResult {
@@ -512,6 +467,19 @@ export const DEFAULT_AGENT_DISPATCH_DEFAULTS: AgentDispatchDefaults = {
   strictMcpConfig: false,
 };
 
+export const DEFAULT_AGENT_CARD_FIELDS: AgentCardFields = {
+  issue: 'left',
+  pr: 'left',
+  project: 'row2',
+  branch: 'row2',
+  git: 'row2',
+  metrics: 'row3',
+  status: 'row4',
+  links: 'details',
+  servers: 'details',
+  subagents: 'details',
+};
+
 export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   grouping: 'project',
   layout: 'tabs',
@@ -519,6 +487,9 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
+  cardDetails: 'hover',
+  cardDensity: 'comfortable',
+  cardFields: DEFAULT_AGENT_CARD_FIELDS,
   disabled: false,
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
@@ -534,30 +505,11 @@ export interface BoardSource {
   number: number;
 }
 
-// Workflows (#87): mw runs and card details; the stage rule lives in utils/workflowStage.js
-export interface WorkflowRunPhase {
-  phase: string;
-  result: string;
-  /** ISO time of the trace line */
-  at: string;
-  role?: string;
-  model?: string;
-}
-
-export interface WorkflowRunInfo {
-  runId: string;
-  repoPath: string;
-  mode: 'orchestrate' | 'pipeline';
-  phases: WorkflowRunPhase[];
-  pendingApproval: { stage: string; sha: string } | null;
-  runDir: string;
-}
-
+// Workflows (#87, mw 7 #136): card details; the stage rule lives in utils/workflowStage.js
 export interface WorkflowDetails {
   docs: { name: string; path: string }[];
   /** image URLs from issue and PR comments (review screenshots) */
   screenshots: string[];
-  phases: WorkflowRunPhase[];
 }
 
 export interface BoardStatusOption {
@@ -600,6 +552,8 @@ export interface MwMarker {
   attrs: Record<string, string>;
   /** comment createdAt (ISO) */
   at: string;
+  /** error markers (invalid, noclone, fail, …): the reason mw wrote into the comment */
+  note?: string;
 }
 
 export interface BoardItem {
@@ -650,6 +604,26 @@ export interface BoardRepoOptions {
   labels: (BoardLabel & { id: string })[];
   assignees: { id: string; login: string }[];
   milestones: { id: string; title: string }[];
+}
+
+export interface IssueComment {
+  id: string;
+  author: string;
+  body: string;
+  createdAt: string;
+  url: string;
+}
+
+/** Issue that is not on the board, as the issue modal shows it (GET /api/board/issue) */
+export interface IssueSummary {
+  issueId: string;
+  repo: string;
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: 'OPEN' | 'CLOSED';
+  labels: BoardLabel[];
 }
 
 /** Lazily loaded issue parts (GET /api/board/issues/:issueId) */

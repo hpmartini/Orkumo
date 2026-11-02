@@ -5,37 +5,52 @@ import {
   ChevronDown,
   ChevronRight,
   CircleDot,
-  Code2,
   GitBranch,
   GitBranchPlus,
-  GitPullRequest,
   Kanban,
   MoreHorizontal,
   Pin,
-  Plus,
   SquareTerminal,
   Star,
   Timer,
   Workflow,
 } from 'lucide-react';
-import type { AgentSession, AgentGrouping, AgentContext } from '../../types';
+import type {
+  AgentSession,
+  AgentGrouping,
+  AgentContext,
+  AgentCardDetails,
+  AgentCardDensity,
+  AgentCardElement,
+  AgentCardFields,
+} from '../../types';
+import { DEFAULT_AGENT_CARD_FIELDS } from '../../types';
 import {
   AgentServer,
   NavItem,
   SessionGroup,
+  SessionLookup,
   stateGlyph,
-  prLabel,
   sessionAgeMs,
   formatAge,
-  shortenPath,
+  dirName,
   displayRepo,
+  cardDetailsVisible,
+  cardSlots,
+  CARD_ELEMENTS,
+  isWorkflowSession,
+  parseWorkflowName,
+  workflowIssue,
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
-import { AppPowerButton, AppStatusDot, RailNavProps } from './ProjectsRail';
-import { SessionLinks } from './SessionLinks';
+import { RailNavProps } from './ProjectsRail';
+import { IssuePill, PrPill, ServerLinks, SubagentsBadge } from './SessionLinks';
 import { CacheBadge } from './CacheBadge';
-import { isCacheWarning } from '../../utils/agentCache';
+import { cacheCountdown, isCacheWarning } from '../../utils/agentCache';
+
+/** Pointer has to rest this long on a card before its details open (hover mode) */
+const HOVER_DETAILS_DELAY_MS = 200;
 
 /** Drag payload of a group header (separate from the workspace tab drag) */
 export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
@@ -60,6 +75,13 @@ interface AgentListProps {
   onFocusOpen?: (id: string) => void;
   now: number;
   grouping: AgentGrouping;
+  /** When session cards show their details; "Keep details open" pins them in every mode */
+  cardDetails?: AgentCardDetails;
+  cardDensity?: AgentCardDensity;
+  /** Which card slot each detail element sits in (#159) */
+  cardFields?: AgentCardFields;
+  /** mw board links, to tell workflow agents from hand-started ones */
+  lookup?: SessionLookup;
   /** Repo / issue / sub-agent data per session id (may be empty while loading) */
   contexts: Record<string, AgentContext | undefined>;
   /** Matched DevOrbit dev servers per session id */
@@ -93,10 +115,7 @@ interface AgentListProps {
   favoriteSessionIds?: Set<string>;
   /** Rows whose details (PRs, issues, servers) are open */
   expandedSessionIds?: Set<string>;
-  onToggleExpanded?: (id: string) => void;
   onToggleFavoriteGroup?: (key: string) => void;
-  /** "+ Issue" in a project group header; gets the group's GitHub repo ("owner/name") */
-  onCreateIssue?: (repo: string) => void;
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
   onMoveGroup?: (key: string, targetKey: string, visibleKeys: string[]) => void;
@@ -174,6 +193,10 @@ export const AgentList: React.FC<AgentListProps> = ({
   onFocusOpen,
   now,
   grouping,
+  cardDetails = 'hover',
+  cardDensity = 'comfortable',
+  cardFields = DEFAULT_AGENT_CARD_FIELDS,
+  lookup,
   contexts,
   servers,
   filtered,
@@ -193,9 +216,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   favoriteGroupKeys,
   favoriteSessionIds,
   expandedSessionIds,
-  onToggleExpanded,
   onToggleFavoriteGroup,
-  onCreateIssue,
   onToggleFavoriteSession,
   onMoveGroup,
   issuesByAgent,
@@ -209,6 +230,30 @@ export const AgentList: React.FC<AgentListProps> = ({
   }, []);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ index: number; x: number; y: number } | null>(null);
+  // Hovered card; set after a short delay so sweeping the pointer across the list does not flicker
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
+  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const hoverCard = (id: string | null) => {
+    clearTimeout(hoverTimer.current);
+    if (id === null) setHoveredId(null);
+    // Touch screens emulate mouseenter on tap: there the selection and pinning decide
+    else if (window.matchMedia?.('(hover: hover)').matches)
+      hoverTimer.current = setTimeout(() => setHoveredId(id), HOVER_DETAILS_DELAY_MS);
+  };
+  useEffect(() => () => clearTimeout(hoverTimer.current), []);
+  const comfortable = cardDensity === 'comfortable';
+  // One width for the whole list so names stay aligned; wide only when some card fills the column
+  const leftElements = CARD_ELEMENTS.filter(({ key }) => cardFields[key] === 'left').map(
+    ({ key }) => key
+  );
+  const leftWide =
+    leftElements.some((key) => key !== 'issue' && key !== 'pr') ||
+    items.some(
+      (item) =>
+        item.type === 'session' &&
+        ((leftElements.includes('issue') && isWorkflowSession(item.session, lookup)) ||
+          (leftElements.includes('pr') && item.session.links.length > 0))
+    );
 
   // Keep the selected row in view
   useEffect(() => {
@@ -484,7 +529,8 @@ export const AgentList: React.FC<AgentListProps> = ({
                   }`}
                 />
               )}
-              <div className="rounded-lg border border-gray-700 bg-gray-850 overflow-hidden">
+              {/* No overflow-hidden: hover details float out of the card (#159); children round instead */}
+              <div className="rounded-lg border border-gray-700 bg-gray-850 [&>*:first-child]:rounded-t-lg [&>*:last-child]:rounded-b-lg">
                 {cluster.map((index) => {
                   const item = items[index];
                   const selected = index === selectedIndex;
@@ -500,15 +546,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                             .map((s) => contexts[s.id]?.issues)
                             .find((i) => i && i.open > 0) || null
                         : null;
-                    // Repo of the project's agents; groups without a GitHub origin get no "+ Issue"
-                    const groupRepo =
-                      onCreateIssue && grouping === 'project' && !isFavSection
-                        ? item.group.sessions
-                            .map((s) => contexts[s.id]?.repo?.slug)
-                            .find(Boolean) || null
-                        : null;
                     const groupFav = isFavGroup(groupKey);
-                    const headerActions = isFavSection ? [] : groupActions(item.group);
                     const groupSessions = [...item.group.sessions, ...item.group.hidden];
                     const attachedCount = groupSessions.filter((s) => openIds.has(s.id)).length;
                     const groupHasActive =
@@ -571,7 +609,6 @@ export const AgentList: React.FC<AgentListProps> = ({
                         </button>
                         {app && nav ? (
                           <>
-                            <AppStatusDot status={app.status} />
                             <button
                               onClick={(e) => {
                                 e.stopPropagation();
@@ -586,7 +623,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         ) : (
                           <span className="truncate min-w-0">
                             {grouping === 'directory'
-                              ? shortenPath(item.group.title, 42)
+                              ? dirName(item.group.title)
                               : item.group.title}
                           </span>
                         )}
@@ -625,42 +662,31 @@ export const AgentList: React.FC<AgentListProps> = ({
                             {groupIssues.open}
                           </a>
                         )}
-                        <ActionButton
-                          action={headerActions.find((a) => a.id === 'view-code')}
-                          icon={<Code2 size={12} />}
-                        />
-                        <ActionButton
-                          action={headerActions.find((a) => a.id === 'view-board')}
-                          icon={<Kanban size={12} />}
-                        />
-                        {groupRepo && (
+                        {isFavSection || groupFav ? (
+                          <Star
+                            size={11}
+                            className="shrink-0 fill-amber-400 text-amber-400"
+                            aria-label="Favorite"
+                          />
+                        ) : null}
+                        {!isFavSection && (
+                          // Project actions (code, board, new issue, favorite, …) live in the group menu
                           <button
                             onClick={(e) => {
                               e.stopPropagation();
-                              onCreateIssue?.(groupRepo);
+                              const r = e.currentTarget.getBoundingClientRect();
+                              onSelectIndex(index);
+                              menuByKeyboard.current = e.detail === 0;
+                              setMenu({ index, x: r.left, y: r.bottom + 2 });
                             }}
-                            className="shrink-0 p-0.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-                            title={`Neues Issue in ${groupRepo}`}
-                            aria-label={`Neues Issue in ${groupRepo}`}
+                            aria-haspopup="menu"
+                            aria-expanded={menu?.index === index}
+                            className="shrink-0 p-0.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                            title="Project actions"
+                            aria-label={`Actions for ${item.group.title}`}
                           >
-                            <Plus size={12} />
+                            <MoreHorizontal size={12} />
                           </button>
-                        )}
-                        {isFavSection ? (
-                          <Star size={11} className="shrink-0 fill-amber-400 text-amber-400" />
-                        ) : (
-                          onToggleFavoriteGroup && (
-                            <FavoriteButton
-                              active={groupFav}
-                              label={`${groupFav ? 'Remove' : 'Add'} ${item.group.title} ${groupFav ? 'from' : 'to'} favorites`}
-                              onToggle={() => onToggleFavoriteGroup(groupKey)}
-                            />
-                          )
-                        )}
-                        {app && nav && (
-                          <span className="shrink-0">
-                            <AppPowerButton app={app} nav={nav} />
-                          </span>
                         )}
                       </div>
                     );
@@ -682,7 +708,6 @@ export const AgentList: React.FC<AgentListProps> = ({
                   }
                   const { session } = item;
                   const glyph = stateGlyph(session.displayState);
-                  const label = prLabel(session.links);
                   const age = formatAge(sessionAgeMs(session, now));
                   const isPeeking = peekId === session.id;
                   const isOpen = openIds.has(session.id);
@@ -693,25 +718,140 @@ export const AgentList: React.FC<AgentListProps> = ({
                   // Stopped DevOrbit apps only carry their configured port: not worth a row entry
                   const sessionServers = (servers.get(session.id) || []).filter((s) => s.running);
                   const issueKeys = (onOpenIssue && issuesByAgent?.get(session.id)) || [];
-                  // Project/directory groups already name the repo in their header
-                  const showRepoName =
-                    (grouping !== 'project' && grouping !== 'directory') ||
-                    (item.group.key as string) === FAVORITES_GROUP_KEY;
-                  const runningSubagents = ctx?.subagents.running || 0;
+                  const workflow = workflowIssue(session, lookup, issueKeys);
+                  const displayName = parseWorkflowName(session.name)?.title || session.name;
+                  // Project groups already name the repo in their header
+                  const showProject =
+                    grouping !== 'project' || (item.group.key as string) === FAVORITES_GROUP_KEY;
                   const cacheWarning = isCacheWarning(ctx?.cache, now);
                   const actions = rowActions(session);
-                  const hasDetails =
-                    !!label ||
-                    issueKeys.length > 0 ||
-                    sessionServers.length > 0 ||
-                    runningSubagents > 0;
-                  const expanded = hasDetails && !!expandedSessionIds?.has(session.id);
                   const extra =
                     session.state === 'blocked' && session.waitingFor
                       ? `waiting: ${session.waitingFor}`
                       : session.state === 'working'
                         ? session.detail
                         : null;
+                  const nodes: Record<AgentCardElement, React.ReactNode> = {
+                    issue:
+                      workflow &&
+                      (workflow.key && onOpenIssue ? (
+                        <IssuePill
+                          issueKey={workflow.key}
+                          repoSlug={workflow.key.slice(0, workflow.key.lastIndexOf('#'))}
+                          onOpen={onOpenIssue}
+                        />
+                      ) : (
+                        <span
+                          className="shrink-0 font-mono leading-4 px-1 rounded border border-gray-600 text-gray-300"
+                          title={`Issue #${workflow.number}`}
+                        >
+                          #{workflow.number}
+                        </span>
+                      )),
+                    pr: session.links.length > 0 && (
+                      <PrPill session={session} repoSlug={ctx?.repo?.slug} onOpenPrs={onOpenPrs} />
+                    ),
+                    project: showProject && repo && (
+                      <span
+                        className="shrink-0 max-w-[45%] truncate leading-4 px-1 rounded border border-gray-600 text-gray-300"
+                        title={repo.slug || repo.name}
+                      >
+                        {repo.name}
+                      </span>
+                    ),
+                    branch: repo?.branch && (
+                      <span
+                        className="flex items-center gap-1 min-w-0"
+                        title={[
+                          repo.slug || repo.name,
+                          `branch ${repo.branch}`,
+                          repo.isWorktree ? worktreeTitle(repo) : null,
+                        ]
+                          .filter(Boolean)
+                          .join('\n')}
+                      >
+                        {repo.isWorktree ? (
+                          <GitBranchPlus size={10} className="shrink-0 text-sky-300" />
+                        ) : (
+                          <GitBranch size={10} className="shrink-0 text-gray-500" />
+                        )}
+                        <span className="truncate min-w-0 text-gray-300">{repo.branch}</span>
+                        {repo.isWorktree && (
+                          <span
+                            className="shrink-0 rounded border border-sky-300/40 px-1 text-[11px] leading-4 text-sky-300"
+                            title={`Git ${worktreeTitle(repo)}`}
+                          >
+                            worktree
+                          </span>
+                        )}
+                      </span>
+                    ),
+                    git: repo && (repo.dirty || repo.ahead > 0 || repo.behind > 0) && (
+                      <span
+                        className="flex items-center gap-1 shrink-0 text-gray-500 tabular-nums"
+                        title={[
+                          repo.dirty ? 'uncommitted changes' : null,
+                          repo.ahead ? `${repo.ahead} ahead of upstream` : null,
+                          repo.behind ? `${repo.behind} behind upstream` : null,
+                        ]
+                          .filter(Boolean)
+                          .join('\n')}
+                      >
+                        {repo.dirty && (
+                          <span
+                            className="w-1.5 h-1.5 rounded-full bg-amber-400"
+                            aria-label="Uncommitted changes"
+                          />
+                        )}
+                        {repo.ahead > 0 && (
+                          <span className="flex items-center">
+                            <ArrowUp size={9} />
+                            {repo.ahead}
+                          </span>
+                        )}
+                        {repo.behind > 0 && (
+                          <span className="flex items-center">
+                            <ArrowDown size={9} />
+                            {repo.behind}
+                          </span>
+                        )}
+                      </span>
+                    ),
+                    metrics: ctx?.cache && !cacheCountdown(ctx.cache, now).expired && (
+                      <CacheBadge cache={ctx.cache} />
+                    ),
+                    status: extra && <span className="truncate min-w-0">{extra}</span>,
+                    links: issueKeys
+                      .filter((key) => key !== workflow?.key)
+                      .map((key) => (
+                        <IssuePill
+                          key={key}
+                          issueKey={key}
+                          repoSlug={ctx?.repo?.slug}
+                          onOpen={onOpenIssue}
+                        />
+                      )),
+                    servers: sessionServers.length > 0 && (
+                      <ServerLinks session={session} servers={sessionServers} />
+                    ),
+                    subagents: (ctx?.subagents.running || 0) > 0 && <SubagentsBadge ctx={ctx} />,
+                  };
+                  const slot = cardSlots(cardFields, nodes, (node, key) => (
+                    <React.Fragment key={key}>{node}</React.Fragment>
+                  ));
+                  // Compact: row 3 joins row 2
+                  const row2 = comfortable ? slot.row2 : [...slot.row2, ...slot.row3];
+                  const row3 = comfortable ? slot.row3 : [];
+                  const hasDetails = slot.details.length > 0;
+                  const pinned = hasDetails && !!expandedSessionIds?.has(session.id);
+                  const expanded = cardDetailsVisible(cardDetails, {
+                    hasDetails,
+                    pinned,
+                    hovered: hoveredId === session.id,
+                    focused: selected && railFocused,
+                  });
+                  // Transient details float over the cards below instead of pushing them down
+                  const overlay = expanded && !pinned && cardDetails !== 'always';
                   return (
                     <div
                       key={session.id}
@@ -726,7 +866,11 @@ export const AgentList: React.FC<AgentListProps> = ({
                       }}
                       onDoubleClick={() => onActivate(item)}
                       onContextMenu={(e) => openMenu(index, e)}
-                      className={`group flex items-start gap-2 px-3 py-2 text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
+                      onMouseEnter={() => hoverCard(session.id)}
+                      onMouseLeave={() => hoverCard(null)}
+                      className={`group relative flex items-start gap-2 px-3 ${comfortable ? 'py-2.5' : 'py-1.5'} text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
+                        overlay ? 'z-20' : ''
+                      } ${
                         // Outline, not ring: stays visible on top of the selection ring
                         isActive ? 'outline outline-2 -outline-offset-2 outline-blue-400' : ''
                       } ${
@@ -734,47 +878,19 @@ export const AgentList: React.FC<AgentListProps> = ({
                           ? selectedClass(railFocused)
                           : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : cacheWarning ? 'ring-1 ring-inset ring-amber-400/70 bg-amber-400/5' : ''}`
                       }`}
-                      title={`${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
+                      title={`${session.name}\n${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
                     >
-                      <div className="w-4 shrink-0 flex flex-col items-center">
+                      <div
+                        className={`${leftWide ? 'w-11' : 'w-4'} shrink-0 flex flex-col items-center gap-1 text-[10px]`}
+                      >
                         <span
-                          className={`leading-5 ${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+                          className={`leading-5 text-sm ${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
                           aria-hidden="true"
                           title={glyph.label}
                         >
                           {glyph.glyph}
                         </span>
-                        {hasDetails && (
-                          <button
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              onToggleExpanded?.(session.id);
-                            }}
-                            aria-expanded={expanded}
-                            aria-label={`${expanded ? 'Hide' : 'Show'} details of ${session.name}`}
-                            title={
-                              expanded
-                                ? 'Hide details'
-                                : label
-                                  ? `${label.text}: show pull requests, issues, servers`
-                                  : 'Show issues, servers, sub-agents'
-                            }
-                            className={`mt-0.5 h-5 w-5 flex items-center justify-center rounded hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
-                              label && !expanded
-                                ? label.className.split(' ')[0]
-                                : 'text-gray-500 hover:text-white'
-                            }`}
-                          >
-                            {label && !expanded ? (
-                              <GitPullRequest size={12} />
-                            ) : (
-                              <ChevronDown
-                                size={12}
-                                className={`transition-transform duration-150 motion-reduce:transition-none ${expanded ? '' : '-rotate-90'}`}
-                              />
-                            )}
-                          </button>
-                        )}
+                        {slot.left}
                       </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0 leading-5">
@@ -782,8 +898,13 @@ export const AgentList: React.FC<AgentListProps> = ({
                           <span
                             className={`truncate ${highlightedId === session.id ? 'font-bold' : 'font-medium'}`}
                           >
-                            {session.name}
+                            {displayName}
                           </span>
+                          {slot.title.length > 0 && (
+                            <span className="flex items-center gap-1 shrink-0 text-[11px] text-gray-400">
+                              {slot.title}
+                            </span>
+                          )}
                           {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
                           {isOpen && (
                             <span
@@ -802,92 +923,42 @@ export const AgentList: React.FC<AgentListProps> = ({
                             {age}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1.5 mt-0.5 h-5 text-[11px] text-gray-400 min-w-0">
-                          {/* Repository + branch */}
-                          <span className="flex-1 min-w-0 flex items-center gap-1">
-                            {repo && (
-                              <span
-                                className="flex items-center gap-1 min-w-0 max-w-full overflow-hidden"
-                                title={[
-                                  repo.slug || repo.name,
-                                  repo.branch
-                                    ? `branch ${repo.branch}`
-                                    : ctx?.repo
-                                      ? 'detached HEAD'
-                                      : null,
-                                  repo.isWorktree ? worktreeTitle(repo) : null,
-                                  repo.dirty ? 'uncommitted changes' : null,
-                                  repo.ahead ? `${repo.ahead} ahead of upstream` : null,
-                                  repo.behind ? `${repo.behind} behind upstream` : null,
-                                ]
-                                  .filter(Boolean)
-                                  .join('\n')}
-                              >
-                                {repo.isWorktree ? (
-                                  <GitBranchPlus size={10} className="shrink-0 text-sky-300" />
-                                ) : (
-                                  <GitBranch size={10} className="shrink-0 text-gray-500" />
-                                )}
-                                {showRepoName && (
-                                  <span className="truncate text-gray-300 min-w-[3.5rem] shrink-0 max-w-[60%]">
-                                    {repo.name}
-                                  </span>
-                                )}
-                                {repo.branch && (
-                                  <span
-                                    className={`truncate min-w-0 shrink-[2] ${showRepoName ? 'text-gray-500' : 'text-gray-300'}`}
-                                  >
-                                    {repo.branch}
-                                  </span>
-                                )}
-                                {repo.isWorktree && (
-                                  <span
-                                    className="shrink-0 rounded border border-sky-300/40 px-1 text-[11px] leading-4 text-sky-300"
-                                    title={`Git ${worktreeTitle(repo)}`}
-                                  >
-                                    worktree
-                                  </span>
-                                )}
-                                {repo.dirty && (
-                                  <span
-                                    className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"
-                                    aria-label="Uncommitted changes"
-                                  />
-                                )}
-                                {repo.ahead > 0 && (
-                                  <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
-                                    <ArrowUp size={9} />
-                                    {repo.ahead}
-                                  </span>
-                                )}
-                                {repo.behind > 0 && (
-                                  <span className="flex items-center shrink-0 text-gray-500 tabular-nums">
-                                    <ArrowDown size={9} />
-                                    {repo.behind}
-                                  </span>
-                                )}
-                              </span>
-                            )}
-                          </span>
-                          {ctx?.cache && <CacheBadge cache={ctx.cache} />}
-                        </div>
-                        {expanded && (
-                          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-400">
-                            <SessionLinks
-                              session={session}
-                              ctx={ctx}
-                              servers={sessionServers}
-                              issueKeys={issueKeys}
-                              onOpenIssue={onOpenIssue}
-                              onOpenPrs={onOpenPrs}
-                            />
+                        {row2.length > 0 && (
+                          <div
+                            className={`flex items-center gap-1.5 h-5 text-[11px] text-gray-400 min-w-0 overflow-hidden ${comfortable ? 'mt-1' : 'mt-0.5'}`}
+                          >
+                            {row2}
                           </div>
                         )}
-                        {extra && (
-                          <div className="text-xs text-gray-500 truncate mt-0.5">{extra}</div>
+                        {row3.length > 0 && (
+                          <div className="flex items-center gap-1.5 h-5 mt-0.5 text-[11px] text-gray-400 min-w-0 overflow-hidden">
+                            {row3}
+                          </div>
+                        )}
+                        {slot.row4.length > 0 && (
+                          <div
+                            className={`flex items-center gap-1.5 text-xs min-w-0 overflow-hidden ${comfortable ? 'mt-1.5 text-gray-400' : 'mt-0.5 text-gray-500'}`}
+                          >
+                            {slot.row4}
+                          </div>
+                        )}
+                        {expanded && (
+                          <div
+                            data-card-details
+                            data-overlay={overlay || undefined}
+                            className={`flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400 ${
+                              overlay
+                                ? `absolute inset-x-0 top-full -mt-px py-2 pr-3 gap-y-1.5 bg-gray-800 border-b border-x border-gray-600 rounded-b-lg shadow-lg shadow-black/50 ${leftWide ? 'pl-16' : 'pl-9'}`
+                                : comfortable
+                                  ? 'mt-2 pt-2 gap-y-1.5 border-t border-gray-700/60'
+                                  : 'mt-1.5 gap-y-1'
+                            }`}
+                          >
+                            {slot.details}
+                          </div>
                         )}
                       </div>
-                      <div className="flex flex-col items-center shrink-0">
+                      <div className="relative flex flex-col items-center shrink-0">
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -899,16 +970,19 @@ export const AgentList: React.FC<AgentListProps> = ({
                         >
                           <MoreHorizontal size={12} />
                         </button>
-                        <ActionButton
-                          action={actions.find((a) => a.id === 'board')}
-                          icon={<Kanban size={12} />}
-                          className="p-1.5"
-                        />
-                        <ActionButton
-                          action={actions.find((a) => a.id === 'workflow')}
-                          icon={<Workflow size={12} />}
-                          className="p-1.5"
-                        />
+                        {/* Hover strip beside Peek: a column would grow the card on hover (#159) */}
+                        <div className="absolute right-full top-0 flex rounded bg-gray-800 [@media(hover:none)]:static [@media(hover:none)]:flex-col [@media(hover:none)]:bg-transparent">
+                          <ActionButton
+                            action={actions.find((a) => a.id === 'board')}
+                            icon={<Kanban size={12} />}
+                            className="p-1.5"
+                          />
+                          <ActionButton
+                            action={actions.find((a) => a.id === 'workflow')}
+                            icon={<Workflow size={12} />}
+                            className="p-1.5"
+                          />
+                        </div>
                         {onToggleFavoriteSession && (
                           <FavoriteButton
                             active={isFav}

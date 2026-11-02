@@ -3,10 +3,11 @@ import cors from 'cors';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
-import { GoogleGenAI, Type } from '@google/genai';
+import { agentViewSettingsSchema, optionalShortString } from './schemas/agentViewSettings.js';
 import http, { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import path from 'path';
+import os from 'os';
 // NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
 import {
   getConfig,
@@ -15,16 +16,7 @@ import {
   removeDirectory,
 } from './services/configService.js';
 import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
-import {
-  startProcess,
-  stopProcess,
-  restartProcess,
-  getProcessInfo,
-  getAllProcesses,
-  getProcessLogs,
-  getProcessStats,
-  processEvents,
-} from './services/processService.js';
+import { migrateDirectorySpelling } from './services/directoryMigration.js';
 import {
   createPtySession,
   writeToPty,
@@ -33,32 +25,26 @@ import {
   ptyEvents,
   detectClaudeCLI,
 } from './services/ptyService.js';
-import { portManager } from './services/PortManager.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
 import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
-import { applicationsRepository } from './db/repositories/applicationsRepository.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
 import { ideService } from './services/ideService.js';
-import { injectLogger, removeLogger, checkLoggerStatus } from './services/loggerInjection.js';
-import * as dockerService from './services/dockerService.js';
 import * as healthService from './services/healthService.js';
 import * as agentService from './services/agentService.js';
 import * as meshService from './services/meshService.js';
 import * as remoteAccess from './services/remoteAccess.js';
 import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
+import { usageRouter, getUsage } from './services/usageService.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
+import * as imageUpload from './services/imageUpload.js';
 import * as workflowService from './services/workflowService.js';
-import {
-  BUILD_LABEL,
-  deriveWorkflowState,
-  isWorkflowItem,
-  sameGo,
-} from '../utils/workflowStage.js';
+import { applyGo, workflowGoSchema } from './services/workflowGo.js';
+import { deriveWorkflowState } from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
@@ -120,37 +106,9 @@ const limiter = rateLimit({
   legacyHeaders: false,
   // Skip rate limiting for SSE endpoints (they're long-lived connections, not repeated requests)
   skip: (req) => {
-    const sseEndpoints = ['/api/events', '/api/apps/stats/stream', '/api/agents/stream'];
+    const sseEndpoints = ['/api/agents/stream'];
     return sseEndpoints.some((endpoint) => req.path === endpoint);
   },
-});
-
-// Stricter rate limit for process operations
-const processLimiter = rateLimit({
-  windowMs: RATE_LIMIT.windowMs,
-  max: 20, // limit process operations to 20 per minute
-  message: { error: 'Too many process operations, please slow down' },
-});
-
-// Rate limit for IDE launch operations
-const ideLimiter = rateLimit({
-  windowMs: RATE_LIMIT.windowMs,
-  max: 10, // limit IDE launches to 10 per minute
-  message: { error: 'Too many IDE launch requests, please slow down' },
-});
-
-// Rate limit for port configuration operations
-const portConfigLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 5, // limit port configuration to 5 per minute
-  message: { error: 'Too many port configuration requests, please slow down' },
-});
-
-// Rate limit for file system operations (more permissive for multi-tab support)
-const fileSystemLimiter = rateLimit({
-  windowMs: 60 * 1000,
-  max: 100, // allow 100 file operations per minute (for multi-tab browsing)
-  message: { error: 'Too many file system requests, please slow down' },
 });
 
 // Browser origins allowed to call the API: loopback on any port (dashboard, Vite, Electron dev),
@@ -177,6 +135,7 @@ app.use(remoteAccess.requireRemoteToken);
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
 app.use('/api/terminal/ghostty', ghosttyRoutes);
+app.use('/api/usage', usageRouter);
 
 // Optional modules (docs/MODULES.md). Mounted now, filled by load() in startServer(),
 // so it sits before the 404 handler at the end of this file.
@@ -191,13 +150,6 @@ app.use('/api/modules', moduleHost.router);
 
 const pathSchema = z.string().min(1).max(500);
 const idSchema = z.string().min(1).max(50);
-const commandSchema = z.string().min(1).max(200);
-
-const startAppSchema = z.object({
-  path: pathSchema,
-  command: commandSchema,
-  port: z.number().int().min(1).max(65535).optional(),
-});
 
 const directorySchema = z.object({
   path: pathSchema,
@@ -209,10 +161,6 @@ const ideIdSchema = z
   .min(1)
   .max(50)
   .regex(/^[a-z0-9-]+$/);
-
-const openIdeSchema = z.object({
-  ide: ideIdSchema,
-});
 
 const addCustomIdeSchema = z.object({
   id: z.string().min(1).max(50),
@@ -256,257 +204,8 @@ function validateParams(schema) {
   };
 }
 
-// Dynamic API key resolution: settings.json first, then env var fallback
-function getApiKey() {
-  const settingsKey = settingsService.getApiKey('gemini');
-  if (settingsKey) return settingsKey;
-  return process.env.GEMINI_API_KEY || null;
-}
-
-// Check on startup
-if (!getApiKey()) {
-  console.warn(
-    '⚠️  GEMINI_API_KEY not found - AI features will be disabled until configured in Admin Panel or .env.local'
-  );
-}
-
-// Store connected SSE clients for real-time updates
-const sseClients = new Map(); // Map<response, { lastActive: Date, heartbeatInterval: NodeJS.Timeout }>
-
 // SSE heartbeat interval from centralized config
 const SSE_HEARTBEAT_INTERVAL = TIMEOUTS.sseHeartbeat;
-// SSE client timeout (2 minutes of no response)
-const SSE_CLIENT_TIMEOUT = 120000;
-
-// Cleanup stale SSE clients periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [client, info] of sseClients) {
-    if (now - info.lastActive > SSE_CLIENT_TIMEOUT) {
-      clearInterval(info.heartbeatInterval);
-      sseClients.delete(client);
-      try {
-        client.end();
-      } catch {
-        // Client already disconnected
-      }
-    }
-  }
-}, 60000); // Check every minute
-
-// ============================================
-// SSE Endpoint for real-time updates
-// ============================================
-
-app.get('/api/events', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-
-  // Send initial connection message
-  res.write(
-    `event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
-  );
-
-  // Set up heartbeat to keep connection alive and detect dead clients
-  const heartbeatInterval = setInterval(() => {
-    try {
-      res.write(
-        `event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
-      );
-      const clientInfo = sseClients.get(res);
-      if (clientInfo) {
-        clientInfo.lastActive = Date.now();
-      }
-    } catch {
-      // Client disconnected, cleanup will handle it
-    }
-  }, SSE_HEARTBEAT_INTERVAL);
-
-  sseClients.set(res, { lastActive: Date.now(), heartbeatInterval });
-
-  req.on('close', () => {
-    const clientInfo = sseClients.get(res);
-    if (clientInfo) {
-      clearInterval(clientInfo.heartbeatInterval);
-    }
-    sseClients.delete(res);
-  });
-
-  req.on('error', () => {
-    const clientInfo = sseClients.get(res);
-    if (clientInfo) {
-      clearInterval(clientInfo.heartbeatInterval);
-    }
-    sseClients.delete(res);
-  });
-});
-
-// Broadcast events to all connected clients
-function broadcast(event, data) {
-  const message = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const [client] of sseClients) {
-    try {
-      client.write(message);
-    } catch {
-      // Client disconnected, will be cleaned up
-    }
-  }
-}
-
-// Forward process events to SSE clients
-processEvents.on('status', (data) => broadcast('process-status', data));
-processEvents.on('log', (data) => broadcast('process-log', data));
-
-// ============================================
-// SSE Endpoint for stats streaming (replaces polling)
-// ============================================
-
-// Store connected SSE clients for stats updates
-const statsSSEClients = new Map(); // Map<response, { lastActive: Date, heartbeatInterval: NodeJS.Timeout, statsInterval: NodeJS.Timeout }>
-
-// Stats update interval (2 seconds, matching previous polling interval)
-const STATS_UPDATE_INTERVAL = 2000;
-
-// Cleanup stale stats SSE clients periodically
-setInterval(() => {
-  const now = Date.now();
-  for (const [client, info] of statsSSEClients) {
-    if (now - info.lastActive > SSE_CLIENT_TIMEOUT) {
-      clearInterval(info.heartbeatInterval);
-      clearInterval(info.statsInterval);
-      statsSSEClients.delete(client);
-      try {
-        client.end();
-      } catch {
-        // Client already disconnected
-      }
-    }
-  }
-}, 60000); // Check every minute
-
-app.get('/api/apps/stats/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('X-Accel-Buffering', 'no'); // Disable nginx buffering
-
-  // Send initial connection message
-  res.write(
-    `event: connected\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
-  );
-
-  // Set up heartbeat to keep connection alive and detect dead clients
-  const heartbeatInterval = setInterval(() => {
-    try {
-      res.write(
-        `event: heartbeat\ndata: ${JSON.stringify({ timestamp: new Date().toISOString() })}\n\n`
-      );
-      const clientInfo = statsSSEClients.get(res);
-      if (clientInfo) {
-        clientInfo.lastActive = Date.now();
-      }
-    } catch {
-      // Client disconnected, cleanup will handle it
-    }
-  }, SSE_HEARTBEAT_INTERVAL);
-
-  // Backpressure control: track if stats collection is in progress
-  let statsInProgress = false;
-  let backpressureWarningLogged = false;
-
-  // Set up stats streaming interval - send stats for all running apps every 2 seconds
-  // With backpressure control to prevent memory leak from stacking intervals
-  const statsInterval = setInterval(async () => {
-    // Skip if previous collection is still in progress (backpressure)
-    if (statsInProgress) {
-      if (!backpressureWarningLogged) {
-        console.warn(
-          '[SSE Stats] Skipping - previous collection still in progress (backpressure detected)'
-        );
-        backpressureWarningLogged = true;
-      }
-      return;
-    }
-
-    statsInProgress = true;
-    backpressureWarningLogged = false;
-
-    try {
-      const processes = getAllProcesses();
-      const runningApps = Object.entries(processes).filter(
-        ([, info]) => info.status === 'RUNNING' && info.pid
-      );
-
-      // Collect all stats concurrently with timeout to prevent hanging
-      const STATS_TIMEOUT_MS = 1500; // Must be less than STATS_UPDATE_INTERVAL
-      const statsPromises = runningApps.map(async ([appId, info]) => {
-        try {
-          const stats = await Promise.race([
-            getProcessStats(info.pid),
-            new Promise((_, reject) =>
-              setTimeout(() => reject(new Error('Stats collection timeout')), STATS_TIMEOUT_MS)
-            ),
-          ]);
-          return { appId, stats, success: true };
-        } catch {
-          return { appId, success: false };
-        }
-      });
-
-      const results = await Promise.all(statsPromises);
-
-      // Write all successful results to the stream
-      for (const result of results) {
-        if (result.success && result.stats) {
-          try {
-            res.write(
-              `event: stats\ndata: ${JSON.stringify({
-                appId: result.appId,
-                cpu: result.stats.cpu,
-                memory: result.stats.memory,
-              })}\n\n`
-            );
-          } catch {
-            // Client disconnected during write, will be cleaned up
-            break;
-          }
-        }
-      }
-
-      const clientInfo = statsSSEClients.get(res);
-      if (clientInfo) {
-        clientInfo.lastActive = Date.now();
-      }
-    } catch {
-      // Error getting stats, ignore
-    } finally {
-      statsInProgress = false;
-    }
-  }, STATS_UPDATE_INTERVAL);
-
-  statsSSEClients.set(res, { lastActive: Date.now(), heartbeatInterval, statsInterval });
-
-  req.on('close', () => {
-    const clientInfo = statsSSEClients.get(res);
-    if (clientInfo) {
-      clearInterval(clientInfo.heartbeatInterval);
-      clearInterval(clientInfo.statsInterval);
-    }
-    statsSSEClients.delete(res);
-  });
-
-  req.on('error', () => {
-    const clientInfo = statsSSEClients.get(res);
-    if (clientInfo) {
-      clearInterval(clientInfo.heartbeatInterval);
-      clearInterval(clientInfo.statsInterval);
-    }
-    statsSSEClients.delete(res);
-  });
-});
-
 // ============================================
 // Configuration Endpoints
 // ============================================
@@ -696,6 +395,22 @@ app.put('/api/settings/keyboard-shortcuts', (req, res) => {
 });
 
 /**
+ * PUT /api/settings/link-target
+ * Where clicked links open (#140): built-in browser or system browser
+ */
+app.put(
+  '/api/settings/link-target',
+  validate(z.object({ linkTarget: z.enum(['builtin', 'system']) }).strict()),
+  (req, res) => {
+    try {
+      res.json({ linkTarget: settingsService.setLinkTarget(req.body.linkTarget) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
  * PUT /api/settings/archive/:id
  * Toggle or set archive status for an app
  */
@@ -714,33 +429,6 @@ app.put('/api/settings/archive/:id', validateParams(idSchema), (req, res) => {
     }
 
     res.json({ id, isArchived });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * PUT /api/settings/port/:id
- * Set custom port for an app
- */
-app.put('/api/settings/port/:id', validateParams(idSchema), (req, res) => {
-  try {
-    const { id } = req.params;
-    const { port } = req.body;
-
-    // Validate port
-    if (port !== null && port !== undefined) {
-      const portNum = parseInt(port, 10);
-      if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-        return res.status(400).json({ error: 'Invalid port number' });
-      }
-      settingsService.setPort(id, portNum);
-      res.json({ id, port: portNum });
-    } else {
-      // Clear custom port
-      settingsService.setPort(id, null);
-      res.json({ id, port: null });
-    }
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -768,291 +456,6 @@ app.put('/api/settings/name/:id', validateParams(idSchema), (req, res) => {
   }
 });
 
-/**
- * GET /api/settings/command/:id
- * Get custom command for an app
- */
-app.get('/api/settings/command/:id', validateParams(idSchema), (req, res) => {
-  try {
-    const { id } = req.params;
-    const command = settingsService.getCommand(id);
-    res.json({ id, command });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * PUT /api/settings/command/:id
- * Set custom command for an app
- */
-app.put('/api/settings/command/:id', validateParams(idSchema), (req, res) => {
-  try {
-    const { id } = req.params;
-    const { command } = req.body;
-
-    if (command && typeof command === 'string' && command.trim().length > 0) {
-      settingsService.setCommand(id, command.trim());
-      res.json({ id, command: command.trim() });
-    } else {
-      // Clear custom command
-      settingsService.setCommand(id, null);
-      res.json({ id, command: null });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/settings/recommendations/hidden
- * Get dismissed and snoozed recommendations
- */
-app.get('/api/settings/recommendations/hidden', (req, res) => {
-  try {
-    const hidden = settingsService.getHiddenRecommendations();
-    res.json(hidden);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/settings/recommendations/dismiss
- * Dismiss a recommendation permanently
- */
-app.post('/api/settings/recommendations/dismiss', (req, res) => {
-  try {
-    const { key } = req.body;
-    if (!key || typeof key !== 'string') {
-      return res.status(400).json({ error: 'Missing or invalid key' });
-    }
-    settingsService.dismissRecommendation(key);
-    res.json({ success: true, key });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/settings/recommendations/snooze
- * Snooze a recommendation for 24 hours
- */
-app.post('/api/settings/recommendations/snooze', (req, res) => {
-  try {
-    const { key } = req.body;
-    if (!key || typeof key !== 'string') {
-      return res.status(400).json({ error: 'Missing or invalid key' });
-    }
-    const expiry = settingsService.snoozeRecommendation(key);
-    res.json({ success: true, key, expiry });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/settings/recommendations/restore
- * Restore a dismissed recommendation
- */
-app.post('/api/settings/recommendations/restore', (req, res) => {
-  try {
-    const { key } = req.body;
-    if (!key || typeof key !== 'string') {
-      return res.status(400).json({ error: 'Missing or invalid key' });
-    }
-    settingsService.restoreRecommendation(key);
-    res.json({ success: true, key });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Track active SSE connections for port configuration progress
-const portConfigProgressClients = new Map();
-const SSE_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes timeout
-const SSE_CLEANUP_INTERVAL_MS = 60 * 1000; // Check for stale connections every minute
-
-// Periodic cleanup of stale SSE connections
-const sseCleanupInterval = setInterval(() => {
-  const now = Date.now();
-  for (const [sessionId, client] of portConfigProgressClients) {
-    // Check if connection timestamp is older than timeout
-    if (client.timestamp && now - client.timestamp > SSE_TIMEOUT_MS) {
-      console.warn(`[SSE] Cleaning up stale connection for session ${sessionId}`);
-      try {
-        client.res.end();
-      } catch {
-        // Already closed
-      }
-      clearTimeout(client.timeoutId);
-      portConfigProgressClients.delete(sessionId);
-    }
-  }
-}, SSE_CLEANUP_INTERVAL_MS);
-
-/**
- * GET /api/settings/configure-ports/progress/:sessionId
- * Server-Sent Events endpoint for port configuration progress
- */
-app.get('/api/settings/configure-ports/progress/:sessionId', (req, res) => {
-  const { sessionId } = req.params;
-
-  // Validate sessionId format (UUID v4)
-  const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-  if (!uuidRegex.test(sessionId)) {
-    return res.status(400).json({ error: 'Invalid session ID format' });
-  }
-
-  // Set headers for SSE
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader(
-    'Access-Control-Allow-Origin',
-    process.env.FRONTEND_URL || `http://localhost:${PORTS.devhub}`
-  );
-  res.setHeader('X-Accel-Buffering', 'no'); // For nginx proxies
-
-  // Clean up any existing connection with the same sessionId before storing new one
-  const existingClient = portConfigProgressClients.get(sessionId);
-  if (existingClient) {
-    console.warn(
-      `[SSE] Cleaning up existing connection for session ${sessionId} before creating new one`
-    );
-    clearTimeout(existingClient.timeoutId);
-    try {
-      existingClient.res.end();
-    } catch (err) {
-      // Connection already closed, ignore error
-    }
-    portConfigProgressClients.delete(sessionId);
-  }
-
-  // Set timeout for automatic cleanup of stale connections
-  const timeoutId = setTimeout(() => {
-    const client = portConfigProgressClients.get(sessionId);
-    if (client && client.res === res) {
-      console.warn(`[SSE] Timeout for session ${sessionId}, cleaning up`);
-      res.write('data: {"type":"timeout","message":"Connection timeout"}\n\n');
-      res.end();
-      portConfigProgressClients.delete(sessionId);
-    }
-  }, SSE_TIMEOUT_MS);
-
-  // Store the response object, timeout ID, and timestamp for this session
-  portConfigProgressClients.set(sessionId, { res, timeoutId, timestamp: Date.now() });
-
-  // Send initial connection message
-  res.write('data: {"type":"connected"}\n\n');
-
-  // Clean up on close
-  req.on('close', () => {
-    const client = portConfigProgressClients.get(sessionId);
-    if (client) {
-      clearTimeout(client.timeoutId);
-      portConfigProgressClients.delete(sessionId);
-    }
-  });
-});
-
-/**
- * POST /api/settings/configure-ports
- * Configure ports for all apps consistently, starting from a base port
- */
-app.post('/api/settings/configure-ports', portConfigLimiter, async (req, res) => {
-  try {
-    const { startPort = PORTS.appStart, sessionId } = req.body;
-
-    // Validate startPort
-    const portNum = parseInt(startPort, 10);
-    if (isNaN(portNum) || portNum < 1 || portNum > 65535) {
-      return res
-        .status(400)
-        .json({ error: 'Invalid start port number (must be between 1 and 65535)' });
-    }
-
-    // DoS Protection: Restrict to unprivileged ports (>= 1024) to prevent port exhaustion attacks
-    // Privileged ports (1-1023) require root access and could cause system issues
-    if (portNum < 1024) {
-      return res
-        .status(400)
-        .json({ error: 'Start port must be >= 1024 (unprivileged ports only)' });
-    }
-
-    // Validate that DevHub port is not used (reserved for DevHub)
-    if (portNum <= PORTS.devhub) {
-      return res
-        .status(400)
-        .json({ error: `Start port must be greater than ${PORTS.devhub} (reserved for DevHub)` });
-    }
-
-    // Get all apps
-    // Plain Git repos have no start command and need no port
-    const appIds = scanAllDirectories()
-      .filter((app) => app.startCommand)
-      .map((app) => app.id);
-
-    // Note: Port exhaustion validation is handled by the service layer which tracks
-    // the actual highest port used (accounting for conflicts). A simple arithmetic
-    // check here would be incorrect as it doesn't account for ports that are skipped
-    // due to conflicts.
-
-    // Progress callback to send SSE updates
-    const onProgress = sessionId
-      ? (current, total, percentage) => {
-          const client = portConfigProgressClients.get(sessionId);
-          if (client && client.res) {
-            const progress = {
-              type: 'progress',
-              current,
-              total,
-              percentage: percentage || Math.round((current / total) * 100),
-            };
-            client.res.write(`data: ${JSON.stringify(progress)}\n\n`);
-          }
-        }
-      : null;
-
-    // Configure ports for all apps with conflict detection and progress tracking
-    const configured = await settingsService.configureAllPorts(
-      appIds,
-      portNum,
-      portManager,
-      onProgress
-    );
-
-    // Send completion message via SSE if session exists
-    if (sessionId) {
-      const client = portConfigProgressClients.get(sessionId);
-      if (client) {
-        clearTimeout(client.timeoutId);
-        client.res.write(`data: ${JSON.stringify({ type: 'complete' })}\n\n`);
-        client.res.end();
-        portConfigProgressClients.delete(sessionId);
-      }
-    }
-
-    res.json({ configured });
-  } catch (error) {
-    console.error('[Settings] Failed to configure ports:', error);
-
-    // Send error via SSE if session exists
-    const { sessionId } = req.body;
-    if (sessionId) {
-      const client = portConfigProgressClients.get(sessionId);
-      if (client) {
-        clearTimeout(client.timeoutId);
-        client.res.write(`data: ${JSON.stringify({ type: 'error', message: error.message })}\n\n`);
-        client.res.end();
-        portConfigProgressClients.delete(sessionId);
-      }
-    }
-
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ============================================
 // IDE Integration Endpoints
 // ============================================
@@ -1072,81 +475,6 @@ app.get('/api/ides/installed', async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-/**
- * POST /api/apps/:id/open-ide
- * Open app directory in specified IDE
- */
-app.post(
-  '/api/apps/:id/open-ide',
-  ideLimiter,
-  validateParams(idSchema),
-  validate(openIdeSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { ide } = req.body;
-
-      // Verify IDE is actually installed before attempting to launch
-      const installedIDEs = await ideService.detectInstalledIDEs();
-      if (!installedIDEs.some((i) => i.id === ide)) {
-        return res.status(404).json({
-          error: 'IDE not installed',
-          code: 'IDE_NOT_INSTALLED',
-        });
-      }
-
-      // Get app directory from config
-      const apps = scanAllDirectories();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'Application not found' });
-      }
-
-      // Open in IDE
-      const result = await ideService.openInIDE(app.path, ide);
-
-      // Save preferred IDE to settings
-      settingsService.setPreferredIDE(id, ide);
-
-      res.json(result);
-    } catch (error) {
-      console.error(`[IDE] Failed to open IDE for app ${req.params.id}:`, error.message);
-
-      // Invalidate cache on IDE_NOT_INSTALLED errors (IDE may have been uninstalled)
-      if (error.code === 'IDE_NOT_INSTALLED') {
-        ideService.detectionCache = null;
-        ideService.cacheTimestamp = null;
-      }
-
-      // Send appropriate status code based on error type
-      const statusCode =
-        error.code === 'IDE_NOT_INSTALLED'
-          ? 404
-          : error.code === 'IDE_NOT_SUPPORTED'
-            ? 400
-            : error.code === 'INVALID_PROJECT_PATH'
-              ? 404
-              : error.code === 'PERMISSION_DENIED'
-                ? 403
-                : 500;
-
-      // Sanitize error messages to avoid exposing sensitive paths
-      const sanitizedMessage =
-        error.code === 'PERMISSION_DENIED'
-          ? 'Permission denied accessing project directory'
-          : error.code === 'INVALID_PROJECT_PATH'
-            ? 'Project directory not found'
-            : error.message;
-
-      res.status(statusCode).json({
-        error: sanitizedMessage,
-        code: error.code || 'UNKNOWN_ERROR',
-      });
-    }
-  }
-);
 
 /**
  * GET /api/ides/custom
@@ -1193,441 +521,13 @@ app.delete('/api/ides/custom/:id', validateParams(ideIdSchema), (req, res) => {
   }
 });
 
-/**
- * PUT /api/settings/preferred-ide/:id
- * Set preferred IDE for an app
- */
-app.put('/api/settings/preferred-ide/:id', validateParams(idSchema), (req, res) => {
-  try {
-    const { id } = req.params;
-    const { ide } = req.body;
-
-    if (ide && typeof ide === 'string' && ide.trim().length > 0) {
-      settingsService.setPreferredIDE(id, ide.trim());
-      res.json({ id, ide: ide.trim() });
-    } else {
-      // Clear preferred IDE
-      settingsService.setPreferredIDE(id, null);
-      res.json({ id, ide: null });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ============================================
 // API Keys Management Endpoints
 // ============================================
 
-/**
- * GET /api/settings/api-keys
- * Get configured API keys (masked for security)
- */
-app.get('/api/settings/api-keys', (req, res) => {
-  try {
-    const keys = settingsService.getApiKeys();
-    res.json(keys);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * PUT /api/settings/api-keys/:provider
- * Set an API key for a provider
- */
-app.put('/api/settings/api-keys/:provider', (req, res) => {
-  try {
-    const { provider } = req.params;
-    const { key } = req.body;
-
-    if (!key || typeof key !== 'string' || key.trim().length === 0) {
-      return res.status(400).json({ error: 'API key is required' });
-    }
-
-    // Validate provider name
-    const allowedProviders = ['gemini'];
-    if (!allowedProviders.includes(provider)) {
-      return res
-        .status(400)
-        .json({ error: `Unknown provider: ${provider}. Allowed: ${allowedProviders.join(', ')}` });
-    }
-
-    settingsService.setApiKey(provider, key.trim());
-
-    // Return masked version
-    const maskedKey =
-      key.length > 4 ? `${key.substring(0, 4)}...${key.substring(key.length - 4)}` : '****';
-
-    res.json({ provider, maskedKey, configured: true });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * DELETE /api/settings/api-keys/:provider
- * Remove an API key for a provider
- */
-app.delete('/api/settings/api-keys/:provider', (req, res) => {
-  try {
-    const { provider } = req.params;
-    settingsService.removeApiKey(provider);
-    res.json({ provider, configured: false });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/settings/api-keys/:provider/validate
- * Validate an API key by making a minimal API call
- */
-app.post('/api/settings/api-keys/:provider/validate', async (req, res) => {
-  try {
-    const { provider } = req.params;
-    const { key } = req.body;
-
-    if (!key || typeof key !== 'string' || key.trim().length === 0) {
-      return res.status(400).json({ error: 'API key is required' });
-    }
-
-    if (provider === 'gemini') {
-      try {
-        const ai = new GoogleGenAI({ apiKey: key.trim() });
-        await ai.models.generateContent({
-          model: 'gemini-2.0-flash',
-          contents: 'Respond with exactly: OK',
-        });
-        res.json({ valid: true, message: 'API key is valid' });
-      } catch (err) {
-        const message = err.message || 'Invalid API key';
-        res.json({ valid: false, message });
-      }
-    } else {
-      res.status(400).json({ error: `Validation not supported for provider: ${provider}` });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ============================================
 // DevTools Logger Injection Endpoints
 // ============================================
-
-/**
- * GET /api/apps/:id/devtools-status
- * Check if DevOrbit logger is injected in a project
- */
-app.get('/api/apps/:id/devtools-status', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const apps = scanAllDirectories();
-    const app = apps.find((a) => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'Application not found' });
-    }
-
-    const status = await checkLoggerStatus(app.path);
-    res.json({
-      appId: id,
-      ...status,
-    });
-  } catch (error) {
-    console.error(`[DevTools] Error checking status for app ${req.params.id}:`, error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/apps/:id/inject-logger
- * Inject DevOrbit logger into a project's entry file
- */
-app.post(
-  '/api/apps/:id/inject-logger',
-  processLimiter,
-  validateParams(idSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const apps = scanAllDirectories();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'Application not found' });
-      }
-
-      const result = await injectLogger(app.path);
-
-      if (result.success) {
-        console.log(`[DevTools] Logger injected into ${app.name} (${result.framework})`);
-        res.json({
-          success: true,
-          message: result.message,
-          file: result.file,
-          framework: result.framework,
-        });
-      } else {
-        res.status(400).json({
-          success: false,
-          error: result.message,
-          file: result.file,
-        });
-      }
-    } catch (error) {
-      console.error(`[DevTools] Error injecting logger for app ${req.params.id}:`, error);
-      res.status(500).json({ error: error.message });
-    }
-  }
-);
-
-/**
- * POST /api/apps/:id/remove-logger
- * Remove DevOrbit logger from a project's entry file
- */
-app.post(
-  '/api/apps/:id/remove-logger',
-  processLimiter,
-  validateParams(idSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const apps = scanAllDirectories();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'Application not found' });
-      }
-
-      const result = await removeLogger(app.path);
-
-      if (result.success) {
-        console.log(`[DevTools] Logger removed from ${app.name}`);
-        res.json({
-          success: true,
-          message: result.message,
-          file: result.file,
-        });
-      } else {
-        res.status(400).json({
-          success: false,
-          error: result.message,
-          file: result.file,
-        });
-      }
-    } catch (error) {
-      console.error(`[DevTools] Error removing logger for app ${req.params.id}:`, error);
-      res.status(500).json({ error: error.message });
-    }
-  }
-);
-
-// ============================================
-// File System Endpoints (for Monaco Editor)
-// ============================================
-
-/**
- * GET /api/files/tree
- * Get file tree for a directory
- */
-app.get('/api/files/tree', fileSystemLimiter, async (req, res) => {
-  try {
-    const { path: dirPath, depth = 3 } = req.query;
-    if (!dirPath) {
-      return res.status(400).json({ error: 'path is required' });
-    }
-
-    const { default: fs } = await import('fs');
-    const { default: pathModule } = await import('path');
-
-    const buildTree = (dir, currentDepth = 0, maxDepth = parseInt(depth)) => {
-      if (currentDepth >= maxDepth) return [];
-
-      try {
-        const entries = fs.readdirSync(dir, { withFileTypes: true });
-        return entries
-          .filter((entry) => !entry.name.startsWith('.') && entry.name !== 'node_modules')
-          .sort((a, b) => {
-            // Directories first
-            if (a.isDirectory() && !b.isDirectory()) return -1;
-            if (!a.isDirectory() && b.isDirectory()) return 1;
-            return a.name.localeCompare(b.name);
-          })
-          .map((entry) => {
-            const fullPath = pathModule.join(dir, entry.name);
-            const node = {
-              name: entry.name,
-              path: fullPath,
-              isDirectory: entry.isDirectory(),
-            };
-            if (entry.isDirectory()) {
-              node.children = buildTree(fullPath, currentDepth + 1, maxDepth);
-            }
-            return node;
-          });
-      } catch (err) {
-        return [];
-      }
-    };
-
-    const tree = buildTree(dirPath);
-    res.json({ tree });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/files/read
- * Read a file's content
- */
-app.get('/api/files/read', async (req, res) => {
-  try {
-    const { path: filePath } = req.query;
-    if (!filePath) {
-      return res.status(400).json({ error: 'path is required' });
-    }
-
-    const { default: fs } = await import('fs');
-    const { default: pathModule } = await import('path');
-
-    // Security: ensure path is within allowed directories
-    const config = getConfig();
-    const allowedDirs = config.directories || [];
-    const realPath = fs.realpathSync(filePath);
-    const isAllowed = allowedDirs.some((dir) => realPath.startsWith(fs.realpathSync(dir)));
-
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    if (!fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'File not found' });
-    }
-
-    const stats = fs.statSync(filePath);
-    if (stats.isDirectory()) {
-      return res.status(400).json({ error: 'Cannot read directory' });
-    }
-
-    // Limit file size to 1MB
-    if (stats.size > 1024 * 1024) {
-      return res.status(400).json({ error: 'File too large (max 1MB)' });
-    }
-
-    const content = fs.readFileSync(filePath, 'utf-8');
-    const ext = pathModule.extname(filePath).slice(1);
-
-    res.json({
-      path: filePath,
-      content,
-      language: getLanguageFromExtension(ext),
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * PUT /api/files/write
- * Write content to a file
- */
-app.put('/api/files/write', async (req, res) => {
-  try {
-    const { path: filePath, content } = req.body;
-    if (!filePath || content === undefined) {
-      return res.status(400).json({ error: 'path and content are required' });
-    }
-
-    const { default: fs } = await import('fs');
-
-    // Security: ensure path is within allowed directories
-    const config = getConfig();
-    const allowedDirs = config.directories || [];
-    const realPath = fs.existsSync(filePath) ? fs.realpathSync(filePath) : filePath;
-    const isAllowed = allowedDirs.some((dir) => {
-      const realDir = fs.realpathSync(dir);
-      return realPath.startsWith(realDir);
-    });
-
-    if (!isAllowed) {
-      return res.status(403).json({ error: 'Access denied' });
-    }
-
-    fs.writeFileSync(filePath, content, 'utf-8');
-    res.json({ success: true, path: filePath });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Helper to map file extensions to Monaco language IDs
-function getLanguageFromExtension(ext) {
-  const map = {
-    js: 'javascript',
-    jsx: 'javascript',
-    ts: 'typescript',
-    tsx: 'typescript',
-    json: 'json',
-    html: 'html',
-    htm: 'html',
-    css: 'css',
-    scss: 'scss',
-    less: 'less',
-    md: 'markdown',
-    py: 'python',
-    rb: 'ruby',
-    go: 'go',
-    rs: 'rust',
-    java: 'java',
-    c: 'c',
-    cpp: 'cpp',
-    h: 'c',
-    hpp: 'cpp',
-    sh: 'shell',
-    bash: 'shell',
-    zsh: 'shell',
-    yaml: 'yaml',
-    yml: 'yaml',
-    xml: 'xml',
-    sql: 'sql',
-    graphql: 'graphql',
-    vue: 'vue',
-    svelte: 'svelte',
-  };
-  return map[ext] || 'plaintext';
-}
-
-/**
- * GET /api/apps/:id/package
- * Read actual package.json from an app's directory
- */
-app.get('/api/apps/:id/package', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const apps = scanAllDirectories();
-    const app = apps.find((a) => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
-    }
-
-    const { default: fs } = await import('fs');
-    const { default: pathModule } = await import('path');
-    const packagePath = pathModule.join(app.path, 'package.json');
-
-    if (!fs.existsSync(packagePath)) {
-      return res.status(404).json({ error: 'package.json not found' });
-    }
-
-    const content = fs.readFileSync(packagePath, 'utf-8');
-    res.json({ fileName: 'package.json', content });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
 
 // ============================================
 // Scanning Endpoints
@@ -1641,21 +541,7 @@ app.get('/api/apps', (req, res) => {
   try {
     const apps = scanAllDirectories();
 
-    // Merge with running process info
-    const processes = getAllProcesses();
-    const enrichedApps = apps.map((app) => {
-      const processInfo = processes[app.id];
-      if (processInfo) {
-        return {
-          ...app,
-          status: processInfo.status,
-          uptime: processInfo.uptime,
-        };
-      }
-      return app;
-    });
-
-    res.json(enrichedApps);
+    res.json(apps);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1682,230 +568,9 @@ app.post('/api/scan', (req, res) => {
 // Process Management Endpoints
 // ============================================
 
-/**
- * POST /api/apps/:id/start
- * Start an app
- */
-app.post(
-  '/api/apps/:id/start',
-  processLimiter,
-  validateParams(idSchema),
-  validate(startAppSchema),
-  (req, res) => {
-    try {
-      const { id } = req.params;
-      const { path: appPath, command, port } = req.body;
-
-      const result = startProcess(id, appPath, command, port);
-      res.json(result);
-    } catch (error) {
-      res.status(400).json({ error: error.message });
-    }
-  }
-);
-
-/**
- * POST /api/apps/:id/stop
- * Stop an app
- */
-app.post('/api/apps/:id/stop', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await stopProcess(id);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/apps/:id/restart
- * Restart an app
- */
-app.post('/api/apps/:id/restart', processLimiter, validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await restartProcess(id);
-    res.json(result);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/apps/:id/stats
- * Get real CPU/memory stats for a running app
- */
-app.get('/api/apps/:id/stats', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const info = getProcessInfo(id);
-    if (!info || !info.process?.pid) {
-      return res.json({ cpu: 0, memory: 0 });
-    }
-    const stats = await getProcessStats(info.process.pid);
-    res.json(stats);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/apps/:id/logs
- * Get logs for an app
- */
-app.get('/api/apps/:id/logs', (req, res) => {
-  try {
-    const { id } = req.params;
-    const limit = parseInt(req.query.limit) || 50;
-    const logs = getProcessLogs(id, limit);
-    res.json(logs);
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/apps/:id/status
- * Get status for an app
- */
-app.get('/api/apps/:id/status', (req, res) => {
-  try {
-    const { id } = req.params;
-    const info = getProcessInfo(id);
-    if (!info) {
-      return res.json({ status: 'STOPPED' });
-    }
-    res.json({
-      status: info.status,
-      pid: info.process?.pid,
-      uptime: info.startTime ? Math.floor((Date.now() - info.startTime) / 1000) : 0,
-    });
-  } catch (error) {
-    res.status(400).json({ error: error.message });
-  }
-});
-
 // ============================================
 // AI Analysis Endpoint
 // ============================================
-
-/**
- * POST /api/analyze
- * Analyzes app configuration using Gemini AI
- */
-app.post('/api/analyze', async (req, res) => {
-  const { fileName, fileContent } = req.body;
-
-  if (!fileName || !fileContent) {
-    return res.status(400).json({
-      error: 'Missing required fields: fileName and fileContent',
-    });
-  }
-
-  const currentApiKey = getApiKey();
-  if (!currentApiKey) {
-    return res.json({
-      command: 'npm start',
-      port: 3000,
-      type: 'unknown',
-      summary: 'API Key missing. Using defaults.',
-    });
-  }
-
-  try {
-    const ai = new GoogleGenAI({ apiKey: currentApiKey });
-
-    const prompt = `Analyze this configuration file for a web application.
-
-Filename: ${fileName}
-Content:
-${fileContent.substring(0, 3000)}
-
-Return a JSON object with:
-- command: The command to run this app in dev mode (e.g., "npm run dev", "yarn dev")
-- port: The port number the app will run on (e.g., 3000, 5173)
-- type: One of: "vite", "next", "node", "static", "unknown"
-- summary: A short one-sentence description of the project`;
-
-    const response = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: prompt,
-      config: {
-        responseMimeType: 'application/json',
-        responseSchema: {
-          type: Type.OBJECT,
-          properties: {
-            command: { type: Type.STRING, description: 'Development command like npm run dev' },
-            port: { type: Type.NUMBER, description: 'Port number like 3000 or 5173' },
-            type: { type: Type.STRING, enum: ['vite', 'next', 'node', 'static', 'unknown'] },
-            summary: { type: Type.STRING, description: 'One sentence project description' },
-          },
-          required: ['command', 'port', 'type', 'summary'],
-        },
-      },
-    });
-
-    const text = response.text;
-    console.log('[Analyze] Raw AI response:', text);
-
-    if (!text) {
-      console.error('[Analyze] No response text from AI');
-      return res.status(500).json({
-        error: 'No response from AI',
-        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' },
-      });
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(text);
-    } catch (parseError) {
-      console.error('[Analyze] JSON parse error:', parseError.message);
-      console.error('[Analyze] Raw text was:', text);
-      return res.status(500).json({
-        error: 'Failed to parse AI response as JSON',
-        rawResponse: text.substring(0, 500),
-        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' },
-      });
-    }
-
-    // Validate and provide defaults for missing fields
-    // Required fields: command, port, type are critical - summary can be generated
-    const criticalMissing = [];
-    if (!parsed.command) criticalMissing.push('command');
-    if (typeof parsed.port !== 'number') criticalMissing.push('port');
-    if (!parsed.type) criticalMissing.push('type');
-
-    if (criticalMissing.length > 0) {
-      console.error('[Analyze] Critical fields missing:', criticalMissing);
-      console.error('[Analyze] Parsed response:', JSON.stringify(parsed, null, 2));
-      return res.status(500).json({
-        error: `Invalid response structure: missing ${criticalMissing.join(', ')}`,
-        parsedResponse: parsed,
-        fallback: { command: 'npm run dev', port: 3000, type: 'unknown' },
-      });
-    }
-
-    // Provide default summary if missing
-    const result = {
-      command: parsed.command,
-      port: parsed.port,
-      type: parsed.type,
-      summary: parsed.summary || `${parsed.type} project running on port ${parsed.port}`,
-    };
-
-    console.log('[Analyze] Success:', result);
-    res.json(result);
-  } catch (error) {
-    console.error('[Analyze] Unexpected error:', error.message);
-    console.error('[Analyze] Stack:', error.stack);
-    return res.status(500).json({
-      error: error.message,
-      fallback: { command: 'npm run dev', port: 3000, type: 'unknown' },
-    });
-  }
-});
 
 // ============================================
 // Health Check
@@ -1922,7 +587,6 @@ app.get('/api/health', (req, res) => {
   const memUsage = process.memoryUsage();
   res.json({
     status: 'ok',
-    aiEnabled: !!getApiKey(),
     databaseConnected: isDatabaseConnected(),
     terminalSessions: terminalSessionManager.getStats(),
     timestamp: new Date().toISOString(),
@@ -1932,11 +596,6 @@ app.get('/api/health', (req, res) => {
       heapTotal: Math.round(memUsage.heapTotal / 1024 / 1024),
       rss: Math.round(memUsage.rss / 1024 / 1024),
       external: Math.round(memUsage.external / 1024 / 1024),
-    },
-    sseClients: {
-      general: sseClients.size,
-      stats: statsSSEClients.size,
-      portConfig: portConfigProgressClients.size,
     },
     codeServer: {
       running: codeServerProcess !== null,
@@ -1967,47 +626,11 @@ app.get('/api/claude-cli/status', async (req, res) => {
 
 /**
  * GET /api/system/health
- * Get full system health report with recommendations
+ * Get full system health report with top processes
  */
 app.get('/api/system/health', async (req, res) => {
   try {
     const health = await healthService.getSystemHealth();
-    res.json(health);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/system/versions
- * Get system tool versions (node, npm, git, docker)
- */
-app.get('/api/system/versions', async (req, res) => {
-  try {
-    const versions = await healthService.getSystemVersions();
-    res.json(versions);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/apps/:id/health
- * Get health check for a specific project
- */
-app.get('/api/apps/:id/health', async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    // Get app path from scanned apps
-    const apps = scanAllDirectories();
-    const app = apps.find((a) => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
-    }
-
-    const health = await healthService.checkProjectHealth(app.path);
     res.json(health);
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2232,346 +855,9 @@ app.post('/api/code-server/stop', (req, res) => {
 // Docker Compose Endpoints
 // ============================================
 
-/**
- * GET /api/docker/available
- * Check if Docker/Docker Compose is available on the system
- */
-app.get('/api/docker/available', async (req, res) => {
-  try {
-    const available = await dockerService.isDockerAvailable();
-    res.json({ available });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/apps/:id/docker/status
- * Get status of all containers for a Docker Compose project
- */
-app.get('/api/apps/:id/docker/status', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    // Get project path from cache or scan
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find((a) => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
-    }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.getContainerStatus(app.path);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/apps/:id/docker/services
- * Get list of services defined in docker-compose file
- */
-app.get('/api/apps/:id/docker/services', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find((a) => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
-    }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.getServices(app.path);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/apps/:id/docker/start
- * Start Docker Compose services
- */
-app.post(
-  '/api/apps/:id/docker/start',
-  processLimiter,
-  validateParams(idSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { service } = req.body; // Optional: specific service to start
-      const apps = await applicationsRepository.getAll();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'App not found' });
-      }
-
-      if (app.type !== 'docker-compose') {
-        return res.status(400).json({ error: 'App is not a Docker Compose project' });
-      }
-
-      const result = await dockerService.startServices(app.path, service);
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-);
-
-/**
- * POST /api/apps/:id/docker/stop
- * Stop Docker Compose services
- */
-app.post(
-  '/api/apps/:id/docker/stop',
-  processLimiter,
-  validateParams(idSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { service } = req.body; // Optional: specific service to stop
-      const apps = await applicationsRepository.getAll();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'App not found' });
-      }
-
-      if (app.type !== 'docker-compose') {
-        return res.status(400).json({ error: 'App is not a Docker Compose project' });
-      }
-
-      const result = await dockerService.stopServices(app.path, service);
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-);
-
-/**
- * POST /api/apps/:id/docker/restart
- * Restart Docker Compose services
- */
-app.post(
-  '/api/apps/:id/docker/restart',
-  processLimiter,
-  validateParams(idSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { service } = req.body; // Optional: specific service to restart
-      const apps = await applicationsRepository.getAll();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'App not found' });
-      }
-
-      if (app.type !== 'docker-compose') {
-        return res.status(400).json({ error: 'App is not a Docker Compose project' });
-      }
-
-      const result = await dockerService.restartServices(app.path, service);
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-);
-
-/**
- * GET /api/apps/:id/docker/logs
- * Get logs from Docker Compose services
- */
-app.get('/api/apps/:id/docker/logs', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { service, tail = 100 } = req.query;
-    const apps = await applicationsRepository.getAll();
-    const app = apps.find((a) => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
-    }
-
-    if (app.type !== 'docker-compose') {
-      return res.status(400).json({ error: 'App is not a Docker Compose project' });
-    }
-
-    const result = await dockerService.getLogs(app.path, service, parseInt(tail, 10));
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/apps/:id/docker/pull
- * Pull latest images for Docker Compose services
- */
-app.post(
-  '/api/apps/:id/docker/pull',
-  processLimiter,
-  validateParams(idSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const apps = await applicationsRepository.getAll();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'App not found' });
-      }
-
-      if (app.type !== 'docker-compose') {
-        return res.status(400).json({ error: 'App is not a Docker Compose project' });
-      }
-
-      const result = await dockerService.pullImages(app.path);
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-);
-
-/**
- * POST /api/apps/:id/docker/build
- * Build images for Docker Compose services
- */
-app.post(
-  '/api/apps/:id/docker/build',
-  processLimiter,
-  validateParams(idSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { service } = req.body; // Optional: specific service to build
-      const apps = await applicationsRepository.getAll();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'App not found' });
-      }
-
-      if (app.type !== 'docker-compose') {
-        return res.status(400).json({ error: 'App is not a Docker Compose project' });
-      }
-
-      const result = await dockerService.buildImages(app.path, service);
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-);
-
-/**
- * POST /api/apps/:id/docker/down
- * Remove all containers for a Docker Compose project
- */
-app.post(
-  '/api/apps/:id/docker/down',
-  processLimiter,
-  validateParams(idSchema),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
-      const { removeVolumes = false } = req.body;
-      const apps = await applicationsRepository.getAll();
-      const app = apps.find((a) => a.id === id);
-
-      if (!app) {
-        return res.status(404).json({ error: 'App not found' });
-      }
-
-      if (app.type !== 'docker-compose') {
-        return res.status(400).json({ error: 'App is not a Docker Compose project' });
-      }
-
-      const result = await dockerService.removeContainers(app.path, removeVolumes);
-      res.json(result);
-    } catch (error) {
-      res.status(500).json({ error: error.message });
-    }
-  }
-);
-
 // ============================================
 // Database Application Endpoints
 // ============================================
-
-/**
- * PUT /api/apps/:id/preferences
- * Update app preferences (favorite, archive, custom port)
- */
-app.put('/api/apps/:id/preferences', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const result = await applicationsRepository.updatePreferences(id, req.body);
-
-    if (result) {
-      res.json(result);
-    } else {
-      res.status(404).json({ error: 'App not found or no valid updates' });
-    }
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/apps/:id/favorite
- * Toggle favorite status
- */
-app.post('/api/apps/:id/favorite', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const success = await applicationsRepository.toggleFavorite(id);
-    res.json({ success });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/apps/:id/archive
- * Toggle archive status
- */
-app.post('/api/apps/:id/archive', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const success = await applicationsRepository.toggleArchive(id);
-    res.json({ success });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/apps/:id/history
- * Get run history for an app
- */
-app.get('/api/apps/:id/history', validateParams(idSchema), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const limit = parseInt(req.query.limit) || 10;
-    const history = await applicationsRepository.getRunHistory(id, limit);
-    res.json(history);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // ============================================
 // Terminal Session Endpoints
@@ -2659,154 +945,9 @@ app.get('/api/terminal/stats', (req, res) => {
 // Port Management Endpoints
 // ============================================
 
-/**
- * GET /api/ports/check/:port
- * Check if a port is available
- */
-app.get('/api/ports/check/:port', async (req, res) => {
-  try {
-    const port = parseInt(req.params.port, 10);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      return res.status(400).json({ error: 'Invalid port number' });
-    }
-
-    const available = await portManager.isPortAvailable(port);
-    const processInfo = available ? null : await portManager.getProcessOnPort(port);
-
-    res.json({
-      port,
-      available,
-      process: processInfo,
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/ports/available
- * Find next available port
- */
-app.get('/api/ports/available', async (req, res) => {
-  try {
-    const startPort = parseInt(req.query.start, 10) || 3000;
-    const endPort = parseInt(req.query.end, 10) || 4000;
-
-    const port = await portManager.findAvailablePort(startPort, endPort);
-    res.json({ port });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/ports/allocate
- * Allocate a port for an app
- */
-app.post('/api/ports/allocate', async (req, res) => {
-  try {
-    const { appId, preferredPort } = req.body;
-    if (!appId) {
-      return res.status(400).json({ error: 'appId is required' });
-    }
-
-    const result = await portManager.allocatePort(appId, preferredPort);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/ports/kill/:port
- * Kill process on a specific port
- */
-app.post('/api/ports/kill/:port', processLimiter, async (req, res) => {
-  try {
-    const port = parseInt(req.params.port, 10);
-    if (isNaN(port) || port < 1 || port > 65535) {
-      return res.status(400).json({ error: 'Invalid port number' });
-    }
-
-    const result = await portManager.killProcessOnPort(port);
-    res.json(result);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * GET /api/ports/scan
- * Scan a range of ports for usage
- */
-app.get('/api/ports/scan', async (req, res) => {
-  try {
-    const startPort = parseInt(req.query.start, 10) || 3000;
-    const endPort = parseInt(req.query.end, 10) || 3100;
-
-    const results = await portManager.scanPortRange(startPort, endPort);
-    res.json(results);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 // ============================================
 // Finder/Terminal Integration Endpoints
 // ============================================
-
-/**
- * POST /api/apps/:id/open-finder
- * Open app directory in Finder (macOS)
- */
-app.post('/api/apps/:id/open-finder', validateParams(idSchema), (req, res) => {
-  try {
-    const { id } = req.params;
-    const apps = scanAllDirectories();
-    const app = apps.find((a) => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
-    }
-
-    // macOS: open in Finder
-    exec(`open "${app.path}"`, (error) => {
-      if (error) {
-        return res.status(500).json({ error: 'Failed to open Finder' });
-      }
-      res.json({ success: true });
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
-/**
- * POST /api/apps/:id/open-terminal
- * Open app directory in Terminal (macOS)
- */
-app.post('/api/apps/:id/open-terminal', validateParams(idSchema), (req, res) => {
-  try {
-    const { id } = req.params;
-    const apps = scanAllDirectories();
-    const app = apps.find((a) => a.id === id);
-
-    if (!app) {
-      return res.status(404).json({ error: 'App not found' });
-    }
-
-    // macOS: open Terminal at path
-    const script = `tell application "Terminal" to do script "cd '${app.path}'"`;
-    exec(`osascript -e '${script}'`, (error) => {
-      if (error) {
-        return res.status(500).json({ error: 'Failed to open Terminal' });
-      }
-      res.json({ success: true });
-    });
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // ============================================
 // Preview Proxy Endpoint (for Browser DevTools)
@@ -2905,7 +1046,6 @@ app.get('/api/preview/:port{/*path}', (req, res) => {
 // ============================================
 
 const agentIdSchema = z.string().regex(agentService.SHORT_ID_RE);
-const optionalShortString = z.string().max(200).optional().nullable();
 const agentDispatchSchema = z.object({
   prompt: z.string().max(20000).optional(),
   exec: z.string().max(4000).optional(),
@@ -2930,6 +1070,7 @@ const agentDispatchSchema = z.object({
   pluginDirs: z.array(z.string().max(500)).max(20).optional(),
   mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
   strictMcpConfig: z.boolean().optional(),
+  idle: z.boolean().optional(),
 });
 const agentReplySchema = z.object({
   text: z.string().min(1).max(20000),
@@ -2939,34 +1080,6 @@ const agentRemoveSchema = z.object({
   discardUnpushed: z.string().max(200).optional().nullable(),
   forceRemoveWorktree: z.string().max(200).optional().nullable(),
 });
-const agentViewSettingsSchema = z
-  .object({
-    grouping: z.enum(['state', 'directory', 'project', 'none']).optional(),
-    layout: z.enum(['tabs', 'columns', 'rows', 'grid']).optional(),
-    scopeCwd: z.string().max(500).nullable().optional(),
-    collapsedGroups: z.array(z.string().max(500)).max(200).optional(),
-    notifications: z.boolean().optional(),
-    desktopNotifications: z.boolean().optional(),
-    disabled: z.boolean().optional(),
-    dispatch: z
-      .object({
-        model: optionalShortString,
-        effort: optionalShortString,
-        permissionMode: optionalShortString,
-        agent: optionalShortString,
-        fallbackModel: optionalShortString,
-        skipPermissions: z.boolean().optional(),
-        allowSkipPermissions: z.boolean().optional(),
-        restricted: z.boolean().optional(),
-        strictMcpConfig: z.boolean().optional(),
-        settings: z.string().max(10000).optional().nullable(),
-        addDirs: z.array(z.string().max(500)).max(20).optional(),
-        pluginDirs: z.array(z.string().max(500)).max(20).optional(),
-        mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
-      })
-      .optional(),
-  })
-  .strict();
 
 const agentLimiter = rateLimit({
   windowMs: RATE_LIMIT.windowMs,
@@ -3096,6 +1209,20 @@ app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), as
   try {
     const result = await agentService.dispatch(req.body);
     res.status(201).json(result);
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Raw image bytes (not JSON: base64 would hit the 1 MB JSON limit); type is sniffed server-side
+const imageBody = express.raw({ type: 'image/*', limit: imageUpload.MAX_IMAGE_BYTES });
+
+/**
+ * POST /api/agents/images - store an image for a task/agent prompt, returns its local path
+ */
+app.post('/api/agents/images', agentLimiter, imageBody, async (req, res) => {
+  try {
+    res.status(201).json({ path: await imageUpload.saveAgentImage(req.body) });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -3252,7 +1379,7 @@ app.get('/api/agents/repos', async (req, res) => {
         repos.push({ name: path.basename(dir), path: dir, source: 'configured' });
       }
     }
-    res.json({ cwd, repos });
+    res.json({ cwd, repos, home: os.homedir() });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -3446,7 +1573,7 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Workflows (#87): mw runs per issue, GO actions, card details
+// Workflows (#87, mw 7 #136): GO actions, card details
 // ---------------------------------------------------------------------------
 
 async function findRepoInKnownDirs(slug) {
@@ -3454,7 +1581,7 @@ async function findRepoInKnownDirs(slug) {
   return boardService.findRepoPath(slug, [...roots, ...exact]);
 }
 
-/** Board item, its MACC column, local mw run and derived workflow state */
+/** Board item, its MACC column and derived workflow state */
 async function workflowContext(itemId, { refresh = false } = {}) {
   const { source } = settingsService.getBoardSettings();
   const board = await boardService.getBoard(source);
@@ -3465,9 +1592,7 @@ async function workflowContext(itemId, { refresh = false } = {}) {
     throw Object.assign(new Error('Issue not on the board'), { status: 404 });
   }
   const status = board.statusField.options.find((o) => o.id === item.statusOptionId)?.name ?? null;
-  const runs = await workflowService.getRuns([item], findRepoInKnownDirs, { refresh });
-  const run = runs[`${item.repo}#${item.number}`] ?? null;
-  return { source, item, run, state: deriveWorkflowState(item, status, run) };
+  return { source, item, state: deriveWorkflowState(item, status) };
 }
 
 /** Checkout and agent worktree of a workflow item (where its docs live) */
@@ -3483,56 +1608,29 @@ async function workflowDirs({ item, state }) {
   return [...new Set([worktree, clone].filter(Boolean))];
 }
 
-app.get('/api/workflows/runs', agentLimiter, async (req, res) => {
+// GO (mw:build) or poll start; refused unless it is exactly the GO the fresh state offers
+const sendGo = (goOf) => async (req, res) => {
   try {
-    const { source } = settingsService.getBoardSettings();
-    const board = await boardService.getBoard(source);
-    const items = board.items.filter((i) => i.type === 'Issue' && isWorkflowItem(i));
-    const runs = await workflowService.getRuns(items, findRepoInKnownDirs, {
-      refresh: req.query.refresh === '1',
+    const ctx = await workflowContext(req.body.itemId, { refresh: true });
+    const { status, body } = await applyGo(ctx, goOf(req.body), {
+      updateIssue: boardService.updateIssue,
     });
-    res.json({ runs });
+    res.status(status).json(body);
   } catch (error) {
     sendAgentError(res, error);
   }
-});
-
-const workflowGoSchema = z.discriminatedUnion('kind', [
-  z.object({ kind: z.literal('build') }).strict(),
-  z
-    .object({
-      kind: z.literal('approve'),
-      runId: z.string().regex(/^[a-z]+-\d+$/),
-      stage: z.enum(['briefing', 'plan', 'pr']),
-      sha: z.string().regex(/^[0-9a-f]{7,40}$/),
-    })
-    .strict(),
-]);
-
-// GO for the next stage; refused unless it is exactly the GO the fresh state offers
+};
 app.post(
   '/api/workflows/go',
   agentLimiter,
   validate(z.object({ itemId: boardItemIdSchema, go: workflowGoSchema }).strict()),
-  async (req, res) => {
-    try {
-      const ctx = await workflowContext(req.body.itemId, { refresh: true });
-      if (!sameGo(ctx.state.go, req.body.go)) {
-        return res
-          .status(409)
-          .json({ error: 'Dieses GO ist nicht (mehr) offen', state: ctx.state });
-      }
-      if (req.body.go.kind === 'build') {
-        const labels = [...ctx.item.labels.map((l) => l.name), BUILD_LABEL];
-        const item = await boardService.updateIssue(ctx.source, ctx.item.itemId, { labels });
-        return res.json({ ok: true, item });
-      }
-      const { stage, sha } = req.body.go;
-      res.json(await workflowService.approve(ctx.run, stage, sha));
-    } catch (error) {
-      sendAgentError(res, error);
-    }
-  }
+  sendGo((b) => b.go)
+);
+app.post(
+  '/api/workflows/poll',
+  agentLimiter,
+  validate(z.object({ itemId: boardItemIdSchema }).strict()),
+  sendGo(() => ({ kind: 'poll' }))
 );
 
 app.get('/api/workflows/details', agentLimiter, async (req, res) => {
@@ -3543,9 +1641,8 @@ app.get('/api/workflows/details', agentLimiter, async (req, res) => {
     const details = await workflowService.getDetails(ctx.item, {
       dirs: await workflowDirs(ctx),
       briefingPath: ctx.state.briefingPath,
-      runDir: ctx.run?.runDir ?? null,
     });
-    res.json({ ...details, state: ctx.state, phases: ctx.run?.phases ?? [] });
+    res.json({ ...details, state: ctx.state });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -3559,11 +1656,7 @@ app.get('/api/workflows/doc', agentLimiter, async (req, res) => {
   }
   try {
     const ctx = await workflowContext(itemId.data);
-    const docs = await workflowService.findDocs(
-      await workflowDirs(ctx),
-      ctx.state.briefingPath,
-      ctx.run?.runDir ?? null
-    );
+    const docs = await workflowService.findDocs(await workflowDirs(ctx), ctx.state.briefingPath);
     res.json(await workflowService.readDoc(docs, req.query.path));
   } catch (error) {
     sendAgentError(res, error);
@@ -3627,6 +1720,73 @@ app.get(
   async (req, res) => {
     try {
       res.json(await boardService.getIssueDetails(req.params.issueId));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/**
+ * POST /api/board/images?repo=owner/name - commit an issue image to the `issue-assets` branch
+ */
+app.post('/api/board/images', agentLimiter, imageBody, async (req, res) => {
+  const slug = boardRepoSlugSchema.safeParse(req.query.repo);
+  if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
+  try {
+    res.status(201).json(await imageUpload.uploadIssueImage(slug.data, req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Issue comments (#104)
+const commentSchema = z.object({ body: z.string().trim().min(1).max(65536) }).strict();
+app.get(
+  '/api/board/issues/:issueId/comments',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  async (req, res) => {
+    try {
+      res.json({ comments: await boardService.getIssueComments(req.params.issueId) });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+app.post(
+  '/api/board/issues/:issueId/comments',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  validate(commentSchema),
+  async (req, res) => {
+    try {
+      res.json({
+        comments: await boardService.addIssueComment(req.params.issueId, req.body.body),
+      });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+// Issue that is not on the board (issue modal): summary by repo/number, label set by node id
+app.get('/api/board/issue', agentLimiter, async (req, res) => {
+  const ref = issueRefSchema.safeParse({ repo: req.query.repo, number: Number(req.query.number) });
+  if (!ref.success) return res.status(400).json({ error: 'Invalid repo or number' });
+  try {
+    const id = await boardService.issueNodeId(ref.data.repo, ref.data.number);
+    res.json(await boardService.getIssueSummary(id));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+app.put(
+  '/api/board/issues/:issueId/labels',
+  agentLimiter,
+  validateParams(issueNodeIdSchema),
+  validate(z.object({ labels: issueNames }).strict()),
+  async (req, res) => {
+    try {
+      res.json(await boardService.setIssueLabels(req.params.issueId, req.body.labels));
     } catch (error) {
       sendAgentError(res, error);
     }
@@ -3699,6 +1859,7 @@ const contextUiSchema = z
     devOrbitAgentWorkspace: contextUiValue,
     'devOrbitAgentRail.v1': contextUiValue,
     devOrbitContextRoute: contextUiValue,
+    devOrbitShellBrowser: contextUiValue,
   })
   .strict();
 
@@ -4190,6 +2351,11 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
 
 // Initialize database before starting server
 async function startServer() {
+  try {
+    migrateDirectorySpelling();
+  } catch (error) {
+    console.error('[Config] Directory spelling migration failed:', error);
+  }
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
   const modules = await moduleHost.load(getModulesDir());
@@ -4212,8 +2378,9 @@ async function startServer() {
   // Remote access goes through `tailscale serve` → loopback; never expose the remote mode on all interfaces.
   const host = remoteAccess.isRemoteEnabled() ? '127.0.0.1' : undefined;
   server.listen(PORT, host, () => {
+    // Cold 30-day scan takes seconds; warm the file cache so the first page view is fast.
+    getUsage({ days: 30 }).catch((err) => console.warn('Usage warm-up failed:', err.message));
     console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
-    console.log(`   AI Features: ${getApiKey() ? '✅ Enabled' : '❌ Disabled (no API key)'}`);
     console.log(
       `   Database: ${dbConnected ? '✅ Connected' : '⚠️  Not connected (using file storage)'}`
     );
@@ -4222,11 +2389,8 @@ async function startServer() {
     console.log(`   Endpoints:`);
     console.log(`   - GET  /api/apps            - List discovered apps`);
     console.log(`   - GET  /api/config          - Get configuration`);
-    console.log(`   - GET  /api/ports/check/:p  - Check port availability`);
     console.log(`   - GET  /api/terminal/sessions - List terminal sessions`);
-    console.log(`   - POST /api/apps/:id/start  - Start an app`);
-    console.log(`   - POST /api/apps/:id/stop   - Stop an app`);
-    console.log(`   - GET  /api/events          - SSE for real-time updates`);
+    console.log(`   - GET  /api/usage           - Token usage and plan limits`);
     console.log(`   - GET  /api/modules         - List loaded modules`);
     console.log(`   - WS   /api/pty             - WebSocket for terminal`);
   });
@@ -4235,53 +2399,6 @@ async function startServer() {
 // Cleanup function for graceful shutdown
 function cleanup() {
   console.log('\n[Server] Shutting down gracefully...');
-
-  // Clear the SSE cleanup interval
-  clearInterval(sseCleanupInterval);
-
-  // Close all stats SSE connections
-  console.log(`[Server] Closing ${statsSSEClients.size} stats SSE connections...`);
-  for (const [client, info] of statsSSEClients) {
-    clearInterval(info.heartbeatInterval);
-    clearInterval(info.statsInterval);
-    try {
-      client.write(
-        `event: shutdown\ndata: ${JSON.stringify({ message: 'Server shutting down' })}\n\n`
-      );
-      client.end();
-    } catch {
-      // Connection already closed
-    }
-  }
-  statsSSEClients.clear();
-
-  // Close all general SSE connections
-  console.log(`[Server] Closing ${sseClients.size} general SSE connections...`);
-  for (const [client, info] of sseClients) {
-    clearInterval(info.heartbeatInterval);
-    try {
-      client.write(
-        `event: shutdown\ndata: ${JSON.stringify({ message: 'Server shutting down' })}\n\n`
-      );
-      client.end();
-    } catch {
-      // Connection already closed
-    }
-  }
-  sseClients.clear();
-
-  // Close all port config progress SSE connections
-  for (const [sessionId, client] of portConfigProgressClients) {
-    console.log(`[SSE] Closing port config connection for session ${sessionId}`);
-    clearTimeout(client.timeoutId);
-    try {
-      client.res.write('data: {"type":"shutdown","message":"Server shutting down"}\n\n');
-      client.res.end();
-    } catch {
-      // Connection already closed
-    }
-  }
-  portConfigProgressClients.clear();
 
   // Kill code-server if we started it
   if (codeServerProcess) {
