@@ -548,3 +548,13 @@ The following existing tasks are related to the new features above:
   - Solution: `destroyBrowserView()` in `electron/main.js`; `did-start-navigation` des Hauptfensters (Hauptframe, kein Same-Document) räumt alle Views ab. Destroy schließt zusätzlich die `webContents`; vorher lief die Seite nach dem Schließen weiter (Speicher, Audio).
 - Verifikation: Electron-Smoke-Test: nach Reload ohne Fix 1 View am Fenster, mit Fix 0; `pushState` (SPA-Routing) räumt nichts ab. `node --check` und eslint auf `electron/main.js` ok. Nicht in der gebauten App geklickt.
 - Grenzen: Wirkt erst nach neuem App-Build. Die aktuell hängende View verschwindet mit einem Neustart der App.
+
+### Favoriten-Agents in allen Kontexten sichtbar (2026-11-02)
+
+- [x] **[FIX]** Als Favorit markierte Agents erscheinen im Favoritenpanel jedes Projektkontexts statt nur in dem, wo sie markiert wurden
+  - Issue: Favoriten aus Kontext A tauchten nach einem Wechsel auch in Kontext B, C … auf.
+  - Root cause: `useRailPreferences` lud die Rail-Prefs nach einem Kontextwechsel per `useEffect`. Kind-Effekte laufen vor Eltern-Effekten: der „aktiven Agent einblenden"-Effekt in `AgentList` rief `update` mit den alten Prefs (Favoriten des verlassenen Kontexts) auf und speicherte sie in den localStorage des neuen Kontexts. `settings.json` `contextState` belegt es: identische `favoriteSessions` in mehreren Kontexten.
+  - Approach: Kontextwechsel in `useProjectContexts` (localStorage-Tausch, dann `contextId`) gegen die Effekt-Reihenfolge geprüft; Test mit Kind-Effekt reproduziert den Fehler (rot vor Fix).
+  - Solution: Prefs werden im Render beim `contextId`-Wechsel neu geladen (State `{contextId, prefs}`, Muster wie `useAgentWorkspace`); kein Effekt mehr, Kind-Effekte sehen schon die Prefs des neuen Kontexts.
+- Verifikation: `test/railPreferences.test.tsx` neuer Test grün, volle Suite 764/764 (3 Läufe). `railModes.test.tsx` vereinzelt flaky.
+- Grenzen: Bereits verschleppte Favoriten in gespeicherten Kontexten bleiben, bis man sie dort entfernt.

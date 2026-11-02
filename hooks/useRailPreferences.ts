@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { AgentGrouping } from '../types';
 import type { SessionGroup, GroupKey } from '../utils/agentSessions';
 
@@ -190,16 +190,20 @@ function save(prefs: RailPrefs) {
  * groups and favorite sessions, persisted in localStorage.
  */
 export function useRailPreferences(groupBy: AgentGrouping, contextId?: string) {
-  const [prefs, setPrefs] = useState<RailPrefs>(load);
-  // A project context switch swaps the stored prefs (useProjectContexts): pick them up
-  useEffect(() => setPrefs(load()), [contextId]);
+  const [state, setState] = useState(() => ({ contextId, prefs: load() }));
+  // A project context switch swaps the stored prefs (useProjectContexts): pick them up in the
+  // same render. An effect would be too late: child effects (reveal active agent) run first and
+  // would save the left context's prefs, favorites included, into the new context's storage.
+  if (state.contextId !== contextId) setState({ contextId, prefs: load() });
+  const { prefs } = state;
   const mode = prefs.modes[groupBy] || EMPTY_MODE;
 
   const update = useCallback((fn: (p: RailPrefs) => RailPrefs) => {
-    setPrefs((p) => {
-      const next = fn(p);
-      if (next !== p) save(next);
-      return next;
+    setState((s) => {
+      const next = fn(s.prefs);
+      if (next === s.prefs) return s;
+      save(next);
+      return { ...s, prefs: next };
     });
   }, []);
   const updateMode = useCallback(

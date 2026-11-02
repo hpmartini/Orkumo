@@ -152,6 +152,9 @@ interface AgentFilterBarProps {
   onToggleLink: (key: string) => void;
 }
 
+/** Whether the quick-filter chips are expanded (collapsed by default) */
+export const CHIPS_OPEN_KEY = 'devOrbitAgentFilterChipsOpen';
+
 /** Searchable list of PRs and issues; a highlighted entry narrows the agent list to it. */
 const LinkFilterPanel: React.FC<{
   entries: LinkFilterEntry[];
@@ -239,7 +242,21 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
   onToggleLink,
 }) => {
   const [open, setOpen] = useState(false);
-  const [chipsOpen, setChipsOpen] = useState(false);
+  const [chipsOpen, setChipsOpenState] = useState(() => {
+    try {
+      return localStorage.getItem(CHIPS_OPEN_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const setChipsOpen = (open: boolean) => {
+    setChipsOpenState(open);
+    try {
+      localStorage.setItem(CHIPS_OPEN_KEY, open ? '1' : '0');
+    } catch {
+      // stays in memory only
+    }
+  };
   const [linksOpen, setLinksOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const current = SORT_OPTIONS.find((o) => o.key === sort.key) || SORT_OPTIONS[0];
@@ -311,7 +328,7 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
           {sort.dir === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
         </button>
         <button
-          onClick={() => setChipsOpen((v) => !v)}
+          onClick={() => setChipsOpen(!chipsOpen)}
           aria-expanded={chipsOpen}
           aria-controls="agent-filter-chips"
           title={chipsOpen ? 'Hide filters' : 'Show filters'}

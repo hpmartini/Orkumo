@@ -1,6 +1,10 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
-import { AgentFilterBar, AgentSummaryBar } from '../components/AgentsView/AgentSummaryBar';
+import {
+  AgentFilterBar,
+  AgentSummaryBar,
+  CHIPS_OPEN_KEY,
+} from '../components/AgentsView/AgentSummaryBar';
 import { QUICK_FILTERS, type AgentQuickFilter } from '../utils/agentSessions';
 
 const counts = { awaitingInput: 0, working: 2, completed: 1, failed: 0, cacheExpiring: 3 };
@@ -55,6 +59,7 @@ describe('cache-expiring quick filter', () => {
   });
 
   it('has a chip with count in the filter bar that toggles the same key', () => {
+    localStorage.removeItem(CHIPS_OPEN_KEY);
     const onToggle = vi.fn();
     const chipCounts = Object.fromEntries(QUICK_FILTERS.map((f) => [f.key, 0])) as Record<
       AgentQuickFilter,
@@ -80,6 +85,8 @@ describe('cache-expiring quick filter', () => {
     // Chips start collapsed
     expect(screen.queryByRole('button', { name: 'Cache expiring 3' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'Show filters' }));
+    // Remembered for the next render
+    expect(localStorage.getItem(CHIPS_OPEN_KEY)).toBe('1');
     const chip = screen.getByRole('button', { name: 'Cache expiring 3' });
     expect(chip).toHaveAttribute('title', 'Agents whose prompt cache expires within 10 minutes');
     fireEvent.click(chip);
