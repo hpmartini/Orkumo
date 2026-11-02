@@ -2,8 +2,9 @@
 import React, { useRef } from 'react';
 import { motion, useMotionValue, useSpring, useTransform } from 'motion/react';
 import { cn } from '../../lib/utils';
+import { useReduceMotion } from '../../lib/media';
 
-export const CometCard = ({
+export const HoverCard = ({
   rotateDepth = 17.5,
   translateDepth = 20,
   className,
@@ -44,8 +45,10 @@ export const CometCard = ({
     [`${translateDepth}px`, `-${translateDepth}px`]
   );
 
+  const reduce = useReduceMotion();
+
   const handleMouseMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!ref.current) return;
+    if (!ref.current || reduce) return;
 
     const rect = ref.current.getBoundingClientRect();
 
@@ -82,11 +85,7 @@ export const CometCard = ({
             'rgba(0, 0, 0, 0.01) 0px 520px 146px 0px, rgba(0, 0, 0, 0.04) 0px 333px 133px 0px, rgba(0, 0, 0, 0.26) 0px 83px 83px 0px, rgba(0, 0, 0, 0.29) 0px 21px 46px 0px',
         }}
         initial={{ scale: 1, z: 0 }}
-        whileHover={{
-          scale: 1.05,
-          z: 50,
-          transition: { duration: 0.2 },
-        }}
+        whileHover={reduce ? undefined : { scale: 1.05, z: 50, transition: { duration: 0.2 } }}
         className="group relative rounded-md"
       >
         {children}

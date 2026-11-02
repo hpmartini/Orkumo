@@ -18,14 +18,14 @@ export function CopyBlock({ commands, className }: { commands: string; className
   return (
     <div
       className={cn(
-        'flex min-w-0 items-start gap-2 rounded-[6px] border border-hairline bg-[#080b0f]',
+        'command-well flex min-w-0 items-start gap-2 rounded-[6px] border border-hairline',
         className
       )}
     >
-      <pre className="min-w-0 flex-1 overflow-x-auto p-3 font-mono text-[12.5px] leading-6 text-paper/90 sm:text-[13px]">
+      <pre className="min-w-0 flex-1 overflow-x-auto p-3 font-mono text-[12.5px] leading-6 text-text/90 sm:text-[13px]">
         {commands.split('\n').map((line) => (
           <div key={line}>
-            <span className="select-none text-signal-yellow">$ </span>
+            <span className="select-none text-link">$ </span>
             {line}
           </div>
         ))}
@@ -34,7 +34,7 @@ export function CopyBlock({ commands, className }: { commands: string; className
         type="button"
         onClick={copy}
         aria-label={copied ? 'Copied to clipboard' : 'Copy commands'}
-        className="mt-1.5 mr-1.5 grid h-11 w-11 shrink-0 place-items-center rounded-[4px] bg-[#080b0f] text-muted hover:bg-[#151b23] hover:text-paper"
+        className="mt-1.5 mr-1.5 grid h-11 w-11 shrink-0 place-items-center rounded-[4px] text-muted transition-colors hover:bg-raised hover:text-text"
       >
         {copied ? <Check size={18} aria-hidden /> : <Copy size={18} aria-hidden />}
       </button>
