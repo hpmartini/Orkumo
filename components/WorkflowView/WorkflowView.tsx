@@ -2,25 +2,18 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ChevronsDownUp, ChevronsUpDown, Kanban, RefreshCw, X } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { AgentContext, AgentSession, WorkflowRunInfo } from '../../types';
+import type { AgentContext, AgentSession } from '../../types';
 import { useBoard } from '../BoardView/useBoard';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { fetchAgentContexts } from '../../services/agentsApi';
 import { goDoneText } from './GoButton';
+import { fetchRepoPath, fetchWorkflowDoc, sendWorkflowGo } from '../../services/boardApi';
 import {
-  fetchRepoPath,
-  fetchWorkflowDoc,
-  fetchWorkflowRuns,
-  sendWorkflowGo,
-} from '../../services/boardApi';
-import {
-  PIPELINE_TYPES,
   MODE_NAMES,
   GRAPH_MODES,
   graphPath,
   edgeGeometry,
   layoutGraph,
-  type PipelineType,
 } from '../../utils/workflowGraph.js';
 import {
   buildWorkflowCards,
@@ -36,7 +29,6 @@ import type { WorkflowNav } from './WorkflowDetails';
 import { WorkflowGraph, type GraphView } from './WorkflowGraph';
 import type { ScenePulse } from './WorkflowScene';
 
-const RUNS_POLL_MS = 30_000;
 const PROJECTS_KEY = 'devorbit.workflows.projects';
 
 const loadProjects = (): string[] => {
@@ -74,9 +66,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
   const agent = active ? searchParams.get('agent') : null;
   const { data, loading, error, refresh } = useBoard(active);
   const { sessions } = useAgentSessions({ active });
-  const [runs, setRuns] = useState<Record<string, WorkflowRunInfo>>({});
   const [view, setView] = useState<GraphView>('all');
-  const [ptype, setPtype] = useState<PipelineType>('feature');
   const [selected, setSelected] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [moved, setMoved] = useState<Set<string>>(new Set());
@@ -87,30 +77,14 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
   const reducedMotion = usePrefersReducedMotion();
   const prevNodes = useRef<Map<string, string> | null>(null);
 
-  const loadRuns = useCallback(
-    (fresh = false) =>
-      fetchWorkflowRuns(fresh)
-        .then(setRuns)
-        .catch(() => {
-          // runs are an addition; the stage still follows the board without them
-        }),
-    []
-  );
-  useEffect(() => {
-    if (!active) return;
-    loadRuns();
-    const t = setInterval(loadRuns, RUNS_POLL_MS);
-    return () => clearInterval(t);
-  }, [active, loadRuns]);
-
   const now = data?.fetchedAt ?? 0;
   const scopedCards = useMemo(
     () =>
       scopeWorkflowCards(
-        buildWorkflowCards(data?.items ?? [], data?.statusField.options ?? [], runs, now),
+        buildWorkflowCards(data?.items ?? [], data?.statusField.options ?? [], now),
         { repo, agent }
       ),
-    [data, runs, now, repo, agent]
+    [data, now, repo, agent]
   );
   const allCards = useMemo(() => filterByProjects(scopedCards, projects), [scopedCards, projects]);
   // Choices: the repos with issues in mw, plus picked ones that have none right now
@@ -229,7 +203,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
     try {
       const res = await sendWorkflowGo(card.item.itemId, card.state.go);
       toast.success(goDoneText(card.key, card.state.go, res.pollError));
-      await Promise.all([refresh(), loadRuns(true)]);
+      await refresh();
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -262,7 +236,6 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [selected]);
-  const showTypes = view === 'all' || view === 'pipeline';
 
   return (
     <div className="relative flex h-full min-h-0 flex-col bg-gray-950 text-gray-100">
@@ -337,28 +310,6 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
               })}
             </div>
           )}
-          {showTypes && (
-            <div
-              role="radiogroup"
-              aria-label="Pipeline-Typ"
-              className="flex rounded-lg border border-gray-850 p-0.5 text-[12px]"
-            >
-              {PIPELINE_TYPES.map((t) => (
-                <button
-                  key={t}
-                  type="button"
-                  role="radio"
-                  aria-checked={ptype === t}
-                  onClick={() => setPtype(t)}
-                  className={`rounded-md px-2.5 py-1 transition-colors ${
-                    ptype === t ? 'bg-sel text-white' : 'text-gray-400 hover:text-gray-100'
-                  }`}
-                >
-                  {t}
-                </button>
-              ))}
-            </div>
-          )}
           <div
             role="radiogroup"
             aria-label="Ansicht"
@@ -385,10 +336,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
         </div>
         <button
           type="button"
-          onClick={() => {
-            refresh();
-            loadRuns(true);
-          }}
+          onClick={refresh}
           className="inline-flex items-center gap-1.5 rounded-lg border border-gray-850 px-2.5 py-1 text-[12px] text-gray-300 hover:bg-gray-900"
           aria-label="Aktualisieren"
         >
@@ -414,7 +362,6 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
         <WorkflowGraph
           active={active}
           view={view}
-          pipelineType={ptype}
           byNode={byNode}
           selected={selected}
           onSelect={setSelected}

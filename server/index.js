@@ -43,7 +43,7 @@ import * as boardService from './services/boardService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowService from './services/workflowService.js';
 import { applyGo, workflowGoSchema } from './services/workflowGo.js';
-import { deriveWorkflowState, isWorkflowItem } from '../utils/workflowStage.js';
+import { deriveWorkflowState } from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
@@ -1555,7 +1555,7 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Workflows (#87): mw runs per issue, GO actions, card details
+// Workflows (#87, mw 7 #136): GO actions, card details
 // ---------------------------------------------------------------------------
 
 async function findRepoInKnownDirs(slug) {
@@ -1563,7 +1563,7 @@ async function findRepoInKnownDirs(slug) {
   return boardService.findRepoPath(slug, [...roots, ...exact]);
 }
 
-/** Board item, its MACC column, local mw run and derived workflow state */
+/** Board item, its MACC column and derived workflow state */
 async function workflowContext(itemId, { refresh = false } = {}) {
   const { source } = settingsService.getBoardSettings();
   const board = await boardService.getBoard(source);
@@ -1574,9 +1574,7 @@ async function workflowContext(itemId, { refresh = false } = {}) {
     throw Object.assign(new Error('Issue not on the board'), { status: 404 });
   }
   const status = board.statusField.options.find((o) => o.id === item.statusOptionId)?.name ?? null;
-  const runs = await workflowService.getRuns([item], findRepoInKnownDirs, { refresh });
-  const run = runs[`${item.repo}#${item.number}`] ?? null;
-  return { source, item, run, state: deriveWorkflowState(item, status, run) };
+  return { source, item, state: deriveWorkflowState(item, status) };
 }
 
 /** Checkout and agent worktree of a workflow item (where its docs live) */
@@ -1592,36 +1590,29 @@ async function workflowDirs({ item, state }) {
   return [...new Set([worktree, clone].filter(Boolean))];
 }
 
-app.get('/api/workflows/runs', agentLimiter, async (req, res) => {
+// GO (mw:build) or poll start; refused unless it is exactly the GO the fresh state offers
+const sendGo = (goOf) => async (req, res) => {
   try {
-    const { source } = settingsService.getBoardSettings();
-    const board = await boardService.getBoard(source);
-    const items = board.items.filter((i) => i.type === 'Issue' && isWorkflowItem(i));
-    const runs = await workflowService.getRuns(items, findRepoInKnownDirs, {
-      refresh: req.query.refresh === '1',
+    const ctx = await workflowContext(req.body.itemId, { refresh: true });
+    const { status, body } = await applyGo(ctx, goOf(req.body), {
+      updateIssue: boardService.updateIssue,
     });
-    res.json({ runs });
+    res.status(status).json(body);
   } catch (error) {
     sendAgentError(res, error);
   }
-});
-
-// GO for the next stage; refused unless it is exactly the GO the fresh state offers
+};
 app.post(
   '/api/workflows/go',
   agentLimiter,
   validate(z.object({ itemId: boardItemIdSchema, go: workflowGoSchema }).strict()),
-  async (req, res) => {
-    try {
-      const ctx = await workflowContext(req.body.itemId, { refresh: true });
-      const { status, body } = await applyGo(ctx, req.body.go, {
-        updateIssue: boardService.updateIssue,
-      });
-      res.status(status).json(body);
-    } catch (error) {
-      sendAgentError(res, error);
-    }
-  }
+  sendGo((b) => b.go)
+);
+app.post(
+  '/api/workflows/poll',
+  agentLimiter,
+  validate(z.object({ itemId: boardItemIdSchema }).strict()),
+  sendGo(() => ({ kind: 'poll' }))
 );
 
 app.get('/api/workflows/details', agentLimiter, async (req, res) => {
@@ -1632,9 +1623,8 @@ app.get('/api/workflows/details', agentLimiter, async (req, res) => {
     const details = await workflowService.getDetails(ctx.item, {
       dirs: await workflowDirs(ctx),
       briefingPath: ctx.state.briefingPath,
-      runDir: ctx.run?.runDir ?? null,
     });
-    res.json({ ...details, state: ctx.state, phases: ctx.run?.phases ?? [] });
+    res.json({ ...details, state: ctx.state });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -1648,11 +1638,7 @@ app.get('/api/workflows/doc', agentLimiter, async (req, res) => {
   }
   try {
     const ctx = await workflowContext(itemId.data);
-    const docs = await workflowService.findDocs(
-      await workflowDirs(ctx),
-      ctx.state.briefingPath,
-      ctx.run?.runDir ?? null
-    );
+    const docs = await workflowService.findDocs(await workflowDirs(ctx), ctx.state.briefingPath);
     res.json(await workflowService.readDoc(docs, req.query.path));
   } catch (error) {
     sendAgentError(res, error);

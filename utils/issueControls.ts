@@ -2,16 +2,16 @@
  * Issue modal (#104): mw-board control labels as buttons and comment quote/reply text.
  */
 import type { IssueComment } from '../types';
-import { BUILD_LABEL, GO_LABEL, NEED_INPUT_LABEL } from './workflowStage.js';
+import { BUILD_LABEL, GO_LABEL, IMAGE_LABEL, NEED_INPUT_LABEL } from './workflowStage.js';
 
 export { BUILD_LABEL, GO_LABEL, NEED_INPUT_LABEL };
 export const DYNAMIC_LABEL = 'mw:dynamic';
+export const DELEGATE_LABEL = 'mw:delegate';
+export const REVIEW_LABEL = 'mw:review';
 /** Mode labels are exclusive; none of them = default mode */
-export const MODE_LABELS = {
-  orchestrate: 'mw:orchestrate',
-  pipeline: 'mw:pipeline',
-  image: 'mw:image',
-} as const;
+export const MODE_LABELS = { image: IMAGE_LABEL } as const;
+/** mw 6 modes, a control error since mw 7 (#136): a mode change drops them */
+const LEGACY_MODE_LABELS = ['mw:orchestrate', 'mw:pipeline'];
 export type FlowMode = 'default' | keyof typeof MODE_LABELS;
 
 /** Label names with `label` added or removed; the rest of the set stays as it is */
@@ -27,9 +27,9 @@ export function currentMode(names: string[]): FlowMode {
   return hit ?? 'default';
 }
 
-/** Label names with exactly the mode label of `mode` (none for default) */
+/** Label names with exactly the mode label of `mode` (none for default), legacy modes dropped */
 export function setMode(names: string[], mode: FlowMode): string[] {
-  const modeLabels: string[] = Object.values(MODE_LABELS);
+  const modeLabels: string[] = [...Object.values(MODE_LABELS), ...LEGACY_MODE_LABELS];
   const rest = names.filter((n) => !modeLabels.includes(n));
   return mode === 'default' ? rest : [...rest, MODE_LABELS[mode]];
 }

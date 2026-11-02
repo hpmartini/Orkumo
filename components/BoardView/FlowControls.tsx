@@ -2,10 +2,12 @@ import React from 'react';
 import type { BoardLabel, BoardRepoOptions } from '../../types';
 import {
   BUILD_LABEL,
+  DELEGATE_LABEL,
   DYNAMIC_LABEL,
   GO_LABEL,
   MODE_LABELS,
   NEED_INPUT_LABEL,
+  REVIEW_LABEL,
   currentMode,
   setMode,
   toggleLabel,
@@ -16,8 +18,6 @@ import type { IssueSave } from './IssueEditors';
 
 const MODES: { mode: FlowMode; label: string }[] = [
   { mode: 'default', label: 'Default' },
-  { mode: 'orchestrate', label: 'Orchestrate' },
-  { mode: 'pipeline', label: 'Pipeline' },
   { mode: 'image', label: 'Image' },
 ];
 
@@ -70,6 +70,8 @@ export const FlowControls: React.FC<{
         {toggle(GO_LABEL, 'Freigeben', 'Issue für mw board freigeben')}
         {toggle(BUILD_LABEL, 'Umsetzen', 'Briefing freigeben, Umsetzung starten')}
         {toggle(DYNAMIC_LABEL, 'Dynamic', 'Dynamic Workflows')}
+        {toggle(DELEGATE_LABEL, 'Delegate', 'Teilaufgaben an Codex/MiniMax abgeben')}
+        {toggle(REVIEW_LABEL, 'Review', 'Unabhängiges Review vor dem PR')}
       </div>
       <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="mw-Modus">
         {MODES.map(({ mode: m, label }) => {

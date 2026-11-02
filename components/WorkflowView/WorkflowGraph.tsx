@@ -5,11 +5,9 @@ import {
   NODE_H,
   NODE_W,
   edgeGeometry,
-  inChain,
   layoutGraph,
   MODE_NAMES,
   type GraphMode,
-  type PipelineType,
 } from '../../utils/workflowGraph.js';
 import { supportsWebGL, type ScenePulse } from './WorkflowScene';
 
@@ -20,7 +18,6 @@ export type GraphView = 'all' | GraphMode;
 interface WorkflowGraphProps {
   active: boolean;
   view: GraphView;
-  pipelineType: PipelineType;
   /** cards on the graph, by station id */
   byNode: Map<string, WorkflowCard[]>;
   selected: string | null;
@@ -61,7 +58,6 @@ const useViewportWidth = () => {
 export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   active,
   view,
-  pipelineType,
   byNode,
   selected,
   onSelect,
@@ -78,10 +74,6 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   );
   const webgl = useMemo(supportsWebGL, []);
   const count = (id: string) => byNode.get(id)?.length ?? 0;
-  const dimmed = (id: string) => {
-    const n = nodeById.get(id)!;
-    return n.lane === 'pipeline' && !inChain(n, pipelineType) && count(id) === 0;
-  };
 
   const sceneEdges = geo.map(({ e, g }) => ({
     id: e.id,
@@ -201,13 +193,12 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
         const cards = byNode.get(n.id) ?? [];
         const waiting = cards.some((c) => c.state.waitingOn === 'hape');
         const rounds = [...new Set(cards.map((c) => c.node.round).filter(Boolean))];
-        const off = dimmed(n.id);
         return (
           <button
             key={n.id}
             type="button"
             aria-pressed={selected === n.id}
-            aria-label={`${n.label}, ${cards.length} Issues${off ? ', nicht in dieser Kette' : ''}`}
+            aria-label={`${n.label}, ${cards.length} Issues`}
             onClick={() => onSelect(selected === n.id ? null : n.id)}
             className={`wf-node absolute flex flex-col justify-center rounded-lg border px-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
               selected === n.id
@@ -217,7 +208,7 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
                   : cards.length
                     ? 'border-gray-700 bg-gray-900 hover:border-gray-600'
                     : 'border-gray-850 bg-gray-950/80 hover:border-gray-700'
-            } ${off ? 'opacity-40' : ''} ${arrived.has(n.id) ? 'wf-arrive' : ''}`}
+            } ${arrived.has(n.id) ? 'wf-arrive' : ''}`}
             style={{ left: n.x - NODE_W / 2, top: n.y - NODE_H / 2, width: NODE_W, height: NODE_H }}
           >
             <span className="flex items-baseline gap-2">
