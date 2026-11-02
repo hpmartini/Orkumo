@@ -1,0 +1,576 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-02T18:17:06.138Z",
+  "title": "Design System: DevOrbit Landing (landing/)",
+  "extensions": {
+    "colorMeta": {
+      "app-blue": {
+        "role": "primary",
+        "displayName": "App Blue",
+        "canonical": "oklch(62.3% 0.188 260)",
+        "tonalRamp": [
+          "oklch(15.0% 0.188 260)",
+          "oklch(26.0% 0.188 260)",
+          "oklch(37.0% 0.188 260)",
+          "oklch(48.0% 0.188 260)",
+          "oklch(59.0% 0.188 260)",
+          "oklch(70.0% 0.188 260)",
+          "oklch(82.0% 0.188 260)",
+          "oklch(95.0% 0.188 260)"
+        ]
+      },
+      "action-blue": {
+        "role": "primary",
+        "displayName": "Action Blue",
+        "canonical": "oklch(54.6% 0.215 263)",
+        "tonalRamp": [
+          "oklch(15.0% 0.200 263)",
+          "oklch(26.0% 0.200 263)",
+          "oklch(37.0% 0.200 263)",
+          "oklch(48.0% 0.200 263)",
+          "oklch(59.0% 0.200 263)",
+          "oklch(70.0% 0.200 263)",
+          "oklch(82.0% 0.200 263)",
+          "oklch(95.0% 0.200 263)"
+        ]
+      },
+      "action-blue-deep": {
+        "role": "primary",
+        "displayName": "Action Blue Deep",
+        "canonical": "oklch(48.8% 0.217 264)",
+        "tonalRamp": [
+          "oklch(15.0% 0.200 264)",
+          "oklch(26.0% 0.200 264)",
+          "oklch(37.0% 0.200 264)",
+          "oklch(48.0% 0.200 264)",
+          "oklch(59.0% 0.200 264)",
+          "oklch(70.0% 0.200 264)",
+          "oklch(82.0% 0.200 264)",
+          "oklch(95.0% 0.200 264)"
+        ]
+      },
+      "link-blue": {
+        "role": "primary",
+        "displayName": "Link Blue",
+        "canonical": "oklch(71.4% 0.143 255)",
+        "tonalRamp": [
+          "oklch(15.0% 0.143 255)",
+          "oklch(26.0% 0.143 255)",
+          "oklch(37.0% 0.143 255)",
+          "oklch(48.0% 0.143 255)",
+          "oklch(59.0% 0.143 255)",
+          "oklch(70.0% 0.143 255)",
+          "oklch(82.0% 0.143 255)",
+          "oklch(95.0% 0.143 255)"
+        ]
+      },
+      "line-emerald": {
+        "role": "tertiary",
+        "displayName": "Line Emerald",
+        "canonical": "oklch(77.3% 0.153 163)",
+        "tonalRamp": [
+          "oklch(15.0% 0.153 163)",
+          "oklch(26.0% 0.153 163)",
+          "oklch(37.0% 0.153 163)",
+          "oklch(48.0% 0.153 163)",
+          "oklch(59.0% 0.153 163)",
+          "oklch(70.0% 0.153 163)",
+          "oklch(82.0% 0.153 163)",
+          "oklch(95.0% 0.153 163)"
+        ]
+      },
+      "line-amber": {
+        "role": "tertiary",
+        "displayName": "Line Amber",
+        "canonical": "oklch(83.7% 0.164 84)",
+        "tonalRamp": [
+          "oklch(15.0% 0.164 84)",
+          "oklch(26.0% 0.164 84)",
+          "oklch(37.0% 0.164 84)",
+          "oklch(48.0% 0.164 84)",
+          "oklch(59.0% 0.164 84)",
+          "oklch(70.0% 0.164 84)",
+          "oklch(82.0% 0.164 84)",
+          "oklch(95.0% 0.164 84)"
+        ]
+      },
+      "line-rose": {
+        "role": "tertiary",
+        "displayName": "Line Rose",
+        "canonical": "oklch(71.9% 0.169 13)",
+        "tonalRamp": [
+          "oklch(15.0% 0.169 13)",
+          "oklch(26.0% 0.169 13)",
+          "oklch(37.0% 0.169 13)",
+          "oklch(48.0% 0.169 13)",
+          "oklch(59.0% 0.169 13)",
+          "oklch(70.0% 0.169 13)",
+          "oklch(82.0% 0.169 13)",
+          "oklch(95.0% 0.169 13)"
+        ]
+      },
+      "line-violet": {
+        "role": "tertiary",
+        "displayName": "Line Violet",
+        "canonical": "oklch(70.9% 0.159 294)",
+        "tonalRamp": [
+          "oklch(15.0% 0.159 294)",
+          "oklch(26.0% 0.159 294)",
+          "oklch(37.0% 0.159 294)",
+          "oklch(48.0% 0.159 294)",
+          "oklch(59.0% 0.159 294)",
+          "oklch(70.0% 0.159 294)",
+          "oklch(82.0% 0.159 294)",
+          "oklch(95.0% 0.159 294)"
+        ]
+      },
+      "ground": {
+        "role": "neutral",
+        "displayName": "Control-Room Navy",
+        "canonical": "oklch(26.2% 0.057 266)",
+        "tonalRamp": [
+          "oklch(15.0% 0.057 266)",
+          "oklch(26.0% 0.057 266)",
+          "oklch(37.0% 0.057 266)",
+          "oklch(48.0% 0.057 266)",
+          "oklch(59.0% 0.057 266)",
+          "oklch(70.0% 0.057 266)",
+          "oklch(82.0% 0.057 266)",
+          "oklch(95.0% 0.057 266)"
+        ]
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Panel Navy",
+        "canonical": "oklch(30.1% 0.068 266)",
+        "tonalRamp": [
+          "oklch(15.0% 0.068 266)",
+          "oklch(26.0% 0.068 266)",
+          "oklch(37.0% 0.068 266)",
+          "oklch(48.0% 0.068 266)",
+          "oklch(59.0% 0.068 266)",
+          "oklch(70.0% 0.068 266)",
+          "oklch(82.0% 0.068 266)",
+          "oklch(95.0% 0.068 266)"
+        ]
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised Navy",
+        "canonical": "oklch(34.1% 0.075 266)",
+        "tonalRamp": [
+          "oklch(15.0% 0.075 266)",
+          "oklch(26.0% 0.075 266)",
+          "oklch(37.0% 0.075 266)",
+          "oklch(48.0% 0.075 266)",
+          "oklch(59.0% 0.075 266)",
+          "oklch(70.0% 0.075 266)",
+          "oklch(82.0% 0.075 266)",
+          "oklch(95.0% 0.075 266)"
+        ]
+      },
+      "hairline": {
+        "role": "neutral",
+        "displayName": "Hairline",
+        "canonical": "oklch(41.3% 0.086 265)",
+        "tonalRamp": [
+          "oklch(15.0% 0.086 265)",
+          "oklch(26.0% 0.086 265)",
+          "oklch(37.0% 0.086 265)",
+          "oklch(48.0% 0.086 265)",
+          "oklch(59.0% 0.086 265)",
+          "oklch(70.0% 0.086 265)",
+          "oklch(82.0% 0.086 265)",
+          "oklch(95.0% 0.086 265)"
+        ]
+      },
+      "band": {
+        "role": "neutral",
+        "displayName": "Band Navy",
+        "canonical": "oklch(24.5% 0.054 266)",
+        "tonalRamp": [
+          "oklch(15.0% 0.054 266)",
+          "oklch(26.0% 0.054 266)",
+          "oklch(37.0% 0.054 266)",
+          "oklch(48.0% 0.054 266)",
+          "oklch(59.0% 0.054 266)",
+          "oklch(70.0% 0.054 266)",
+          "oklch(82.0% 0.054 266)",
+          "oklch(95.0% 0.054 266)"
+        ]
+      },
+      "monitor-well": {
+        "role": "neutral",
+        "displayName": "Monitor Well",
+        "canonical": "oklch(22.3% 0.051 266)",
+        "tonalRamp": [
+          "oklch(15.0% 0.051 266)",
+          "oklch(26.0% 0.051 266)",
+          "oklch(37.0% 0.051 266)",
+          "oklch(48.0% 0.051 266)",
+          "oklch(59.0% 0.051 266)",
+          "oklch(70.0% 0.051 266)",
+          "oklch(82.0% 0.051 266)",
+          "oklch(95.0% 0.051 266)"
+        ]
+      },
+      "pane-well": {
+        "role": "neutral",
+        "displayName": "Pane Well",
+        "canonical": "oklch(20.1% 0.046 266)",
+        "tonalRamp": [
+          "oklch(15.0% 0.046 266)",
+          "oklch(26.0% 0.046 266)",
+          "oklch(37.0% 0.046 266)",
+          "oklch(48.0% 0.046 266)",
+          "oklch(59.0% 0.046 266)",
+          "oklch(70.0% 0.046 266)",
+          "oklch(82.0% 0.046 266)",
+          "oklch(95.0% 0.046 266)"
+        ]
+      },
+      "keyline": {
+        "role": "neutral",
+        "displayName": "Keyline",
+        "canonical": "oklch(19.8% 0.037 264)",
+        "tonalRamp": [
+          "oklch(15.0% 0.037 264)",
+          "oklch(26.0% 0.037 264)",
+          "oklch(37.0% 0.037 264)",
+          "oklch(48.0% 0.037 264)",
+          "oklch(59.0% 0.037 264)",
+          "oklch(70.0% 0.037 264)",
+          "oklch(82.0% 0.037 264)",
+          "oklch(95.0% 0.037 264)"
+        ]
+      },
+      "text": {
+        "role": "neutral",
+        "displayName": "Signal White",
+        "canonical": "oklch(94.8% 0.017 264)",
+        "tonalRamp": [
+          "oklch(15.0% 0.017 264)",
+          "oklch(26.0% 0.017 264)",
+          "oklch(37.0% 0.017 264)",
+          "oklch(48.0% 0.017 264)",
+          "oklch(59.0% 0.017 264)",
+          "oklch(70.0% 0.017 264)",
+          "oklch(82.0% 0.017 264)",
+          "oklch(95.0% 0.017 264)"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Muted Blue-Grey",
+        "canonical": "oklch(79.1% 0.060 265)",
+        "tonalRamp": [
+          "oklch(15.0% 0.060 265)",
+          "oklch(26.0% 0.060 265)",
+          "oklch(37.0% 0.060 265)",
+          "oklch(48.0% 0.060 265)",
+          "oklch(59.0% 0.060 265)",
+          "oklch(70.0% 0.060 265)",
+          "oklch(82.0% 0.060 265)",
+          "oklch(95.0% 0.060 265)"
+        ]
+      },
+      "line-label": {
+        "role": "neutral",
+        "displayName": "Line Label",
+        "canonical": "oklch(87.4% 0.039 264)",
+        "tonalRamp": [
+          "oklch(15.0% 0.039 264)",
+          "oklch(26.0% 0.039 264)",
+          "oklch(37.0% 0.039 264)",
+          "oklch(48.0% 0.039 264)",
+          "oklch(59.0% 0.039 264)",
+          "oklch(70.0% 0.039 264)",
+          "oklch(82.0% 0.039 264)",
+          "oklch(95.0% 0.039 264)"
+        ]
+      },
+      "plate-white": {
+        "role": "neutral",
+        "displayName": "Plate White",
+        "canonical": "oklch(100.0% 0.000 90)",
+        "tonalRamp": [
+          "oklch(15.0% 0.000 90)",
+          "oklch(26.0% 0.000 90)",
+          "oklch(37.0% 0.000 90)",
+          "oklch(48.0% 0.000 90)",
+          "oklch(59.0% 0.000 90)",
+          "oklch(70.0% 0.000 90)",
+          "oklch(82.0% 0.000 90)",
+          "oklch(95.0% 0.000 90)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Hero H1 only, max 15ch."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Section headings."
+      },
+      "headline-close": {
+        "displayName": "Closing Headline",
+        "purpose": "The closing call to action heading."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Feature-row and install-panel headings (24px); 20px for wordmark and Docker panel."
+      },
+      "title-sm": {
+        "displayName": "Title Small",
+        "purpose": "Workspace items and principle terms."
+      },
+      "lead": {
+        "displayName": "Lead",
+        "purpose": "One paragraph under each section heading."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Panel copy, FAQ, buttons, section list points."
+      },
+      "station": {
+        "displayName": "Station",
+        "purpose": "Station labels in the hero diagram and workflow node labels (SVG)."
+      },
+      "body-sm": {
+        "displayName": "Body Small",
+        "purpose": "Feature-row list points; workflow SVG button."
+      },
+      "caption": {
+        "displayName": "Caption",
+        "purpose": "Pause control, illustrated task text, workflow edge labels, Pro badge."
+      },
+      "note": {
+        "displayName": "Note",
+        "purpose": "Notes under buttons, tables and panels; diagram label."
+      },
+      "micro": {
+        "displayName": "Micro",
+        "purpose": "Illustrated Buy chip, 'loop off Review' label."
+      },
+      "label": {
+        "displayName": "Label Tape",
+        "purpose": "Nav links, table headers, monitor title bars. Names an object, never an eyebrow."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "Copy blocks, project names; 12.5px on phones."
+      },
+      "mono-sm": {
+        "displayName": "Mono Small",
+        "purpose": "Code, paths and project names inside illustrations; build names and URLs."
+      }
+    },
+    "shadows": [
+      {
+        "name": "monitor-rest",
+        "value": "0 24px 46px -30px rgb(0 0 0 / 0.85)",
+        "purpose": "Every monitor frame."
+      },
+      {
+        "name": "panel-rest",
+        "value": "0 22px 44px -30px rgb(0 0 0 / 0.85)",
+        "purpose": "Panels."
+      },
+      {
+        "name": "action",
+        "value": "0 14px 28px -18px rgb(0 0 0 / 0.95)",
+        "purpose": "Primary button."
+      }
+    ],
+    "motion": [
+      {
+        "name": "reveal",
+        "value": "translateY(±14px) to 0, 0.5s cubic-bezier(0.22, 1, 0.36, 1), once",
+        "purpose": "Feature-row text and install panels entering the viewport."
+      },
+      {
+        "name": "train-step",
+        "value": "0.8s ease-in-out per segment, 0.5s station hold, 2.2s dwell at Steer, infinite",
+        "purpose": "Trains on the hero line diagram."
+      },
+      {
+        "name": "rose-pulse",
+        "value": "ring opacity 0 to 1, scale 1 to 1.9 over the last 0.6s of the dwell, ease-out",
+        "purpose": "The waiting train pulses once before moving on."
+      },
+      {
+        "name": "screen-hover",
+        "value": "scale 1.05, 3D tilt 2.5deg, 4px translate, 0.2s",
+        "purpose": "Screenshot hover card."
+      },
+      {
+        "name": "magnetic",
+        "value": "strength 0.3, max 16px",
+        "purpose": "Primary download button."
+      },
+      {
+        "name": "faq-toggle",
+        "value": "rotate 45deg, 200ms",
+        "purpose": "FAQ plus icon on open."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "all animation and transition 0.001ms; diagram static, reveals and hovers off",
+        "purpose": "prefers-reduced-motion: reduce."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "container",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The download action; the only filled control colour.",
+      "html": "<a class=\"ds-btn-primary\" href=\"#\">Download for macOS <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M12 15V3\"/><path d=\"M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4\"/><path d=\"m7 10 5 5 5-5\"/></svg></a>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 8px; min-height: 48px; padding: 0 24px; border-radius: 5px; background: #2563eb; color: #ffffff; font-family: 'Archivo Variable', ui-sans-serif, sans-serif; font-size: 15px; font-weight: 700; text-decoration: none; box-shadow: 0 14px 28px -18px rgb(0 0 0 / 0.95); transition: background-color 0.15s; } .ds-btn-primary:hover { background: #1d4ed8; } .ds-btn-primary:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Hairline outline for the second path (run from source, GitHub).",
+      "html": "<a class=\"ds-btn-secondary\" href=\"#\">Run from source <svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><path d=\"M7 7h10v10\"/><path d=\"M7 17 17 7\"/></svg></a>",
+      "css": ".ds-btn-secondary { display: inline-flex; align-items: center; gap: 6px; min-height: 48px; padding: 0 20px; border: 1px solid #34497a; border-radius: 5px; background: transparent; color: #e8eefa; font-family: 'Archivo Variable', ui-sans-serif, sans-serif; font-size: 15px; font-weight: 600; text-decoration: none; transition: border-color 0.15s, background-color 0.15s; } .ds-btn-secondary:hover { border-color: rgb(96 165 250 / 0.6); background: rgb(255 255 255 / 0.05); } .ds-btn-secondary:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }"
+    },
+    {
+      "name": "Navigation",
+      "kind": "nav",
+      "refersTo": "nav-link",
+      "description": "Sticky header: Overpass wordmark, label-tape links.",
+      "html": "<header class=\"ds-nav\"><a class=\"ds-nav-mark\" href=\"#\">DevOrbit</a><nav class=\"ds-nav-links\"><a href=\"#\">Features</a><a href=\"#\">Workflow</a><a href=\"#\">Install</a><a href=\"#\" class=\"ds-nav-strong\">GitHub</a></nav></header>",
+      "css": ".ds-nav { display: flex; align-items: center; height: 56px; padding: 0 20px; background: #172340; border-bottom: 1px solid #34497a; } .ds-nav-mark { font-family: 'Overpass Variable', 'Archivo Variable', sans-serif; font-weight: 700; letter-spacing: -0.012em; font-size: 20px; color: #e8eefa; text-decoration: none; } .ds-nav-links { margin-left: auto; display: flex; gap: 24px; } .ds-nav-links a { display: flex; align-items: center; min-height: 44px; font-family: 'Archivo Variable', sans-serif; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #a8bbe2; text-decoration: none; transition: color 0.15s; } .ds-nav-links a.ds-nav-strong { color: #e8eefa; } .ds-nav-links a:hover { color: #60a5fa; } .ds-nav-links a:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; border-radius: 3px; }"
+    },
+    {
+      "name": "Copy Block",
+      "kind": "custom",
+      "refersTo": "copy-block",
+      "description": "Command well with $ prompts and a 44px copy button.",
+      "html": "<div class=\"ds-copy\"><pre><div><span>$ </span>git clone https://github.com/hpmartini/DevHub.git</div><div><span>$ </span>cd DevHub &amp;&amp; bun install &amp;&amp; bun run dev:full</div></pre><button type=\"button\" aria-label=\"Copy commands\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\" aria-hidden=\"true\"><rect width=\"14\" height=\"14\" x=\"8\" y=\"8\" rx=\"2\"/><path d=\"M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2\"/></svg></button></div>",
+      "css": ".ds-copy { display: flex; align-items: flex-start; gap: 8px; border: 1px solid #34497a; border-radius: 6px; background: #101a33; } .ds-copy pre { flex: 1; margin: 0; padding: 12px; overflow-x: auto; font-family: 'JetBrains Mono Variable', ui-monospace, monospace; font-size: 13px; line-height: 24px; color: rgb(232 238 250 / 0.9); } .ds-copy pre span { color: #60a5fa; user-select: none; } .ds-copy button { display: grid; place-items: center; width: 44px; height: 44px; margin: 6px 6px 0 0; border: 0; border-radius: 4px; background: transparent; color: #a8bbe2; cursor: pointer; transition: background-color 0.15s, color 0.15s; } .ds-copy button:hover { background: #26365f; color: #e8eefa; } .ds-copy button:focus-visible { outline: 2px solid #60a5fa; outline-offset: 3px; }"
+    },
+    {
+      "name": "Panel",
+      "kind": "card",
+      "refersTo": "panel",
+      "description": "Install options and the scale table.",
+      "html": "<div class=\"ds-panel\"><h3>Run from source</h3><p>Clone the repository and start the dev server.</p></div>",
+      "css": ".ds-panel { padding: 24px; border: 1px solid #34497a; border-radius: 10px; background: #1e2c50; box-shadow: 0 22px 44px -30px rgb(0 0 0 / 0.85); } .ds-panel h3 { margin: 0; font-family: 'Overpass Variable', 'Archivo Variable', sans-serif; font-weight: 700; letter-spacing: -0.012em; font-size: 24px; line-height: 1.25; color: #e8eefa; } .ds-panel p { margin: 8px 0 0; font-family: 'Archivo Variable', sans-serif; font-size: 15px; line-height: 1.5; color: #a8bbe2; }"
+    },
+    {
+      "name": "Monitor",
+      "kind": "card",
+      "refersTo": "monitor",
+      "description": "Frame for every interactive demo and illustration; title bar with label tape.",
+      "html": "<div class=\"ds-monitor\"><div class=\"ds-monitor-bar\"><span>Overview</span><span>Illustration</span></div><div class=\"ds-monitor-body\"><div class=\"ds-monitor-row\"><code>storefront</code><span>Add retry to webhook</span></div></div></div>",
+      "css": ".ds-monitor { overflow: hidden; border: 1px solid #34497a; border-radius: 8px; background: #101a33; box-shadow: 0 24px 46px -30px rgb(0 0 0 / 0.85); } .ds-monitor-bar { display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #34497a; font-family: 'Archivo Variable', sans-serif; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #a8bbe2; } .ds-monitor-body { padding: 16px; } .ds-monitor-row { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; border: 1px solid #34497a; border-radius: 4px; background: #1e2c50; } .ds-monitor-row code { font-family: 'JetBrains Mono Variable', monospace; font-size: 12px; color: #60a5fa; } .ds-monitor-row span { font-family: 'Archivo Variable', sans-serif; font-size: 13px; color: #a8bbe2; }"
+    },
+    {
+      "name": "Feature Row",
+      "kind": "custom",
+      "refersTo": "station-plate",
+      "description": "A row on the shared blue rail: station tick, name plate, title, tick bullets.",
+      "html": "<article class=\"ds-row\"><span class=\"ds-row-tick\" aria-hidden=\"true\"></span><h3><span class=\"ds-plate\" aria-hidden=\"true\">Steer</span>Answer the agent that waits for you</h3><p>See which session needs input and reply in place.</p><ul><li><svg width=\"12\" height=\"12\" viewBox=\"0 0 13 13\" aria-hidden=\"true\"><path d=\"M 2 7 L 5 10 L 11 3\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"/></svg>One list of waiting sessions</li></ul></article>",
+      "css": ".ds-row { position: relative; padding: 48px 0 48px 24px; border-left: 3px solid rgb(59 130 246 / 0.7); } .ds-row-tick { position: absolute; top: 52px; left: -9.5px; width: 16px; height: 22px; box-sizing: border-box; border: 3px solid #0d1526; border-radius: 9999px; background: #e8eefa; } .ds-row h3 { margin: 0; font-family: 'Overpass Variable', 'Archivo Variable', sans-serif; font-weight: 700; letter-spacing: -0.012em; font-size: 24px; line-height: 1.25; color: #e8eefa; } .ds-plate { display: inline-block; margin-right: 12px; padding: 2px 8px; border-radius: 4px; background: #2563eb; color: #ffffff; font-size: 15px; vertical-align: middle; transform: translateY(-3px); } .ds-row p { margin: 12px 0 0; max-width: 68ch; font-family: 'Archivo Variable', sans-serif; font-size: 15px; color: #a8bbe2; } .ds-row ul { margin: 20px 0 0; padding: 0; list-style: none; } .ds-row li { display: flex; gap: 10px; font-family: 'Archivo Variable', sans-serif; font-size: 14px; color: #a8bbe2; } .ds-row li svg { margin-top: 4px; flex-shrink: 0; color: #60a5fa; }"
+    },
+    {
+      "name": "State Marks",
+      "kind": "chip",
+      "description": "Shape plus hue: hollow ring, half ring, filled dot, each with a label.",
+      "html": "<ul class=\"ds-states\"><li><svg viewBox=\"0 0 12 12\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"6\" cy=\"6\" r=\"4\" fill=\"none\" stroke=\"#fb7185\" stroke-width=\"2\"/></svg>Needs input</li><li><svg viewBox=\"0 0 12 12\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"6\" cy=\"6\" r=\"4\" fill=\"none\" stroke=\"#fbbf24\" stroke-width=\"2.5\" stroke-dasharray=\"12.6 12.6\"/></svg>Working</li><li><svg viewBox=\"0 0 12 12\" width=\"12\" height=\"12\" aria-hidden=\"true\"><circle cx=\"6\" cy=\"6\" r=\"4\" fill=\"#34d399\"/></svg>Done</li></ul>",
+      "css": ".ds-states { display: flex; gap: 20px; margin: 0; padding: 0; list-style: none; } .ds-states li { display: flex; align-items: center; gap: 8px; font-family: 'Archivo Variable', sans-serif; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #a8bbe2; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Line Control Room",
+    "overview": "The page is a metro operations control room at night, built from the app's own colours. Every project is a line, every agent a train, and the stations are the five jobs: Plan, Steer, Monitor, Review, with Edit as a spur that loops back off Review. The hero is a live line diagram; the five feature rows hang off one continuous blue track rail; product screens sit on the wall as monitors.\n\nThe ground is the app's navy, deepened for the page. Blue is the one action colour. The four line colours (emerald, amber, rose, violet) mark lines and states, and the focused station is the brightest thing on screen while the rest dims. Density is calm: one 12-column grid, generous section padding, hairline dividers instead of fills.\n\nDepth is quiet: flat navy surfaces separated by 1px hairlines, with long soft black shadows under monitors and panels only.",
+    "keyCharacteristics": [
+      "Navy ground taken from the app screenshots, with panel, raised and hairline steps of the same hue.",
+      "Straight track with 45-degree turns only; no arcs anywhere in a diagram.",
+      "Stations are white ticks with a dark keyline; station name plates are white on action blue.",
+      "State is a mark as well as a hue: hollow ring (needs input), half ring (working), filled dot (done).",
+      "Overpass display, Archivo body, JetBrains Mono only for commands, paths and project names."
+    ],
+    "rules": [
+      {
+        "name": "The Line Colours Are Lines Rule",
+        "body": "Emerald, amber, rose and violet colour a line, a train or a state mark, never a panel, a heading or a button. One carve-out: violet is also the Pro mark (the Pro badge pill, the workflow loop-back track and the Workflow list ticks).",
+        "section": "colors"
+      },
+      {
+        "name": "The One Action Blue Rule",
+        "body": "Every filled control is action blue with white text; no second button colour exists.",
+        "section": "colors"
+      },
+      {
+        "name": "The Focus Is Brightest Rule",
+        "body": "In a diagram the focused station or node is full white and full opacity; every other station sits at 60% or in muted.",
+        "section": "colors"
+      },
+      {
+        "name": "The Mono Is Evidence Rule",
+        "body": "JetBrains Mono appears only for literal strings a user would type or read off a tool: commands, URLs, paths, build names, project names.",
+        "section": "typography"
+      },
+      {
+        "name": "The Tape Names An Object Rule",
+        "body": "Label tape names a thing on screen (a nav target, a column, a monitor). It never sits above a heading as a section label.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Loud Line Rule",
+        "body": "Rank comes from size alone: one H1 at display scale, everything else visibly smaller.",
+        "section": "typography"
+      },
+      {
+        "name": "The One Track Rule",
+        "body": "The feature rows share one rail with no gap between rows; each row adds a station tick on it, never a separate card.",
+        "section": "layout"
+      },
+      {
+        "name": "The Soft Black Rule",
+        "body": "Shadows are soft, black and fall downward. No glow, no coloured shadow, no hard offset.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do draw every track straight with 45-degree turns; stations are white ticks with a dark keyline.",
+      "Do put every product screen and illustration in a monitor frame (8px, hairline, monitor well).",
+      "Do mark state with shape and hue together, next to a text label.",
+      "Do label every HTML/SVG illustration \"Illustration\" in its title bar.",
+      "Do keep a static equivalent for every motion under reduced motion, and a pause control for the looping diagram.",
+      "Do keep tap targets at 44px minimum (48px for buttons)."
+    ],
+    "donts": [
+      "Don't draw arcs or curves in a track or graph.",
+      "Don't fill panels, headings or buttons with emerald, amber, rose or violet; the violet Pro badge is the only filled line-colour shape.",
+      "Don't set prose in mono or headings in anything but Overpass.",
+      "Don't put label tape above a heading as an eyebrow.",
+      "Don't add glow, coloured shadows or hard offset shadows."
+    ]
+  }
+}

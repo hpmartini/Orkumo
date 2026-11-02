@@ -36,3 +36,6 @@ data/
 
 # Symlink regression test temp dirs
 test/fixtures/tmp-*
+
+# Landing page build
+dist-landing
