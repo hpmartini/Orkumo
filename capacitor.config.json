@@ -1,0 +1,9 @@
+{
+  "appId": "de.martinilabs.devorbit",
+  "appName": "DevOrbit",
+  "webDir": "dist",
+  "ios": {
+    "contentInset": "always",
+    "backgroundColor": "#111827"
+  }
+}

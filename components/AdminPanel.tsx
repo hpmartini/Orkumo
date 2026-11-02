@@ -39,6 +39,7 @@ import {
   type BoardSource,
 } from '../types';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
+import { RemotePairingSection } from './RemotePairingSection';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -746,6 +747,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               </div>
             </form>
           </div>
+
+          <RemotePairingSection />
 
           {/* Keyboard Shortcuts Section */}
           <div className="pt-4 border-t border-gray-700">

@@ -8,7 +8,7 @@ import {
   useNavigate,
   useLocation,
 } from 'react-router-dom';
-import { isElectron } from './utils/apiConfig';
+import { isElectron, isNativeApp } from './utils/apiConfig';
 import { Bot, Rocket } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import {
@@ -431,8 +431,8 @@ function AppRouter() {
 }
 
 export default function App() {
-  // Use HashRouter for Electron (file:// protocol) since BrowserRouter doesn't work with it
-  const Router = isElectron ? HashRouter : BrowserRouter;
+  // HashRouter for Electron (file://) and the iOS app (capacitor://): no server-side routing there
+  const Router = isElectron || isNativeApp ? HashRouter : BrowserRouter;
 
   return (
     <ErrorBoundary>
