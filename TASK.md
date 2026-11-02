@@ -536,3 +536,15 @@ The following existing tasks are related to the new features above:
   - Solution: Host-Allowlist entfernt, Protokollprüfung (nur http/https) bleibt. Die BrowserView ist sandboxed, ohne Node und ohne Preload. Neu: eigene Session (`persist:browser-preview`) mit Permission-Handler, der Kamera/Mikro/Standort usw. nur localhost-Seiten gewährt (Electron-Default ohne Handler: alles erlauben).
 - Verifikation: `node --check electron/main.js` ok. Electron-Smoke-Test mit denselben `webPreferences` und demselben Handler: `https://example.com/` lädt (Titel „Example Domain"), Geolocation-Anfrage von example.com abgelehnt. Nicht end-to-end durch die laufende App geklickt.
 - Grenzen: Im reinen Web-Modus (iframe) bleiben Seiten mit `X-Frame-Options`/`frame-ancestors` gesperrt; das setzt die Zielseite, nicht DevOrbit. `window.open` aus der Vorschau öffnet weiter ein eigenes Electron-Fenster (wie vorher bei localhost). Cookies/Logins der Vorschau liegen jetzt in der eigenen Session, bestehende Logins aus der Default-Session sind dort einmalig weg.
+
+---
+
+### Geschlossener Browser bleibt als Artefakt über allem stehen (2026-11-02)
+
+- [x] **[FIX]** Nach dem Schließen des Browser-Panes bleibt die Seite über Terminal und Steuerelementen, ohne Schließen-Knopf
+  - Issue: Das native Browser-Fenster (BrowserView) blieb an der alten Pane-Position stehen, obwohl das Pane weg war.
+  - Root cause: Die BrowserViews leben im Main-Prozess (`browserViews` in `electron/main.js`), abgebaut nur per IPC aus dem React-Cleanup von `ElectronBrowserView`. Ein Reload des Fensters (Menü „Refresh" / Cmd+R, `ErrorBoundary`) läuft ohne React-Cleanup: die alte View bleibt verwaist am Fenster. Der gespeicherte Workspace legt danach an derselben Stelle eine neue View an (anderes `useId`), die die Waise verdeckt. Schließen baut die neue ab und legt die Waise frei, die kein Pane mehr hat. Auslöser im Nutzerfall erschlossen, nicht im Log belegt.
+  - Approach: Lebenszyklus Renderer ↔ Main durchgesehen (Create/Destroy-Reihenfolge, Tab-Verstecken, Layoutwechsel balanciert). Electron-39-Test: `removeBrowserView` entfernt die View, ein Reload lässt sie stehen.
+  - Solution: `destroyBrowserView()` in `electron/main.js`; `did-start-navigation` des Hauptfensters (Hauptframe, kein Same-Document) räumt alle Views ab. Destroy schließt zusätzlich die `webContents`; vorher lief die Seite nach dem Schließen weiter (Speicher, Audio).
+- Verifikation: Electron-Smoke-Test: nach Reload ohne Fix 1 View am Fenster, mit Fix 0; `pushState` (SPA-Routing) räumt nichts ab. `node --check` und eslint auf `electron/main.js` ok. Nicht in der gebauten App geklickt.
+- Grenzen: Wirkt erst nach neuem App-Build. Die aktuell hängende View verschwindet mit einem Neustart der App.

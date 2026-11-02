@@ -26,6 +26,17 @@ let isShuttingDown = false;
 // Map of viewId -> { view: BrowserView, devToolsWindow: BrowserWindow | null }
 const browserViews = new Map();
 
+function destroyBrowserView(viewId) {
+  const entry = browserViews.get(viewId);
+  if (!entry) return;
+  browserViews.delete(viewId);
+  if (entry.devToolsWindow && !entry.devToolsWindow.isDestroyed()) entry.devToolsWindow.close();
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.removeBrowserView(entry.view);
+  // removeBrowserView only detaches; without close() the page keeps running (and playing audio)
+  if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close();
+  console.log(`[BrowserView] Destroyed view ${viewId}`);
+}
+
 const isDev = !app.isPackaged;
 const VITE_PORT = parseInt(process.env.VITE_PORT || String(PORTS.devhub), 10);
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || `http://localhost:${VITE_PORT}`;
@@ -74,6 +85,11 @@ function createWindow() {
       );
     }
   );
+  // A reload (Cmd+R, ErrorBoundary) skips React cleanup: native views would stay on top
+  // of the new page with no pane left to close them. SPA route changes are same-document.
+  mainWindow.webContents.on('did-start-navigation', ({ isMainFrame, isSameDocument }) => {
+    if (isMainFrame && !isSameDocument) [...browserViews.keys()].forEach(destroyBrowserView);
+  });
   mainWindow.webContents.on('did-finish-load', () => {
     console.log('[Electron] Renderer finished loading', mainWindow.webContents.getURL());
   });
@@ -754,18 +770,7 @@ function setupIpcHandlers() {
     }
 
     try {
-      // Close DevTools window if open
-      if (entry.devToolsWindow && !entry.devToolsWindow.isDestroyed()) {
-        entry.devToolsWindow.close();
-      }
-
-      // Remove from main window and destroy
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.removeBrowserView(entry.view);
-      }
-
-      browserViews.delete(viewId);
-      console.log(`[BrowserView] Destroyed view ${viewId}`);
+      destroyBrowserView(viewId);
       return { success: true };
     } catch (error) {
       console.error(`[BrowserView] Failed to destroy view ${viewId}:`, error);
