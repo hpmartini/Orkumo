@@ -49,7 +49,7 @@ import type { AgentConfigLike } from './types';
 import { RailNavProps } from './ProjectsRail';
 import { IssuePill, PrPill, ServerLinks, SubagentsBadge } from './SessionLinks';
 import { CacheBadge } from './CacheBadge';
-import { isCacheWarning } from '../../utils/agentCache';
+import { cacheCountdown, isCacheWarning } from '../../utils/agentCache';
 
 /** Pointer has to rest this long on a card before its details open (hover mode) */
 const HOVER_DETAILS_DELAY_MS = 200;
@@ -836,7 +836,9 @@ export const AgentList: React.FC<AgentListProps> = ({
                         )}
                       </span>
                     ),
-                    metrics: ctx?.cache && <CacheBadge cache={ctx.cache} />,
+                    metrics: ctx?.cache && !cacheCountdown(ctx.cache, now).expired && (
+                      <CacheBadge cache={ctx.cache} />
+                    ),
                     status: extra && <span className="truncate min-w-0">{extra}</span>,
                     links: issueKeys
                       .filter((key) => key !== workflow?.key)

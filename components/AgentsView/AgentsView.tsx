@@ -62,6 +62,8 @@ import {
   railItems,
   documentTitle,
   applyQuickFilters,
+  applyLinkFilter,
+  collectLinkEntries,
   sessionsInContext,
   matchesQuickFilter,
   mergeServers,
@@ -101,7 +103,7 @@ import { ShortcutsHelp } from './ShortcutsHelp';
 import { AgentSettingsPanel } from './AgentSettingsPanel';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchBoard } from '../../services/boardApi';
-import { deriveAgentLinks, linksByAgent } from '../../utils/board';
+import { deriveAgentLinks, itemKey as boardItemKey, linksByAgent } from '../../utils/board';
 import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
@@ -348,14 +350,35 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       return next;
     });
   }, []);
+  const [linkFilter, setLinkFilter] = useState<Set<string>>(() => new Set());
+  const toggleLinkFilter = useCallback((key: string) => {
+    setLinkFilter((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  }, []);
+  const filterActive = quickFilters.size > 0 || linkFilter.size > 0;
+  const contextSessions = useMemo(
+    () => sessionsInContext(visibleSessions, apps, contextAppIds, lookup),
+    [visibleSessions, apps, contextAppIds, lookup]
+  );
+  const issueTitles = useMemo(
+    () => new Map((board?.items || []).map((item) => [boardItemKey(item), item.title])),
+    [board]
+  );
+  const linkEntries = useMemo(
+    () => collectLinkEntries(contextSessions, issuesByAgent, lookup, issueTitles),
+    [contextSessions, issuesByAgent, lookup, issueTitles]
+  );
   const shownSessions = useMemo(
     () =>
       applyQuickFilters(
-        sessionsInContext(visibleSessions, apps, contextAppIds, lookup),
+        applyLinkFilter(contextSessions, linkFilter, issuesByAgent, lookup),
         quickFilters,
         lookup
       ),
-    [visibleSessions, apps, contextAppIds, quickFilters, lookup]
+    [contextSessions, linkFilter, issuesByAgent, quickFilters, lookup]
   );
   const chipCounts = useMemo(() => {
     const result = {} as Record<AgentQuickFilter, number>;
@@ -377,8 +400,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     favoriteGroups,
   } = rail;
   const collapsed = useMemo(
-    () => (quickFilters.size ? new Set<string>() : rail.collapsed),
-    [rail.collapsed, quickFilters]
+    () => (filterActive ? new Set<string>() : rail.collapsed),
+    [rail.collapsed, filterActive]
   );
   const groups = useMemo(
     () =>
@@ -713,10 +736,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const toggleGroup = useCallback(
     (group: SessionGroup) => {
       // Quick filters force all groups open, so a toggle would change nothing visible
-      if (quickFilters.size > 0) showHint('Clear the filters to collapse groups', 'info');
+      if (filterActive) showHint('Clear the filters to collapse groups', 'info');
       else toggleCollapsed(group.key);
     },
-    [toggleCollapsed, quickFilters, showHint]
+    [toggleCollapsed, filterActive, showHint]
   );
 
   const activateRemote = useCallback(
@@ -1590,16 +1613,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       );
     }
     // A quick filter keeps every group open, like the disabled header buttons
-    if (quickFilters.size === 0) {
+    if (!filterActive) {
       list.push(
         cmd('groups.collapse', 'Collapse all groups', 'Rail', collapseAllGroups),
         cmd('groups.expand', 'Expand all groups', 'Rail', expandAllGroups)
       );
     }
-    if (quickFilters.size > 0 || filter) {
+    if (filterActive || filter) {
       list.push(
         cmd('filter.clear', 'Clear all filters', 'Rail', () => {
           setQuickFilters(new Set());
+          setLinkFilter(new Set());
           setInput('');
         })
       );
@@ -1660,6 +1684,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     updateSettings,
     setSort,
     quickFilters,
+    filterActive,
     filter,
     toggleQuickFilter,
     collapseAllGroups,
@@ -1921,7 +1946,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             onGrouping={(grouping) => updateSettings({ grouping })}
             onCollapseAll={collapseAllGroups}
             onExpandAll={expandAllGroups}
-            collapseDisabled={quickFilters.size > 0}
+            collapseDisabled={filterActive}
           />
           <AgentFilterBar
             sort={sort}
@@ -1931,11 +1956,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             chipCounts={chipCounts}
             shown={shownSessions.length}
             total={sessions.length}
-            filtered={quickFilters.size > 0 || !!filter}
+            filtered={filterActive || !!filter}
             onClear={() => {
               setQuickFilters(new Set());
+              setLinkFilter(new Set());
               if (filter) setInput('');
             }}
+            linkEntries={linkEntries}
+            linkSelected={linkFilter}
+            onToggleLink={toggleLinkFilter}
           />
           {loading && sessions.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
@@ -1960,7 +1989,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               lookup={lookup}
               contexts={contexts}
               servers={servers}
-              filtered={quickFilters.size > 0 || !!filter}
+              filtered={filterActive || !!filter}
               onOpenPrs={(repo) => {
                 setPrRepo(repo);
                 setPanel('prs');
@@ -2004,11 +2033,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               }
               top={
                 settings.grouping === 'state' ? (
-                  <ProjectsSection
-                    apps={apps}
-                    nav={nav}
-                    filtered={quickFilters.size > 0 || !!filter}
-                  />
+                  <ProjectsSection apps={apps} nav={nav} filtered={filterActive || !!filter} />
                 ) : undefined
               }
             />

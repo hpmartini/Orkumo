@@ -12,6 +12,8 @@ import {
   DEFAULT_SORT,
   sortSessionsBy,
   applyQuickFilters,
+  applyLinkFilter,
+  collectLinkEntries,
   matchesQuickFilter,
   matchServers,
   summarizeContext,
@@ -542,5 +544,35 @@ describe('sessionsInContext (#133)', () => {
   it('keeps sessions whose most specific app is a member', () => {
     expect(sessionsInContext(all, apps, ['repo', 'other'])).toEqual([inRoot, inWorktree]);
     expect(sessionsInContext(all, apps, ['web'])).toEqual([inWeb]);
+  });
+});
+
+describe('PR / issue filter', () => {
+  const pr = session({ id: 'p', links: [openPr] });
+  const issue = session({ id: 'i' });
+  const none = session({ id: 'n' });
+  const issuesByAgent = new Map([['i', ['o/r#7']]]);
+
+  it('lists open PRs first, then linked issues, with titles', () => {
+    const entries = collectLinkEntries(
+      [pr, issue, none],
+      issuesByAgent,
+      undefined,
+      new Map([['o/r#7', 'Fix it']])
+    );
+    expect(entries.map((e) => [e.kind, e.label, e.title])).toEqual([
+      ['pr', '#1', openPr.href],
+      ['issue', '#7', 'Fix it'],
+    ]);
+  });
+
+  it('keeps sessions linked to any selected entry', () => {
+    const all = [pr, issue, none];
+    const ids = (list: { id: string }[]) => list.map((s) => s.id).join('');
+    expect(ids(applyLinkFilter(all, new Set(), issuesByAgent))).toBe('pin');
+    expect(ids(applyLinkFilter(all, new Set(['issue:o/r#7']), issuesByAgent))).toBe('i');
+    expect(
+      ids(applyLinkFilter(all, new Set([`pr:${openPr.href}`, 'issue:o/r#7']), issuesByAgent))
+    ).toBe('pi');
   });
 });
