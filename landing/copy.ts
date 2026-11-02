@@ -31,6 +31,17 @@ export const HERO = {
 // synthetic project names for every diagram / illustration (never real repos)
 export const DEMO_PROJECTS = ['storefront', 'billing-api', 'docs-site', 'mobile-app'];
 
+// the interactive demos label themselves with these (role="group" aria-label)
+export const DEMO_ALTS = {
+  board:
+    'Interactive demo of Board mode: a GitHub project board with issue cards, an issue panel and an agent you can start.',
+  agents:
+    'Interactive demo of Agents mode: agent sessions grouped by project, filterable by state, with a reply to a waiting agent.',
+  pulls:
+    'Interactive demo of the review: open pull requests of the demo projects with checks, a diff and feedback for the agent.',
+  code: 'Interactive demo of Code mode: VS Code with a project explorer, tabs and a source file, including a review fix applied in place.',
+};
+
 export const FEATURES_INTRO = {
   title: 'Five jobs, one window.',
   lead: 'Running ten agents across six repositories means ten terminals, six browser tabs, a board, a PR list and an editor. DevOrbit keeps all of it in one structured surface, linked by issue, agent, branch and pull request.',
@@ -58,7 +69,7 @@ export const FEATURES: Feature[] = [
       'Start an agent straight from the issue',
     ],
     media: 'board',
-    alt: 'Board mode: a GitHub project as swimlanes, with an issue panel showing status, labels and linked agents.',
+    alt: DEMO_ALTS.board,
   },
   {
     id: 'steer',
@@ -72,7 +83,7 @@ export const FEATURES: Feature[] = [
       'Pin, rename, stop, respawn — with keyboard shortcuts',
     ],
     media: 'agents',
-    alt: 'Agents mode: Claude Code sessions grouped by state, with activity, age and pull request per session.',
+    alt: DEMO_ALTS.agents,
   },
   {
     id: 'monitor',
@@ -100,7 +111,7 @@ export const FEATURES: Feature[] = [
       'In the desktop app the PR opens in a pane beside the list',
     ],
     media: 'pulls',
-    alt: 'Pull requests view: open pull requests of the DevOrbit repository with status and branch.',
+    alt: DEMO_ALTS.pulls,
   },
   {
     id: 'edit',
@@ -112,7 +123,7 @@ export const FEATURES: Feature[] = [
       'Open a pull request’s branch in VS Code with one click',
     ],
     media: 'code',
-    alt: 'Code mode: VS Code in the browser, opened on a project folder with a source file.',
+    alt: DEMO_ALTS.code,
   },
 ];
 

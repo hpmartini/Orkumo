@@ -264,7 +264,7 @@ One navy family for surfaces, one blue for action and track, four line colours r
 
 A 12-column grid inside a 1280px container with 20px side gutters, 36px from 640px. Hero, Workspace, Workflow and Scale split text 5 or 6 columns against media 6 or 7 at 1024px; below that everything stacks. Sections carry 96px vertical padding (80px for Principles); headings sit 40 to 48px above their content; grid gaps are 48px, panel gaps 20px, panels 24px inside.
 
-The five feature rows form one column with a 3px app-blue left rail at 70% that runs through all of them; each row is 48px tall-padded (64px at 1024px), inset 24px from the rail (40px from 640px), and alternates text and screen sides. The portrait agents shot takes the narrow column.
+The five feature rows form one column with a 3px app-blue left rail at 70% that runs through all of them; each row is 48px tall-padded (64px at 1024px), inset 24px from the rail (40px from 640px), and alternates text and screen sides. The portrait agents demo takes the narrow column.
 
 **The One Track Rule.** The feature rows share one rail with no gap between rows; each row adds a station tick on it, never a separate card.
 
@@ -297,7 +297,7 @@ Track geometry is straight lines with 45-degree turns only: the Edit spur drops 
 
 ### Cards / Containers
 
-- **Monitor:** 8px, hairline, monitor-well fill, monitor shadow, overflow hidden. Holds every screenshot and illustration. Illustrations carry a title bar with label tape left and "Illustration" right.
+- **Monitor:** 8px, hairline, monitor-well fill, monitor shadow, overflow hidden. Holds every demo and illustration. Each carries a title bar with label tape left and "Interactive demo" or "Illustration" right.
 - **Panel:** 10px, hairline, panel fill, panel shadow, 20 to 24px padding. Install options and the scale table.
 - **Band:** full-width band-navy strip between hairlines (Principles; FAQ uses the top hairline only).
 
@@ -340,17 +340,10 @@ A row on the shared blue rail with a white station tick (16 by 22, 3px keyline) 
 - **Don't** put label tape above a heading as an eyebrow.
 - **Don't** add glow, coloured shadows or hard offset shadows.
 
-## Raster provenance
+## Product screens
 
-Four product screenshots in `landing/img/`, all rendered in the feature rows:
+No raster screenshots. The four product screens are abstracted, interactive React demos in `landing/demos/` (Board, Agents, Pull requests, Code), built from the app's layout with synthetic data only (`DEMO_PROJECTS`, owner `acme`). Each carries a title bar with the mode name left and "Interactive demo" right.
 
-| File          | Size      | Added   |
-| :------------ | :-------- | :------ |
-| `agents.webp` | 440×910   | c0e2777 |
-| `board.webp`  | 1400×1114 | c0e2777 |
-| `code.webp`   | 825×900   | c0e2777 |
-| `pulls.webp`  | 1160×660  | 281f38c |
-
-- Privacy-checked by hand before commit: no private paths, tokens or customer names; repos shown are public or demo workspaces.
-- Terminal, browser, overview and workflow have no shippable capture; they are HTML/SVG illustrations labelled "Illustration".
-- Any new raster gets the same hand check and a row here before it ships.
+- Interactions are real buttons, inputs and selects; nothing animates on its own; initial state is constant so the prerender hydrates cleanly.
+- Terminal, browser, overview and workflow stay HTML/SVG illustrations labelled "Illustration".
+- Never put real repository, owner or session names into a demo.

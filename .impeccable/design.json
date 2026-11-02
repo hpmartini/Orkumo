@@ -485,7 +485,7 @@
       "name": "Monitor",
       "kind": "card",
       "refersTo": "monitor",
-      "description": "Frame for every screenshot and illustration; title bar with label tape.",
+      "description": "Frame for every interactive demo and illustration; title bar with label tape.",
       "html": "<div class=\"ds-monitor\"><div class=\"ds-monitor-bar\"><span>Overview</span><span>Illustration</span></div><div class=\"ds-monitor-body\"><div class=\"ds-monitor-row\"><code>storefront</code><span>Add retry to webhook</span></div></div></div>",
       "css": ".ds-monitor { overflow: hidden; border: 1px solid #34497a; border-radius: 8px; background: #101a33; box-shadow: 0 24px 46px -30px rgb(0 0 0 / 0.85); } .ds-monitor-bar { display: flex; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid #34497a; font-family: 'Archivo Variable', sans-serif; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.12em; text-transform: uppercase; color: #a8bbe2; } .ds-monitor-body { padding: 16px; } .ds-monitor-row { display: flex; align-items: baseline; gap: 8px; padding: 8px 12px; border: 1px solid #34497a; border-radius: 4px; background: #1e2c50; } .ds-monitor-row code { font-family: 'JetBrains Mono Variable', monospace; font-size: 12px; color: #60a5fa; } .ds-monitor-row span { font-family: 'Archivo Variable', sans-serif; font-size: 13px; color: #a8bbe2; }"
     },

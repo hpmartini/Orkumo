@@ -1,39 +1,26 @@
-import { HoverCard } from '../components/ui/hover-card';
 import { Reveal } from '../components/Reveal';
 import { Tick } from '../components/Tick';
 import { FEATURES, FEATURES_INTRO, type Feature } from '../copy';
+import { AgentsDemo } from '../demos/AgentsDemo';
+import { BoardDemo } from '../demos/BoardDemo';
+import { CodeDemo } from '../demos/CodeDemo';
+import { PullsDemo } from '../demos/PullsDemo';
 import { MonitorIllustration } from '../illustrations/MonitorIllustration';
 import { cn } from '../lib/utils';
-import agentsImg from '../img/agents.webp';
-import boardImg from '../img/board.webp';
-import codeImg from '../img/code.webp';
-import pullsImg from '../img/pulls.webp';
-
-type ShotSpec = { src: string; width: number; height: number };
-
-const MEDIA: Record<Exclude<Feature['media'], 'monitor'>, ShotSpec> = {
-  board: { src: boardImg, width: 1400, height: 1114 },
-  agents: { src: agentsImg, width: 440, height: 910 },
-  pulls: { src: pullsImg, width: 1160, height: 660 },
-  code: { src: codeImg, width: 825, height: 900 },
-};
 
 function Media({ feature }: { feature: Feature }) {
-  if (feature.media === 'monitor') return <MonitorIllustration />;
-  const shot = MEDIA[feature.media];
-  return (
-    <HoverCard rotateDepth={2.5} translateDepth={4}>
-      <img
-        src={shot.src}
-        width={shot.width}
-        height={shot.height}
-        alt={feature.alt}
-        loading="lazy"
-        decoding="async"
-        className="block h-auto w-full"
-      />
-    </HoverCard>
-  );
+  switch (feature.media) {
+    case 'board':
+      return <BoardDemo />;
+    case 'agents':
+      return <AgentsDemo />;
+    case 'pulls':
+      return <PullsDemo />;
+    case 'code':
+      return <CodeDemo />;
+    default:
+      return <MonitorIllustration />;
+  }
 }
 
 function FeatureRow({ feature, flip }: { feature: Feature; flip: boolean }) {
@@ -70,7 +57,13 @@ function FeatureRow({ feature, flip }: { feature: Feature; flip: boolean }) {
           ))}
         </ul>
       </Reveal>
-      <div className={cn(portrait ? 'lg:col-span-5' : 'lg:col-span-7', flip && 'lg:order-1')}>
+      <div
+        className={cn(
+          'min-w-0',
+          portrait ? 'lg:col-span-5' : 'lg:col-span-7',
+          flip && 'lg:order-1'
+        )}
+      >
         <div className={cn('monitor', portrait && 'mx-auto max-w-[440px]')}>
           <Media feature={feature} />
         </div>
