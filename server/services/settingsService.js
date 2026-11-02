@@ -18,6 +18,7 @@ const defaultSettings = {
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
   apiKeys: {}, // Map of provider -> API key (e.g. { provider: "key" })
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides
+  linkTarget: 'builtin', // Where clicked links open (#140): 'builtin' | 'system'
   agentView: {}, // Claude Code agent view preferences (grouping, layout, dispatch defaults)
   board: {}, // Agent task board: GitHub project source + slice favorites/order/hidden
   contexts: projectContexts.DEFAULT_CONTEXTS, // Project contexts (#97), see projectContexts.js
@@ -437,6 +438,18 @@ class SettingsService {
     settings.keyboardShortcuts = shortcuts;
     writeSettings(settings);
     return settings;
+  }
+
+  /**
+   * Set where clicked links open (#140)
+   * @param {'builtin'|'system'} target - validated by the route
+   * @returns {'builtin'|'system'}
+   */
+  setLinkTarget(target) {
+    const settings = readSettings();
+    settings.linkTarget = target;
+    writeSettings(settings);
+    return target;
   }
 
   /**

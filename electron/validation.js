@@ -26,6 +26,20 @@ export function isValidExternalUrl(urlString, isDev = false) {
 }
 
 /**
+ * Route a window.open / target=_blank from the app or one of its frames (the Web-IDE) (#140):
+ * http(s) goes back to the renderer, which picks built-in or system browser per the setting
+ * (the system path still passes isValidExternalUrl); anything else is blocked as before.
+ */
+export function windowOpenRoute(urlString) {
+  try {
+    const { protocol } = new URL(urlString);
+    return protocol === 'http:' || protocol === 'https:' ? 'renderer' : 'blocked';
+  } catch {
+    return 'blocked';
+  }
+}
+
+/**
  * Validate and sanitize dialog options
  */
 export function validateDialogOptions(options, type) {
@@ -51,8 +65,8 @@ export function validateDialogOptions(options, type) {
     }
     if (Array.isArray(options.buttons)) {
       const validButtons = options.buttons
-        .filter(b => typeof b === 'string')
-        .map(b => b.slice(0, 50))
+        .filter((b) => typeof b === 'string')
+        .map((b) => b.slice(0, 50))
         .slice(0, 4);
       if (validButtons.length > 0) {
         sanitized.buttons = validButtons;
@@ -70,9 +84,17 @@ export function validateDialogOptions(options, type) {
       sanitized.buttonLabel = options.buttonLabel.slice(0, 50);
     }
     if (Array.isArray(options.properties)) {
-      const validProps = ['openFile', 'openDirectory', 'multiSelections', 'showHiddenFiles',
-                          'createDirectory', 'promptToCreate', 'noResolveAliases', 'treatPackageAsDirectory'];
-      sanitized.properties = options.properties.filter(p => validProps.includes(p));
+      const validProps = [
+        'openFile',
+        'openDirectory',
+        'multiSelections',
+        'showHiddenFiles',
+        'createDirectory',
+        'promptToCreate',
+        'noResolveAliases',
+        'treatPackageAsDirectory',
+      ];
+      sanitized.properties = options.properties.filter((p) => validProps.includes(p));
     }
   }
 

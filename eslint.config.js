@@ -56,6 +56,7 @@ export default [
         HTMLInputElement: 'readonly',
         HTMLTextAreaElement: 'readonly',
         HTMLButtonElement: 'readonly',
+        HTMLAnchorElement: 'readonly',
         EventTarget: 'readonly',
         Notification: 'readonly',
         requestAnimationFrame: 'readonly',

@@ -8,6 +8,7 @@ import {
   filterPullRows,
   type PullRequestListProps,
 } from './PullRequestsPanel';
+import { getLinkTarget, openLink } from '../../utils/links';
 
 export interface PullRequestsPageProps extends Omit<
   PullRequestListProps,
@@ -42,9 +43,14 @@ export const PullRequestsPage: React.FC<PullRequestsPageProps> = ({ onClearRepo,
   const openPr = (pr: AgentPullRequest) => {
     if (!pr.url.startsWith('https://')) return;
     // Only GitHub pages load in the embedded browser; narrow windows (md breakpoint) and other hosts open externally
-    if (canEmbed && pr.url.startsWith('https://github.com/') && window.innerWidth >= 768) {
+    if (
+      canEmbed &&
+      getLinkTarget() === 'builtin' &&
+      pr.url.startsWith('https://github.com/') &&
+      window.innerWidth >= 768
+    ) {
       setOpenUrl(pr.url);
-    } else window.open(pr.url, '_blank', 'noopener,noreferrer');
+    } else openLink(pr.url);
   };
 
   return (

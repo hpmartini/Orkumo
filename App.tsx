@@ -36,6 +36,8 @@ import { BoardView } from './components/BoardView';
 import { WorkflowView } from './components/WorkflowView';
 import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
 import { CodeView } from './components/CodeView';
+import { ShellBrowser } from './components/ShellBrowser';
+import { installAnchorInterception, openLink, setLinkTarget } from './utils/links';
 
 type ActiveTab = 'dashboard' | 'usage' | 'agents' | 'board' | 'code' | 'workflows' | 'pulls';
 
@@ -120,6 +122,20 @@ function AppContent() {
     }
     navigateRef.current(target || '/agents');
   }, [activeContextId]);
+
+  // Links open in the configured browser (#140): app anchors, and Electron's window.open (Web-IDE)
+  const linkTarget = settings?.linkTarget;
+  useEffect(() => {
+    if (linkTarget) setLinkTarget(linkTarget);
+  }, [linkTarget]);
+  useEffect(() => {
+    const offAnchors = installAnchorInterception();
+    const offOpenLink = window.electronAPI?.onOpenLink?.((url) => openLink(url));
+    return () => {
+      offAnchors();
+      offOpenLink?.();
+    };
+  }, []);
 
   const handleSelectDashboard = () => navigate('/dashboard');
   // Stable: AgentsView's attach callbacks depend on it
@@ -268,89 +284,97 @@ function AppContent() {
           </header>
         )}
 
-        <div className="flex-1 min-h-0 relative">
-          {/* Always mounted so attached terminals survive navigation */}
-          <div className="absolute inset-0 flex flex-col min-h-0">
-            {/* Not keyed by context: that would remount the views below (Web-IDE, terminals) */}
-            <AgentsView
-              contextId={contexts.active?.id}
-              contextAppIds={contextAppIds}
-              active={activeTab === 'agents'}
-              apps={apps}
-              onExit={handleSelectDashboard}
-              onOpenView={openAgentsView}
-              nav={{
-                onOpenDashboard: handleSelectDashboard,
-                onOpenWorkflows: () => navigate('/workflows'),
-                onOpenSettings: () => setAdminPanelOpen(true),
-                onOpenProject: handleSelectApp,
-              }}
-            >
-              {/* Dashboard: the start view behind the rocket and the agents icon */}
-              <div
-                className={activeTab === 'dashboard' ? 'absolute inset-0 overflow-auto' : 'hidden'}
+        <div className="flex-1 min-h-0 relative flex">
+          <div className="flex-1 min-w-0 relative">
+            {/* Always mounted so attached terminals survive navigation */}
+            <div className="absolute inset-0 flex flex-col min-h-0">
+              {/* Not keyed by context: that would remount the views below (Web-IDE, terminals) */}
+              <AgentsView
+                contextId={contexts.active?.id}
+                contextAppIds={contextAppIds}
+                active={activeTab === 'agents'}
+                apps={apps}
+                onExit={handleSelectDashboard}
+                onOpenView={openAgentsView}
+                nav={{
+                  onOpenDashboard: handleSelectDashboard,
+                  onOpenWorkflows: () => navigate('/workflows'),
+                  onOpenSettings: () => setAdminPanelOpen(true),
+                  onOpenProject: handleSelectApp,
+                }}
               >
-                <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 space-y-8 animate-in fade-in duration-500">
-                  <AgentOverview active={activeTab === 'dashboard'} />
-                  <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                    <UsageCard onOpen={() => navigate('/usage')} />
-                    <SystemHealth />
+                {/* Dashboard: the start view behind the rocket and the agents icon */}
+                <div
+                  className={
+                    activeTab === 'dashboard' ? 'absolute inset-0 overflow-auto' : 'hidden'
+                  }
+                >
+                  <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 space-y-8 animate-in fade-in duration-500">
+                    <AgentOverview active={activeTab === 'dashboard'} />
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                      <UsageCard onOpen={() => navigate('/usage')} />
+                      <SystemHealth />
+                    </div>
                   </div>
                 </div>
-              </div>
 
-              {/* Usage per provider - polls only while active */}
-              <div
-                className={activeTab === 'usage' ? 'absolute inset-0 z-10 overflow-auto' : 'hidden'}
-                aria-hidden={activeTab !== 'usage'}
-              >
-                <UsageView active={activeTab === 'usage'} />
-              </div>
-
-              {/* Agent task board - kept mounted like the agents view, polls only while active */}
-              <div
-                className={
-                  activeTab === 'board' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
-                }
-                aria-hidden={activeTab !== 'board'}
-              >
-                <BoardView
-                  key={contexts.active?.id}
-                  active={activeTab === 'board'}
-                  contextFilter={contexts.active?.boardFilter}
-                />
-              </div>
-
-              {/* Code mode - kept mounted so the Web-IDE iframe survives navigation */}
-              <div
-                className={
-                  activeTab === 'code' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
-                }
-                aria-hidden={activeTab !== 'code'}
-              >
-                <CodeView active={activeTab === 'code'} apps={contextApps} />
-              </div>
-
-              {/* Workflows (mw) - polls only while active */}
-              <div
-                className={
-                  activeTab === 'workflows'
-                    ? 'absolute inset-0 z-10 flex flex-col min-h-0'
-                    : 'hidden'
-                }
-                aria-hidden={activeTab !== 'workflows'}
-              >
-                <WorkflowView active={activeTab === 'workflows'} />
-              </div>
-
-              {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
-              {activeTab === 'pulls' && (
-                <div className="absolute inset-0 z-10 flex flex-col min-h-0">
-                  <ConnectedPullRequestsPage />
+                {/* Usage per provider - polls only while active */}
+                <div
+                  className={
+                    activeTab === 'usage' ? 'absolute inset-0 z-10 overflow-auto' : 'hidden'
+                  }
+                  aria-hidden={activeTab !== 'usage'}
+                >
+                  <UsageView active={activeTab === 'usage'} />
                 </div>
-              )}
-            </AgentsView>
+
+                {/* Agent task board - kept mounted like the agents view, polls only while active */}
+                <div
+                  className={
+                    activeTab === 'board' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+                  }
+                  aria-hidden={activeTab !== 'board'}
+                >
+                  <BoardView
+                    key={contexts.active?.id}
+                    active={activeTab === 'board'}
+                    contextFilter={contexts.active?.boardFilter}
+                  />
+                </div>
+
+                {/* Code mode - kept mounted so the Web-IDE iframe survives navigation */}
+                <div
+                  className={
+                    activeTab === 'code' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+                  }
+                  aria-hidden={activeTab !== 'code'}
+                >
+                  <CodeView active={activeTab === 'code'} apps={contextApps} />
+                </div>
+
+                {/* Workflows (mw) - polls only while active */}
+                <div
+                  className={
+                    activeTab === 'workflows'
+                      ? 'absolute inset-0 z-10 flex flex-col min-h-0'
+                      : 'hidden'
+                  }
+                  aria-hidden={activeTab !== 'workflows'}
+                >
+                  <WorkflowView active={activeTab === 'workflows'} />
+                </div>
+
+                {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
+                {activeTab === 'pulls' && (
+                  <div className="absolute inset-0 z-10 flex flex-col min-h-0">
+                    <ConnectedPullRequestsPage />
+                  </div>
+                )}
+              </AgentsView>
+            </div>
           </div>
+          {/* Keyed: its URL is parked per context */}
+          <ShellBrowser key={activeContextId} />
         </div>
       </main>
 
