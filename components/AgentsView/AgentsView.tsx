@@ -2014,7 +2014,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               nav={nav}
               issuesByAgent={issuesByAgent}
               onOpenIssue={setIssueModalKey}
-              onCreateIssue={openIssueDialog}
               bottom={
                 remoteEnabled ? (
                   <RemoteAgents
