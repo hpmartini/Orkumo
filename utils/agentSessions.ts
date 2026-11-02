@@ -400,6 +400,12 @@ export function mainRepoPath(dir: string): string {
   return match ? match[1] : dir;
 }
 
+/** Project name of a directory: "Repo", or "Repo · folder" for a worktree */
+export function dirName(dir: string): string {
+  const main = mainRepoPath(dir);
+  return main === dir ? lastSegment(dir) : `${lastSegment(main)} · ${lastSegment(dir)}`;
+}
+
 /** Main repository name (never the worktree folder), falling back to the path-derived name */
 export function repoName(session: AgentSession, lookup?: SessionLookup): string {
   return (
@@ -881,7 +887,7 @@ export function prLabel(
 ): { text: string; className: string; href: string | null } | null {
   if (links.length === 0) return null;
   if (links.length > 1) {
-    return { text: `${links.length} PRs`, className: prClass(links[0].state), href: null };
+    return { text: String(links.length), className: prClass(links[0].state), href: null };
   }
   const link = links[0];
   const prefix = link.provider === 'gitlab' ? '!' : '#';

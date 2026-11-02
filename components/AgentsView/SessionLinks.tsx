@@ -11,7 +11,7 @@ const issueLabel = (key: string, repoSlug?: string | null) => {
     : key.slice(key.indexOf('/') + 1);
 };
 
-const pillClass = 'shrink-0 font-mono leading-4 px-1 rounded border';
+const pillClass = 'shrink-0 whitespace-nowrap font-mono leading-4 px-1 rounded border';
 
 export const IssuePill: React.FC<{
   issueKey: string;

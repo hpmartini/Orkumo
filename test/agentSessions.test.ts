@@ -6,6 +6,7 @@ import {
   sessionAgeMs,
   formatAge,
   prLabel,
+  dirName,
   documentTitle,
   COMPLETED_VISIBLE_LIMIT,
   DEFAULT_SORT,
@@ -158,8 +159,13 @@ describe('summaries and formatting', () => {
   it('renders PR labels with provider prefixes and counts', () => {
     expect(prLabel([openPr])).toMatchObject({ text: '#1', href: openPr.href });
     expect(prLabel([{ ...openPr, provider: 'gitlab', number: 9 }])?.text).toBe('!9');
-    expect(prLabel([openPr, { ...openPr, id: 'pr2', number: 2 }])?.text).toBe('2 PRs');
+    expect(prLabel([openPr, { ...openPr, id: 'pr2', number: 2 }])?.text).toBe('2');
     expect(prLabel([])).toBeNull();
+  });
+
+  it('names directory groups by project, worktrees with their folder', () => {
+    expect(dirName('/Users/x/PROJECTS/DevOrbitDashboard')).toBe('DevOrbitDashboard');
+    expect(dirName('/Users/x/PROJECTS/App/.claude/worktrees/fix-1')).toBe('App · fix-1');
   });
 
   it('builds the document title', () => {

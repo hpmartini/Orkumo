@@ -35,7 +35,7 @@ import {
   stateGlyph,
   sessionAgeMs,
   formatAge,
-  shortenPath,
+  dirName,
   displayRepo,
   cardDetailsVisible,
   cardSlots,
@@ -636,7 +636,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         ) : (
                           <span className="truncate min-w-0">
                             {grouping === 'directory'
-                              ? shortenPath(item.group.title, 42)
+                              ? dirName(item.group.title)
                               : item.group.title}
                           </span>
                         )}
