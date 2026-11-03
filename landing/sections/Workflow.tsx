@@ -1,12 +1,12 @@
 import { Tick } from '../components/Tick';
 import { WORKFLOW } from '../copy';
-import { WorkflowIllustration } from '../illustrations/WorkflowIllustration';
+import { WorkflowDemo } from '../demos/WorkflowDemo';
 
 export function Workflow() {
   return (
     <section id="workflow" aria-labelledby="workflow-h">
       <div className="mx-auto max-w-7xl px-5 py-24 sm:px-9">
-        <div className="grid gap-12 lg:grid-cols-12 lg:items-start">
+        <div className="grid gap-12 lg:grid-cols-12 lg:items-center">
           <div className="lg:col-span-5">
             <h2 id="workflow-h" className="display-face head-section">
               <span className="align-middle">{WORKFLOW.title}</span>
@@ -27,7 +27,7 @@ export function Workflow() {
           </div>
           <div className="min-w-0 lg:col-span-7">
             <div className="monitor">
-              <WorkflowIllustration />
+              <WorkflowDemo />
             </div>
           </div>
         </div>

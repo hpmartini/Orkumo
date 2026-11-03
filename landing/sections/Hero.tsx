@@ -19,6 +19,7 @@ export function Hero() {
       <div className="min-w-0 lg:col-span-6">
         <h1 className="display-face head-hero max-w-[15ch]">{HERO.title}</h1>
         <p className="mt-4 max-w-[66ch] text-lg text-muted sm:mt-6">{HERO.lead}</p>
+        <p className="mt-3 text-lg font-semibold text-text">{HERO.claim}</p>
         <div className="mt-8 flex flex-wrap items-center gap-3">
           <MagneticButton strength={reduce ? 0 : 0.3} maxDistance={16}>
             <a

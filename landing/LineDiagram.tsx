@@ -14,7 +14,7 @@ const DWELL = 2.2;
 const MONO = 'JetBrains Mono Variable, ui-monospace, monospace';
 const EDIT_OFFSET = 18; // Edit sits this far right of the spur knee
 const ARIA_LABEL =
-  'Line diagram: four example projects run through Plan, Steer, Monitor and Review. Edit is a spur off Review that leads back to it. One agent waits at Steer for input.';
+  'Line diagram: four example projects run through Plan, Steer, Monitor and Review to Ship. Edit is a spur off Review that leads back to it. One agent waits at Steer for input.';
 
 type Point = { x: number; y: number };
 type Train = { line: number; color: string; rose?: boolean; edits?: boolean; from: number };
@@ -254,6 +254,9 @@ function Diagram({ geometry, className, still }: DiagramProps) {
           </text>
         </g>
       ))}
+      <text x={end} y={36} textAnchor="middle" fontSize={15} fontWeight={700} fill="#a8bbe2">
+        {HERO.ship}
+      </text>
       <text
         x={edit}
         y={bottom + 34}
