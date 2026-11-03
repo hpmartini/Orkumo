@@ -1,9 +1,9 @@
 // All visible copy of the landing page. Every claim is grounded in README / code; no numbers, prices or users invented.
 
 export const META = {
-  title: 'DevOrbit · Plan, steer and review dozens of coding agents in one window',
+  title: 'DevOrbit · One workspace. Every agent.',
   description:
-    'DevOrbit is a local workspace for Claude Code agents: plan on your GitHub board, steer every session, watch what needs you, review pull requests and edit in VS Code — terminal first, without switching apps.',
+    'DevOrbit is a local workspace for Claude Code agents: plan on its own issue board, steer every session, watch what needs you, review pull requests and edit in VS Code — terminal first, without switching apps.',
   ogTitle: 'DevOrbit · one window for dozens of coding agents',
   ogDescription:
     'Plan, steer, monitor, review and edit agent work across all your projects. Real terminals, VS Code and a browser built in. Runs on your machine.',
@@ -18,13 +18,15 @@ export const NAV = [
 ];
 
 export const HERO = {
-  title: 'Plan, steer and review dozens of coding agents in one window.',
-  lead: 'DevOrbit puts your GitHub board, every Claude Code session, its pull request and VS Code side by side. You see which agent is waiting for you, answer it, review what it built and fix the code yourself — without leaving the app.',
+  title: 'One workspace. Every agent.',
+  lead: 'All your issues on one kanban board, every Claude Code session with its pull request and live workflow, VS\u00a0Code and a preview browser — side by side in one window.',
+  claim: 'Plan · Orchestrate · Review · Ship',
   primary: 'Download', // os-specific label comes from useDownloadLabel()
   secondary: 'Run from source',
   note: 'Free pre-release · macOS & Linux · open source on GitHub',
   // the five verbs of the hero line diagram, in this order; Edit loops back from Review
   stations: ['Plan', 'Steer', 'Monitor', 'Review', 'Edit'],
+  ship: 'Ship', // label over the end of the lines
   diagramLabel: 'Example projects',
 };
 
@@ -34,11 +36,13 @@ export const DEMO_PROJECTS = ['storefront', 'billing-api', 'docs-site', 'mobile-
 // the interactive demos label themselves with these (role="group" aria-label)
 export const DEMO_ALTS = {
   board:
-    'Interactive demo of Board mode: a GitHub project board with issue cards, an issue panel and an agent you can start.',
+    'Interactive demo of Board mode: a kanban board with issue cards, an issue panel and an agent you can start.',
   agents:
     'Interactive demo of Agents mode: agent sessions grouped by project, filterable by state, with a reply to a waiting agent.',
   pulls:
     'Interactive demo of the review: open pull requests of the demo projects with checks, a diff and feedback for the agent.',
+  workflow:
+    'Interactive demo of the live workflow: issues on their stations from queued to done, one waiting for your GO, with a feedback loop back to the brief.',
   code: 'Interactive demo of Code mode: VS Code with a project explorer, tabs and a source file, including a review fix applied in place.',
 };
 
@@ -61,10 +65,10 @@ export const FEATURES: Feature[] = [
   {
     id: 'plan',
     verb: 'Plan',
-    title: 'Plan the work on your GitHub board.',
-    body: 'Your GitHub Project, mirrored as a board. Write the issue, set its status, hand it to an agent — the card already knows which session and which pull request belong to it.',
+    title: 'Plan the work on a board built in.',
+    body: 'DevOrbit brings its own issue and kanban board — no detour to GitHub. Write the issue, set its status, hand it to an agent — the card already knows which session and which pull request belong to it.',
     points: [
-      'Issues as cards in swimlanes, drag and drop updates the status on GitHub',
+      'Issues as cards in swimlanes, drag and drop to change status, kept in sync with GitHub in the background',
       'One panel for labels, sub-issues, comments, linked agents and pull requests',
       'Start an agent straight from the issue',
     ],
@@ -150,19 +154,15 @@ export const WORKSPACE = {
 export const WORKFLOW = {
   badge: 'Pro',
   title: 'Watch the workflow run, live.',
-  lead: 'For orchestrated runs DevOrbit draws the workflow as it happens: which step an agent is on, which gate it is waiting at, and when review sends it back for another round.',
+  lead: 'For orchestrated runs DevOrbit shows every issue on its station: which one is being briefed, which one waits for your GO, and which one feedback sent back for another round.',
   points: [
-    'Plan → Build → Gates → Review → Check, drawn from the run’s real state',
-    'Loops are visible: review sends work back to build, a failed check restarts planning',
-    'Release the next step with one GO, right from the graph',
+    'Queued → Brief → GO → Build → Review → Done, drawn from each run’s real state',
+    'Loops stay visible: feedback at the GO gate sends the issue back to its brief, with the round count',
+    'Give the GO right on the issue card — two clicks, so nothing starts by accident',
   ],
-  illustrationLabel: 'Illustration',
   note: 'Part of the upcoming Pro version.',
-  stages: ['Plan', 'Build', 'Gates', 'Review', 'Check'],
-  loops: [
-    { from: 'Review', to: 'Build', label: 'fix round' },
-    { from: 'Check', to: 'Plan', label: 'goal loop' },
-  ],
+  stages: ['Queued', 'Brief', 'GO', 'Build', 'Review', 'Done'],
+  loop: 'feedback', // the siding from GO back to Brief
 };
 
 export const SCALE = {
