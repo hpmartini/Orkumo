@@ -12,6 +12,7 @@ import {
   sliceValues,
   sliceKey,
   buildSlices,
+  sliceGroups,
   filterItems,
   matchesQuery,
   matchesContextFilter,
@@ -227,6 +228,38 @@ describe('slices', () => {
     expect(
       buildSlices([dup], 'label', { favorites: [], order: [], hidden: [] }).others[0].count
     ).toBe(1);
+  });
+
+  describe('sliceGroups', () => {
+    const slices = buildSlices([a, b, c, d], 'repo', {
+      favorites: ['repo:hpmartini/glen'],
+      order: [],
+      hidden: ['repo:hpmartini/zeta'],
+    });
+    const shape = (q: string) =>
+      sliceGroups(slices, 'Repo', q).map((g) => [g.label, g.entries.map((e) => e.value)]);
+
+    it('keeps favorites, others and hidden as labelled groups', () => {
+      expect(shape('')).toEqual([
+        ['Favoriten', ['hpmartini/glen']],
+        ['Repo', ['hpmartini/DevHub']],
+        ['Ausgeblendet', ['hpmartini/zeta']],
+      ]);
+    });
+
+    it('filters live, case-insensitive by substring, dropping empty groups', () => {
+      expect(shape('dev')).toEqual([['Repo', ['hpmartini/DevHub']]]);
+      expect(shape('  ZET ')).toEqual([['Ausgeblendet', ['hpmartini/zeta']]]);
+      expect(shape('hpmartini/gl')).toEqual([['Favoriten', ['hpmartini/glen']]]);
+      expect(shape('nope')).toEqual([]);
+    });
+
+    it('works for non-repo kinds', () => {
+      const labels = buildSlices([a, b], 'label', { favorites: [], order: [], hidden: [] });
+      expect(sliceGroups(labels, 'Label', 'U').map((g) => g.entries.map((e) => e.value))).toEqual([
+        ['bug', 'ui'],
+      ]);
+    });
   });
 
   describe('filterItems', () => {

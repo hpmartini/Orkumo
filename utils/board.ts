@@ -141,6 +141,27 @@ export function buildSlices(
   };
 }
 
+export interface SliceGroup {
+  label: string;
+  entries: SliceEntry[];
+}
+
+/** Picker groups (favorites, others, hidden) live-filtered by a case-insensitive substring; empty groups drop out */
+export function sliceGroups(
+  slices: ReturnType<typeof buildSlices>,
+  othersLabel: string,
+  query: string
+): SliceGroup[] {
+  const q = query.trim().toLowerCase();
+  return [
+    { label: 'Favoriten', entries: slices.favorites },
+    { label: othersLabel, entries: slices.others },
+    { label: 'Ausgeblendet', entries: slices.hidden },
+  ]
+    .map((g) => ({ ...g, entries: g.entries.filter((e) => e.value.toLowerCase().includes(q)) }))
+    .filter((g) => g.entries.length > 0);
+}
+
 export function filterItems(
   items: BoardItem[],
   opts: {
