@@ -124,14 +124,25 @@ describe('Claude config dir as project directory (#190)', () => {
     }
   );
 
-  // Inside ~/.claude the exemption compares the resolved path, so the hidden-dir check fires.
-  // A link from ~/PROJECTS to ~/.ssh still passes: the unchanged symlink check only knows
-  // system paths (guardrail of #190, follow-up issue)
-  it('AC-2: rejects a symlink .claude/ssh-link pointing to ~/.ssh', async () => {
-    const res = await addDir(main.base, path.join(home, '.claude', 'ssh-link'));
-    expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('Scanning hidden directories in home is not allowed');
-  });
+  // The hidden-dir check compares real paths, so links into ~/.ssh fail wherever they live
+  it.each(['PROJECTS', '.claude'])(
+    'AC-2: rejects a symlink %s/ssh-link pointing to ~/.ssh',
+    async (dir) => {
+      const res = await addDir(main.base, path.join(home, dir, 'ssh-link'));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('Scanning hidden directories in home is not allowed');
+    }
+  );
+
+  // macOS volumes are case-insensitive: /HOME/.ssh is the same dir as /home/.ssh
+  it.runIf(process.platform === 'darwin')(
+    'AC-2: rejects ~/.ssh spelled in other case',
+    async () => {
+      const res = await addDir(main.base, path.join(root, 'HOME', '.ssh'));
+      expect(res.status).toBe(400);
+      expect((await res.json()).error).toBe('Scanning hidden directories in home is not allowed');
+    }
+  );
 
   it('AC-2: rejects traversal out of ~/.claude', async () => {
     const res = await addDir(main.base, `${home}/.claude/../.ssh`);
