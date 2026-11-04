@@ -19,6 +19,8 @@ AC-6 offen: Klick auf „Umsetzen“ im echten Dialog (DevHub#194, Dev-Server Wo
 ## Hinweise
 
 - `mw board go` gibt es im installierten mw (7.6) noch nicht (`mw board go` → argparse `invalid choice: 'go'`, Exit 2). Heute greift im echten Betrieb der Fallback „startet mit dem nächsten Poll“; „gestartet“ / „kein Platz frei“ sind per gemocktem execFile belegt (AC-3/AC-4 erlauben das).
+- Zusätzlich berührt (über die Dateiliste des Vertrags hinaus, nötig): `GoButton.tsx`, `WorkflowView.tsx`, `BoardItemPanel.tsx` (Antwort `pollError` → `start`), `IssueModal.tsx`/`BoardItemPanel.tsx` (`issueUrl` an beiden Render-Stellen), `services/boardApi.ts` (Client-Aufruf), `utils/workflowStage.js` (`ISSUE_URL_RE` geteilt), `pty-host/execPolicy.js` + `pty-host/index.js` (Docker-Pfad: Allowlist nur `mw board go <url> --json`; `CLAUDE_CLI_PATH` nur noch für `claude`, sonst liefe `mw` als claude; ENOENT-Meldung), `server/services/agentService.js` (ENOENT-Meldung in `runLocal` für den Fallback).
+- Docker/pty-host-Pfad nur per Unit-Test der Allowlist belegt, nicht live.
 - Prüfung laut Vertrag: „langlebig · selbst“ → kein unabhängiges `mw:reviewer`-Review verlangt.
 - Kein PR, kein `mw board` (Vorgabe des Laufs).
 
