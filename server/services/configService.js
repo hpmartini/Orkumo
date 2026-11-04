@@ -26,6 +26,20 @@ const FORBIDDEN_PATHS = [
   '/.config',
 ];
 
+/** Claude's config dir ($CLAUDE_CONFIG_DIR, else ~/.claude): the one hidden home dir allowed (#190) */
+function claudeConfigDir() {
+  // Same resolution as JOBS_DIR in scannerService.js
+  const dir = process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '/', '.claude');
+  return canonicalDir(path.resolve(dir));
+}
+
+/** `child` is `parent` or lies below it, compared per path segment */
+function isInside(child, parent) {
+  return (
+    child === parent || child.startsWith(parent.endsWith(path.sep) ? parent : parent + path.sep)
+  );
+}
+
 /**
  * Validate that a path is safe to scan
  */
@@ -53,10 +67,17 @@ function validatePath(dirPath) {
     }
   }
 
-  // Check for hidden directories in home
+  // Check for hidden directories in home; only Claude's config dir is exempt (#190).
+  // Compared on real paths, so neither a symlink (~/PROJECTS/x -> ~/.ssh) nor macOS
+  // case folding (/users/me/.ssh) slips past
   const homeDir = process.env.HOME || '';
-  if (homeDir && normalizedPath.startsWith(homeDir)) {
-    const relativePath = normalizedPath.slice(homeDir.length);
+  const realHome = canonicalDir(homeDir);
+  const realDir = canonicalDir(normalizedPath);
+  const configDir = claudeConfigDir();
+  // A config dir at or above HOME would exempt every hidden home dir
+  const exempt = !isInside(realHome, configDir) && isInside(realDir, configDir);
+  if (homeDir && isInside(realDir, realHome) && !exempt) {
+    const relativePath = realDir.slice(realHome.length);
     if (relativePath.match(/^\/\.[^/]+/)) {
       throw new Error('Scanning hidden directories in home is not allowed');
     }
