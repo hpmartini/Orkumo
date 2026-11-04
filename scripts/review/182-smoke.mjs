@@ -48,6 +48,10 @@ app.whenReady().then(async () => {
   win.addBrowserView(view);
   view.setBounds({ x: 0, y: 0, width: 900, height: 700 });
   const wc = view.webContents;
+  // a new loadURL while the last navigation still loads replaces its history entry: wait for it to finish
+  const settled = async () => {
+    for (let i = 0; i < 50 && wc.isLoading(); i++) await sleep(100);
+  };
 
   try {
     await wc.loadURL(`${base}/a`);
@@ -59,11 +63,13 @@ app.whenReady().then(async () => {
     let nav = until(wc, 'did-navigate');
     goHistory(wc, 'back');
     await nav;
+    await settled();
     s = states.at(-1);
     check('AC-1', 'back button goes back', s.url === `${base}/a` && !s.canGoBack && s.canGoForward, s.url);
     nav = until(wc, 'did-navigate');
     goHistory(wc, 'forward');
     await nav;
+    await settled();
     check('AC-1', 'forward button goes forward', states.at(-1).url === `${base}/b`, states.at(-1).url);
 
     // AC-3: real mouse back/forward button presses, dispatched as native input via CDP
@@ -77,11 +83,13 @@ app.whenReady().then(async () => {
     nav = until(wc, 'did-navigate');
     await click(wc, 'back');
     await nav;
+    await settled();
     await sleep(300); // a second (double) navigation would land here
     check('AC-3', 'mouse back button goes back exactly one page', wc.getURL() === `${base}/b`, wc.getURL());
     nav = until(wc, 'did-navigate');
     await click(wc, 'forward');
     await nav;
+    await settled();
     check('AC-3', 'mouse forward button navigates forward', wc.getURL() === `${base}/c`, wc.getURL());
     wc.debugger.detach();
 
@@ -110,6 +118,7 @@ app.whenReady().then(async () => {
       wc.sendInputEvent({ type: 'keyDown', ...input });
       wc.sendInputEvent({ type: 'keyUp', ...input });
       await navigated;
+      await settled();
       check('AC-3', label, wc.getURL() === expected, wc.getURL());
     }
 
@@ -120,10 +129,11 @@ app.whenReady().then(async () => {
       ['F5', { keyCode: 'F5', modifiers: [] }],
     ]) {
       const before = hits['/c'];
-      const loaded = until(wc, 'did-finish-load');
       wc.sendInputEvent({ type: 'keyDown', ...input });
       wc.sendInputEvent({ type: 'keyUp', ...input });
-      await loaded;
+      // wait on the server hit, not did-finish-load: a late event from the previous navigation would resolve too early
+      for (let i = 0; i < 50 && hits['/c'] === before; i++) await sleep(100);
+      await sleep(300); // a double reload would land here
       check('AC-5', `${label} in the view reloads the view`, hits['/c'] === before + 1, `/c hits ${before} -> ${hits['/c']}`);
     }
     // plain typing must not reload
