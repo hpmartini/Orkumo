@@ -86,13 +86,12 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
   const sel = selected ? nodeById.get(selected) : undefined;
   const viewport = useViewportWidth();
   const POP_W = popWidth(sel ? count(sel.id) : 1, Math.min(layout.width, viewport) - 16);
-  // Beside the station, flipped left at the right edge; lower half grows upwards
+  // Beside the station, flipped left at the right edge
   const popLeft = sel
     ? sel.x + NODE_W / 2 + POP_GAP + POP_W <= layout.width
       ? sel.x + NODE_W / 2 + POP_GAP
       : Math.max(8, Math.min(sel.x - NODE_W / 2 - POP_GAP - POP_W, layout.width - POP_W - 8))
     : 0;
-  const popBelow = sel ? sel.y < layout.height / 2 : true;
 
   return (
     <div
@@ -238,13 +237,12 @@ export const WorkflowGraph: React.FC<WorkflowGraphProps> = ({
           initial={{ opacity: 0, x: popLeft > sel.x ? -6 : 6 }}
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
-          className="absolute z-40 rounded-xl border border-gray-750 bg-gray-950/95 p-2.5 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)] backdrop-blur"
+          className="absolute z-40 max-h-[70vh] overflow-y-auto overscroll-contain rounded-xl border border-gray-750 bg-gray-950/95 p-2.5 shadow-[0_16px_40px_-12px_rgba(0,0,0,0.7)] backdrop-blur"
           style={{
             left: popLeft,
             width: POP_W,
-            ...(popBelow
-              ? { top: sel.y - NODE_H / 2 }
-              : { bottom: layout.height - (sel.y + NODE_H / 2) }),
+            // always downwards: growing up past the graph's top edge is out of scroll reach
+            top: sel.y - NODE_H / 2,
           }}
         >
           {popover}

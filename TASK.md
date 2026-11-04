@@ -558,3 +558,13 @@ The following existing tasks are related to the new features above:
   - Solution: Prefs werden im Render beim `contextId`-Wechsel neu geladen (State `{contextId, prefs}`, Muster wie `useAgentWorkspace`); kein Effekt mehr, Kind-Effekte sehen schon die Prefs des neuen Kontexts.
 - Verifikation: `test/railPreferences.test.tsx` neuer Test grün, volle Suite 764/764 (3 Läufe). `railModes.test.tsx` vereinzelt flaky.
 - Grenzen: Bereits verschleppte Favoriten in gespeicherten Kontexten bleiben, bis man sie dort entfernt.
+
+### Stations-Popup zeigt nur die letzten Issues (2026-11-04)
+
+- [x] **[FIX]** Klick auf die GO-Station zeigt nur die letzten 4 von ~100 Issues
+  - Issue: Im Workflow-Graph öffnete das Popup der GO-Station nur eine Kartenreihe, obwohl 98 Issues drin sind.
+  - Root cause: Liegt die Station in der unteren Graphhälfte, wurde das Popup per `bottom` verankert und wuchs nach oben. Bei 98 Karten (~6300 px) ragte fast alles über die Oberkante des Graphs hinaus; oberhalb des Scroll-Containers ist kein Scrollen möglich, sichtbar blieb nur die letzte Reihe.
+  - Approach: Headless-Playwright gegen `/workflows`, Position und Maße des Popups gemessen.
+  - Solution: `components/WorkflowView/WorkflowGraph.tsx`: Popup immer ab Stationsoberkante nach unten (`top`), `max-h-[70vh] overflow-y-auto overscroll-contain`, scrollt intern.
+- Verifikation: Headless 98 Karten gerendert, scrollHeight 6303 > clientHeight 698; `test/workflowGraph.test.js` 7/7. tsc-Fehler (qrcode, @capacitor, index.tsx) bestehen auch ohne Fix.
+- Grenzen: Hover-Tooltip der letzten Kartenreihe kann im scrollenden Popup abgeschnitten werden.
