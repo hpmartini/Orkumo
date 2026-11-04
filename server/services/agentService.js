@@ -103,7 +103,10 @@ function runLocal(command, args, options = {}) {
         resolve({
           code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
           stdout: String(stdout || ''),
-          stderr: String(stderr || '') + (error && error.killed ? '\n(timed out)' : ''),
+          // a missing binary (ENOENT) has no stderr; its message says why nothing ran
+          stderr:
+            (String(stderr || '') || (error?.code === 'ENOENT' ? error.message : '')) +
+            (error && error.killed ? '\n(timed out)' : ''),
         });
       }
     );

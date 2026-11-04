@@ -315,14 +315,21 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           </dd>
         </dl>
 
-        {editable && <FlowControls labels={item.labels} repoOptions={repoOptions} onSave={save} />}
+        {editable && (
+          <FlowControls
+            labels={item.labels}
+            repoOptions={repoOptions}
+            onSave={save}
+            issueUrl={item.url}
+          />
+        )}
 
         {editable && pollGo && (
           <GoButton
             label={goLabel(pollGo)}
             onGo={() =>
               sendWorkflowGo(item.itemId, pollGo).then(
-                () => void toast.success(goDoneText(key, pollGo)),
+                (res) => void toast.success(goDoneText(key, pollGo, res.start)),
                 (e) => void toast.error(e instanceof Error ? e.message : 'Poll nicht gestartet')
               )
             }

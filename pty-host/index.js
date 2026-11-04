@@ -222,7 +222,10 @@ const execFileAsync = (bin, args, options) =>
         resolve({
           code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
           stdout: String(stdout || ''),
-          stderr: String(stderr || '') + (error && error.killed ? '\n(timed out)' : ''),
+          // a missing binary (ENOENT) has no stderr; the API falls back on its message
+          stderr:
+            (String(stderr || '') || (error?.code === 'ENOENT' ? error.message : '')) +
+            (error && error.killed ? '\n(timed out)' : ''),
         });
       }
     );
@@ -236,7 +239,8 @@ const execFileAsync = (bin, args, options) =>
 function resolveBinary(name) {
   const home = process.env.HOME || os.homedir();
   const candidates = [
-    process.env.CLAUDE_CLI_PATH,
+    // the override names the claude binary only; for `mw` it would run claude instead
+    name === 'claude' ? process.env.CLAUDE_CLI_PATH : null,
     `${home}/.bun/bin/${name}`,
     `${home}/.local/bin/${name}`,
     '/opt/homebrew/bin/' + name,
@@ -316,7 +320,7 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
-    // fixed path: resolveBinary prefers CLAUDE_CLI_PATH for any name
+    // fixed path for launchctl; resolveBinary prefers CLAUDE_CLI_PATH for claude
     const bin = command === 'launchctl' ? '/bin/launchctl' : resolveBinary(command) || command;
     const resolvedCwd =
       typeof cwd === 'string' && cwd.trim() && fs.existsSync(cwd)

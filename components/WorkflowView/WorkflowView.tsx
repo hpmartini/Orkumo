@@ -202,7 +202,7 @@ export const WorkflowView: React.FC<{ active: boolean }> = ({ active }) => {
     if (!card.state.go) return;
     try {
       const res = await sendWorkflowGo(card.item.itemId, card.state.go);
-      toast.success(goDoneText(card.key, card.state.go, res.pollError));
+      toast.success(goDoneText(card.key, card.state.go, res.start));
       await refresh();
     } catch (e) {
       toast.error((e as Error).message);

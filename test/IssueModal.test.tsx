@@ -17,6 +17,7 @@ const api = vi.hoisted(() => ({
   setIssueLabels: vi.fn(),
   fetchRepoPath: vi.fn(),
   sendWorkflowGo: vi.fn(),
+  startWorkflow: vi.fn(),
   errorDetails: () => ({}),
 }));
 vi.mock('../services/boardApi', () => api);
@@ -115,6 +116,7 @@ beforeEach(() => {
     assignees: [],
     milestones: [],
   });
+  api.startWorkflow.mockResolvedValue({ action: 'start', reason: '' });
   api.updateBoardIssue.mockImplementation(async (_id, patch) => ({
     ...item,
     labels: patch.labels.map((name: string) => ({ name, color: '000000' })),
@@ -196,6 +198,81 @@ describe('IssueModal (#104)', () => {
     );
   });
 
+  it('AC-1: Umsetzen with mw:build set leaves the label, twice; without it sets it once', async () => {
+    const built = { ...item, labels: [...item.labels, { name: 'mw:build', color: '000000' }] };
+    api.fetchBoard.mockResolvedValue({ ...board, items: [built] });
+    renderModal();
+    const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
+    await waitFor(() => expect(build.disabled).toBe(false));
+    expect(build.getAttribute('aria-pressed')).toBe('true');
+    fireEvent.click(build);
+    await screen.findByText('Umsetzung: gestartet');
+    fireEvent.click(build);
+    await waitFor(() => expect(api.startWorkflow).toHaveBeenCalledTimes(2));
+    expect(api.startWorkflow).toHaveBeenCalledWith('https://github.com/o/r/issues/7');
+    expect(api.updateBoardIssue).not.toHaveBeenCalled();
+    expect(build.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('AC-1: Umsetzen without mw:build sets it (no duplicate), then starts', async () => {
+    renderModal();
+    const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
+    await waitFor(() => expect(build.disabled).toBe(false));
+    expect(build.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(build);
+    await waitFor(() => expect(api.startWorkflow).toHaveBeenCalledTimes(1));
+    expect(api.updateBoardIssue).toHaveBeenCalledTimes(1);
+    expect(api.updateBoardIssue).toHaveBeenCalledWith('PVTI_1', {
+      labels: ['bug', 'mw:go', 'mw:build'],
+    });
+    expect(api.updateBoardIssue.mock.invocationCallOrder[0]).toBeLessThan(
+      api.startWorkflow.mock.invocationCallOrder[0]
+    );
+    await waitFor(() => expect(build.getAttribute('aria-pressed')).toBe('true'));
+  });
+
+  it('AC-1: a failed label write starts nothing', async () => {
+    api.updateBoardIssue.mockRejectedValue(new Error('gh down'));
+    renderModal();
+    const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
+    await waitFor(() => expect(build.disabled).toBe(false));
+    fireEvent.click(build);
+    await waitFor(() => expect(api.updateBoardIssue).toHaveBeenCalled());
+    await waitFor(() => expect(build.disabled).toBe(false));
+    expect(api.startWorkflow).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [{ action: 'start', reason: 'Todo' }, 'Umsetzung: gestartet'],
+    [{ action: 'resume', reason: 'mw:build' }, 'Umsetzung: gestartet'],
+    [
+      { action: 'none', reason: 'kein Platz frei (4/4)' },
+      'Umsetzung: kein Platz frei (4/4), startet, sobald einer frei wird',
+    ],
+    [
+      { action: 'poll', reason: 'startet mit dem nächsten Poll' },
+      'Umsetzung: startet mit dem nächsten Poll',
+    ],
+    [{ action: 'none', reason: 'Issue nicht auf MACC' }, 'Umsetzung: Issue nicht auf MACC'],
+  ])('AC-4: dialog reports %j', async (result, text) => {
+    api.startWorkflow.mockResolvedValue(result);
+    renderModal();
+    const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
+    await waitFor(() => expect(build.disabled).toBe(false));
+    fireEvent.click(build);
+    expect((await screen.findByRole('status')).textContent).toBe(text);
+  });
+
+  it('AC-4: a failed start is reported, the label stays', async () => {
+    api.startWorkflow.mockRejectedValue(new Error('mw board go: boom'));
+    renderModal();
+    const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
+    await waitFor(() => expect(build.disabled).toBe(false));
+    fireEvent.click(build);
+    expect(await screen.findByText('Umsetzung: Nicht gestartet: mw board go: boom')).toBeTruthy();
+    expect(build.getAttribute('aria-pressed')).toBe('true');
+  });
+
   it('issue not on the board: title, body, labels, control buttons and comments', async () => {
     const summary = {
       issueId: 'I_9',
@@ -228,6 +305,14 @@ describe('IssueModal (#104)', () => {
       expect(api.setIssueLabels).toHaveBeenCalledWith('I_9', ['bug', 'mw:build'])
     );
     await waitFor(() => expect(build.getAttribute('aria-pressed')).toBe('true'));
+    await waitFor(() =>
+      expect(api.startWorkflow).toHaveBeenCalledWith('https://github.com/o/r/issues/99')
+    );
+    // a second click keeps the label (#194: the toggle removed it)
+    fireEvent.click(build);
+    await waitFor(() => expect(api.startWorkflow).toHaveBeenCalledTimes(2));
+    expect(api.setIssueLabels).toHaveBeenCalledTimes(1);
+    expect(build.getAttribute('aria-pressed')).toBe('true');
   });
 
   it('released issue waiting on the poll: "Jetzt starten" starts it after confirming (#145)', async () => {

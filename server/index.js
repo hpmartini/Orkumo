@@ -43,7 +43,7 @@ import { getAgentContexts, getKnownServerPids } from './services/agentContextSer
 import * as boardService from './services/boardService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowService from './services/workflowService.js';
-import { applyGo, workflowGoSchema } from './services/workflowGo.js';
+import { applyGo, startNow, workflowGoSchema, workflowStartSchema } from './services/workflowGo.js';
 import { deriveWorkflowState } from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
@@ -1626,6 +1626,14 @@ app.post(
   validate(z.object({ itemId: boardItemIdSchema, go: workflowGoSchema }).strict()),
   sendGo((b) => b.go)
 );
+// Umsetzen in the issue dialog: start the issue now (mw board go), the label is already set
+app.post('/api/workflows/start', agentLimiter, validate(workflowStartSchema), async (req, res) => {
+  try {
+    res.json(await startNow(req.body.url));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
 app.post(
   '/api/workflows/poll',
   agentLimiter,

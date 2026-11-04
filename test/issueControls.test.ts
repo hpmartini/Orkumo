@@ -7,6 +7,7 @@ import {
   quoteComment,
   replyText,
   setMode,
+  startText,
   toggleLabel,
 } from '../utils/issueControls';
 
@@ -67,5 +68,18 @@ describe('comment quoting', () => {
   it('appends to a non-empty draft', () => {
     expect(insertIntoDraft('', 'Q')).toBe('Q');
     expect(insertIntoDraft('Hallo  \n', 'Q')).toBe('Hallo\n\nQ');
+  });
+});
+
+describe('startText (AC-4)', () => {
+  it('started, no slot, fallback, other reason', () => {
+    expect(startText({ action: 'start', reason: 'x' })).toBe('gestartet');
+    expect(startText({ action: 'resume', reason: 'x' })).toBe('gestartet');
+    expect(startText({ action: 'none', reason: 'kein Platz frei (2/4)' })).toBe(
+      'kein Platz frei (2/4), startet, sobald einer frei wird'
+    );
+    expect(startText({ action: 'poll', reason: '' })).toBe('startet mit dem nächsten Poll');
+    expect(startText({ action: 'none', reason: 'nichts freigegeben' })).toBe('nichts freigegeben');
+    expect(startText({ action: 'none', reason: '' })).toBe('nicht gestartet');
   });
 });

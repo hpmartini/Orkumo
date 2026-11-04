@@ -25,8 +25,24 @@ describe('pty-host isAllowedExec', () => {
     }
   });
 
+  it('mw only as `mw board go <issue-url> --json`', () => {
+    const url = 'https://github.com/o/r/issues/7';
+    expect(isAllowedExec('mw', ['board', 'go', url, '--json'], 501)).toBe(true);
+    for (const args of [
+      ['board', 'go', url],
+      ['board', 'go', url, '--json', 'x'],
+      ['board', 'poll'],
+      ['board', 'go', 'https://github.com/o/r/pull/7', '--json'],
+      ['board', 'go', `${url};rm`, '--json'],
+      ['delegate', 'go', url, '--json'],
+      'board go',
+    ]) {
+      expect(isAllowedExec('mw', args, 501)).toBe(false);
+    }
+  });
+
   it('other commands stay refused', () => {
-    for (const cmd of ['/bin/launchctl', 'sh', 'mw', undefined, 42]) {
+    for (const cmd of ['/bin/launchctl', 'sh', '/bin/mw', undefined, 42]) {
       expect(isAllowedExec(cmd, ['kickstart', JOB], 501)).toBe(false);
     }
   });

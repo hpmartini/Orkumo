@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import type { BoardLabel, BoardRepoOptions } from '../../types';
 import {
   BUILD_LABEL,
@@ -10,9 +10,11 @@ import {
   REVIEW_LABEL,
   currentMode,
   setMode,
+  startText,
   toggleLabel,
   type FlowMode,
 } from '../../utils/issueControls';
+import { startWorkflow } from '../../services/boardApi';
 import { labelsFor } from './IssueFields';
 import type { IssueSave } from './IssueEditors';
 
@@ -28,12 +30,19 @@ const btnState = (on: boolean) =>
     ? 'border-cursor/60 bg-cursor/15 text-white'
     : 'border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800';
 
-/** mw-board control labels as buttons; a label missing in the repo disables its button */
+/**
+ * mw-board control labels as buttons; a label missing in the repo disables its button.
+ * Umsetzen only ever sets mw:build (taking the approval back is done on GitHub) and starts the
+ * issue right away via `mw board go`.
+ */
 export const FlowControls: React.FC<{
   labels: BoardLabel[];
   repoOptions: BoardRepoOptions | null;
   onSave: IssueSave;
-}> = ({ labels, repoOptions, onSave }) => {
+  /** GitHub URL of the issue; without it Umsetzen only sets the label */
+  issueUrl?: string | null;
+}> = ({ labels, repoOptions, onSave, issueUrl }) => {
+  const [startMsg, setStartMsg] = useState<string | null>(null);
   const names = labels.map((l) => l.name);
   const exists = (label: string) => !!repoOptions?.labels.some((l) => l.name === label);
   const apply = (next: string[]) =>
@@ -54,6 +63,18 @@ export const FlowControls: React.FC<{
       </button>
     );
   };
+  const building = names.includes(BUILD_LABEL);
+  const build = async () => {
+    setStartMsg('startet…');
+    try {
+      if (!building && !(await apply(toggleLabel(names, BUILD_LABEL, true)))) {
+        return setStartMsg(null);
+      }
+      setStartMsg(issueUrl ? startText(await startWorkflow(issueUrl)) : null);
+    } catch (e) {
+      setStartMsg(`Nicht gestartet: ${e instanceof Error ? e.message : 'Fehler'}`);
+    }
+  };
   const mode = currentMode(names);
 
   return (
@@ -68,11 +89,25 @@ export const FlowControls: React.FC<{
       </h3>
       <div className="flex flex-wrap gap-1.5">
         {toggle(GO_LABEL, 'Freigeben', 'Issue für mw board freigeben')}
-        {toggle(BUILD_LABEL, 'Umsetzen', 'Briefing freigeben, Umsetzung starten')}
+        <button
+          onClick={build}
+          disabled={!exists(BUILD_LABEL) || startMsg === 'startet…'}
+          aria-pressed={building}
+          title={
+            missing(BUILD_LABEL) ??
+            `Briefing freigeben, Umsetzung sofort starten (${BUILD_LABEL} ${building ? 'bleibt gesetzt' : 'setzen'})`
+          }
+          className={`${BTN} ${btnState(building)}`}
+        >
+          Umsetzen
+        </button>
         {toggle(DYNAMIC_LABEL, 'Dynamic', 'Dynamic Workflows')}
         {toggle(DELEGATE_LABEL, 'Delegate', 'Teilaufgaben an Codex/MiniMax abgeben')}
         {toggle(REVIEW_LABEL, 'Review', 'Unabhängiges Review vor dem PR')}
       </div>
+      <p role="status" className="mt-1.5 text-xs text-gray-400 empty:hidden">
+        {startMsg && `Umsetzung: ${startMsg}`}
+      </p>
       <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="mw-Modus">
         {MODES.map(({ mode: m, label }) => {
           const label_ = m === 'default' ? null : MODE_LABELS[m];

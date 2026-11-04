@@ -15,6 +15,7 @@ import type {
   WorkflowDetails,
 } from '../types';
 import type { WorkflowGo } from '../utils/workflowStage.js';
+import type { WorkflowStart } from '../utils/issueControls';
 
 /** JSON request against the API; failures throw with the server's `error` message */
 export async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -141,11 +142,16 @@ export function updateBoardSettings(patch: Partial<BoardSettings>): Promise<Boar
 export function sendWorkflowGo(
   itemId: string,
   go: WorkflowGo
-): Promise<{ ok: true; pollError?: string | null }> {
+): Promise<{ ok: true; start?: WorkflowStart }> {
   // the poll start has its own route; /workflows/go takes the build GO only (#136)
   if (go.kind === 'poll')
     return request('/workflows/poll', { method: 'POST', body: JSON.stringify({ itemId }) });
   return request('/workflows/go', { method: 'POST', body: JSON.stringify({ itemId, go }) });
+}
+
+/** Starts or wakes the issue now (`mw board go`); its label must already be set */
+export function startWorkflow(url: string): Promise<WorkflowStart> {
+  return request('/workflows/start', { method: 'POST', body: JSON.stringify({ url }) });
 }
 
 export function fetchWorkflowDetails(itemId: string): Promise<WorkflowDetails> {
