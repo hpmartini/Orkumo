@@ -40,33 +40,6 @@ function isInside(child, parent) {
   );
 }
 
-/** Throw when a path is a forbidden location or a hidden home dir other than Claude's config dir */
-function assertNotForbidden(dirPath) {
-  for (const forbidden of FORBIDDEN_PATHS) {
-    const forbiddenAbs = path.resolve(process.env.HOME || '/', forbidden);
-    if (dirPath.startsWith(forbiddenAbs) || dirPath === forbiddenAbs) {
-      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
-    }
-    // Also check absolute forbidden paths
-    if (dirPath.startsWith(forbidden) || dirPath === forbidden) {
-      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
-    }
-  }
-
-  // Hidden home dirs hold secrets; only Claude's config dir is exempt
-  const homeDir = process.env.HOME || '';
-  const configDir = claudeConfigDir();
-  // A config dir at or above HOME would exempt every hidden home dir; ~/.claude may be a symlink
-  const exempt =
-    !isInside(canonicalDir(homeDir), configDir) && isInside(canonicalDir(dirPath), configDir);
-  if (homeDir && dirPath.startsWith(homeDir) && !exempt) {
-    const relativePath = dirPath.slice(homeDir.length);
-    if (relativePath.match(/^\/\.[^/]+/)) {
-      throw new Error('Scanning hidden directories in home is not allowed');
-    }
-  }
-}
-
 /**
  * Validate that a path is safe to scan
  */
@@ -82,7 +55,31 @@ function validatePath(dirPath) {
     throw new Error('Path traversal detected');
   }
 
-  assertNotForbidden(normalizedPath);
+  // Check against forbidden paths
+  for (const forbidden of FORBIDDEN_PATHS) {
+    const forbiddenAbs = path.resolve(process.env.HOME || '/', forbidden);
+    if (normalizedPath.startsWith(forbiddenAbs) || normalizedPath === forbiddenAbs) {
+      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
+    }
+    // Also check absolute forbidden paths
+    if (normalizedPath.startsWith(forbidden) || normalizedPath === forbidden) {
+      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
+    }
+  }
+
+  // Check for hidden directories in home; only Claude's config dir is exempt (#190)
+  const homeDir = process.env.HOME || '';
+  const configDir = claudeConfigDir();
+  // A config dir at or above HOME would exempt every hidden home dir; ~/.claude may be a symlink
+  const exempt =
+    !isInside(canonicalDir(homeDir), configDir) &&
+    isInside(canonicalDir(normalizedPath), configDir);
+  if (homeDir && normalizedPath.startsWith(homeDir) && !exempt) {
+    const relativePath = normalizedPath.slice(homeDir.length);
+    if (relativePath.match(/^\/\.[^/]+/)) {
+      throw new Error('Scanning hidden directories in home is not allowed');
+    }
+  }
 
   // Ensure path is a directory and exists
   if (!fs.existsSync(normalizedPath)) {
@@ -104,16 +101,6 @@ function validatePath(dirPath) {
       if (realPath.startsWith(forbidden)) {
         throw new Error(`Symlink points to forbidden location`);
       }
-    }
-  }
-
-  // Added for #190: the check above only knows absolute system paths, so a link into a
-  // hidden home dir (`~/PROJECTS/x -> ~/.ssh`) passed; apply the home rules to the target too
-  if (realPath !== normalizedPath) {
-    try {
-      assertNotForbidden(realPath);
-    } catch {
-      throw new Error(`Symlink points into a hidden home directory`);
     }
   }
 
