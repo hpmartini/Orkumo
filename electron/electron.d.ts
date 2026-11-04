@@ -39,6 +39,13 @@ export interface BrowserViewResult {
   error?: string;
 }
 
+export interface BrowserViewNavState {
+  viewId: string;
+  url: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+}
+
 export interface ElectronAPI {
   // Platform information
   getPlatform: () => Promise<PlatformInfo>;
@@ -62,6 +69,9 @@ export interface ElectronAPI {
     openDevTools: (viewId: string) => Promise<BrowserViewResult>;
     closeDevTools: (viewId: string) => Promise<BrowserViewResult>;
     refresh: (viewId: string) => Promise<BrowserViewResult>;
+    go: (viewId: string, direction: 'back' | 'forward') => Promise<BrowserViewResult>;
+    /** Every main-frame navigation of any view; filter by viewId. Returns cleanup */
+    onNavigate: (callback: (state: BrowserViewNavState) => void) => () => void;
   };
 
   // Native dialogs

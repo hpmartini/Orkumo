@@ -7,6 +7,7 @@ import { createServer } from 'net';
 import dotenv from 'dotenv';
 import { isValidExternalUrl, validateDialogOptions, windowOpenRoute } from './validation.js';
 import { APP_NAME } from './constants.js';
+import { wireBrowserViewNav, goHistory } from './browserViewNav.js';
 import { PORTS } from '../config/defaults.js';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -693,6 +694,12 @@ function setupIpcHandlers() {
         return { action: 'deny' };
       });
 
+      wireBrowserViewNav(view.webContents, (state) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send('browser-view-nav', { viewId, ...state });
+        }
+      });
+
       // Set bounds
       view.setBounds({
         x: Math.round(bounds.x),
@@ -841,6 +848,16 @@ function setupIpcHandlers() {
       console.error(`[BrowserView] Failed to close DevTools for view ${viewId}:`, error);
       return { success: false, error: error.message };
     }
+  });
+
+  // Back/forward in the BrowserView's history (#182)
+  ipcMain.handle('browser-view-go', async (event, { viewId, direction }) => {
+    const entry = browserViews.get(viewId);
+    if (!entry) {
+      return { success: false, error: 'View not found' };
+    }
+    goHistory(entry.view.webContents, direction);
+    return { success: true };
   });
 
   // Refresh BrowserView

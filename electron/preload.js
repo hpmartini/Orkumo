@@ -46,6 +46,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
     openDevTools: (viewId) => ipcRenderer.invoke('browser-view-open-devtools', { viewId }),
     closeDevTools: (viewId) => ipcRenderer.invoke('browser-view-close-devtools', { viewId }),
     refresh: (viewId) => ipcRenderer.invoke('browser-view-refresh', { viewId }),
+    go: (viewId, direction) => ipcRenderer.invoke('browser-view-go', { viewId, direction }),
+    onNavigate: (callback) => {
+      if (typeof callback !== 'function') {
+        throw new TypeError('Callback must be a function');
+      }
+      const handler = (event, state) => callback(state);
+      ipcRenderer.on('browser-view-nav', handler);
+      return () => ipcRenderer.removeListener('browser-view-nav', handler);
+    },
   },
 
   // Environment

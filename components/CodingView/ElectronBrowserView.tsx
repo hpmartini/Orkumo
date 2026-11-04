@@ -7,6 +7,9 @@ import {
   Tablet,
   AlertCircle,
   Wrench,
+  ArrowLeft,
+  ArrowRight,
+  X,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { openInSystemBrowser } from '../../utils/links';
@@ -44,6 +47,7 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [devToolsOpen, setDevToolsOpen] = useState(false);
+  const [history, setHistory] = useState({ canGoBack: false, canGoForward: false });
 
   const api = window.electronAPI?.browserView;
 
@@ -180,6 +184,22 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
     setCurrentUrl(url);
   }, [api, url]);
 
+  // Navigations inside the view (links, back/forward) update the url field and history buttons
+  useEffect(
+    () =>
+      api?.onNavigate?.(({ viewId, url: navUrl, canGoBack, canGoForward }) => {
+        if (viewId !== viewIdRef.current) return;
+        setCurrentUrl(navUrl);
+        setUrlError(null);
+        setHistory({ canGoBack, canGoForward });
+      }),
+    [api]
+  );
+
+  const go = (direction: 'back' | 'forward') => {
+    api?.go(viewIdRef.current, direction).catch(console.error);
+  };
+
   const handleRefresh = async () => {
     if (!api) return;
 
@@ -272,7 +292,7 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
               title="Hide browser preview"
               aria-label="Hide browser preview"
             >
-              <ExternalLink size={14} />
+              <X size={14} />
             </button>
           )}
         </div>
@@ -281,6 +301,24 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
       {/* URL Bar */}
       <div className="bg-gray-800 border-b border-gray-700">
         <div className="flex items-center gap-2 p-2">
+          <button
+            onClick={() => go('back')}
+            disabled={!history.canGoBack}
+            className="p-1.5 hover:bg-gray-700 rounded transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            title="Back"
+            aria-label="Back"
+          >
+            <ArrowLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={() => go('forward')}
+            disabled={!history.canGoForward}
+            className="p-1.5 hover:bg-gray-700 rounded transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
+            title="Forward"
+            aria-label="Forward"
+          >
+            <ArrowRight className="w-4 h-4" />
+          </button>
           <button
             onClick={handleRefresh}
             className="p-1.5 hover:bg-gray-700 rounded transition-colors"
