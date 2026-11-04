@@ -856,8 +856,13 @@ function setupIpcHandlers() {
     if (!entry) {
       return { success: false, error: 'View not found' };
     }
-    goHistory(entry.view.webContents, direction);
-    return { success: true };
+    try {
+      goHistory(entry.view.webContents, direction);
+      return { success: true };
+    } catch (error) {
+      console.error(`[BrowserView] Failed to go ${direction} in view ${viewId}:`, error);
+      return { success: false, error: error.message };
+    }
   });
 
   // Refresh BrowserView
