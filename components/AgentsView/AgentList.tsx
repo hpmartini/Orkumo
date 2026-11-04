@@ -1,4 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { clampMenuPosition } from '../../utils/menuPosition';
 import {
   ArrowDown,
   ArrowUp,
@@ -337,6 +338,23 @@ export const AgentList: React.FC<AgentListProps> = ({
       document.removeEventListener('mousedown', close);
       document.removeEventListener('keydown', onKey);
     };
+  }, [menu]);
+
+  // Place the menu from its measured size before paint, so it never overflows the window (#192)
+  useLayoutEffect(() => {
+    const el = menuRef.current;
+    if (!menu || !el) return;
+    const { width, height } = el.getBoundingClientRect();
+    const { left, top } = clampMenuPosition(
+      menu.x,
+      menu.y,
+      width,
+      height,
+      window.innerWidth,
+      window.innerHeight
+    );
+    el.style.left = `${left}px`;
+    el.style.top = `${top}px`;
   }, [menu]);
 
   // Keyboard-opened menu takes focus; closing hands it back to the rail
@@ -1004,14 +1022,11 @@ export const AgentList: React.FC<AgentListProps> = ({
 
       {menu && menuActions.length > 0 && (
         <div
-          className="fixed z-50 w-max min-w-[10rem] max-w-[14rem] bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 text-sm"
+          className="fixed z-50 w-max min-w-[10rem] max-w-[14rem] max-h-[calc(100vh-16px)] overflow-y-auto thin-scrollbar bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 text-sm"
           role="menu"
           ref={menuRef}
           onKeyDown={onMenuKeyDown}
-          style={{
-            left: Math.min(menu.x, window.innerWidth - 232),
-            top: Math.min(menu.y, window.innerHeight - 320),
-          }}
+          style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >
           {menuActions.map((action) => (
