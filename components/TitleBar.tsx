@@ -1,30 +1,37 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket, Workflow, Kanban, Code2 } from 'lucide-react';
+import { Rocket, Kanban, Code2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { ContextTabs } from './ContextTabs';
 import { isElectron } from '../utils/apiConfig';
+import type { ModeEntry } from '../hooks/useModules';
+import { moduleIcon } from './moduleIcon';
 
 type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
   /** The rocket opens the dashboard */
   onOpenDashboard: () => void;
+  /** Modes of loaded modules: their toggles come before the host modes */
+  modes?: ModeEntry[];
 };
 
 const VIEWS = [
-  { path: '/workflows', label: 'Workflows', icon: Workflow },
   { path: '/board', label: 'Board', icon: Kanban },
   { path: '/code', label: 'Code (VS Code)', icon: Code2 },
 ];
 
 /** Toggles for the work modes: the route is the state, a second click returns to the agents */
-export const ViewToggles: React.FC = () => {
+export const ViewToggles: React.FC<{ modes?: ModeEntry[] }> = ({ modes = [] }) => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
+  const views = [
+    ...modes.map((m) => ({ path: `/${m.id}`, label: m.label, icon: moduleIcon(m.icon) })),
+    ...VIEWS,
+  ];
   return (
     <div
       className="flex items-center gap-1 px-2 shrink-0"
       style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
     >
-      {VIEWS.map(({ path, label, icon: Icon }) => {
+      {views.map(({ path, label, icon: Icon }) => {
         const active = pathname === path;
         return (
           <button
@@ -45,7 +52,7 @@ export const ViewToggles: React.FC = () => {
   );
 };
 
-export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, ...tabs }) => {
+export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, modes, ...tabs }) => {
   // Track fullscreen state to hide traffic light spacer when in fullscreen
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -116,7 +123,7 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, ...tabs }) 
       </div>
       <div className="flex-1 h-full" />
 
-      <ViewToggles />
+      <ViewToggles modes={modes} />
 
       {/* Window controls spacer for Windows (if needed in future) */}
       {/* <div className="w-[140px] shrink-0" /> */}

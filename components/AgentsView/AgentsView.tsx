@@ -51,7 +51,7 @@ import {
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
-import { agentFolder, boardUrl, codeUrl, workflowsUrl } from '../../utils/codeTarget';
+import { agentFolder, boardUrl, codeUrl, modeUrl } from '../../utils/codeTarget';
 import {
   parseDispatchInput,
   parseFilter,
@@ -607,7 +607,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       attachPane(id);
       setSelectedKey(id);
       setNarrowWorkspace(true);
-      // From board/code/workflows/dashboard: the tab only shows on the agents route
+      // From board/code/module modes/dashboard: the tab only shows on the agents route
       if (!active) onOpenView();
     },
     [attachPane, active, onOpenView]
@@ -1353,6 +1353,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Row / group menus
   // ---------------------------------------------------------------------
 
+  const scopedModes = useMemo(() => nav.modes?.filter((m) => m.scoped) ?? [], [nav.modes]);
   const rowActions = useCallback(
     (session: AgentSession): AgentRowAction[] => {
       const bg = session.kind === 'background';
@@ -1378,16 +1379,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             if (slug) navigate(boardUrl(slug, session.id));
           },
         },
-        {
-          id: 'workflow',
-          label: 'Show Workflow',
-          // Only agents started for a board issue run through mw
+        ...scopedModes.map((m) => ({
+          id: `mode:${m.id}`,
+          label: `Show ${m.label}`,
+          // Only agents started for a board issue have something to show in a scoped mode
           disabled: !contexts[session.id]?.repo?.slug || !issuesByAgent?.get(session.id)?.length,
           onSelect: () => {
             const slug = contexts[session.id]?.repo?.slug;
-            if (slug) navigate(workflowsUrl(slug, session.id));
+            if (slug) navigate(modeUrl(m.id)(slug, session.id));
           },
-        },
+        })),
         {
           // Replaces the card chevron (#159)
           id: 'details',
@@ -1448,6 +1449,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       issuesByAgent,
       expandedSessions,
       toggleExpandedSession,
+      scopedModes,
     ]
   );
 
@@ -1483,11 +1485,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               label: 'View Board',
               onSelect: () => navigate(boardUrl(groupRepoSlug(group, contexts)!)),
             },
-            {
-              id: 'view-workflows',
-              label: 'View Workflows',
-              onSelect: () => navigate(workflowsUrl(groupRepoSlug(group, contexts)!)),
-            },
+            ...scopedModes.map((m) => ({
+              id: `mode:${m.id}`,
+              label: `View ${m.label}`,
+              onSelect: () => navigate(modeUrl(m.id)(groupRepoSlug(group, contexts)!)),
+            })),
           ]
         : []),
       {
@@ -1526,6 +1528,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       contexts,
       openIssueDialog,
       openComposer,
+      scopedModes,
     ]
   );
 

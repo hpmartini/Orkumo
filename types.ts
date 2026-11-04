@@ -507,13 +507,6 @@ export interface BoardSource {
   number: number;
 }
 
-// Workflows (#87, mw 7 #136): card details; the stage rule lives in utils/workflowStage.js
-export interface WorkflowDetails {
-  docs: { name: string; path: string }[];
-  /** image URLs from issue and PR comments (review screenshots) */
-  screenshots: string[];
-}
-
 export interface BoardStatusOption {
   id: string;
   name: string;

@@ -10,7 +10,8 @@ export const codeUrl = (path: string) => `/code?path=${encodeURIComponent(path)}
 const scopedUrl = (route: string) => (repo: string, agentId?: string) =>
   `${route}?${new URLSearchParams(agentId ? { repo, agent: agentId } : { repo })}`;
 export const boardUrl = scopedUrl('/board');
-export const workflowsUrl = scopedUrl('/workflows');
+/** Route of a module mode (docs/MODULES.md), scoped like the board */
+export const modeUrl = (id: string) => scopedUrl(`/${id}`);
 
 /** An agent works in its worktree; its cwd is the worktree (or a folder in it) otherwise */
 export function agentFolder(

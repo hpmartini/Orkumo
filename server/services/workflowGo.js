@@ -9,10 +9,10 @@ import { BUILD_LABEL, ISSUE_URL_RE, sameGo } from '../../utils/workflowStage.js'
 /** launchd job of `mw board install` */
 export const MW_BOARD_JOB = 'de.martini-labs.mw-board';
 
-/** Body `go` of POST /api/workflows/go: only the build GO; the poll has its own route */
+/** Body `go` of the build GO route (Workflows module); the poll has its own route (POST /api/board/poll) */
 export const workflowGoSchema = z.object({ kind: z.literal('build') }).strict();
 
-/** Body of POST /api/workflows/start: the issue URL comes from the client (trust boundary) */
+/** Body of POST /api/board/start: the issue URL comes from the client (trust boundary) */
 export const workflowStartSchema = z.object({ url: z.string().regex(ISSUE_URL_RE) }).strict();
 
 /** Exit of an mw without `mw board go` (argparse) or no mw on the PATH at all */

@@ -12,9 +12,7 @@ import type {
   BoardSettings,
   IssueComment,
   IssueSummary,
-  WorkflowDetails,
 } from '../types';
-import type { WorkflowGo } from '../utils/workflowStage.js';
 import type { WorkflowStart } from '../utils/issueControls';
 
 /** JSON request against the API; failures throw with the server's `error` message */
@@ -136,33 +134,12 @@ export function updateBoardSettings(patch: Partial<BoardSettings>): Promise<Boar
   });
 }
 
-// --- Workflows (#87) ---
-
-/** GO for the next stage; the server refuses (409) unless it is the GO the fresh state offers */
-export function sendWorkflowGo(
-  itemId: string,
-  go: WorkflowGo
-): Promise<{ ok: true; start?: WorkflowStart }> {
-  // the poll start has its own route; /workflows/go takes the build GO only (#136)
-  if (go.kind === 'poll')
-    return request('/workflows/poll', { method: 'POST', body: JSON.stringify({ itemId }) });
-  return request('/workflows/go', { method: 'POST', body: JSON.stringify({ itemId, go }) });
+/** Starts the mw-board poll now; the server refuses (409) unless the fresh state offers it (#145) */
+export function sendPollGo(itemId: string): Promise<{ ok: true; start?: WorkflowStart }> {
+  return request('/board/poll', { method: 'POST', body: JSON.stringify({ itemId }) });
 }
 
 /** Starts or wakes the issue now (`mw board go`); its label must already be set */
 export function startWorkflow(url: string): Promise<WorkflowStart> {
-  return request('/workflows/start', { method: 'POST', body: JSON.stringify({ url }) });
-}
-
-export function fetchWorkflowDetails(itemId: string): Promise<WorkflowDetails> {
-  return request<WorkflowDetails>(`/workflows/details?itemId=${encodeURIComponent(itemId)}`);
-}
-
-export function fetchWorkflowDoc(
-  itemId: string,
-  path: string
-): Promise<{ name: string; path: string; content: string }> {
-  return request(
-    `/workflows/doc?itemId=${encodeURIComponent(itemId)}&path=${encodeURIComponent(path)}`
-  );
+  return request('/board/start', { method: 'POST', body: JSON.stringify({ url }) });
 }

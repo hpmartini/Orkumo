@@ -44,9 +44,18 @@ describe('moduleLoader', () => {
 
   it('lists the placeholder and serves its route; broken modules are skipped', async () => {
     const { loaded, get } = await start(fixture('premium'));
-    expect(loaded).toEqual([{ id: 'premium-placeholder', name: 'Premium Placeholder' }]);
+    expect(loaded).toEqual([
+      { id: 'premium-placeholder', name: 'Premium Placeholder' },
+      { id: 'with-mode', name: 'With Mode' },
+    ]);
     expect(await (await get('/')).json()).toEqual([
       { id: 'premium-placeholder', name: 'Premium Placeholder', ui: false },
+      {
+        id: 'with-mode',
+        name: 'With Mode',
+        ui: true,
+        mode: { label: 'Fixture Mode', icon: 'Boxes', keywords: 'fixture demo', scoped: true },
+      },
     ]);
     const res = await get('/premium-placeholder');
     expect(res.status).toBe(200);
@@ -88,9 +97,16 @@ describe('moduleLoader', () => {
     );
   });
 
-  it('rejects invalid and duplicate ids', async () => {
+  it('rejects invalid, duplicate and reserved ids, and a mode without ui', async () => {
     const { loaded } = await start(fixture('premium-invalid'));
     expect(loaded.map((m) => m.id)).toEqual(['same']);
+    const errors = logger.error.mock.calls.map((c) => String(c[1]));
+    expect(errors).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('id "agents" is reserved'),
+        expect.stringContaining('mode needs ui'),
+      ])
+    );
   });
 });
 

@@ -7,16 +7,18 @@ import {
   ChevronsUpDown,
   Code2,
   Settings,
-  Workflow,
 } from 'lucide-react';
 import type { AgentGrouping } from '../../types';
 import type { AgentConfigLike } from './types';
 import { codeUrl } from '../../utils/codeTarget';
+import type { ModeEntry } from '../../hooks/useModules';
+import { moduleIcon } from '../moduleIcon';
 
 /** App-level navigation and actions the merged rail needs from App.tsx */
 export interface RailNavProps {
   onOpenDashboard: () => void;
-  onOpenWorkflows?: () => void;
+  /** Modes of loaded modules: one rail button each, and per-agent/repo entries for scoped ones */
+  modes?: ModeEntry[];
   onOpenSettings: () => void;
   onOpenProject: (appId: string) => void;
 }
@@ -30,7 +32,22 @@ const GROUP_MODES: { key: AgentGrouping; label: string }[] = [
 
 const PROJECTS_COLLAPSED_KEY = 'devOrbitAgentProjectsCollapsed';
 
-/** Group-mode switch plus rail-wide buttons (collapse, workflows, settings) */
+const ModeButton: React.FC<{ mode: ModeEntry }> = ({ mode }) => {
+  const navigate = useNavigate();
+  const Icon = moduleIcon(mode.icon);
+  return (
+    <button
+      onClick={() => navigate(`/${mode.id}`)}
+      className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+      title={mode.label}
+      aria-label={mode.label}
+    >
+      <Icon size={13} />
+    </button>
+  );
+};
+
+/** Group-mode switch plus rail-wide buttons (collapse, module modes, settings) */
 export const RailNav: React.FC<{
   nav: RailNavProps;
   grouping: AgentGrouping;
@@ -84,16 +101,9 @@ export const RailNav: React.FC<{
           <ChevronsUpDown size={13} />
         </button>
       )}
-      {nav.onOpenWorkflows && (
-        <button
-          onClick={nav.onOpenWorkflows}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-          title="Workflows"
-          aria-label="Workflows"
-        >
-          <Workflow size={13} />
-        </button>
-      )}
+      {nav.modes?.map((m) => (
+        <ModeButton key={m.id} mode={m} />
+      ))}
       <button
         onClick={nav.onOpenSettings}
         className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"

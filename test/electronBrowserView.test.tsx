@@ -120,7 +120,9 @@ describe('ElectronBrowserView navigation (#182)', () => {
     expect(forward.disabled).toBe(true);
 
     const viewId = api.create.mock.calls[0][0];
-    act(() => emit({ viewId: 'other', url: 'https://x.test/', canGoBack: true, canGoForward: true }));
+    act(() =>
+      emit({ viewId: 'other', url: 'https://x.test/', canGoBack: true, canGoForward: true })
+    );
     expect(back.disabled).toBe(true);
 
     act(() => emit({ viewId, url: 'https://a.test/2', canGoBack: true, canGoForward: false }));

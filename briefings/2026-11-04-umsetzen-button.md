@@ -35,15 +35,15 @@ Der mw-Teil (`mw board go`, Briefing `briefings/2026-11-04-board-go-sofortstart.
 
 ## Done means
 
-| ID | Bedingung | Nachweis |
-|----|-----------|----------|
-| AC-1 | Klick auf „Umsetzen“ bei gesetztem `mw:build` lässt das Label stehen. Bei fehlendem Label setzt er es | Komponententest in `test/IssueModal.test.tsx`, beide Fälle |
-| AC-2 | `applyGo` erzeugt nie ein doppeltes `mw:build` | Service-Test mit bereits gesetztem Label |
-| AC-3 | Nach dem Setzen ruft der Server `mw board go <url> --json` auf. Ohne `mw board go` (Exit „unknown command“) fällt er auf den Poll-Kick zurück | Service-Test mit gemocktem `execFile` für start, kein Platz, Fallback |
-| AC-4 | Der Dialog zeigt je nach Ergebnis „gestartet“, „kein Platz frei (x/y)“ oder den Fallback-Hinweis | Komponententest |
-| AC-5 | Eine URL außerhalb von `https://github.com/<owner>/<repo>/issues/<n>` wird mit 4xx abgelehnt, ohne mw-Aufruf | Server-Test |
-| AC-6 | Echter Pfad: Dev-Server, Issue-Dialog eines MACC-Issues mit gesetztem `mw:build`, zweimal „Umsetzen“ klicken, Label bleibt gesetzt | Playwright-GIF oder Screenshots vor und nach dem Klick, plus `gh issue view --json labels` |
-| AC-7 | Keine Regression: `bun run test`, `bun run lint`, `bun run build` grün | Ausgabe im PR |
+| ID   | Bedingung                                                                                                                                     | Nachweis                                                                                   |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| AC-1 | Klick auf „Umsetzen“ bei gesetztem `mw:build` lässt das Label stehen. Bei fehlendem Label setzt er es                                         | Komponententest in `test/IssueModal.test.tsx`, beide Fälle                                 |
+| AC-2 | `applyGo` erzeugt nie ein doppeltes `mw:build`                                                                                                | Service-Test mit bereits gesetztem Label                                                   |
+| AC-3 | Nach dem Setzen ruft der Server `mw board go <url> --json` auf. Ohne `mw board go` (Exit „unknown command“) fällt er auf den Poll-Kick zurück | Service-Test mit gemocktem `execFile` für start, kein Platz, Fallback                      |
+| AC-4 | Der Dialog zeigt je nach Ergebnis „gestartet“, „kein Platz frei (x/y)“ oder den Fallback-Hinweis                                              | Komponententest                                                                            |
+| AC-5 | Eine URL außerhalb von `https://github.com/<owner>/<repo>/issues/<n>` wird mit 4xx abgelehnt, ohne mw-Aufruf                                  | Server-Test                                                                                |
+| AC-6 | Echter Pfad: Dev-Server, Issue-Dialog eines MACC-Issues mit gesetztem `mw:build`, zweimal „Umsetzen“ klicken, Label bleibt gesetzt            | Playwright-GIF oder Screenshots vor und nach dem Klick, plus `gh issue view --json labels` |
+| AC-7 | Keine Regression: `bun run test`, `bun run lint`, `bun run build` grün                                                                        | Ausgabe im PR                                                                              |
 
 Weiterarbeiten, außer bei fehlenden GitHub-Rechten. PR gegen `main` mit `## Review-Anleitung` und `## Nachweise` (eine Zeile je AC). Nicht mergen.
 

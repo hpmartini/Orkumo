@@ -21,6 +21,8 @@ import {
   AgentsView,
 } from './components';
 import { ModuleSlot } from './components/ModuleSlot';
+import { ModuleMode } from './components/ModuleMount';
+import { modeCommands, useModulesState, type ModeEntry } from './hooks/useModules';
 import { useApps } from './hooks';
 import { AgentOverview } from './components/AgentOverview';
 import { UsageView, UsageCard } from './components/UsageView';
@@ -33,23 +35,27 @@ import { fetchConfig } from './services/api';
 import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
-import { WorkflowView } from './components/WorkflowView';
 import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
 import { CodeView } from './components/CodeView';
 import { ShellBrowser } from './components/ShellBrowser';
 import { installAnchorInterception, openLink, setLinkTarget } from './utils/links';
 
-type ActiveTab = 'dashboard' | 'usage' | 'agents' | 'board' | 'code' | 'workflows' | 'pulls';
+const HOST_TABS = ['dashboard', 'usage', 'agents', 'board', 'code', 'pulls'];
 
 function AppContent() {
   const navigate = useNavigate();
   const location = useLocation();
-  const isDashboardRoute = location.pathname === '/dashboard';
-  const isUsageRoute = location.pathname === '/usage';
-  const isBoardRoute = location.pathname === '/board';
-  const isCodeRoute = location.pathname === '/code';
-  const isWorkflowsRoute = location.pathname === '/workflows';
-  const isPullsRoute = location.pathname === '/pulls';
+
+  // Modes of loaded modules (docs/MODULES.md) live at /<id> next to the host routes
+  const { modules, ready: modulesReady } = useModulesState();
+  const modes = useMemo<ModeEntry[]>(
+    () => modules.flatMap((m) => (m.ui && m.mode ? [{ id: m.id, ...m.mode }] : [])),
+    [modules]
+  );
+  const segment = location.pathname.slice(1);
+  const knownRoute = HOST_TABS.includes(segment) || modes.some((m) => m.id === segment);
+  // Unknown paths are redirected below once modules are known; until then show the agents view
+  const activeTab = knownRoute ? segment : 'agents';
 
   const { apps, loading, settings, refreshApps } = useApps();
 
@@ -73,31 +79,12 @@ function AppContent() {
   // Context id being edited in the dialog; 'new' creates one
   const [editingContext, setEditingContext] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<ActiveTab>('agents');
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
 
   const navigateRef = useRef(navigate);
   useEffect(() => {
     navigateRef.current = navigate;
   }, [navigate]);
-
-  useEffect(() => {
-    setActiveTab(
-      isDashboardRoute
-        ? 'dashboard'
-        : isUsageRoute
-          ? 'usage'
-          : isBoardRoute
-            ? 'board'
-            : isCodeRoute
-              ? 'code'
-              : isWorkflowsRoute
-                ? 'workflows'
-                : isPullsRoute
-                  ? 'pulls'
-                  : 'agents'
-    );
-  }, [isDashboardRoute, isUsageRoute, isBoardRoute, isCodeRoute, isWorkflowsRoute, isPullsRoute]);
 
   // Each context keeps its own route (#97): it is parked with the context's ui on a switch
   const route = location.pathname + location.search;
@@ -196,13 +183,7 @@ function AppContent() {
       'issues kanban github project'
     ),
     command('code', 'Open code mode', 'Navigate', () => navigate('/code'), 'ide vscode editor'),
-    command(
-      'workflows',
-      'Open workflows',
-      'Navigate',
-      () => navigate('/workflows'),
-      'mw martini pipeline orchestrate go stages'
-    ),
+    ...modeCommands(modes, navigate),
     command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
     ...contexts.contexts.map((c) =>
       command(`context.${c.id}`, `Switch to context: ${c.name}`, 'Context', () =>
@@ -224,7 +205,7 @@ function AppContent() {
   ];
   useRegisterCommands('app', paletteCommands);
 
-  if (loading || !contexts.ready) {
+  if (loading || !contexts.ready || !modulesReady) {
     return <LoadingSkeleton />;
   }
 
@@ -249,6 +230,9 @@ function AppContent() {
         }}
       />
 
+      {/* Unknown path, e.g. a module mode whose module is not loaded (#165): overview */}
+      {!knownRoute && <Navigate to={segment ? '/dashboard' : '/agents'} replace />}
+
       {/* TitleBar - custom titlebar with tabs and pane controls */}
       <TitleBar
         onOpenDashboard={handleSelectDashboard}
@@ -260,6 +244,7 @@ function AppContent() {
         onCreate={() => setEditingContext('new')}
         apps={apps}
         projectDirs={projectDirs}
+        modes={modes}
       />
 
       {/* One shell: the agents rail on every route; the other views fill its main area */}
@@ -298,7 +283,7 @@ function AppContent() {
                 onOpenView={openAgentsView}
                 nav={{
                   onOpenDashboard: handleSelectDashboard,
-                  onOpenWorkflows: () => navigate('/workflows'),
+                  modes,
                   onOpenSettings: () => setAdminPanelOpen(true),
                   onOpenProject: handleSelectApp,
                 }}
@@ -352,17 +337,18 @@ function AppContent() {
                   <CodeView active={activeTab === 'code'} apps={contextApps} />
                 </div>
 
-                {/* Workflows (mw) - polls only while active */}
-                <div
-                  className={
-                    activeTab === 'workflows'
-                      ? 'absolute inset-0 z-10 flex flex-col min-h-0'
-                      : 'hidden'
-                  }
-                  aria-hidden={activeTab !== 'workflows'}
-                >
-                  <WorkflowView active={activeTab === 'workflows'} />
-                </div>
+                {/* Module modes - kept mounted, told whether they are visible */}
+                {modes.map((m) => (
+                  <div
+                    key={m.id}
+                    className={
+                      activeTab === m.id ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+                    }
+                    aria-hidden={activeTab !== m.id}
+                  >
+                    <ModuleMode id={m.id} active={activeTab === m.id} />
+                  </div>
+                ))}
 
                 {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
                 {activeTab === 'pulls' && (
@@ -409,7 +395,7 @@ function AppContent() {
         }}
       />
 
-      <ModuleSlot />
+      <ModuleSlot modules={modules} />
     </div>
   );
 }
@@ -418,14 +404,8 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/agents" replace />} />
-      <Route path="/dashboard" element={<AppContent />} />
-      <Route path="/usage" element={<AppContent />} />
-      <Route path="/agents" element={<AppContent />} />
-      <Route path="/board" element={<AppContent />} />
-      <Route path="/code" element={<AppContent />} />
-      <Route path="/workflows" element={<AppContent />} />
-      <Route path="/pulls" element={<AppContent />} />
-      <Route path="*" element={<Navigate to="/agents" replace />} />
+      {/* AppContent resolves the path: host modes, module modes, else /agents */}
+      <Route path="*" element={<AppContent />} />
     </Routes>
   );
 }

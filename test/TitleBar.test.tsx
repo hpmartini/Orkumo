@@ -29,7 +29,6 @@ const renderAt = (route: string) =>
   );
 
 const VIEWS = [
-  ['Workflows', '/workflows'],
   ['Board', '/board'],
   ['Code (VS Code)', '/code'],
 ] as const;
@@ -41,8 +40,8 @@ const pressed = () =>
   );
 
 describe('TitleBar view toggles (#144)', () => {
-  it.each(['/agents', '/dashboard', '/board', '/code', '/workflows', '/my-app/abc123'])(
-    'shows all three buttons on %s',
+  it.each(['/agents', '/dashboard', '/board', '/code', '/my-app/abc123'])(
+    'shows both host buttons on %s',
     (route) => {
       renderAt(route);
       for (const [label] of VIEWS) expect(button(label)).toBeInTheDocument();

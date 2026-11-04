@@ -42,9 +42,13 @@ import { usageRouter, getUsage } from './services/usageService.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
 import * as imageUpload from './services/imageUpload.js';
-import * as workflowService from './services/workflowService.js';
-import { applyGo, startNow, workflowGoSchema, workflowStartSchema } from './services/workflowGo.js';
-import { deriveWorkflowState } from '../utils/workflowStage.js';
+import { applyGo, startNow, workflowStartSchema } from './services/workflowGo.js';
+import {
+  deriveWorkflowState,
+  isWorkflowItem,
+  WORKFLOW_STAGES,
+  sameGo,
+} from '../utils/workflowStage.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
@@ -139,8 +143,31 @@ app.use('/api/usage', usageRouter);
 
 // Optional modules (docs/MODULES.md). Mounted now, filled by load() in startServer(),
 // so it sits before the 404 handler at the end of this file.
+// Function declarations below are hoisted; the getter defers agentLimiter (defined later) until
+// modules use it, which is only after load().
 const moduleHost = createModuleHost({
-  services: { agentService, boardService, db: { getDb, isDatabaseConnected } },
+  services: {
+    agentService,
+    boardService,
+    db: { getDb, isDatabaseConnected },
+    getBoardSettings: () => settingsService.getBoardSettings(),
+    findRepoInKnownDirs,
+    getAgentContexts,
+    workflow: {
+      deriveWorkflowState,
+      isWorkflowItem,
+      WORKFLOW_STAGES,
+      sameGo,
+      context: workflowContext,
+      applyGo: (ctx, go) => applyGo(ctx, go, { updateIssue: boardService.updateIssue }),
+    },
+    get agentLimiter() {
+      return agentLimiter;
+    },
+    validate,
+    z,
+    sendError: sendAgentError,
+  },
 });
 app.use('/api/modules', moduleHost.router);
 
@@ -1573,7 +1600,7 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Workflows (#87, mw 7 #136): GO actions, card details
+// mw workflow context (#87, mw 7 #136); the Workflows mode itself is a module (#165)
 // ---------------------------------------------------------------------------
 
 async function findRepoInKnownDirs(slug) {
@@ -1595,81 +1622,34 @@ async function workflowContext(itemId, { refresh = false } = {}) {
   return { source, item, state: deriveWorkflowState(item, status) };
 }
 
-/** Checkout and agent worktree of a workflow item (where its docs live) */
-async function workflowDirs({ item, state }) {
-  const clone = await findRepoInKnownDirs(item.repo).catch(() => null);
-  let worktree = null;
-  if (state.sessionId) {
-    const sessions = await agentService.listSessions({ all: true }).catch(() => []);
-    const session = sessions.find((s) => s.sessionId === state.sessionId);
-    const contexts = session ? await getAgentContexts().catch(() => ({})) : {};
-    worktree = contexts[session?.id]?.repo?.worktreePath ?? session?.cwd ?? null;
-  }
-  return [...new Set([worktree, clone].filter(Boolean))];
-}
-
-// GO (mw:build) or poll start; refused unless it is exactly the GO the fresh state offers
-const sendGo = (goOf) => async (req, res) => {
-  try {
-    const ctx = await workflowContext(req.body.itemId, { refresh: true });
-    const { status, body } = await applyGo(ctx, goOf(req.body), {
-      updateIssue: boardService.updateIssue,
-    });
-    res.status(status).json(body);
-  } catch (error) {
-    sendAgentError(res, error);
-  }
-};
-app.post(
-  '/api/workflows/go',
-  agentLimiter,
-  validate(z.object({ itemId: boardItemIdSchema, go: workflowGoSchema }).strict()),
-  sendGo((b) => b.go)
-);
 // Umsetzen in the issue dialog: start the issue now (mw board go), the label is already set
-app.post('/api/workflows/start', agentLimiter, validate(workflowStartSchema), async (req, res) => {
+app.post('/api/board/start', agentLimiter, validate(workflowStartSchema), async (req, res) => {
   try {
     res.json(await startNow(req.body.url));
   } catch (error) {
     sendAgentError(res, error);
   }
 });
+
+// Start the mw-board poll now; refused unless the fresh state offers exactly this GO
 app.post(
-  '/api/workflows/poll',
+  '/api/board/poll',
   agentLimiter,
   validate(z.object({ itemId: boardItemIdSchema }).strict()),
-  sendGo(() => ({ kind: 'poll' }))
+  async (req, res) => {
+    try {
+      const ctx = await workflowContext(req.body.itemId, { refresh: true });
+      const { status, body } = await applyGo(
+        ctx,
+        { kind: 'poll' },
+        { updateIssue: boardService.updateIssue }
+      );
+      res.status(status).json(body);
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
 );
-
-app.get('/api/workflows/details', agentLimiter, async (req, res) => {
-  const itemId = boardItemIdSchema.safeParse(req.query.itemId);
-  if (!itemId.success) return res.status(400).json({ error: 'Invalid itemId' });
-  try {
-    const ctx = await workflowContext(itemId.data);
-    const details = await workflowService.getDetails(ctx.item, {
-      dirs: await workflowDirs(ctx),
-      briefingPath: ctx.state.briefingPath,
-    });
-    res.json({ ...details, state: ctx.state });
-  } catch (error) {
-    sendAgentError(res, error);
-  }
-});
-
-// Content of a document that the details of this item list (no other paths)
-app.get('/api/workflows/doc', agentLimiter, async (req, res) => {
-  const itemId = boardItemIdSchema.safeParse(req.query.itemId);
-  if (!itemId.success || typeof req.query.path !== 'string') {
-    return res.status(400).json({ error: 'Invalid itemId or path' });
-  }
-  try {
-    const ctx = await workflowContext(itemId.data);
-    const docs = await workflowService.findDocs(await workflowDirs(ctx), ctx.state.briefingPath);
-    res.json(await workflowService.readDoc(docs, req.query.path));
-  } catch (error) {
-    sendAgentError(res, error);
-  }
-});
 
 // Create and edit issues (#72)
 const issueRefSchema = z

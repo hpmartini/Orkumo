@@ -3,7 +3,7 @@
  *
  * Loads optional modules from a directory at server start. One subdirectory per
  * module, each with an index.js whose default export is
- * { id, name, register(ctx), ui? }. See docs/MODULES.md for the contract.
+ * { id, name, register(ctx), ui?, mode? }. See docs/MODULES.md for the contract.
  *
  * A module that fails to load is logged and skipped; load() never throws.
  */
@@ -16,6 +16,17 @@ import { getDataPath } from './dataPath.js';
 
 // Same pattern as ideIdSchema in server/index.js; the id becomes a URL segment.
 const MODULE_ID = /^[a-z0-9-]+$/;
+// Host routes; a module mode at /<id> would shadow them.
+const RESERVED_IDS = new Set([
+  'dashboard',
+  'usage',
+  'agents',
+  'board',
+  'code',
+  'pulls',
+  'api',
+  'assets',
+]);
 
 /**
  * Directory modules are loaded from: DEVHUB_PREMIUM_DIR, else <dataPath>/modules.
@@ -23,6 +34,23 @@ const MODULE_ID = /^[a-z0-9-]+$/;
  */
 export function getModulesDir() {
   return process.env.DEVHUB_PREMIUM_DIR || path.join(getDataPath(), 'modules');
+}
+
+/** Validated `mode` of a module (only the documented fields), or undefined */
+function parseMode({ mode, ui }) {
+  if (mode === undefined) return undefined;
+  if (!mode || typeof mode !== 'object') throw new Error('mode must be an object');
+  if (ui === undefined) throw new Error('mode needs ui');
+  const { label, icon, keywords, scoped } = mode;
+  if (typeof label !== 'string' || !label.trim()) throw new Error('mode.label must be a string');
+  if (icon !== undefined && typeof icon !== 'string') throw new Error('mode.icon must be a string');
+  if (keywords !== undefined && typeof keywords !== 'string') {
+    throw new Error('mode.keywords must be a string');
+  }
+  if (scoped !== undefined && typeof scoped !== 'boolean') {
+    throw new Error('mode.scoped must be a boolean');
+  }
+  return { label, icon, keywords, scoped };
 }
 
 function createLogger(prefix) {
@@ -44,7 +72,9 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
   const loaded = [];
 
   router.get('/', (_req, res) => {
-    res.json(loaded.map(({ id, name, ui }) => ({ id, name, ui: Boolean(ui) })));
+    res.json(
+      loaded.map(({ id, name, ui, mode }) => ({ id, name, ui: Boolean(ui), ...(mode && { mode }) }))
+    );
   });
 
   async function loadOne(dir, entry) {
@@ -55,9 +85,11 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
     if (typeof mod.id !== 'string' || !MODULE_ID.test(mod.id)) {
       throw new Error(`invalid id ${JSON.stringify(mod.id)} (allowed: ${MODULE_ID})`);
     }
+    if (RESERVED_IDS.has(mod.id)) throw new Error(`id "${mod.id}" is reserved by the host`);
     if (loaded.some((m) => m.id === mod.id)) throw new Error(`duplicate id "${mod.id}"`);
     if (typeof mod.name !== 'string' || !mod.name) throw new Error('name must be a string');
     if (typeof mod.register !== 'function') throw new Error('register must be a function');
+    const mode = parseMode(mod);
 
     const moduleRouter = express.Router();
     let uiFile = null;
@@ -84,7 +116,7 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
 
     // Mount only after register succeeded: a failing module leaves no route behind.
     router.use(`/${mod.id}`, moduleRouter);
-    loaded.push({ id: mod.id, name: mod.name, ui: uiFile });
+    loaded.push({ id: mod.id, name: mod.name, ui: uiFile, mode });
   }
 
   async function load(dir) {

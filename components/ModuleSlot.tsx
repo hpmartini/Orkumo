@@ -1,41 +1,16 @@
-import React, { useEffect, useRef } from 'react';
-import { API_BASE_URL } from '../utils/apiConfig';
-import { useModules } from '../hooks/useModules';
+import React from 'react';
+import type { LoadedModule } from '../hooks/useModules';
+import { ModuleMount, useModuleHost } from './ModuleMount';
 
-/**
- * Hands each module's UI its own empty div: the module's ui.js exports
- * mount(el) -> cleanup?. Not a React component, since a bundled module brings
- * its own React copy (docs/MODULES.md).
- */
-function ModuleMount({ id }: { id: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    let cleanup: void | (() => void);
-    import(/* @vite-ignore */ `${API_BASE_URL}/modules/${id}/ui.js`)
-      .then((mod) => {
-        if (cancelled || !ref.current) return;
-        cleanup = mod.mount(ref.current);
-      })
-      .catch((error) => console.error(`[Modules] UI of "${id}" failed to load:`, error));
-    return () => {
-      cancelled = true;
-      if (typeof cleanup === 'function') cleanup();
-    };
-  }, [id]);
-
-  return <div ref={ref} data-module={id} />;
-}
-
-/** Renders nothing unless a loaded module ships UI. */
-export const ModuleSlot: React.FC = () => {
-  const withUi = useModules().filter((m) => m.ui);
+/** Renders nothing unless a loaded module ships UI without a mode (modes get their own pane). */
+export const ModuleSlot: React.FC<{ modules: LoadedModule[] }> = ({ modules }) => {
+  const host = useModuleHost(true);
+  const withUi = modules.filter((m) => m.ui && !m.mode);
   if (withUi.length === 0) return null;
   return (
     <>
       {withUi.map((m) => (
-        <ModuleMount key={m.id} id={m.id} />
+        <ModuleMount key={m.id} id={m.id} host={host} />
       ))}
     </>
   );
