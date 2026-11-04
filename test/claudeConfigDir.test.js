@@ -53,8 +53,11 @@ const addDir = (base, dir) =>
     body: JSON.stringify({ path: dir }),
   });
 
+const linkedHome = path.join(root, 'linked-home');
 let main;
 let alt;
+let above;
+let linked;
 
 beforeAll(async () => {
   for (const dir of ['.claude', '.ssh', '.aws', '.config', '.gnupg', '.foo', '.claude-evil']) {
@@ -70,9 +73,15 @@ beforeAll(async () => {
     `#!/bin/sh\npwd -P > "${cwdLog}"\necho "backgrounded · abc123 · test"\n`,
     { mode: 0o755 }
   );
+  // Second home whose ~/.claude is a symlink (dotfiles setup)
+  fs.mkdirSync(path.join(linkedHome, 'dotfiles', 'claude'), { recursive: true });
+  fs.symlinkSync(path.join(linkedHome, 'dotfiles', 'claude'), path.join(linkedHome, '.claude'));
   main = startServer(3291);
   alt = startServer(3292, { CLAUDE_CONFIG_DIR: altConfig });
-  await Promise.all([waitUp(main.base), waitUp(alt.base)]);
+  // A config dir above HOME must not exempt every hidden home dir
+  above = startServer(3293, { CLAUDE_CONFIG_DIR: root });
+  linked = startServer(3294, { HOME: linkedHome });
+  await Promise.all([alt, above, linked, main].map((s) => waitUp(s.base)));
 }, 30000);
 
 afterAll(() => {
@@ -96,6 +105,16 @@ describe('Claude config dir as project directory (#190)', () => {
     expect((await res.json()).error).toBe('Scanning hidden directories in home is not allowed');
   });
 
+  it('AC-1: accepts ~/.claude when it is a symlink', async () => {
+    expect((await addDir(linked.base, path.join(linkedHome, '.claude'))).status).toBe(200);
+  });
+
+  it('AC-2: a $CLAUDE_CONFIG_DIR above HOME exempts nothing', async () => {
+    const res = await addDir(above.base, path.join(home, '.ssh'));
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('Scanning hidden directories in home is not allowed');
+  });
+
   it.each(['.ssh', '.aws', '.config', '.gnupg', '.foo', '.claude-evil'])(
     'AC-2: still rejects hidden ~/%s',
     async (dir) => {
@@ -111,7 +130,10 @@ describe('Claude config dir as project directory (#190)', () => {
   ])('AC-2: rejects a symlink %s/%s pointing to ~/.ssh', async (...parts) => {
     const res = await addDir(main.base, path.join(home, ...parts));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('Symlink points to forbidden location');
+    // A link inside ~/.claude already fails the hidden-dir check on its resolved path
+    expect((await res.json()).error).toMatch(
+      /^(Symlink points to forbidden location|Scanning hidden directories in home is not allowed)$/
+    );
   });
 
   it('AC-2: rejects traversal out of ~/.claude', async () => {

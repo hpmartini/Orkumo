@@ -28,8 +28,9 @@ const FORBIDDEN_PATHS = [
 
 /** Claude's config dir ($CLAUDE_CONFIG_DIR, else ~/.claude): the one hidden home dir allowed (#190) */
 function claudeConfigDir() {
-  const home = process.env.HOME || '/';
-  return canonicalDir(path.resolve(home, process.env.CLAUDE_CONFIG_DIR || '.claude'));
+  // Same resolution as JOBS_DIR in scannerService.js
+  const dir = process.env.CLAUDE_CONFIG_DIR || path.join(process.env.HOME || '/', '.claude');
+  return canonicalDir(path.resolve(dir));
 }
 
 /** `child` is `parent` or lies below it, compared per path segment */
@@ -55,7 +56,9 @@ function assertNotForbidden(dirPath) {
   // Hidden home dirs hold secrets; only Claude's config dir is exempt
   const homeDir = process.env.HOME || '';
   const configDir = claudeConfigDir();
-  const exempt = configDir !== canonicalDir(homeDir) && isInside(dirPath, configDir);
+  // A config dir at or above HOME would exempt every hidden home dir; ~/.claude may be a symlink
+  const exempt =
+    !isInside(canonicalDir(homeDir), configDir) && isInside(canonicalDir(dirPath), configDir);
   if (homeDir && dirPath.startsWith(homeDir) && !exempt) {
     const relativePath = dirPath.slice(homeDir.length);
     if (relativePath.match(/^\/\.[^/]+/)) {
