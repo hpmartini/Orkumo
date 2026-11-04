@@ -98,7 +98,7 @@ function stateGroupOf(session: AgentSession): GroupKey {
   if (session.pinned) return 'pinned';
   if (hasOpenPr(session)) return 'review';
   if (session.state === 'blocked') return 'needs-input';
-  if (session.state === 'working') return 'working';
+  if (session.displayState === 'working') return 'working';
   return 'completed';
 }
 
@@ -470,7 +470,7 @@ function sortMetric(
     case 'attention':
       return session.state === 'blocked'
         ? 3
-        : session.state === 'working'
+        : session.displayState === 'working'
           ? 2
           : session.state === 'failed'
             ? 1
@@ -554,7 +554,7 @@ export function matchesQuickFilter(
     case 'needs-input':
       return session.state === 'blocked';
     case 'working':
-      return session.state === 'working';
+      return session.displayState === 'working';
     case 'completed':
       return session.state === 'done' || session.state === 'stopped';
     case 'failed':
@@ -836,7 +836,7 @@ export function summarizeSessions(sessions: AgentSession[]): {
   for (const session of sessions) {
     if (session.kind !== 'background') continue;
     if (session.state === 'blocked') awaitingInput += 1;
-    else if (session.state === 'working') working += 1;
+    else if (session.displayState === 'working') working += 1;
     else if (session.state === 'failed') failed += 1;
     else if (isFinished(session)) completed += 1;
   }
@@ -877,6 +877,13 @@ export function stateGlyph(state: AgentDisplayState): {
       return { glyph: '✽', className: 'text-orange-400', animate: true, label: 'Working' };
     case 'needs-input':
       return { glyph: '✻', className: 'text-yellow-400', animate: false, label: 'Needs input' };
+    case 'waiting':
+      return {
+        glyph: '◷',
+        className: 'text-sky-400',
+        animate: false,
+        label: 'Waiting on background task',
+      };
     case 'idle':
       return { glyph: '∙', className: 'text-gray-500', animate: false, label: 'Idle' };
     case 'completed':

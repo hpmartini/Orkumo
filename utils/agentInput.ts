@@ -87,7 +87,7 @@ export function applySessionFilter(
     if (filter.state) {
       const wanted = filter.state;
       const aliases: Record<string, string[]> = {
-        working: ['working'],
+        working: [], // displayState only: raw `working` includes idle goal sessions (#194)
         blocked: ['blocked'],
         'needs-input': ['blocked'],
         input: ['blocked'],

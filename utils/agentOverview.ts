@@ -16,7 +16,7 @@ export interface AgentOverview {
   needsCompaction: { session: AgentSession; fill: number }[];
 }
 
-const ALIVE = new Set(['working', 'needs-input', 'idle', 'loop', 'interactive']);
+const ALIVE = new Set(['working', 'waiting', 'needs-input', 'idle', 'loop', 'interactive']);
 
 /** The dashboard's agent situation: who needs attention, whose cache or context runs out */
 export function summarizeAgents(

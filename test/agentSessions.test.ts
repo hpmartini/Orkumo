@@ -39,7 +39,7 @@ function session(partial: Partial<AgentSession>): AgentSession {
     pinned: false,
     order: null,
     links: [],
-    displayState: 'completed',
+    displayState: partial.state === 'working' ? 'working' : 'completed',
     ...partial,
   };
 }

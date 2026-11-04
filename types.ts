@@ -138,6 +138,8 @@ export type AgentProcessStatus = 'busy' | 'waiting' | 'idle';
 /** Display state used for icons and grouping in the agent view */
 export type AgentDisplayState =
   | 'working'
+  /** CLI says working, but the turn only waits on its own background task (shell, monitor) */
+  | 'waiting'
   | 'needs-input'
   | 'idle'
   | 'completed'

@@ -98,7 +98,12 @@ describe('workflow origin (#159, AC-1)', () => {
   });
 
   it('origin chips AND-combine with state chips', () => {
-    const working = session({ id: 'w', name: 'MACC DevHub#1 x', state: 'working' });
+    const working = session({
+      id: 'w',
+      name: 'MACC DevHub#1 x',
+      state: 'working',
+      displayState: 'working',
+    });
     const all = [working, byPrefix, local];
     const ids = applyQuickFilters(all, new Set(['workflow', 'working', 'completed']), lookup).map(
       (s) => s.id

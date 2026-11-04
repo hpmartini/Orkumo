@@ -358,17 +358,30 @@ export function parseDaemonStatus(output) {
 }
 
 /**
+ * Whether a session the CLI reports as `working` really runs a turn right now.
+ * The job file's `done` (e.g. after `/goal clear`) beats a stale CLI `working`; `tempo` is the
+ * live turn signal, `status` the fallback for job files without it.
+ */
+function isTurnActive(session, jobState) {
+  if (jobState === 'done' || session.status === 'idle') return false;
+  return session.tempo ? session.tempo === 'active' : session.status === 'busy';
+}
+
+/**
  * Derive the display state used by the agent view from a session record.
  * @param {object} session
- * @returns {'working'|'needs-input'|'idle'|'completed'|'failed'|'stopped'|'loop'|'interactive'}
+ * @param {string|null} [jobState] `state` from the job's state.json, when it differs from the CLI
+ * @returns {'working'|'waiting'|'needs-input'|'idle'|'completed'|'failed'|'stopped'|'loop'|'interactive'}
  */
-export function deriveDisplayState(session) {
+export function deriveDisplayState(session, jobState = null) {
   if (!session) return 'idle';
   if (session.kind === 'interactive') return 'interactive';
   if (session.loop && session.state === 'working' && session.tempo === 'idle') return 'loop';
   switch (session.state) {
     case 'working':
-      return 'working';
+      // The CLI keeps `working` while a /goal is active, even with no turn running (#194)
+      if (isTurnActive(session, jobState)) return 'working';
+      return session.inFlight?.tasks > 0 ? 'waiting' : 'idle';
     case 'blocked':
       return 'needs-input';
     case 'failed':
@@ -691,7 +704,7 @@ export async function listSessions(options = {}) {
         order,
         links: extractPrLinks(state.children),
       };
-      session.displayState = deriveDisplayState(session);
+      session.displayState = deriveDisplayState(session, state.state || null);
       return session;
     })
   );
@@ -1314,7 +1327,7 @@ let lastSnapshot = new Map();
 let pollInProgress = false;
 
 function snapshotKey(session) {
-  return `${session.state}|${session.status}|${session.detail}|${session.name}|${session.pinned}|${session.order}|${session.links.length}|${session.waitingFor}`;
+  return `${session.state}|${session.displayState}|${session.status}|${session.detail}|${session.name}|${session.pinned}|${session.order}|${session.links.length}|${session.waitingFor}`;
 }
 
 async function poll() {
