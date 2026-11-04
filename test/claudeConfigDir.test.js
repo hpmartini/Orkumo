@@ -125,15 +125,14 @@ describe('Claude config dir as project directory (#190)', () => {
   );
 
   it.each([
-    ['PROJECTS', 'ssh-link'],
-    ['.claude', 'ssh-link'],
-  ])('AC-2: rejects a symlink %s/%s pointing to ~/.ssh', async (...parts) => {
-    const res = await addDir(main.base, path.join(home, ...parts));
+    // A link outside ~/.claude passes the spelling check, the real-path check catches it
+    ['PROJECTS', 'Symlink points into a hidden home directory'],
+    // Inside ~/.claude the exemption compares the resolved path, so the hidden-dir check fires
+    ['.claude', 'Scanning hidden directories in home is not allowed'],
+  ])('AC-2: rejects a symlink %s/ssh-link pointing to ~/.ssh', async (dir, message) => {
+    const res = await addDir(main.base, path.join(home, dir, 'ssh-link'));
     expect(res.status).toBe(400);
-    // A link inside ~/.claude already fails the hidden-dir check on its resolved path
-    expect((await res.json()).error).toMatch(
-      /^(Symlink points to forbidden location|Scanning hidden directories in home is not allowed)$/
-    );
+    expect((await res.json()).error).toBe(message);
   });
 
   it('AC-2: rejects traversal out of ~/.claude', async () => {

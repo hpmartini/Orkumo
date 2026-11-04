@@ -99,10 +99,21 @@ function validatePath(dirPath) {
   // `/Users/x/PROJECTS`, but every project path and ID derives from the stored spelling
   const realPath = fs.realpathSync.native(normalizedPath);
   if (realPath !== normalizedPath) {
+    // Re-validate the real path
+    for (const forbidden of FORBIDDEN_PATHS) {
+      if (realPath.startsWith(forbidden)) {
+        throw new Error(`Symlink points to forbidden location`);
+      }
+    }
+  }
+
+  // Added for #190: the check above only knows absolute system paths, so a link into a
+  // hidden home dir (`~/PROJECTS/x -> ~/.ssh`) passed; apply the home rules to the target too
+  if (realPath !== normalizedPath) {
     try {
       assertNotForbidden(realPath);
     } catch {
-      throw new Error(`Symlink points to forbidden location`);
+      throw new Error(`Symlink points into a hidden home directory`);
     }
   }
 
