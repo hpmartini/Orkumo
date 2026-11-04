@@ -24,6 +24,7 @@ import { undoToast, useBoard } from './useBoard';
 import { BoardGrid } from './BoardGrid';
 import { BoardItemPanel } from './BoardItemPanel';
 import { IssueCreateModal, lastIssueRepo } from './IssueCreateModal';
+import { SlicePicker } from './SlicePicker';
 
 interface BoardViewProps {
   /** Whether the view is visible (drives polling, URL state and keyboard handling) */
@@ -240,33 +241,13 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
               </option>
             ))}
           </select>
-          <select
-            value={selected ?? ''}
-            onChange={(e) => selectSlice({ sliceKind, selected: e.target.value || null })}
-            aria-label={`${SLICE_KIND_LABELS[sliceKind]} wählen`}
-            className={`${SELECT_CLS} max-w-56`}
-          >
-            <option value="">Alle ({allCount})</option>
-            {selected && !selectedEntry && <option value={selected}>{selected}</option>}
-            {(
-              [
-                ['Favoriten', slices.favorites],
-                [SLICE_KIND_LABELS[sliceKind], slices.others],
-                ['Ausgeblendet', slices.hidden],
-              ] as const
-            ).map(
-              ([label, entries]) =>
-                entries.length > 0 && (
-                  <optgroup key={label} label={label}>
-                    {entries.map((e) => (
-                      <option key={e.key} value={e.value}>
-                        {e.value} ({e.count})
-                      </option>
-                    ))}
-                  </optgroup>
-                )
-            )}
-          </select>
+          <SlicePicker
+            slices={slices}
+            kindLabel={SLICE_KIND_LABELS[sliceKind]}
+            selected={selected}
+            allCount={allCount}
+            onSelect={(value) => selectSlice({ sliceKind, selected: value })}
+          />
           {selectedEntry &&
             (selectedEntry.hidden ? (
               <button
