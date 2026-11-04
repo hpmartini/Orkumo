@@ -26,6 +26,44 @@ const FORBIDDEN_PATHS = [
   '/.config',
 ];
 
+/** Claude's config dir ($CLAUDE_CONFIG_DIR, else ~/.claude): the one hidden home dir allowed (#190) */
+function claudeConfigDir() {
+  const home = process.env.HOME || '/';
+  return canonicalDir(path.resolve(home, process.env.CLAUDE_CONFIG_DIR || '.claude'));
+}
+
+/** `child` is `parent` or lies below it, compared per path segment */
+function isInside(child, parent) {
+  return (
+    child === parent || child.startsWith(parent.endsWith(path.sep) ? parent : parent + path.sep)
+  );
+}
+
+/** Throw when a path is a forbidden location or a hidden home dir other than Claude's config dir */
+function assertNotForbidden(dirPath) {
+  for (const forbidden of FORBIDDEN_PATHS) {
+    const forbiddenAbs = path.resolve(process.env.HOME || '/', forbidden);
+    if (dirPath.startsWith(forbiddenAbs) || dirPath === forbiddenAbs) {
+      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
+    }
+    // Also check absolute forbidden paths
+    if (dirPath.startsWith(forbidden) || dirPath === forbidden) {
+      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
+    }
+  }
+
+  // Hidden home dirs hold secrets; only Claude's config dir is exempt
+  const homeDir = process.env.HOME || '';
+  const configDir = claudeConfigDir();
+  const exempt = configDir !== canonicalDir(homeDir) && isInside(dirPath, configDir);
+  if (homeDir && dirPath.startsWith(homeDir) && !exempt) {
+    const relativePath = dirPath.slice(homeDir.length);
+    if (relativePath.match(/^\/\.[^/]+/)) {
+      throw new Error('Scanning hidden directories in home is not allowed');
+    }
+  }
+}
+
 /**
  * Validate that a path is safe to scan
  */
@@ -41,26 +79,7 @@ function validatePath(dirPath) {
     throw new Error('Path traversal detected');
   }
 
-  // Check against forbidden paths
-  for (const forbidden of FORBIDDEN_PATHS) {
-    const forbiddenAbs = path.resolve(process.env.HOME || '/', forbidden);
-    if (normalizedPath.startsWith(forbiddenAbs) || normalizedPath === forbiddenAbs) {
-      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
-    }
-    // Also check absolute forbidden paths
-    if (normalizedPath.startsWith(forbidden) || normalizedPath === forbidden) {
-      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
-    }
-  }
-
-  // Check for hidden directories in home
-  const homeDir = process.env.HOME || '';
-  if (homeDir && normalizedPath.startsWith(homeDir)) {
-    const relativePath = normalizedPath.slice(homeDir.length);
-    if (relativePath.match(/^\/\.[^/]+/)) {
-      throw new Error('Scanning hidden directories in home is not allowed');
-    }
-  }
+  assertNotForbidden(normalizedPath);
 
   // Ensure path is a directory and exists
   if (!fs.existsSync(normalizedPath)) {
@@ -77,11 +96,10 @@ function validatePath(dirPath) {
   // `/Users/x/PROJECTS`, but every project path and ID derives from the stored spelling
   const realPath = fs.realpathSync.native(normalizedPath);
   if (realPath !== normalizedPath) {
-    // Re-validate the real path
-    for (const forbidden of FORBIDDEN_PATHS) {
-      if (realPath.startsWith(forbidden)) {
-        throw new Error(`Symlink points to forbidden location`);
-      }
+    try {
+      assertNotForbidden(realPath);
+    } catch {
+      throw new Error(`Symlink points to forbidden location`);
     }
   }
 
