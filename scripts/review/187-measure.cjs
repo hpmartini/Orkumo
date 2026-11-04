@@ -1,6 +1,7 @@
 // Review #187 browser check against the real project scan (AC-1, AC-2, AC-3).
 // Usage: NODE_PATH=<dir with playwright-core> node scripts/review/187-measure.cjs http://localhost:3187/
 // CommonJS on purpose: NODE_PATH resolves playwright-core without adding a project dependency.
+/* global document, innerHeight -- page.evaluate callbacks run in the browser */
 const assert = require('node:assert/strict');
 const { chromium } = require('playwright-core');
 
