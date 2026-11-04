@@ -20,6 +20,17 @@ export function toggleLabel(names: string[], label: string, on: boolean): string
   return on ? [...rest, label] : rest;
 }
 
+/** What `mw board go` did, as the server passes it on; `poll`: old mw, the poll was kicked instead */
+export type WorkflowStart = { action: string; reason: string };
+
+/** Dialog/toast text for a start: started, waiting for a free slot, fallback, or mw's reason */
+export function startText(s: WorkflowStart): string {
+  if (s.action === 'start' || s.action === 'resume') return 'gestartet';
+  if (s.action === 'poll') return 'startet mit dem nächsten Poll';
+  const full = /kein Platz frei \(\d+\/\d+\)/.exec(s.reason);
+  return full ? `${full[0]}, startet, sobald einer frei wird` : s.reason || 'nicht gestartet';
+}
+
 export function currentMode(names: string[]): FlowMode {
   const hit = (Object.keys(MODE_LABELS) as (keyof typeof MODE_LABELS)[]).find((m) =>
     names.includes(MODE_LABELS[m])

@@ -29,6 +29,9 @@ export const BUILD_LABEL = 'mw:build';
 export const NEED_INPUT_LABEL = 'need-input';
 export const IMAGE_LABEL = 'mw:image';
 
+/** A GitHub issue URL and nothing else: the only argument `mw board go` gets from a client */
+export const ISSUE_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+$/;
+
 /** Markers mw board writes when it cannot go on; the comment text holds the reason */
 export const ERROR_MARKERS = {
   invalid: 'Ungültige Steuerwerte',

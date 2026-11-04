@@ -34,11 +34,12 @@ export const LabelChip: React.FC<{ label: BoardLabel }> = ({ label }) => {
   );
 };
 
-const CHECKS: Record<'success' | 'failure' | 'pending', { icon: React.ReactNode; label: string }> = {
-  success: { icon: <CheckCircle2 size={12} className="text-emerald-400" />, label: 'CI grün' },
-  failure: { icon: <CircleX size={12} className="text-red-300" />, label: 'CI rot' },
-  pending: { icon: <CircleDashed size={12} className="text-yellow-400" />, label: 'CI läuft' },
-};
+const CHECKS: Record<'success' | 'failure' | 'pending', { icon: React.ReactNode; label: string }> =
+  {
+    success: { icon: <CheckCircle2 size={12} className="text-emerald-400" />, label: 'CI grün' },
+    failure: { icon: <CircleX size={12} className="text-red-300" />, label: 'CI rot' },
+    pending: { icon: <CircleDashed size={12} className="text-yellow-400" />, label: 'CI läuft' },
+  };
 
 export const CheckIcon: React.FC<{ state: BoardCheckState }> = ({ state }) =>
   state ? (
@@ -94,7 +95,8 @@ export const BoardCard: React.FC<BoardCardProps> = ({
   onAgent,
 }) => {
   const prs = item.pullRequests.filter((pr) => pr.url !== item.url);
-  const self = item.type === 'PullRequest' ? item.pullRequests.find((pr) => pr.url === item.url) : null;
+  const self =
+    item.type === 'PullRequest' ? item.pullRequests.find((pr) => pr.url === item.url) : null;
   return (
     <article
       draggable
@@ -114,11 +116,16 @@ export const BoardCard: React.FC<BoardCardProps> = ({
       <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
         <ItemIcon item={item} />
         <span className="font-mono truncate">
-          {item.number != null ? `${hideRepo ? '' : shortRepo(item.repo)}#${item.number}` : 'Entwurf'}
+          {item.number != null
+            ? `${hideRepo ? '' : shortRepo(item.repo)}#${item.number}`
+            : 'Entwurf'}
         </span>
         {self && <CheckIcon state={self.checks} />}
         {item.subIssues.total > 0 && (
-          <span className="ml-auto flex items-center gap-1 tabular-nums" title="Sub-Issues erledigt">
+          <span
+            className="ml-auto flex items-center gap-1 tabular-nums"
+            title="Sub-Issues erledigt"
+          >
             <ListChecks size={12} />
             {item.subIssues.completed}/{item.subIssues.total}
           </span>

@@ -188,7 +188,12 @@ const OffBoardIssue: React.FC<{
                     ))}
                   </div>
                 )}
-                <FlowControls labels={issue.labels} repoOptions={repoOptions} onSave={saveLabels} />
+                <FlowControls
+                  labels={issue.labels}
+                  repoOptions={repoOptions}
+                  onSave={saveLabels}
+                  issueUrl={issue.url}
+                />
                 {issue.body && (
                   <div className="rounded-md border border-gray-700 bg-gray-850 px-3 py-2 text-xs text-gray-200 whitespace-pre-wrap break-words">
                     {issue.body}

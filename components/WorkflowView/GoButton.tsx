@@ -1,15 +1,16 @@
 import React, { useRef, useState } from 'react';
 import { Rocket } from 'lucide-react';
 import type { WorkflowGo } from '../../utils/workflowStage.js';
+import { startText, type WorkflowStart } from '../../utils/issueControls';
 
 export const goLabel = (go: WorkflowGo) =>
   go.kind === 'build' ? 'GO: Umsetzung' : 'Jetzt starten';
 
-/** Toast text after a sent GO; `pollError`: the label is set but the poll did not start */
-export const goDoneText = (key: string, go: WorkflowGo, pollError?: string | null) =>
-  go.kind === 'poll'
-    ? `${key}: mw-board-Poll gestartet`
-    : `GO für ${key}: mw:build gesetzt${pollError ? ` (startet beim nächsten Poll: ${pollError})` : ', Poll gestartet'}`;
+/** Toast text after a sent GO; `start`: what `mw board go` (or its poll fallback) did */
+export const goDoneText = (key: string, go: WorkflowGo, start?: WorkflowStart) => {
+  const how = start ? startText(start) : 'gesendet';
+  return go.kind === 'poll' ? `${key}: ${how}` : `GO für ${key}: mw:build gesetzt, ${how}`;
+};
 
 /** Two-step GO: the first click arms, the second sends; arming expires after 4 s */
 export const GoButton: React.FC<{ label: string; onGo: () => Promise<void> }> = ({
