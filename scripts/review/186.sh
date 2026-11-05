@@ -64,6 +64,8 @@ if [[ "${1:-}" == "--live" ]]; then
   bun run electron:dev &
   LIVE_PID=$!
   cat <<'TXT'
+URL:   no URL, the desktop app window "Orkumo" opens (Vite renderer on http://localhost:3098, VITE_PORT overrides)
+Login: none for Orkumo; claude.ai with your own account in the built-in browser
 Check in the app window:
   1. Open https://claude.ai in the built-in browser, log in
   2. Close the browser pane, open it again: still logged in
