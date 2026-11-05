@@ -6,9 +6,10 @@ import path from 'node:path';
 import type { AgentSession } from '../types';
 
 const fetchAgentLogs = vi.fn();
+const fetchRemoteAgentLogs = vi.fn();
 vi.mock('../services/agentsApi', () => ({
   fetchAgentLogs: (...args: unknown[]) => fetchAgentLogs(...args),
-  fetchRemoteAgentLogs: vi.fn(),
+  fetchRemoteAgentLogs: (...args: unknown[]) => fetchRemoteAgentLogs(...args),
 }));
 
 window.Element.prototype.scrollTo ??= () => {}; // jsdom has no layout
@@ -41,7 +42,31 @@ function mount(onReply = vi.fn().mockResolvedValue(undefined)) {
 }
 
 describe('PeekPanel output (#178)', () => {
-  beforeEach(() => fetchAgentLogs.mockReset());
+  beforeEach(() => {
+    fetchAgentLogs.mockReset();
+    fetchRemoteAgentLogs.mockReset();
+  });
+
+  it('remote sessions get the same interpreted screen', async () => {
+    fetchRemoteAgentLogs.mockResolvedValue(rawLogs('claude-logs-table.txt'));
+    render(
+      <PeekPanel
+        session={{ ...session, host: 'devbox.tailnet' } as AgentSession}
+        onClose={vi.fn()}
+        onAttach={vi.fn()}
+        onReply={vi.fn()}
+      />
+    );
+    await waitFor(
+      () =>
+        expect(document.querySelector('[data-peek-screen]')?.textContent).toContain(
+          'Die verschleppten Favoriten'
+        ),
+      { timeout: 5000 }
+    );
+    expect(fetchRemoteAgentLogs).toHaveBeenCalledWith('devbox.tailnet', 's1');
+    expect(fetchAgentLogs).not.toHaveBeenCalled();
+  });
 
   it('AC-1/AC-2: shows the interpreted screen unwrapped, words spaced', async () => {
     fetchAgentLogs.mockResolvedValue(rawLogs('claude-logs-table.txt'));

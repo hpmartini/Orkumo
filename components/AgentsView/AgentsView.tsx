@@ -2169,7 +2169,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
       {/* Peek on small screens */}
       {peekSession && (
-        <div className="md:hidden fixed inset-0 z-40 bg-gray-950">
+        <div className="md:hidden fixed inset-x-0 bottom-0 top-10 z-40 bg-gray-950">
           <PeekPanel
             session={peekSession}
             onClose={() => setPeekId(null)}
