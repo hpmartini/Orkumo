@@ -6,7 +6,11 @@
 
 export const SESSION_COOKIE_DAYS = 30;
 
-/** Pure: the cookies.set() details that make a session cookie persistent, or null to leave it alone */
+/**
+ * Pure: the cookies.set() details that make a session cookie persistent, or null to leave it alone.
+ * shortcut: Electron's Cookie has no Partitioned/partitionKey field, so a partitioned (CHIPS) session cookie
+ * from a third-party frame comes back unpartitioned; upgrade once Electron exposes partitionKey.
+ */
 export function persistentCookieDetails(cookie, nowSeconds) {
   if (!cookie.session) return null;
   const host = cookie.domain.replace(/^\./, '');
@@ -31,10 +35,17 @@ export function persistSessionCookies(session) {
     if (removed) return;
     const details = persistentCookieDetails(cookie, Math.floor(Date.now() / 1000));
     if (!details) return;
-    session.cookies.set(details).catch((err) => {
-      console.warn(
-        `[cookies] could not persist ${cookie.name} for ${cookie.domain}: ${err.message}`
-      );
-    });
+    // the event is async: if the page removed or replaced the cookie meanwhile (logout), don't bring it back
+    session.cookies
+      .get({ url: details.url, name: cookie.name })
+      .then((now) => {
+        const current = now.find((c) => c.domain === cookie.domain && c.path === cookie.path);
+        if (current?.session && current.value === cookie.value) return session.cookies.set(details);
+      })
+      .catch((err) => {
+        console.warn(
+          `[cookies] could not persist ${cookie.name} for ${cookie.domain}: ${err.message}`
+        );
+      });
   });
 }

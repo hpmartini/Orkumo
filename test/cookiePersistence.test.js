@@ -57,23 +57,37 @@ describe('persistentCookieDetails (#186)', () => {
 });
 
 describe('persistSessionCookies', () => {
-  const fakeSession = () => {
+  // jar: what cookies.get() returns when the async re-set looks again
+  const fakeSession = (jar) => {
     let listener;
     const cookies = {
       on: (_e, fn) => (listener = fn),
+      get: vi.fn(() => Promise.resolve(jar)),
       set: vi.fn(() => Promise.resolve()),
     };
     return { session: { cookies }, fire: (...a) => listener({}, ...a), set: cookies.set };
   };
+  const flush = () => new Promise((r) => setTimeout(r, 0));
 
-  it('re-sets added session cookies, ignores removals and persistent ones', () => {
-    const { session, fire, set } = fakeSession();
+  it('re-sets added session cookies, ignores removals and persistent ones', async () => {
+    const { session, fire, set } = fakeSession([sessionCookie]);
     persistSessionCookies(session);
     fire(sessionCookie, 'explicit', false);
     fire(sessionCookie, 'expired', true);
     fire({ ...sessionCookie, session: false }, 'explicit', false);
+    await flush();
     expect(set).toHaveBeenCalledTimes(1);
     expect(set.mock.calls[0][0].name).toBe('sessionKey');
+  });
+
+  it('does not bring back a cookie the page removed or replaced meanwhile (logout)', async () => {
+    for (const jar of [[], [{ ...sessionCookie, value: 'new' }]]) {
+      const { session, fire, set } = fakeSession(jar);
+      persistSessionCookies(session);
+      fire(sessionCookie, 'explicit', false);
+      await flush();
+      expect(set).not.toHaveBeenCalled();
+    }
   });
 });
 

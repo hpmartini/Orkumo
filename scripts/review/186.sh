@@ -26,6 +26,7 @@ bunx vitest run test/cookiePersistence.test.js
 # (headless Electron hangs on quit here). Output lands in $WORK/<phase>-<fix>.log
 electron() {
   local log="$WORK/$1-$2.log" n=0
+  : >"$log"
   PHASE="$1" FIX="$2" USER_DATA="$WORK/userdata-$2" node_modules/.bin/electron scripts/review/186-restart.mjs >"$log" 2>&1 &
   local pid=$!
   until grep -q '^DONE' "$log" || (( n++ >= 60 )); do sleep 0.5; done

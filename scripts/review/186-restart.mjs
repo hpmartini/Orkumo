@@ -22,7 +22,7 @@ const report = (cookies) =>
 
 const server = createServer((_req, res) => {
   // login like claude.ai's: no expiry; pref: an ordinary persistent cookie (control, must stay as before)
-  res.setHeader('set-cookie', ['login=x; Path=/; HttpOnly; SameSite=Lax', 'pref=y; Path=/; Max-Age=86400']);
+  res.setHeader('set-cookie', ['login=x; Path=/; Secure; HttpOnly; SameSite=Lax', 'pref=y; Path=/; Max-Age=86400']);
   res.setHeader('content-type', 'text/html');
   res.end('<!doctype html><title>login</title>logged in');
 });
