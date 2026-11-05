@@ -1,39 +1,23 @@
 import { useEffect, useRef, useCallback, useState, useId } from 'react';
-import {
-  RefreshCw,
-  ExternalLink,
-  Monitor,
-  Smartphone,
-  Tablet,
-  AlertCircle,
-  Wrench,
-  ArrowLeft,
-  ArrowRight,
-  X,
-} from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
-import { openInSystemBrowser } from '../../utils/links';
+import { RefreshCw, ExternalLink, AlertCircle } from 'lucide-react';
+import { BrowserToolbar, type BrowserChromeProps, type Viewport } from './BrowserToolbar';
 
-interface ElectronBrowserViewProps {
+interface ElectronBrowserViewProps extends BrowserChromeProps {
   url: string;
   appId: string;
-  /** Callback to hide the browser panel */
-  onHide?: () => void;
 }
 
-type Viewport = 'desktop' | 'tablet' | 'mobile';
-
-const VIEWPORTS: Record<Viewport, { width: number | null; label: string; icon: LucideIcon }> = {
-  desktop: { width: null, label: 'Desktop', icon: Monitor },
-  tablet: { width: 768, label: 'Tablet', icon: Tablet },
-  mobile: { width: 375, label: 'Mobile', icon: Smartphone },
+const VIEWPORT_WIDTHS: Record<Viewport, number | null> = {
+  desktop: null,
+  tablet: 768,
+  mobile: 375,
 };
 
 /**
  * ElectronBrowserView - Renders an embedded Chromium browser using Electron's BrowserView
  * This provides access to real Chrome DevTools instead of simulated console/network logs.
  */
-export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewProps) => {
+export const ElectronBrowserView = ({ url, appId, ...chrome }: ElectronBrowserViewProps) => {
   const containerRef = useRef<HTMLDivElement>(null);
   // Views without an app (agent workspace browser panes) still need a unique native view id
   const fallbackId = useId();
@@ -57,7 +41,7 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
     if (!container) return null;
 
     const rect = container.getBoundingClientRect();
-    const viewportWidth = VIEWPORTS[viewport].width;
+    const viewportWidth = VIEWPORT_WIDTHS[viewport];
 
     // For non-desktop viewports, center the content
     let width = rect.width;
@@ -269,113 +253,23 @@ export const ElectronBrowserView = ({ url, appId, onHide }: ElectronBrowserViewP
 
   return (
     <div className="h-full flex flex-col bg-gray-900">
-      {/* Header */}
-      <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between">
-        <span>Browser Preview</span>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={devToolsOpen ? handleCloseDevTools : handleOpenDevTools}
-            className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
-              devToolsOpen
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-            title={devToolsOpen ? 'Close DevTools' : 'Open DevTools'}
-          >
-            <Wrench size={12} />
-            DevTools
-          </button>
-          {onHide && (
-            <button
-              onClick={onHide}
-              className="p-1 hover:bg-gray-700 rounded transition-colors"
-              title="Hide browser preview"
-              aria-label="Hide browser preview"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* URL Bar */}
-      <div className="bg-gray-800 border-b border-gray-700">
-        <div className="flex items-center gap-2 p-2">
-          <button
-            onClick={() => go('back')}
-            disabled={!history.canGoBack}
-            className="p-1.5 hover:bg-gray-700 rounded transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Back"
-            aria-label="Back"
-          >
-            <ArrowLeft className="w-4 h-4" />
-          </button>
-          <button
-            onClick={() => go('forward')}
-            disabled={!history.canGoForward}
-            className="p-1.5 hover:bg-gray-700 rounded transition-colors disabled:opacity-40 disabled:hover:bg-transparent"
-            title="Forward"
-            aria-label="Forward"
-          >
-            <ArrowRight className="w-4 h-4" />
-          </button>
-          <button
-            onClick={handleRefresh}
-            className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
-          </button>
-          <input
-            value={currentUrl}
-            onChange={(e) => {
-              setCurrentUrl(e.target.value);
-              setUrlError(null);
-            }}
-            className={`flex-1 bg-gray-900 px-3 py-1 rounded text-sm ${
-              urlError ? 'border border-red-500/50' : ''
-            }`}
-            onKeyDown={(e) => e.key === 'Enter' && handleRefresh()}
-          />
-          <button
-            onClick={() => openInSystemBrowser(currentUrl)}
-            className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-            title="Open in system browser"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </button>
-        </div>
-        {urlError && (
-          <div className="px-2 pb-2 flex items-center gap-2 text-red-400 text-xs">
-            <AlertCircle className="w-3 h-3" />
-            {urlError}
-          </div>
-        )}
-      </div>
-
-      {/* Viewport Controls */}
-      <div
-        className="flex gap-1 p-2 bg-gray-850 border-b border-gray-700"
-        role="group"
-        aria-label="Viewport size selector"
-      >
-        {Object.entries(VIEWPORTS).map(([key, { label, icon: Icon }]) => (
-          <button
-            key={key}
-            onClick={() => setViewport(key as Viewport)}
-            aria-label={`Switch to ${label} viewport`}
-            aria-pressed={viewport === key}
-            className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              viewport === key
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-          >
-            <Icon className="w-3 h-3" />
-            {label}
-          </button>
-        ))}
-      </div>
+      <BrowserToolbar
+        {...chrome}
+        url={currentUrl}
+        onUrlChange={(next) => {
+          setCurrentUrl(next);
+          setUrlError(null);
+        }}
+        onSubmit={handleRefresh}
+        loading={isLoading}
+        urlError={urlError}
+        viewport={viewport}
+        onViewportChange={setViewport}
+        devToolsOpen={devToolsOpen}
+        onToggleDevTools={devToolsOpen ? handleCloseDevTools : handleOpenDevTools}
+        history={history}
+        onGo={go}
+      />
 
       {/* BrowserView Container */}
       <div

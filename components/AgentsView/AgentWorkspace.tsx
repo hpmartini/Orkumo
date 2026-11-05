@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import { X, Columns2, Rows2, LayoutGrid, Bot, Globe, Maximize2 } from 'lucide-react';
+import { X, Columns2, Rows2, LayoutGrid, Bot, Maximize2 } from 'lucide-react';
 import type { AgentSession } from '../../types';
 import { stateGlyph } from '../../utils/agentSessions';
 import {
@@ -109,39 +109,27 @@ export const BrowserPane: React.FC<{
     className={`h-full flex flex-col min-h-0 rounded border ${active ? 'border-blue-500/60' : 'border-gray-800'} bg-gray-900`}
     onMouseDownCapture={onFocus}
   >
-    <div
-      {...headerProps}
-      className={`flex items-center gap-2 h-8 px-2 shrink-0 border-b border-gray-800 text-xs text-gray-400 ${
-        headerProps?.draggable ? 'cursor-grab active:cursor-grabbing' : ''
-      } ${headerProps?.className ?? ''}`}
-    >
-      <Globe size={12} aria-hidden="true" />
-      <span className="truncate" title={url}>
-        {url}
-      </span>
-      <div className="flex-1" />
-      {onMaximize && (
-        <button
-          onClick={onMaximize}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title="Own tab"
-          aria-label="Move browser to its own tab"
-        >
-          <Maximize2 size={12} />
-        </button>
-      )}
-      <button
-        onClick={onClose}
-        className="p-1.5 rounded text-gray-400 hover:text-red-300 hover:bg-gray-800"
-        title="Close"
-        aria-label="Close browser"
-      >
-        <X size={12} />
-      </button>
-    </div>
     <div className="flex-1 min-h-0">
       {/* No app id: the preview's logger injection is per managed app */}
-      <BrowserPreviewPanel url={url} appId="" onHide={onClose} />
+      <BrowserPreviewPanel
+        url={url}
+        appId=""
+        onHide={onClose}
+        closeLabel="Close browser"
+        dragHandleProps={headerProps}
+        actions={
+          onMaximize && (
+            <button
+              onClick={onMaximize}
+              className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 shrink-0"
+              title="Own tab"
+              aria-label="Move browser to its own tab"
+            >
+              <Maximize2 size={14} />
+            </button>
+          )
+        }
+      />
     </div>
   </div>
 );

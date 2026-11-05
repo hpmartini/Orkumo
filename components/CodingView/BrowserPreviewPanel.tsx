@@ -1,28 +1,21 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import {
-  RefreshCw,
   ExternalLink,
-  Monitor,
-  Smartphone,
-  Tablet,
-  AlertCircle,
   Terminal as TerminalIcon,
   Globe,
   Trash2,
   ChevronDown,
   ChevronUp,
   Search,
-  X,
 } from 'lucide-react';
-import type { LucideIcon } from 'lucide-react';
 import type { ConsoleLog, NetworkLog } from '../../types';
 import { ConsoleLogEntry } from './ConsoleLogEntry';
 import { NetworkLogEntry } from './NetworkLogEntry';
 import { DevToolsErrorBoundary } from './DevToolsErrorBoundary';
 import { ElectronBrowserView } from './ElectronBrowserView';
-import { openInSystemBrowser } from '../../utils/links';
+import { BrowserToolbar, type BrowserChromeProps, type Viewport } from './BrowserToolbar';
 
-interface BrowserPreviewPanelProps {
+interface BrowserPreviewPanelProps extends BrowserChromeProps {
   url: string;
   appId: string;
   /** Controlled devtools visibility */
@@ -37,16 +30,12 @@ interface BrowserPreviewPanelProps {
   filter?: 'all' | 'log' | 'warn' | 'error';
   /** Callback when console filter changes */
   onFilterChange?: (filter: 'all' | 'log' | 'warn' | 'error') => void;
-  /** Callback to hide the browser panel */
-  onHide?: () => void;
 }
 
-type Viewport = 'desktop' | 'tablet' | 'mobile';
-
-const VIEWPORTS: Record<Viewport, { width: string; label: string; icon: LucideIcon }> = {
-  desktop: { width: '100%', label: 'Desktop', icon: Monitor },
-  tablet: { width: '768px', label: 'Tablet', icon: Tablet },
-  mobile: { width: '375px', label: 'Mobile', icon: Smartphone },
+const VIEWPORT_WIDTHS: Record<Viewport, string> = {
+  desktop: '100%',
+  tablet: '768px',
+  mobile: '375px',
 };
 
 const MAX_LOGS = 500;
@@ -60,14 +49,14 @@ export const BrowserPreviewPanel = ({
   onActiveTabChange,
   filter: controlledFilter,
   onFilterChange,
-  onHide,
+  ...chrome
 }: BrowserPreviewPanelProps) => {
   // Check if we're running in Electron with BrowserView support
   const isElectron = typeof window !== 'undefined' && window.electronAPI?.browserView !== undefined;
 
   // If running in Electron, use the native BrowserView component
   if (isElectron) {
-    return <ElectronBrowserView url={url} appId={appId} onHide={onHide} />;
+    return <ElectronBrowserView url={url} appId={appId} {...chrome} />;
   }
 
   // Otherwise, fall back to iframe-based preview (web mode)
@@ -81,7 +70,7 @@ export const BrowserPreviewPanel = ({
       onActiveTabChange={onActiveTabChange}
       filter={controlledFilter}
       onFilterChange={onFilterChange}
-      onHide={onHide}
+      {...chrome}
     />
   );
 };
@@ -95,7 +84,7 @@ const IframeBrowserPreview = ({
   onActiveTabChange,
   filter: controlledFilter,
   onFilterChange,
-  onHide,
+  ...chrome
 }: BrowserPreviewPanelProps) => {
   const [viewport, setViewport] = useState<Viewport>('desktop');
   const [iframeKey, setIframeKey] = useState(0);
@@ -266,102 +255,26 @@ const IframeBrowserPreview = ({
 
   return (
     <div className="h-full flex flex-col bg-gray-900">
-      {/* Header */}
-      <div className="px-3 py-2 bg-gray-850 border-b border-gray-700 font-semibold text-sm flex items-center justify-between">
-        <span>Browser Preview</span>
-        <div className="flex items-center gap-1">
-          {/* DevTools Toggle */}
-          <button
-            onClick={() => setShowDevTools(!showDevTools)}
-            className={`flex items-center gap-1 px-2 py-1 text-xs rounded transition-colors ${
-              showDevTools
-                ? 'bg-blue-600 text-white'
-                : 'text-gray-400 hover:bg-gray-700 hover:text-white'
-            }`}
-            title={showDevTools ? 'Hide DevTools' : 'Show DevTools'}
-          >
-            <TerminalIcon size={12} />
-            DevTools
-          </button>
-          {onHide && (
-            <button
-              onClick={onHide}
-              className="p-1 hover:bg-gray-700 rounded transition-colors"
-              title="Hide browser preview"
-              aria-label="Hide browser preview"
-            >
-              <X size={14} />
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* URL Bar */}
-      <div className="bg-gray-800 border-b border-gray-700">
-        <div className="flex items-center gap-2 p-2">
-          <button
-            onClick={handleRefresh}
-            className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-            title="Refresh"
-          >
-            <RefreshCw className="w-4 h-4" />
-          </button>
-          <input
-            value={currentUrl}
-            onChange={(e) => {
-              setCurrentUrl(e.target.value);
-              setUrlError(null); // Clear error on input change
-            }}
-            className={`flex-1 bg-gray-900 px-3 py-1 rounded text-sm ${
-              urlError ? 'border border-red-500/50' : ''
-            }`}
-            onKeyDown={(e) => e.key === 'Enter' && handleRefresh()}
-          />
-          <button
-            onClick={() => openInSystemBrowser(currentUrl)}
-            className="p-1.5 hover:bg-gray-700 rounded transition-colors"
-            title="Open in system browser"
-          >
-            <ExternalLink className="w-4 h-4" />
-          </button>
-        </div>
-        {urlError && (
-          <div className="px-2 pb-2 flex items-center gap-2 text-red-400 text-xs">
-            <AlertCircle className="w-3 h-3" />
-            {urlError}
-          </div>
-        )}
-      </div>
-
-      {/* Viewport Controls */}
-      <div
-        className="flex gap-1 p-2 bg-gray-850 border-b border-gray-700"
-        role="group"
-        aria-label="Viewport size selector"
-      >
-        {Object.entries(VIEWPORTS).map(([key, { label, icon: Icon }]) => (
-          <button
-            key={key}
-            onClick={() => setViewport(key as Viewport)}
-            aria-label={`Switch to ${label} viewport`}
-            aria-pressed={viewport === key}
-            className={`flex items-center gap-1 px-3 py-1 rounded text-sm transition-colors focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-              viewport === key
-                ? 'bg-blue-600 text-white'
-                : 'bg-gray-700 text-gray-300 hover:bg-gray-600'
-            }`}
-          >
-            <Icon className="w-3 h-3" />
-            {label}
-          </button>
-        ))}
-      </div>
+      <BrowserToolbar
+        {...chrome}
+        url={currentUrl}
+        onUrlChange={(next) => {
+          setCurrentUrl(next);
+          setUrlError(null); // Clear error on input change
+        }}
+        onSubmit={handleRefresh}
+        urlError={urlError}
+        viewport={viewport}
+        onViewportChange={setViewport}
+        devToolsOpen={showDevTools}
+        onToggleDevTools={() => setShowDevTools(!showDevTools)}
+      />
 
       {/* Split: iframe + devtools */}
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* iframe Container */}
         <div className="flex-1 overflow-auto bg-white p-4">
-          <div className="w-full h-full" style={{ width: VIEWPORTS[viewport].width }}>
+          <div className="w-full h-full" style={{ width: VIEWPORT_WIDTHS[viewport] }}>
             <iframe
               ref={iframeRef}
               key={iframeKey}

@@ -11,7 +11,20 @@ import {
 
 // The embedded browser talks to Electron; the pane only needs to show which URL it got
 vi.mock('../components/CodingView/BrowserPreviewPanel', () => ({
-  BrowserPreviewPanel: ({ url }: { url: string }) => <div data-testid="pr-pane">{url}</div>,
+  BrowserPreviewPanel: ({
+    url,
+    onHide,
+    closeLabel,
+  }: {
+    url: string;
+    onHide?: () => void;
+    closeLabel?: string;
+  }) => (
+    <div data-testid="pr-pane">
+      {url}
+      <button onClick={onHide}>{closeLabel}</button>
+    </div>
+  ),
 }));
 
 const pr = (number: number, repoSlug = 'o/r'): AgentPullRequest => ({
