@@ -52,7 +52,7 @@ import {
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
-import { agentFolder, boardUrl, codeUrl, modeUrl } from '../../utils/codeTarget';
+import { agentFolder, boardUrl, codeUrl, modeUrl, pullsUrl } from '../../utils/codeTarget';
 import {
   parseDispatchInput,
   parseFilter,
@@ -647,12 +647,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       rows: pullRows,
       sessions,
       contexts,
-      repoFilter: prRepo,
-      onClearRepo: () => setPrRepo(null),
       onSelectAgent: attach,
       onOpenCode: openPrCode,
     }),
-    [pullRows, sessions, contexts, prRepo, attach, openPrCode]
+    [pullRows, sessions, contexts, attach, openPrCode]
   );
   // New issue dialog; repo null = the user picks one of `issueRepos`
   const [issueDialog, setIssueDialog] = useState<{ repo: string | null } | null>(null);
@@ -1892,7 +1890,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             onClearRepo={() => setPrRepo(null)}
             onSelectAgent={attach}
             onOpenCode={openPrCode}
-            onMaximize={() => navigate('/pulls')}
+            onMaximize={() => navigate(pullsUrl(prRepo))}
             onClose={() => setPanel(null)}
           />
         )}

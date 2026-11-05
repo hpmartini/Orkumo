@@ -10,6 +10,8 @@ export const codeUrl = (path: string) => `/code?path=${encodeURIComponent(path)}
 const scopedUrl = (route: string) => (repo: string, agentId?: string) =>
   `${route}?${new URLSearchParams(agentId ? { repo, agent: agentId } : { repo })}`;
 export const boardUrl = scopedUrl('/board');
+/** Full PR view (#191), optionally filtered to a repo */
+export const pullsUrl = (repo?: string | null) => (repo ? scopedUrl('/pulls')(repo) : '/pulls');
 /** Route of a module mode (docs/MODULES.md), scoped like the board */
 export const modeUrl = (id: string) => scopedUrl(`/${id}`);
 

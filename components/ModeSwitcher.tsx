@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessagesSquare, Kanban, Code2 } from 'lucide-react';
+import { MessagesSquare, Kanban, GitPullRequest, Code2 } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ModeEntry } from '../hooks/useModules';
 import { moduleIcon } from './moduleIcon';
@@ -8,6 +8,7 @@ import { moduleIcon } from './moduleIcon';
 export const MODES = [
   { path: '/agents', label: 'Agents', icon: MessagesSquare },
   { path: '/board', label: 'Board', icon: Kanban },
+  { path: '/pulls', label: 'Pull Requests', icon: GitPullRequest },
   { path: '/code', label: 'Code', icon: Code2 },
 ] as const;
 
@@ -32,7 +33,8 @@ export const ModeSwitcher: React.FC<{ modes?: ModeEntry[] }> = ({ modes = [] }) 
         return (
           <button
             key={path}
-            onClick={() => !active && navigate(path)}
+            // #191 AC-1: Pull Requests is an overlay mode, a second click returns to the agents
+            onClick={() => (active ? path === '/pulls' && navigate('/agents') : navigate(path))}
             aria-pressed={active}
             aria-label={label}
             title={label}
