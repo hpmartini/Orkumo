@@ -14,6 +14,7 @@ import {
   SquareTerminal,
   MoreHorizontal,
   Keyboard,
+  MessageSquare,
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { API_BASE_URL, getWsUrl } from '../../utils/apiConfig';
@@ -51,6 +52,8 @@ interface AgentTerminalProps {
   meta?: React.ReactNode;
   /** Cmd/Ctrl-click on a link: open it in the built-in browser instead of externally */
   onOpenLink?: (url: string) => void;
+  /** Present when the session can be resumed in a Chat pane */
+  onOpenAsChat?: () => void;
 }
 
 /**
@@ -103,6 +106,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   solo,
   meta,
   onOpenLink,
+  onOpenAsChat,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<XTerm | null>(null);
@@ -333,6 +337,16 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   const glyph = stateGlyph(session.displayState);
   const actions = [
     { label: 'Peek', title: 'Peek (recent output)', icon: <Eye size={12} />, run: onPeek },
+    ...(onOpenAsChat
+      ? [
+          {
+            label: 'Open as chat',
+            title: 'Open as chat: ends this terminal and resumes the session in the chat UI',
+            icon: <MessageSquare size={12} />,
+            run: onOpenAsChat,
+          },
+        ]
+      : []),
     connected
       ? {
           label: 'Detach',

@@ -784,6 +784,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const openInteractiveClaude = useCallback(
     (cwd: string, name: string, ptyArgs: string[] = []) => {
       const id = `interactive-${Date.now()}`;
+      // A known session id lets "Open as chat" resume this terminal's session later
+      if (ptyArgs.length === 0) ptyArgs = ['--session-id', crypto.randomUUID()];
       setCloudSessions((prev) => [
         ...prev,
         {
@@ -809,7 +811,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   /** Starts a Chat pane session with the dispatch defaults (model, permission mode) */
   const openChat = useCallback(
-    async (cwd: string | null, extra: { resume?: string; continue?: boolean }, message = '') => {
+    async (
+      cwd: string | null,
+      extra: { resume?: string; continue?: boolean; name?: string },
+      message = ''
+    ) => {
       if (!cwd) {
         showHint('Pick a directory first', 'error');
         return;
@@ -851,6 +857,31 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       ]);
     },
     [chats.chats, closePane, stopChatSession, openInteractiveClaude, homeDir]
+  );
+
+  /** "Open as chat": the terminal's claude process ends first, then the Chat pane resumes it */
+  const openAgentInChat = useCallback(
+    async (session: AgentSession, sessionId: string) => {
+      if (session.displayState === 'working' || session.displayState === 'waiting') {
+        showHint('Agent is working: open it as chat once the turn is done', 'info');
+        return;
+      }
+      if (session.kind === 'background') {
+        // Closing the pane only detaches `claude attach`; the job itself has to stop
+        try {
+          await stopAgent(session.id);
+        } catch (err) {
+          showHint(err instanceof Error ? err.message : 'Stop failed', 'error', 6000);
+          return;
+        }
+      }
+      // For a local terminal, closing the pane kills its PTY (server side, on WebSocket close)
+      closeAnyPane(session.id);
+      // shortcut: fixed grace for the killed claude to exit; replace with a PTY-exit ack if a resume ever races
+      if (session.kind !== 'background') await new Promise((r) => setTimeout(r, 500));
+      await openChat(session.cwd, { resume: sessionId, name: session.name || undefined });
+    },
+    [showHint, closeAnyPane, openChat]
   );
 
   const activateItem = useCallback(
@@ -2225,6 +2256,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     onCloseTab={live ? closeTab : noop}
                     chatSubmitKey={settings.chatSubmitKey}
                     onOpenChatInTerminal={live ? openChatInTerminal : undefined}
+                    onOpenAsChat={live ? openAgentInChat : undefined}
                     onMoveTab={live ? workspaceActions.moveTab : noop}
                     onSplit={live ? workspaceActions.split : noop}
                     onDetach={live ? workspaceActions.detach : noop}

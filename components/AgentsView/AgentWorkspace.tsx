@@ -2,7 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { X, Columns2, Rows2, LayoutGrid, Bot, Maximize2 } from 'lucide-react';
 import type { AgentSession } from '../../types';
-import { stateGlyph } from '../../utils/agentSessions';
+import { stateGlyph, resumableSessionId } from '../../utils/agentSessions';
 import {
   AGENT_TAB_MIME,
   browserUrl,
@@ -46,6 +46,8 @@ interface AgentWorkspaceProps {
   chatSubmitKey?: ChatSubmitKey;
   /** Chat pane "Open in terminal": end the chat, resume its CLI session in a terminal */
   onOpenChatInTerminal?: (chatId: string, sessionId: string) => void;
+  /** Ends a terminal pane and resumes its CLI session in a Chat pane */
+  onOpenAsChat?: (session: AgentSession, sessionId: string) => void;
 }
 
 /** What is being dragged: a whole tab (moves its active session on split) or one pane */
@@ -199,6 +201,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   renderPaneMeta,
   chatSubmitKey = 'mod+enter',
   onOpenChatInTerminal,
+  onOpenAsChat,
   hidden = false,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -315,6 +318,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   ) => {
     const multi = panes.length > 1;
     const url = browserUrl(session.id);
+    const resumable = resumableSessionId(session);
     return (
       <div className="relative h-full min-h-0">
         {session.chat ? (
@@ -365,6 +369,9 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             solo={!multi}
             meta={renderPaneMeta?.(session)}
             onOpenLink={onOpenLink && ((link) => onOpenLink(session.id, link))}
+            onOpenAsChat={
+              onOpenAsChat && resumable ? () => onOpenAsChat(session, resumable) : undefined
+            }
             headerProps={
               multi
                 ? {

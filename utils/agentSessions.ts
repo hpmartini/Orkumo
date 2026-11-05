@@ -1013,3 +1013,16 @@ export function shortenPath(cwd: string, max = 40): string {
   }
   return `…/${out}`;
 }
+
+/**
+ * CLI session UUID a terminal pane can hand over to a Chat pane (`claude --resume`), or null.
+ * Remote (ssh) and cloud panes run elsewhere; chats already are chats.
+ */
+export function resumableSessionId(session: AgentSession): string | null {
+  if (session.chat || session.host || session.ptyCommand === 'ssh') return null;
+  if (session.sessionId) return session.sessionId;
+  const args = session.ptyArgs ?? [];
+  if (args.includes('--cloud')) return null;
+  const at = args.findIndex((a) => a === '--resume' || a === '--session-id');
+  return at === -1 ? null : (args[at + 1] ?? null);
+}
