@@ -489,7 +489,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
-  cardDetails: 'hover',
+  cardDetails: 'click',
   cardDensity: 'comfortable',
   cardFields: DEFAULT_AGENT_CARD_FIELDS,
   disabled: false,

@@ -921,7 +921,7 @@ export const CARD_SLOTS: { key: AgentCardSlot; label: string }[] = [
   { key: 'row2', label: 'Row 2' },
   { key: 'row3', label: 'Row 3 (joins row 2 when compact)' },
   { key: 'row4', label: 'Row 4' },
-  { key: 'details', label: 'Details (hover / pinned)' },
+  { key: 'details', label: 'Details (expanded card)' },
   { key: 'hidden', label: 'Hidden' },
 ];
 
@@ -948,16 +948,24 @@ export function cardSlots<T, U = T>(
 }
 
 /**
- * Whether a session card shows its details. "Keep details open" pins them in every mode;
- * in `hover` mode the hovered card and the keyboard-selected card (rail focused) show them too.
+ * Whether a session card shows its details (#181: one trigger per mode, so at most one card opens transiently).
+ * "Keep details open" pins them in every mode. `selectedBy` is how the card got selected while the rail has focus.
+ * `click`: the selected card. `hover`: the hovered card; a keyboard selection only while no card is hovered.
  */
 export function cardDetailsVisible(
   mode: AgentCardDetails,
-  state: { hasDetails: boolean; pinned: boolean; hovered: boolean; focused: boolean }
+  state: {
+    hasDetails: boolean;
+    pinned: boolean;
+    hovered: boolean;
+    anyHovered: boolean;
+    selectedBy: 'click' | 'keyboard' | null;
+  }
 ): boolean {
   if (!state.hasDetails) return false;
   if (mode === 'always' || state.pinned) return true;
-  return mode === 'hover' && (state.hovered || state.focused);
+  if (mode === 'click') return state.selectedBy !== null;
+  return state.hovered || (state.selectedBy === 'keyboard' && !state.anyHovered);
 }
 
 /**

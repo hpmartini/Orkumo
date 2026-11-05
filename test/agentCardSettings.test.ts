@@ -14,17 +14,29 @@ vi.mock('fs', () => ({
   },
 }));
 
-const base = { hasDetails: true, pinned: false, hovered: false, focused: false };
+const base = {
+  hasDetails: true,
+  pinned: false,
+  hovered: false,
+  anyHovered: false,
+  selectedBy: null as 'click' | 'keyboard' | null,
+};
 
-describe('cardDetailsVisible (#135)', () => {
-  it('hover mode: shows on hover or keyboard focus, hides otherwise', () => {
+describe('cardDetailsVisible (#135, #181)', () => {
+  it('hover mode: the hovered card; a keyboard selection only while nothing is hovered; never a click', () => {
     expect(cardDetailsVisible('hover', base)).toBe(false);
-    expect(cardDetailsVisible('hover', { ...base, hovered: true })).toBe(true);
-    expect(cardDetailsVisible('hover', { ...base, focused: true })).toBe(true);
+    expect(cardDetailsVisible('hover', { ...base, hovered: true, anyHovered: true })).toBe(true);
+    expect(cardDetailsVisible('hover', { ...base, selectedBy: 'keyboard' })).toBe(true);
+    expect(cardDetailsVisible('hover', { ...base, selectedBy: 'keyboard', anyHovered: true })).toBe(
+      false
+    );
+    expect(cardDetailsVisible('hover', { ...base, selectedBy: 'click' })).toBe(false);
   });
 
-  it('click mode: only the pinned (chevron) state counts', () => {
-    expect(cardDetailsVisible('click', { ...base, hovered: true, focused: true })).toBe(false);
+  it('click mode: the selected card, hover never', () => {
+    expect(cardDetailsVisible('click', { ...base, hovered: true, anyHovered: true })).toBe(false);
+    expect(cardDetailsVisible('click', { ...base, selectedBy: 'click' })).toBe(true);
+    expect(cardDetailsVisible('click', { ...base, selectedBy: 'keyboard' })).toBe(true);
     expect(cardDetailsVisible('click', { ...base, pinned: true })).toBe(true);
   });
 
@@ -32,17 +44,45 @@ describe('cardDetailsVisible (#135)', () => {
     expect(cardDetailsVisible('always', base)).toBe(true);
     for (const mode of ['hover', 'click', 'always'] as const) {
       expect(
-        cardDetailsVisible(mode, { hasDetails: false, pinned: true, hovered: true, focused: true })
+        cardDetailsVisible(mode, {
+          ...base,
+          hasDetails: false,
+          pinned: true,
+          hovered: true,
+          selectedBy: 'click',
+        })
       ).toBe(false);
     }
+  });
+
+  // AC-3: for every list of 3 cards (selection, how it was made, hovered card) at most one opens transiently
+  it('hover and click open at most one unpinned card in every state', () => {
+    const ids = [0, 1, 2];
+    for (const mode of ['hover', 'click'] as const)
+      for (const selected of [null, ...ids])
+        for (const by of ['click', 'keyboard'] as const)
+          for (const hovered of [null, ...ids]) {
+            const open = ids.filter((i) =>
+              cardDetailsVisible(mode, {
+                hasDetails: true,
+                pinned: false,
+                hovered: hovered === i,
+                anyHovered: hovered !== null,
+                selectedBy: selected === i ? by : null,
+              })
+            );
+            expect(open.length, `${mode} sel=${selected}/${by} hov=${hovered}`).toBeLessThanOrEqual(
+              1
+            );
+          }
   });
 });
 
 describe('agent card settings defaults and persistence (#135)', () => {
-  it('client and server defaults agree: hover + comfortable', async () => {
+  it('client and server defaults agree: click (#181) + comfortable', async () => {
     const { DEFAULT_AGENT_VIEW_SETTINGS: server } =
       await import('../server/services/settingsService.js');
-    expect(DEFAULT_AGENT_VIEW_SETTINGS.cardDetails).toBe('hover');
+    expect(DEFAULT_AGENT_VIEW_SETTINGS.cardDetails).toBe('click');
     expect(DEFAULT_AGENT_VIEW_SETTINGS.cardDensity).toBe('comfortable');
     expect(server.cardDetails).toBe(DEFAULT_AGENT_VIEW_SETTINGS.cardDetails);
     expect(server.cardDensity).toBe(DEFAULT_AGENT_VIEW_SETTINGS.cardDensity);
@@ -68,9 +108,12 @@ describe('agent card settings defaults and persistence (#135)', () => {
     const { settingsService } = await import('../server/services/settingsService.js');
     expect(settingsService.getAgentViewSettings()).toMatchObject({
       grouping: 'state',
-      cardDetails: 'hover',
+      cardDetails: 'click',
       cardDensity: 'comfortable',
     });
+    // #181: a saved `hover` stays, only unset files get the new default
+    stored = JSON.stringify({ agentView: { cardDetails: 'hover' }, version: 1 });
+    expect(settingsService.getAgentViewSettings().cardDetails).toBe('hover');
     settingsService.updateAgentViewSettings({ cardDetails: 'always', cardDensity: 'compact' });
     expect(JSON.parse(stored).agentView).toMatchObject({
       cardDetails: 'always',

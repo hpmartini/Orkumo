@@ -37,7 +37,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
-  cardDetails: 'hover', // 'hover' | 'click' | 'always': when a session card shows its details
+  cardDetails: 'click', // 'hover' | 'click' | 'always': when a session card shows its details
   cardDensity: 'comfortable', // 'comfortable' | 'compact'
   // Card element -> slot (#159); mirrors DEFAULT_AGENT_CARD_FIELDS in types.ts
   cardFields: {

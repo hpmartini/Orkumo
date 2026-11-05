@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { act, render, screen, fireEvent, within } from '@testing-library/react';
 import { AgentList } from '../components/AgentsView/AgentList';
 import {
   DEFAULT_AGENT_CARD_FIELDS,
@@ -198,5 +198,107 @@ describe('AgentList card fields (#159, AC-7)', () => {
     expect(within(titleRow).getByText('#159')).toBeTruthy();
     const details = card().querySelector('[data-card-details]') as HTMLElement;
     expect(within(details).getByText('feat/159-agent-panel')).toBeTruthy();
+  });
+});
+
+describe('AgentList card details trigger (#181)', () => {
+  // Three cards that all have details (a linked issue each)
+  const sessions = ['a', 'b', 'c'].map((id) => session({ id, name: `agent ${id}` }));
+  const group = { key: 'g', title: 'Group', sessions, hidden: 0 } as unknown as SessionGroup;
+  const items = sessions.map((s) => ({ type: 'session', session: s, group }) as NavItem);
+
+  function List({ mode, initial = -1 }: { mode: 'hover' | 'click'; initial?: number }) {
+    const [selected, setSelected] = React.useState(initial);
+    return (
+      <>
+        <button onClick={() => setSelected((i) => i + 1)}>arrow-down</button>
+        <AgentList
+          items={items}
+          selectedIndex={selected}
+          onSelectIndex={setSelected}
+          onActivate={() => {}}
+          onTogglePeek={() => {}}
+          peekId={null}
+          openIds={new Set()}
+          now={2000}
+          grouping="state"
+          cardDetails={mode}
+          contexts={Object.fromEntries(sessions.map((s) => [s.id, ctx]))}
+          servers={new Map()}
+          rowActions={() => []}
+          groupActions={() => []}
+          collapsedKeys={new Set()}
+          issuesByAgent={new Map(sessions.map((s) => [s.id, [`hpmartini/DevHub#${s.id}1`]]))}
+          onOpenIssue={() => {}}
+          onOpenPrs={() => {}}
+        />
+      </>
+    );
+  }
+
+  const cardOf = (id: string) => document.querySelector(`[data-session-id="${id}"]`) as HTMLElement;
+  const openCards = () =>
+    [...document.querySelectorAll('[data-session-id]')]
+      .filter((el) => el.querySelector('[data-card-details]'))
+      .map((el) => el.getAttribute('data-session-id'));
+  const hover = (id: string) => {
+    fireEvent.mouseEnter(cardOf(id));
+    act(() => vi.advanceTimersByTime(250));
+  };
+  // Pointer device: the component only reacts to hover where `(hover: hover)` matches
+  const setHoverDevice = (matches: boolean) =>
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches, media: q }) as MediaQueryList);
+
+  beforeEach(() => {
+    window.Element.prototype.scrollIntoView = () => {}; // jsdom lacks it; the list scrolls the selection into view
+    vi.useFakeTimers();
+    setHoverDevice(true);
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+  });
+
+  it('hover mode: a clicked card stays closed once the pointer moves to a card above or below (AC-1)', () => {
+    render(<List mode="hover" />);
+    hover('b');
+    fireEvent.click(cardOf('b'));
+    expect(openCards()).toEqual(['b']);
+    for (const other of ['a', 'c']) {
+      fireEvent.mouseLeave(cardOf('b'));
+      hover(other);
+      expect(openCards()).toEqual([other]);
+      fireEvent.mouseLeave(cardOf(other));
+      expect(openCards()).toEqual([]);
+      hover('b');
+    }
+  });
+
+  it('hover mode: keyboard selection opens while no card is hovered', () => {
+    render(<List mode="hover" initial={0} />);
+    fireEvent.click(screen.getByText('arrow-down'));
+    expect(openCards()).toEqual(['b']);
+    hover('c');
+    expect(openCards()).toEqual(['c']);
+  });
+
+  it('click mode: hover opens nothing, click and keyboard selection open the selected card (AC-2)', () => {
+    render(<List mode="click" />);
+    hover('a');
+    expect(openCards()).toEqual([]);
+    fireEvent.click(cardOf('a'));
+    expect(openCards()).toEqual(['a']);
+    hover('c');
+    expect(openCards()).toEqual(['a']);
+    fireEvent.click(screen.getByText('arrow-down'));
+    expect(openCards()).toEqual(['b']);
+  });
+
+  it('touch device: hover mode falls back to click', () => {
+    setHoverDevice(false);
+    render(<List mode="hover" />);
+    fireEvent.mouseEnter(cardOf('c'));
+    fireEvent.click(cardOf('c'));
+    expect(openCards()).toEqual(['c']);
   });
 });

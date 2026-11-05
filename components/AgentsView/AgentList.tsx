@@ -194,7 +194,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   onFocusOpen,
   now,
   grouping,
-  cardDetails = 'hover',
+  cardDetails = 'click',
   cardDensity = 'comfortable',
   cardFields = DEFAULT_AGENT_CARD_FIELDS,
   lookup,
@@ -242,6 +242,23 @@ export const AgentList: React.FC<AgentListProps> = ({
       hoverTimer.current = setTimeout(() => setHoveredId(id), HOVER_DETAILS_DELAY_MS);
   };
   useEffect(() => () => clearTimeout(hoverTimer.current), []);
+  // Card selected by a click (#181): in hover mode a click must not open details, a keyboard selection may
+  const [clickedId, setClickedId] = useState<string | null>(null);
+  const selectedItem = items[selectedIndex];
+  const selectedId = selectedItem?.type === 'session' ? selectedItem.session.id : null;
+  useEffect(() => {
+    if (selectedId === clickedId) return;
+    // Keyboard moved the selection: forget the click and the hovered card so only the selection opens
+    setClickedId(null);
+    clearTimeout(hoverTimer.current);
+    setHoveredId(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only a selection change counts
+  }, [selectedId]);
+  // Touch screens have no hover: there hover mode behaves like click mode
+  const detailsMode =
+    cardDetails === 'hover' && !window.matchMedia?.('(hover: hover)').matches
+      ? 'click'
+      : cardDetails;
   const comfortable = cardDensity === 'comfortable';
   // One width for the whole list so names stay aligned; wide only when some card fills the column
   const leftElements = CARD_ELEMENTS.filter(({ key }) => cardFields[key] === 'left').map(
@@ -862,11 +879,17 @@ export const AgentList: React.FC<AgentListProps> = ({
                   const row3 = comfortable ? slot.row3 : [];
                   const hasDetails = slot.details.length > 0;
                   const pinned = hasDetails && !!expandedSessionIds?.has(session.id);
-                  const expanded = cardDetailsVisible(cardDetails, {
+                  const expanded = cardDetailsVisible(detailsMode, {
                     hasDetails,
                     pinned,
                     hovered: hoveredId === session.id,
-                    focused: selected && railFocused,
+                    anyHovered: hoveredId !== null,
+                    selectedBy:
+                      selected && railFocused
+                        ? clickedId === session.id
+                          ? 'click'
+                          : 'keyboard'
+                        : null,
                   });
                   // Transient details float over the cards below instead of pushing them down
                   const overlay = expanded && !pinned && cardDetails !== 'always';
@@ -879,6 +902,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                       aria-selected={selected}
                       aria-current={isActive || undefined}
                       onClick={() => {
+                        setClickedId(session.id);
                         onSelectIndex(index);
                         if (isOpen) onFocusOpen?.(session.id);
                       }}
