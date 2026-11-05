@@ -69,9 +69,16 @@ const board = {
 };
 const repoOptions = {
   repositoryId: 'R',
-  labels: ['mw:go', 'mw:build', 'mw:dynamic', 'mw:delegate', 'mw:review', 'mw:image', 'mw:update', 'mw:followup'].map(
-    (name, i) => ({ id: `L${i}`, name, color: '000000' })
-  ),
+  labels: [
+    'mw:go',
+    'mw:build',
+    'mw:dynamic',
+    'mw:delegate',
+    'mw:review',
+    'mw:image',
+    'mw:update',
+    'mw:followup',
+  ].map((name, i) => ({ id: `L${i}`, name, color: '000000' })),
   assignees: [],
   milestones: [],
 };
@@ -82,7 +89,8 @@ const answer = (path) => {
     return { source: board.source, favorites: [], order: [], hidden: [] };
   if (path === '/api/board/repo-options') return repoOptions;
   if (/^\/api\/board\/issues\/[^/]+\/comments$/.test(path)) return { comments: [] };
-  if (/^\/api\/board\/issues\/[^/]+$/.test(path)) return { body: 'Briefing liegt vor.', subIssues: [] };
+  if (/^\/api\/board\/issues\/[^/]+$/.test(path))
+    return { body: 'Briefing liegt vor.', subIssues: [] };
   return null;
 };
 
@@ -103,9 +111,13 @@ const answer = (path) => {
     [...document.querySelectorAll('button[aria-expanded]')].map((e) => e.textContent.trim())
   );
   const order = ['Todo', 'Briefed', 'In Progress', 'to Review', 'Done'].map((n) =>
-    heads.findIndex((h) => h.replace(/\d+/g, "") === n)
+    heads.findIndex((h) => h.replace(/\d+/g, '') === n)
   );
-  check('Briefed column from the MACC options, in order', order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])), heads.join(' | '));
+  check(
+    'Briefed column from the MACC options, in order',
+    order.every((i, k) => i >= 0 && (k === 0 || i > order[k - 1])),
+    heads.join(' | ')
+  );
   await p.screenshot({ path: `${out}/1-board-briefed.png` });
 
   await p.getByText('Board zeigt die Spalte Briefed').first().click();
