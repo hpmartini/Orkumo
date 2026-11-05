@@ -1,10 +1,12 @@
 import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { X, ArrowRight, RefreshCw, Copy, ExternalLink } from 'lucide-react';
+import { createPortal } from 'react-dom';
+import { X, ArrowRight, RefreshCw, Copy, ExternalLink, Maximize2, Minimize2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { AgentSession, AgentLogs } from '../../types';
 import { fetchAgentLogs, fetchRemoteAgentLogs } from '../../services/agentsApi';
-import { extractNumberedChoices, stripAnsi } from '../../utils/agentInput';
-import { parseAnsiToReact } from '../../utils/ansiParser';
+import { extractNumberedChoices } from '../../utils/agentInput';
+import { renderTerminalScreen } from '../../utils/terminalScreen';
+import { useDialogA11y } from '../CommandPalette/useDialogA11y';
 import { stateGlyph } from '../../utils/agentSessions';
 
 interface PeekPanelProps {
@@ -17,7 +19,8 @@ interface PeekPanelProps {
 /**
  * Peek panel: recent output / blocking question of a session plus a reply input.
  * Numbered keys pick predefined choices, Tab inserts the suggested reply,
- * a `!` prefix sends a shell command instead of a prompt.
+ * a `!` prefix sends a shell command instead of a prompt. The maximize button shows the same
+ * panel as a near full-screen modal for wide output (tables, long answers).
  */
 export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach, onReply }) => {
   const [logs, setLogs] = useState<AgentLogs | null>(null);
@@ -26,6 +29,11 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
   const [sending, setSending] = useState(false);
   const replyRef = useRef<HTMLInputElement>(null);
   const outputRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  // `claude logs` is a raw TUI stream; this is its final screen as plain text
+  const [screen, setScreen] = useState('');
+  const trapTab = useDialogA11y(expanded, dialogRef, () => replyRef.current);
 
   const load = useCallback(async () => {
     if (session.kind === 'interactive') {
@@ -63,14 +71,30 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
   }, [load]);
 
   useEffect(() => {
-    replyRef.current?.focus();
+    setExpanded(false);
   }, [session.id]);
+
+  // The panel remounts when it moves into / out of the modal, so focus follows explicitly
+  useEffect(() => {
+    replyRef.current?.focus();
+  }, [session.id, expanded]);
+
+  const rawText = logs?.source === 'logs' ? logs.text : '';
+  useEffect(() => {
+    let cancelled = false;
+    renderTerminalScreen(rawText).then((text) => {
+      if (!cancelled) setScreen(text);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [rawText]);
 
   useEffect(() => {
     outputRef.current?.scrollTo({ top: outputRef.current.scrollHeight });
-  }, [logs]);
+  }, [logs, screen, expanded]);
 
-  const choices = logs?.source === 'logs' ? extractNumberedChoices(logs.text) : [];
+  const choices = logs?.source === 'logs' ? extractNumberedChoices(screen) : [];
 
   const send = async (text: string) => {
     if (!text.trim() || sending) return;
@@ -100,7 +124,8 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
     }
     if (e.key === 'Escape') {
       e.preventDefault();
-      onClose();
+      if (expanded) setExpanded(false);
+      else onClose();
       return;
     }
     if (!reply && /^[1-9]$/.test(e.key) && choices.some((c) => c.number === Number(e.key))) {
@@ -110,22 +135,24 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
   };
 
   const glyph = stateGlyph(session.displayState);
-  const cleanText = stripAnsi(logs?.text || '');
-  const outputLines = cleanText
-    .split(/\r?\n/)
+  const outputLines = screen
+    .split('\n')
     .filter((line, idx, arr) => line.trim() || (idx > 0 && arr[idx - 1].trim()));
 
-  return (
+  const panel = (
     <div
-      className="flex flex-col h-full min-h-0 bg-gray-950 border-l border-gray-800"
+      className={`flex flex-col h-full min-h-0 bg-gray-950 ${expanded ? 'w-full rounded-xl border border-gray-700 shadow-2xl overflow-hidden' : 'border-l border-gray-800'}`}
       data-peek-panel
+      onClick={expanded ? (e) => e.stopPropagation() : undefined}
     >
       <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-800 shrink-0">
         <span className={`${glyph.className} ${glyph.animate ? 'animate-pulse' : ''}`}>
           {glyph.glyph}
         </span>
         <div className="min-w-0 flex-1">
-          <div className="text-sm font-medium text-gray-100 truncate">{session.name}</div>
+          <div id="peek-title" className="text-sm font-medium text-gray-100 truncate">
+            {session.name}
+          </div>
           <div className="text-[11px] text-gray-500 font-mono truncate">
             {session.id} · {session.cwd}
           </div>
@@ -146,6 +173,14 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
           title="Copy session id"
         >
           <Copy size={12} />
+        </button>
+        <button
+          onClick={() => setExpanded((v) => !v)}
+          className="p-1 rounded text-gray-500 hover:text-white hover:bg-gray-800"
+          title={expanded ? 'Back to panel (Esc)' : 'Open large view'}
+          aria-label={expanded ? 'Back to panel' : 'Open large view'}
+        >
+          {expanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>
         <button
           onClick={onAttach}
@@ -207,7 +242,7 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
       {/* Output */}
       <div
         ref={outputRef}
-        className="flex-1 overflow-y-auto min-h-0 p-3 font-mono text-xs leading-5"
+        className="flex-1 overflow-auto min-h-0 p-3 font-mono text-xs leading-5"
         style={{ backgroundColor: '#1a274b' }}
       >
         {loading && !logs ? (
@@ -231,11 +266,10 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
         ) : outputLines.length === 0 ? (
           <div className="text-gray-500 italic">{logs?.note || 'No output yet.'}</div>
         ) : (
-          outputLines.map((line, idx) => (
-            <div key={idx} className="whitespace-pre-wrap break-words text-gray-300">
-              {parseAnsiToReact(line, idx)}
-            </div>
-          ))
+          // Terminal layout: no wrapping (it would tear tables apart), scroll sideways instead
+          <pre className="w-max min-w-full whitespace-pre text-gray-300" data-peek-screen>
+            {outputLines.join('\n')}
+          </pre>
         )}
         {session.result && logs?.source === 'transcript' && (
           <div className="mt-2 pt-2 border-t border-gray-800 text-emerald-300 whitespace-pre-wrap">
@@ -289,5 +323,27 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
         </div>
       </div>
     </div>
+  );
+
+  if (!expanded) return panel;
+  return createPortal(
+    <div
+      ref={dialogRef}
+      className="fixed inset-0 z-50 bg-gray-950/70 flex p-4 md:p-8"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="peek-title"
+      tabIndex={-1}
+      onClick={() => setExpanded(false)}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape' && !e.defaultPrevented) {
+          e.preventDefault();
+          setExpanded(false);
+        } else if (!e.defaultPrevented) trapTab(e);
+      }}
+    >
+      {panel}
+    </div>,
+    document.body
   );
 };
