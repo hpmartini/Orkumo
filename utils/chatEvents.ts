@@ -229,7 +229,8 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
     case 'devorbit_user':
       return {
         ...state,
-        busy: true,
+        // Transcript history of a resumed chat is not a turn in flight
+        busy: event.history ? state.busy : true,
         messages: [
           ...state.messages,
           { kind: 'user', key: `u${state.messages.length}`, text: str(event.text) },

@@ -17,6 +17,8 @@ const {
   stopChat,
   watchChat,
   listChats,
+  historyEvents,
+  loadHistory,
 } = await import('../server/services/chatService.js');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-test-'));
@@ -267,5 +269,49 @@ describe('chatService - session lifecycle', () => {
     calls[0].proc.emit('exit', 1);
     expect(status(() => sendMessage(chat.id, 'hi'))).toBe(400);
     stopChat(chat.id);
+  });
+});
+
+describe('history of a resumed chat', () => {
+  const SID = '0b6f2c1e-1111-4222-8333-944455556666';
+  const lines = [
+    { type: 'user', message: { role: 'user', content: 'fix the bug' } },
+    {
+      type: 'user',
+      isMeta: true,
+      message: { role: 'user', content: [{ type: 'text', text: 'skill' }] },
+    },
+    { type: 'user', message: { role: 'user', content: '<command-name>/goal</command-name>' } },
+    { type: 'assistant', message: { id: 'm1', content: [{ type: 'text', text: 'on it' }] } },
+    {
+      type: 'assistant',
+      isSidechain: true,
+      message: { id: 'm2', content: [{ type: 'text', text: 'sub' }] },
+    },
+    {
+      type: 'user',
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }],
+      },
+    },
+    { type: 'attachment' },
+  ].map((r) => JSON.stringify(r));
+
+  it('keeps user turns, assistant blocks and tool results; drops meta, sidechain and CLI wrappers', () => {
+    expect(historyEvents([...lines, 'garbage']).map((e) => e.type)).toEqual([
+      'devorbit_user',
+      'assistant',
+      'user',
+    ]);
+    expect(historyEvents(lines)[0]).toMatchObject({ text: 'fix the bug', history: true });
+  });
+
+  it('finds the transcript in the cwd project folder or any other one', () => {
+    const projects = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-projects-'));
+    fs.mkdirSync(path.join(projects, '-elsewhere'));
+    fs.writeFileSync(path.join(projects, '-elsewhere', `${SID}.jsonl`), lines.join('\n'));
+    expect(loadHistory(SID, '/some/worktree', projects)).toHaveLength(3);
+    expect(loadHistory('11111111-1111-4111-8111-111111111111', '/x', projects)).toEqual([]);
   });
 });

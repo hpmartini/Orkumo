@@ -10,7 +10,11 @@
 import { spawn as nodeSpawn } from 'child_process';
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
+import fs from 'fs';
+import path from 'path';
 import {
+  paths as agentPaths,
+  projectSlug,
   assertAllowedPath,
   getAllowedDirectories,
   isUnsafeFlagsAllowed,
@@ -128,6 +132,81 @@ export function parseLine(line) {
   }
 }
 
+/** Transcript bytes read for the history of a resumed chat (newest part of the file) */
+const HISTORY_BYTES = 8 * 1024 * 1024;
+
+/**
+ * Transcript JSONL lines → replay events, so a resumed chat shows what came before.
+ * `claude -p --resume` itself never replays the old turns.
+ */
+export function historyEvents(lines) {
+  const events = [];
+  for (const line of lines) {
+    const rec = parseLine(line);
+    if (!rec || rec.isSidechain || rec.isMeta || rec.isCompactSummary || !rec.message) continue;
+    const content = rec.message.content;
+    if (rec.type === 'assistant' && Array.isArray(content)) {
+      events.push({ type: 'assistant', message: rec.message, parent_tool_use_id: null });
+    } else if (rec.type === 'user') {
+      const text =
+        typeof content === 'string'
+          ? content
+          : Array.isArray(content)
+            ? content
+                .filter((b) => b?.type === 'text')
+                .map((b) => b.text)
+                .join('\n')
+            : '';
+      // `<command-name>`, `<local-command-stdout>` and similar CLI wrappers are not user turns
+      if (text.trim() && !text.trimStart().startsWith('<')) {
+        events.push({ type: 'devorbit_user', text, history: true });
+      }
+      if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) {
+        events.push({ type: 'user', message: rec.message, parent_tool_use_id: null });
+      }
+    }
+  }
+  return events.slice(-MAX_EVENTS);
+}
+
+/** Transcript of a CLI session: the cwd's project folder, else any (worktree sessions) */
+function findTranscript(sessionId, cwd, projectsDir = agentPaths.PROJECTS_DIR) {
+  const name = `${sessionId}.jsonl`;
+  const direct = path.join(projectsDir, projectSlug(cwd), name);
+  if (fs.existsSync(direct)) return direct;
+  try {
+    for (const dir of fs.readdirSync(projectsDir)) {
+      const candidate = path.join(projectsDir, dir, name);
+      if (fs.existsSync(candidate)) return candidate;
+    }
+  } catch {
+    // no projects dir
+  }
+  return null;
+}
+
+/** Replay events for a resumed session; empty when there is no readable transcript */
+export function loadHistory(sessionId, cwd, projectsDir) {
+  const file = findTranscript(sessionId, cwd, projectsDir);
+  if (!file) return [];
+  try {
+    const size = fs.statSync(file).size;
+    const length = Math.min(size, HISTORY_BYTES);
+    const buffer = Buffer.alloc(length);
+    const fd = fs.openSync(file, 'r');
+    try {
+      fs.readSync(fd, buffer, 0, length, size - length);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const lines = buffer.toString('utf8').split('\n');
+    if (length < size) lines.shift(); // partial first line
+    return historyEvents(lines);
+  } catch {
+    return [];
+  }
+}
+
 const sessions = new Map();
 export const chatEvents = new EventEmitter();
 chatEvents.setMaxListeners(0);
@@ -201,7 +280,7 @@ export function startChat(opts, context = {}) {
     running: true,
     startedAt: Date.now(),
     proc,
-    events: [],
+    events: safe.resume ? (context.loadHistory ?? loadHistory)(safe.resume, safe.cwd) : [],
     pending: new Map(),
     watchers: 0,
     orphanTimer: null,
