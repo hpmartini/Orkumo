@@ -17,6 +17,8 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 [[ -d node_modules ]] || bun install --frozen-lockfile
+# bun can skip electron's postinstall in fresh worktrees; without it there is no Electron binary
+[[ -f node_modules/electron/path.txt ]] || node node_modules/electron/install.js
 unset ELECTRON_RUN_AS_NODE
 
 echo "== unit tests"
