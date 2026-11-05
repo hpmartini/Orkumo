@@ -72,10 +72,16 @@ describe('remote access token', () => {
     expect(res.status).toBe(401);
   });
 
-  it('accepts a remote request with the right token (header or query)', async () => {
+  it('accepts a remote request with the right token in the header', async () => {
     const token = remoteAccess.getToken();
     expect((await get('/api/ping', { ...REMOTE, 'X-DevOrbit-Token': token })).status).toBe(200);
-    expect((await get(`/api/ping?token=${token}`, REMOTE)).status).toBe(200);
+  });
+
+  it('accepts the token as query param only for SSE, not for plain requests', async () => {
+    const token = remoteAccess.getToken();
+    expect((await get(`/api/ping?token=${token}`, REMOTE)).status).toBe(401);
+    const sse = { ...REMOTE, Accept: 'text/event-stream' };
+    expect((await get(`/api/ping?token=${token}`, sse)).status).toBe(200);
   });
 
   it('lets a direct localhost request through without token', async () => {

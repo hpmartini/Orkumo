@@ -4,7 +4,7 @@
  * Opt-in via DEVORBIT_REMOTE=true. The server is then meant to be reached through
  * `tailscale serve` (HTTPS proxy on the tailnet to localhost). Every request that
  * is not a direct loopback request needs the pairing token, sent as
- * `X-DevOrbit-Token` header or `token` query param (EventSource/WebSocket cannot set headers).
+ * `X-DevOrbit-Token` header; the `token` query param only for the /api/pty WebSocket upgrade and SSE.
  * Without the opt-in nothing changes: no token, no extra CORS origin.
  */
 
@@ -85,11 +85,19 @@ export function isValidToken(candidate) {
   return crypto.timingSafeEqual(hash(candidate), hash(getToken()));
 }
 
+/** EventSource and WebSocket cannot set headers; only they may carry the token in the URL (logs, history). */
+function allowsQueryToken(req, url) {
+  if (url.pathname === '/api/pty' && req.headers.upgrade?.toLowerCase() === 'websocket')
+    return true;
+  return req.method === 'GET' && (req.headers.accept ?? '').includes('text/event-stream');
+}
+
 function tokenFrom(req) {
   const header = req.headers['x-devorbit-token'];
   if (typeof header === 'string') return header;
-  const query = new URL(req.url, 'http://x').searchParams.get('token');
-  return query ?? undefined;
+  const url = new URL(req.url, 'http://x');
+  if (!allowsQueryToken(req, url)) return undefined;
+  return url.searchParams.get('token') ?? undefined;
 }
 
 /** True when the request may proceed. Used for HTTP requests and WebSocket upgrades alike. */

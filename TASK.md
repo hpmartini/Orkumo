@@ -568,3 +568,13 @@ The following existing tasks are related to the new features above:
   - Solution: `components/WorkflowView/WorkflowGraph.tsx`: Popup immer ab Stationsoberkante nach unten (`top`), `max-h-[70vh] overflow-y-auto overscroll-contain`, scrollt intern.
 - Verifikation: Headless 98 Karten gerendert, scrollHeight 6303 > clientHeight 698; `test/workflowGraph.test.js` 7/7. tsc-Fehler (qrcode, @capacitor, index.tsx) bestehen auch ohne Fix.
 - Grenzen: Hover-Tooltip der letzten Kartenreihe kann im scrollenden Popup abgeschnitten werden.
+
+### Remote-Token nur noch für WebSocket/SSE als URL-Parameter (2026-11-04)
+
+- [x] **[FIX]** `tokenFrom()` akzeptierte das Pairing-Token auf jeder Route als `?token=`
+  - Issue: Ein Token in URLs landet in Proxy-/Server-Logs und im Verlauf; der Security-Review meldete es (MEDIUM).
+  - Root cause: `server/services/remoteAccess.js` las den Query-Parameter pauschal als Fallback zum Header, obwohl nur EventSource und WebSocket keine Header setzen können.
+  - Approach: Aufrufer geprüft: HTTP-Middleware `requireRemoteToken`, `verifyClient` von `/api/pty`; der iOS-Client (`utils/remoteClient.ts`) schickt bei fetch den Header, `?token=` nur bei EventSource/WebSocket.
+  - Solution: `allowsQueryToken()`: Query-Token nur bei WebSocket-Upgrade auf `/api/pty` oder GET mit `Accept: text/event-stream` (EventSource sendet das immer, deckt auch künftige SSE-Routen ab). Sonst nur `X-DevOrbit-Token`.
+- Verifikation: `test/remoteAccess.test.js` 10/10 (neu: `?token=` auf normaler Route → 401, mit SSE-Accept → 200; WS mit Query-Token weiter offen), `utils/remoteClient.test.ts` 12/12, eslint ok.
+- Grenzen: Kein Kurzzeit-Ticket; das Token steht bei WS/SSE weiter in der URL. Nicht gegen die echte iOS-App getestet.
