@@ -17,6 +17,8 @@ import {
   type WorkspaceTab,
 } from '../../utils/agentWorkspace';
 import { AgentTerminal } from './AgentTerminal';
+import { ChatPane } from './Chat/ChatPane';
+import type { ChatSubmitKey } from '../../utils/chatEvents';
 import { BrowserPreviewPanel } from '../CodingView/BrowserPreviewPanel';
 import type { FocusZone } from '../../hooks/useAgentFocusZone';
 
@@ -40,6 +42,10 @@ interface AgentWorkspaceProps {
   renderPaneMeta?: (session: AgentSession) => React.ReactNode;
   /** Parked workspace of another context: terminals stay connected but never count as visible */
   hidden?: boolean;
+  /** Chat panes (#189): key that sends a message */
+  chatSubmitKey?: ChatSubmitKey;
+  /** Chat pane "Open in terminal": end the chat, resume its CLI session in a terminal */
+  onOpenChatInTerminal?: (chatId: string, sessionId: string) => void;
 }
 
 /** What is being dragged: a whole tab (moves its active session on split) or one pane */
@@ -191,6 +197,8 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   onOpenLink,
   focusZone,
   renderPaneMeta,
+  chatSubmitKey = 'mod+enter',
+  onOpenChatInTerminal,
   hidden = false,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -309,7 +317,26 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     const url = browserUrl(session.id);
     return (
       <div className="relative h-full min-h-0">
-        {url !== null ? (
+        {session.chat ? (
+          <ChatPane
+            session={session}
+            active={session.id === tab.activeSessionId}
+            focused={visible && focusZone === 'terminal' && session.id === tab.activeSessionId}
+            submitKey={chatSubmitKey}
+            onFocus={() => onFocusPane(session.id)}
+            onClose={() => onClosePane(session.id)}
+            onMaximize={multi ? () => onDetach(session.id) : undefined}
+            onOpenInTerminal={(sid) => onOpenChatInTerminal?.(session.id, sid)}
+            headerProps={
+              multi
+                ? {
+                    ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
+                    className: drag?.id === session.id ? 'opacity-50' : '',
+                  }
+                : undefined
+            }
+          />
+        ) : url !== null ? (
           <BrowserPane
             url={url}
             active={session.id === tab.activeSessionId}

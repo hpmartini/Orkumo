@@ -1,0 +1,286 @@
+import React, {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
+import { Maximize2, MessageSquare, Send, Square, SquareTerminal, X } from 'lucide-react';
+import type { AgentSession } from '../../../types';
+import {
+  initialChatState,
+  isSubmitKey,
+  pendingPermissions,
+  reduceChat,
+  type ChatState,
+  type ChatSubmitKey,
+} from '../../../utils/chatEvents';
+import { promptWithImages } from '../../../utils/composer';
+import {
+  answerChatPermission,
+  interruptChat,
+  sendChatMessage,
+  subscribeToChat,
+  uploadAgentImage,
+} from '../../../services/agentsApi';
+import { ImageAttachments, imageDropHandlers } from '../../ImageAttachments';
+import { ChatMessageView } from './ChatMessages';
+
+type Action = { type: 'reset' } | { type: 'event'; event: unknown };
+const reducer = (state: ChatState, action: Action): ChatState =>
+  action.type === 'reset' ? initialChatState : reduceChat(state, action.event);
+
+const iconBtn =
+  'p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-40 shrink-0';
+
+// A focus or active-pane change re-labels the top bar (keys, model) and can reflow the panes
+// between mousedown and mouseup, swallowing the click; header buttons act without either
+const keepFocus = (e: React.MouseEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+};
+
+interface ChatPaneProps {
+  session: AgentSession;
+  active: boolean;
+  focused: boolean;
+  submitKey: ChatSubmitKey;
+  onFocus: () => void;
+  /** Closing the pane ends the chat process */
+  onClose: () => void;
+  onMaximize?: () => void;
+  /** Ends the chat and continues the same CLI session in a terminal tab */
+  onOpenInTerminal: (sessionId: string) => void;
+  headerProps?: React.HTMLAttributes<HTMLDivElement>;
+}
+
+/** Chat UI for a `claude -p` stream-json session (#189) */
+export const ChatPane: React.FC<ChatPaneProps> = ({
+  session,
+  active,
+  focused,
+  submitKey,
+  onFocus,
+  onClose,
+  onMaximize,
+  onOpenInTerminal,
+  headerProps,
+}) => {
+  const [state, dispatch] = useReducer(reducer, initialChatState);
+  const [gone, setGone] = useState(false);
+  const [text, setText] = useState('');
+  const [images, setImages] = useState<File[]>([]);
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const stickToBottom = useRef(true);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+
+  useEffect(
+    () =>
+      subscribeToChat(session.id, {
+        onOpen: () => {
+          setGone(false);
+          dispatch({ type: 'reset' });
+        },
+        onEvent: (event) => dispatch({ type: 'event', event }),
+        onGone: () => setGone(true),
+      }),
+    [session.id]
+  );
+
+  // Follow the stream unless the user scrolled up to read
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
+  }, [state.messages]);
+
+  const onAnswer = useCallback(
+    (requestId: string, decision: 'allow' | 'deny' | 'always') => {
+      answerChatPermission(session.id, requestId, decision).catch((e: Error) =>
+        setError(e.message)
+      );
+    },
+    [session.id]
+  );
+
+  const ended = state.ended || gone;
+  const waiting = pendingPermissions(state).length > 0;
+
+  const submit = async () => {
+    if (sending || ended || (!text.trim() && images.length === 0)) return;
+    setSending(true);
+    setError(null);
+    try {
+      const paths = await Promise.all(images.map(uploadAgentImage));
+      await sendChatMessage(session.id, promptWithImages(text, paths));
+      setText('');
+      setImages([]);
+      stickToBottom.current = true;
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sending failed');
+    } finally {
+      setSending(false);
+      inputRef.current?.focus();
+    }
+  };
+
+  const stopTurn = () => interruptChat(session.id).catch((e: Error) => setError(e.message));
+
+  const status = ended ? 'ended' : waiting ? 'needs permission' : state.busy ? 'working…' : 'ready';
+
+  return (
+    <div
+      className={`flex flex-col h-full min-h-0 bg-gray-950 border rounded-lg overflow-hidden ${
+        focused
+          ? 'border-blue-300 ring-2 ring-blue-300/70'
+          : active
+            ? 'border-blue-400/40'
+            : 'border-gray-800'
+      }`}
+      onMouseDown={onFocus}
+      data-agent-pane={session.id}
+      {...imageDropHandlers((files) => setImages((prev) => [...prev, ...files]))}
+    >
+      <div
+        {...headerProps}
+        className={`flex flex-nowrap items-center gap-x-1.5 h-8 px-2 border-b text-xs shrink-0 bg-gray-900 border-gray-800 ${
+          headerProps?.draggable ? 'cursor-grab active:cursor-grabbing' : ''
+        } ${headerProps?.className ?? ''}`}
+      >
+        <MessageSquare size={13} aria-hidden className="text-blue-300 shrink-0" />
+        <span className="font-medium text-gray-200 truncate min-w-0">{session.name}</span>
+        <span className="text-gray-500 font-mono truncate min-w-0 hidden lg:inline">
+          {session.cwd}
+        </span>
+        {state.model && (
+          <span className="text-gray-500 truncate min-w-0 hidden sm:inline">{state.model}</span>
+        )}
+        <span
+          className={`shrink-0 ${waiting ? 'text-amber-300' : state.busy ? 'text-blue-300' : 'text-gray-500'}`}
+        >
+          {status}
+        </span>
+        <span className="flex-1" />
+        {state.busy && !ended && (
+          <button
+            type="button"
+            onClick={stopTurn}
+            onMouseDown={keepFocus}
+            className={iconBtn}
+            title="Stop this turn (Esc)"
+            aria-label="Stop this turn"
+          >
+            <Square size={13} />
+          </button>
+        )}
+        <button
+          type="button"
+          disabled={!state.sessionId}
+          onClick={() => state.sessionId && onOpenInTerminal(state.sessionId)}
+          onMouseDown={keepFocus}
+          className={iconBtn}
+          title="Open in terminal: ends the chat and resumes the session with claude --resume"
+          aria-label="Open in terminal"
+        >
+          <SquareTerminal size={14} />
+        </button>
+        {onMaximize && (
+          <button
+            type="button"
+            onClick={onMaximize}
+            onMouseDown={keepFocus}
+            className={iconBtn}
+            title="Own tab"
+            aria-label="Move chat to its own tab"
+          >
+            <Maximize2 size={13} />
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onClose}
+          onMouseDown={keepFocus}
+          className={iconBtn}
+          title="End chat and close"
+          aria-label="End chat and close"
+        >
+          <X size={14} />
+        </button>
+      </div>
+
+      <div
+        ref={listRef}
+        role="log"
+        aria-label={`Chat ${session.name}`}
+        className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 py-2"
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+        }}
+      >
+        {state.messages.length === 0 && !ended && (
+          <div className="h-full flex items-center justify-center text-sm text-gray-500">
+            Ask Claude anything. Markdown works; paste or drop images.
+          </div>
+        )}
+        {state.messages.map((m) => (
+          // content-visibility keeps long chats (hundreds of messages) cheap to scroll
+          <div key={m.key} className="[content-visibility:auto] [contain-intrinsic-size:auto_60px]">
+            <ChatMessageView message={m} onAnswer={onAnswer} />
+          </div>
+        ))}
+      </div>
+
+      <div className="shrink-0 border-t border-gray-800 p-2">
+        {error && (
+          <div role="alert" className="mb-1 text-xs text-red-300">
+            {error}
+          </div>
+        )}
+        <div className="flex items-end gap-2">
+          <label htmlFor={`chat-input-${session.id}`} className="sr-only">
+            Message
+          </label>
+          <textarea
+            id={`chat-input-${session.id}`}
+            ref={inputRef}
+            value={text}
+            disabled={ended}
+            rows={Math.min(8, Math.max(2, text.split('\n').length))}
+            onChange={(e) => setText(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && state.busy) {
+                e.preventDefault();
+                stopTurn();
+              } else if (isSubmitKey(e.nativeEvent, submitKey)) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            placeholder={
+              ended
+                ? 'Session ended'
+                : submitKey === 'enter'
+                  ? 'Message (Enter sends, Shift+Enter new line)'
+                  : 'Message (Cmd/Ctrl+Enter sends, Enter new line)'
+            }
+            className="flex-1 min-w-0 resize-none rounded-md bg-gray-900 border border-gray-700 px-2.5 py-1.5 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-400 disabled:opacity-50"
+          />
+          <button
+            type="button"
+            onClick={submit}
+            disabled={sending || ended}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
+            aria-label="Send message"
+          >
+            <Send size={13} aria-hidden />
+            <span className="hidden sm:inline">Send</span>
+          </button>
+        </div>
+        <ImageAttachments images={images} onChange={setImages} disabled={sending || ended} />
+      </div>
+    </div>
+  );
+};

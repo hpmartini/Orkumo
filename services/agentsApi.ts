@@ -306,3 +306,83 @@ export function subscribeToAgents(handlers: {
     eventSource?.close();
   };
 }
+
+// ---------------------------------------------------------------------------
+// Chat sessions (#189): `claude -p` in stream-json mode behind the Chat pane
+// ---------------------------------------------------------------------------
+
+export interface ChatSummary {
+  id: string;
+  cwd: string;
+  name: string;
+  sessionId: string | null;
+  model: string | null;
+  busy: boolean;
+  running: boolean;
+  startedAt: number;
+  pendingPermissions: number;
+}
+
+export interface ChatStartRequest {
+  cwd: string;
+  model?: string | null;
+  permissionMode?: string | null;
+  resume?: string;
+  continue?: boolean;
+  skipPermissions?: boolean;
+  name?: string;
+}
+
+export const fetchChats = () =>
+  request<{ chats: ChatSummary[] }>('/agents/chat').then((d) => d.chats);
+
+export const startChat = (body: ChatStartRequest) =>
+  request<ChatSummary>('/agents/chat', { method: 'POST', body: JSON.stringify(body) });
+
+const chatPath = (id: string, action = '') =>
+  `/agents/chat/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
+
+export const sendChatMessage = (id: string, text: string) =>
+  request<ChatSummary>(chatPath(id, 'message'), {
+    method: 'POST',
+    body: JSON.stringify({ text }),
+  });
+
+export const answerChatPermission = (
+  id: string,
+  requestId: string,
+  decision: 'allow' | 'deny' | 'always'
+) =>
+  request<ChatSummary>(chatPath(id, 'permission'), {
+    method: 'POST',
+    body: JSON.stringify({ requestId, decision }),
+  });
+
+export const interruptChat = (id: string) =>
+  request<ChatSummary>(chatPath(id, 'interrupt'), { method: 'POST' });
+
+export const stopChat = (id: string) =>
+  request<{ stopped: boolean }>(chatPath(id), { method: 'DELETE' });
+
+/**
+ * Chat event stream. Every (re)connect replays the whole history first, so `onOpen` resets
+ * the client state. EventSource reconnects on its own; `onGone` fires once the chat is gone.
+ */
+export function subscribeToChat(
+  id: string,
+  handlers: { onOpen: () => void; onEvent: (event: unknown) => void; onGone: () => void }
+): () => void {
+  const source = new EventSource(`${API_BASE}${chatPath(id, 'stream')}`);
+  source.onopen = handlers.onOpen;
+  source.onmessage = (e) => {
+    try {
+      handlers.onEvent(JSON.parse(e.data));
+    } catch {
+      // malformed line: skip
+    }
+  };
+  source.onerror = () => {
+    if (source.readyState === EventSource.CLOSED) handlers.onGone();
+  };
+  return () => source.close();
+}

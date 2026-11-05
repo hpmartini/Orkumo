@@ -20,7 +20,7 @@ interface DispatchInputProps {
   commands: AgentSlashCommand[];
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
   /** 'agent': optional prompt, a single "Start agent" button that always attaches */
-  variant?: 'task' | 'agent';
+  variant?: 'task' | 'agent' | 'chat';
   /** Rendered below the textarea (image attachments) */
   attachments?: React.ReactNode;
 }
@@ -52,7 +52,8 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   variant = 'task',
   attachments,
 }) => {
-  const isAgent = variant === 'agent';
+  // Agent and chat both start one session and attach it right away
+  const isAgent = variant !== 'task';
   const [caret, setCaret] = useState(0);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
@@ -207,7 +208,9 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         onBlur={() => setSuggestionsOpen(false)}
         placeholder={
           isAgent
-            ? 'Optional first prompt - leave empty to start an idle session'
+            ? variant === 'chat'
+              ? 'First message (optional) - /resume or /continue picks up an earlier session'
+              : 'Optional first prompt - leave empty to start an idle session'
             : 'Describe the task for a new session'
         }
         aria-label="Task description"
@@ -263,7 +266,8 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
           className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
           title={isAgent ? 'Start and attach (Cmd/Ctrl+Enter)' : 'Dispatch (Cmd/Ctrl+Enter)'}
         >
-          <Send size={13} aria-hidden /> {isAgent ? 'Start agent' : 'Dispatch'}
+          <Send size={13} aria-hidden />{' '}
+          {variant === 'chat' ? 'Start chat' : isAgent ? 'Start agent' : 'Dispatch'}
         </button>
       </div>
       <div className="mt-2 min-h-[1.25rem] text-xs" role="status" aria-live="polite">

@@ -52,7 +52,11 @@ export const TaskComposerModal: React.FC<TaskComposerModalProps> = ({
       >
         <div className="flex items-center mb-3">
           <h2 id="task-composer-title" className="text-sm font-semibold text-gray-50">
-            {inputProps.variant === 'agent' ? 'New agent' : 'New task'}
+            {inputProps.variant === 'chat'
+              ? 'New chat'
+              : inputProps.variant === 'agent'
+                ? 'New agent'
+                : 'New task'}
           </h2>
           <button
             type="button"

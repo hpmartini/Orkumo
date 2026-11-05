@@ -25,6 +25,7 @@ import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { useRemoteAgents } from '../../hooks/useRemoteAgents';
 import { buildSshAttachArgs } from '../../utils/meshHosts';
 import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
+import { useChatSessions } from '../../hooks/useChatSessions';
 import { useAgentContexts } from '../../hooks/useAgentContexts';
 import {
   useRailPreferences,
@@ -221,13 +222,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [expandedCompleted, setExpandedCompleted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  const [resumePicker, setResumePicker] = useState<{ open: boolean; query: string }>({
+  // chat: the picked session continues in a Chat pane instead of a background agent (#189)
+  const [resumePicker, setResumePicker] = useState<{
+    open: boolean;
+    query: string;
+    chat?: boolean;
+  }>({
     open: false,
     query: '',
   });
   const [composerOpen, setComposerOpen] = useState(false);
   // 'agent' = New agent (#105): interactive session in agentCwd, attached right away
-  const [composerMode, setComposerMode] = useState<'task' | 'agent'>('task');
+  // 'chat' = New chat (#189): stream-json session in a Chat pane
+  const [composerMode, setComposerMode] = useState<'task' | 'agent' | 'chat'>('task');
   const [agentCwd, setAgentCwd] = useState<string | null>(null);
   const [composerImages, setComposerImages] = useState<File[]>([]);
   const [homeDir, setHomeDir] = useState<string | null>(null);
@@ -241,6 +248,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
   // Cloud/remote PTY tabs live client-side only (not in the `claude agents` list)
   const [cloudSessions, setCloudSessions] = useState<AgentSession[]>([]);
+  const chats = useChatSessions();
   const [dispatchCwd, setDispatchCwd] = useState<string | null>(() =>
     localStorage.getItem(DISPATCH_CWD_STORAGE_KEY)
   );
@@ -486,12 +494,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     defaultCwd,
   ]);
 
-  const openComposer = useCallback((mode: 'task' | 'agent', cwd: string | null = null) => {
+  const openComposer = useCallback((mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
     setComposerMode(mode);
-    if (mode === 'agent') setAgentCwd(cwd);
+    if (mode !== 'task') setAgentCwd(cwd);
     setComposerOpen(true);
   }, []);
-  const composerCwd = composerMode === 'agent' ? agentCwd || homeDir : targetCwd;
+  const composerCwd =
+    composerMode === 'agent'
+      ? agentCwd || homeDir
+      : composerMode === 'chat'
+        ? agentCwd || targetCwd
+        : targetCwd;
 
   // GitHub repos of the known sessions
   const issueRepos = useMemo(
@@ -577,9 +590,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   // Drop tabs for sessions that no longer exist
   useEffect(() => {
-    if (loading || sessions.length === 0) return;
-    pruneMissing(new Set([...sessions, ...cloudSessions].map((s) => s.id)));
-  }, [sessions, cloudSessions, loading, pruneMissing]);
+    if (loading || sessions.length === 0 || !chats.loaded) return;
+    pruneMissing(new Set([...sessions, ...cloudSessions, ...chats.chats].map((s) => s.id)));
+  }, [sessions, cloudSessions, chats.chats, chats.loaded, loading, pruneMissing]);
 
   // Forget open row details of removed sessions; a scoped (--cwd) or failed list is incomplete
   const { pruneExpandedSessions } = rail;
@@ -711,12 +724,25 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [attach]
   );
 
+  const { isChat, stop: stopChatSession } = chats;
   const closeAnyPane = useCallback(
     (id: string) => {
       setCloudSessions((prev) => prev.filter((s) => s.id !== id));
+      // A closed chat pane ends its process (no orphan, #189)
+      if (isChat(id)) stopChatSession(id);
       closePane(id);
     },
-    [closePane]
+    [closePane, isChat, stopChatSession]
+  );
+  const closeTab = useCallback(
+    (tabId: string) => {
+      workspace.tabs
+        .find((t) => t.id === tabId)
+        ?.panes.filter(isChat)
+        .forEach(stopChatSession);
+      workspaceActions.closeTab(tabId);
+    },
+    [workspace.tabs, isChat, stopChatSession, workspaceActions]
   );
 
   // ---------------------------------------------------------------------
@@ -781,6 +807,52 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       attach(id);
     },
     [attach]
+  );
+
+  /** Starts a Chat pane session with the dispatch defaults (model, permission mode) */
+  const openChat = useCallback(
+    async (cwd: string | null, extra: { resume?: string; continue?: boolean }, message = '') => {
+      if (!cwd) {
+        showHint('Pick a directory first', 'error');
+        return;
+      }
+      setDispatching(true);
+      try {
+        const id = await chats.open(
+          {
+            cwd,
+            model: settings.dispatch.model,
+            permissionMode: settings.dispatch.permissionMode,
+            skipPermissions: settings.dispatch.skipPermissions || undefined,
+            ...extra,
+          },
+          message
+        );
+        setInput('');
+        setComposerImages([]);
+        setComposerOpen(false);
+        attach(id);
+      } catch (err) {
+        showHint(err instanceof Error ? err.message : 'Chat start failed', 'error', 6000);
+      } finally {
+        setDispatching(false);
+      }
+    },
+    [chats, settings.dispatch, showHint, attach]
+  );
+
+  /** "Open in terminal": the chat process ends first, then `claude --resume` takes the session */
+  const openChatInTerminal = useCallback(
+    async (chatId: string, sessionId: string) => {
+      const chat = chats.chats.find((c) => c.id === chatId);
+      closePane(chatId);
+      await stopChatSession(chatId);
+      openInteractiveClaude(chat?.cwd || homeDir || '', chat?.name || 'claude', [
+        '--resume',
+        sessionId,
+      ]);
+    },
+    [chats.chats, closePane, stopChatSession, openInteractiveClaude, homeDir]
   );
 
   const activateItem = useCallback(
@@ -916,6 +988,23 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   const handleSubmit = useCallback(
     async ({ attach: attachAfter }: { attach: boolean }) => {
+      if (composerMode === 'chat') {
+        // `/resume [id]` and `/continue` pick up an earlier session; anything else is the first message
+        const resume = input.trim().match(/^\/resume(?:\s+(\S+))?$/);
+        if (resume) {
+          if (resume[1]) await openChat(composerCwd, { resume: resume[1] });
+          else setResumePicker({ open: true, query: '', chat: true });
+          return;
+        }
+        if (input.trim() === '/continue') {
+          await openChat(composerCwd, { continue: true });
+          return;
+        }
+        const paths = await uploadComposerImages();
+        if (!paths) return;
+        await openChat(composerCwd, {}, promptWithImages(input, paths));
+        return;
+      }
       if (composerMode === 'agent') {
         // The CLI refuses `--bg` in ~ (trusted one session at a time): run it interactively there
         if (homeDir && composerCwd === homeDir) {
@@ -1002,6 +1091,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       handleCommand,
       doDispatch,
       openInteractiveClaude,
+      openChat,
     ]
   );
 
@@ -1648,11 +1738,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }
     }
     if (activeTab) {
-      list.push(
-        cmd('tab.close', 'Close current tab', 'Workspace', () =>
-          workspaceActions.closeTab(activeTab.id)
-        )
-      );
+      list.push(cmd('tab.close', 'Close current tab', 'Workspace', () => closeTab(activeTab.id)));
     }
     list.push(
       cmd('panel.prs', 'Show pull requests', 'Panels', () => {
@@ -1931,6 +2017,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             </button>
             <button
               type="button"
+              onClick={() => openComposer('chat')}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
+              title="New chat: Claude Code with a chat UI instead of a terminal"
+            >
+              <Plus size={13} aria-hidden /> Chat
+            </button>
+            <button
+              type="button"
               onClick={() => openIssueDialog(selectedRepo)}
               className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
               title="New GitHub issue"
@@ -2119,7 +2213,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 `parked` (hidden, terminals stay connected) without remounting it */}
             {[...Object.entries(parked), [contextId ?? '', workspace] as const].map(([id, ws]) => {
               const live = id === (contextId ?? '');
-              const allSessions = [...sessions, ...cloudSessions];
+              const allSessions = [...sessions, ...cloudSessions, ...chats.chats];
               return (
                 <div key={id} className={live ? 'h-full' : 'hidden'}>
                   <AgentWorkspace
@@ -2130,7 +2224,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     onActivateTab={live ? workspaceActions.activateTab : noop}
                     onFocusPane={live ? workspaceActions.focusPane : noop}
                     onClosePane={live ? closeAnyPane : noop}
-                    onCloseTab={live ? workspaceActions.closeTab : noop}
+                    onCloseTab={live ? closeTab : noop}
+                    chatSubmitKey={settings.chatSubmitKey}
+                    onOpenChatInTerminal={live ? openChatInTerminal : undefined}
                     onMoveTab={live ? workspaceActions.moveTab : noop}
                     onSplit={live ? workspaceActions.split : noop}
                     onDetach={live ? workspaceActions.detach : noop}
@@ -2257,7 +2353,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onClose={() => setResumePicker({ open: false, query: '' })}
         onResume={(past: AgentPastSession) => {
           setResumePicker({ open: false, query: '' });
-          doDispatch({ resume: past.sessionId, cwd: past.cwd || targetCwd });
+          if (resumePicker.chat) openChat(past.cwd || composerCwd, { resume: past.sessionId });
+          else doDispatch({ resume: past.sessionId, cwd: past.cwd || targetCwd });
         }}
       />
       {editorOpen && (
@@ -2282,7 +2379,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           home={homeDir}
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
-            if (composerMode === 'agent') setAgentCwd(path);
+            if (composerMode !== 'task') setAgentCwd(path);
             else pickDispatchCwd(path);
             setPickDirOpen(false);
             inputRef.current?.focus();

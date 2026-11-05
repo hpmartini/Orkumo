@@ -36,6 +36,7 @@ export const agentViewSettingsSchema = z
       .strict()
       .optional(),
     disabled: z.boolean().optional(),
+    chatSubmitKey: z.enum(['enter', 'mod+enter']).optional(),
     dispatch: z
       .object({
         model: optionalShortString,

@@ -34,6 +34,7 @@ import { settingsService } from './services/settingsService.js';
 import { ideService } from './services/ideService.js';
 import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
+import * as chatService from './services/chatService.js';
 import * as meshService from './services/meshService.js';
 import * as remoteAccess from './services/remoteAccess.js';
 import { isSessionId } from './services/meshHosts.js';
@@ -1256,6 +1257,99 @@ app.post('/api/agents/images', agentLimiter, imageBody, async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// Chat sessions (#189): `claude -p` with stream-json, rendered by the Chat pane
+// ---------------------------------------------------------------------------
+const chatIdSchema = z.string().uuid();
+const chatStartSchema = z.object({
+  cwd: pathSchema,
+  model: z.string().max(80).optional().nullable(),
+  permissionMode: z.string().max(40).optional().nullable(),
+  resume: z.string().max(80).optional().nullable(),
+  continue: z.boolean().optional(),
+  skipPermissions: z.boolean().optional(),
+  name: z.string().max(80).optional().nullable(),
+});
+
+app.get('/api/agents/chat', (req, res) => {
+  res.json({ chats: chatService.listChats() });
+});
+
+app.post('/api/agents/chat', agentLimiter, validate(chatStartSchema), (req, res) => {
+  try {
+    res.status(201).json(chatService.startChat(req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** SSE: replays the session's events, then streams live ones */
+app.get('/api/agents/chat/:chatId/stream', validateParams(chatIdSchema), (req, res) => {
+  let unsubscribe;
+  try {
+    chatService.chatSummary(req.params.chatId);
+  } catch (error) {
+    return sendAgentError(res, error);
+  }
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  const send = (data) => {
+    try {
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    } catch {
+      // client gone
+    }
+  };
+  unsubscribe = chatService.watchChat(req.params.chatId, send);
+  const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_INTERVAL);
+  const cleanup = () => {
+    clearInterval(heartbeat);
+    unsubscribe?.();
+    unsubscribe = null;
+  };
+  req.on('close', cleanup);
+  req.on('error', cleanup);
+});
+
+const chatAction = (fn) => (req, res) => {
+  try {
+    fn(req);
+    res.json(chatService.chatSummary(req.params.chatId));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+};
+
+app.post(
+  '/api/agents/chat/:chatId/message',
+  validateParams(chatIdSchema),
+  validate(z.object({ text: z.string().min(1).max(100000) })),
+  chatAction((req) => chatService.sendMessage(req.params.chatId, req.body.text))
+);
+
+app.post(
+  '/api/agents/chat/:chatId/permission',
+  validateParams(chatIdSchema),
+  validate(
+    z.object({ requestId: z.string().max(200), decision: z.enum(['allow', 'deny', 'always']) })
+  ),
+  chatAction((req) =>
+    chatService.answerPermission(req.params.chatId, req.body.requestId, req.body.decision)
+  )
+);
+
+app.post(
+  '/api/agents/chat/:chatId/interrupt',
+  validateParams(chatIdSchema),
+  chatAction((req) => chatService.interruptChat(req.params.chatId))
+);
+
+app.delete('/api/agents/chat/:chatId', validateParams(chatIdSchema), async (req, res) => {
+  res.json({ stopped: await chatService.stopChatAndWait(req.params.chatId) });
+});
+
 /**
  * POST /api/agents/cloud-session - validated CLI args for a cloud/remote session PTY
  * (`claude --cloud <id|url>` or `claude --teleport`). The client opens the PTY via /api/pty.
@@ -2422,6 +2516,8 @@ function cleanup() {
 // Handle process termination signals
 process.on('SIGTERM', cleanup);
 process.on('SIGINT', cleanup);
+// Chat CLIs are children with open pipes: never leave them behind
+process.on('exit', chatService.stopAllChats);
 
 // Handle uncaught exceptions and rejections
 process.on('uncaughtException', (error) => {

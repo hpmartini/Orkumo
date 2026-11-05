@@ -53,6 +53,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
     subagents: 'details',
   },
   disabled: false, // Mirrors the CLI `disableAgentView` setting
+  chatSubmitKey: 'mod+enter', // 'enter' | 'mod+enter': key that sends a chat message (#189)
   dispatch: {
     model: null,
     effort: null,

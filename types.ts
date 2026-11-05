@@ -243,6 +243,8 @@ export interface AgentSession {
   kind: 'background' | 'interactive';
   /** Client-side cloud/remote session: PTY args instead of `attach <id>` */
   ptyArgs?: string[];
+  /** Chat session (#189): rendered by the Chat pane, id is the server chat id */
+  chat?: boolean;
   /** PTY command for ptyArgs (default `claude`; `ssh` for remote attach) */
   ptyCommand?: 'claude' | 'ssh';
   /** Tailscale device the session runs on (remote sessions only) */
@@ -377,6 +379,8 @@ export interface AgentViewSettings {
   cardDensity: AgentCardDensity;
   cardFields: AgentCardFields;
   disabled: boolean;
+  /** Chat pane (#189): which key sends the message */
+  chatSubmitKey: 'enter' | 'mod+enter';
   dispatch: AgentDispatchDefaults;
   version: number;
 }
@@ -493,6 +497,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   cardDensity: 'comfortable',
   cardFields: DEFAULT_AGENT_CARD_FIELDS,
   disabled: false,
+  chatSubmitKey: 'mod+enter',
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
 };
