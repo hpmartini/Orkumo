@@ -1,4 +1,4 @@
-import { app, BrowserWindow, BrowserView, ipcMain, Menu, dialog, shell } from 'electron';
+import { app, BrowserWindow, BrowserView, ipcMain, Menu, dialog, shell, session } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { fork } from 'child_process';
@@ -8,6 +8,7 @@ import dotenv from 'dotenv';
 import { isValidExternalUrl, validateDialogOptions, windowOpenRoute } from './validation.js';
 import { APP_NAME, LEGACY_USER_DATA_DIR } from './constants.js';
 import { wireBrowserViewNav, goHistory } from './browserViewNav.js';
+import { persistSessionCookies } from './cookiePersistence.js';
 import { PORTS } from '../config/defaults.js';
 
 // Before anything reads userData (single-instance lock, sessions, data dir)
@@ -29,6 +30,7 @@ let isShuttingDown = false;
 // BrowserView instances for embedded browser previews
 // Map of viewId -> { view: BrowserView, devToolsWindow: BrowserWindow | null }
 const browserViews = new Map();
+const BROWSER_PREVIEW_PARTITION = 'persist:browser-preview';
 
 function destroyBrowserView(viewId) {
   const entry = browserViews.get(viewId);
@@ -676,7 +678,7 @@ function setupIpcHandlers() {
           nodeIntegration: false,
           contextIsolation: true,
           sandbox: true,
-          partition: 'persist:browser-preview',
+          partition: BROWSER_PREVIEW_PARTITION,
         },
       });
       // External sites load here too: grant camera/mic/location etc. only to local dev apps
@@ -897,6 +899,7 @@ function setupIpcHandlers() {
 
 // This method will be called when Electron has finished initialization
 app.whenReady().then(async () => {
+  persistSessionCookies(session.fromPartition(BROWSER_PREVIEW_PARTITION));
   try {
     // Start backend server first
     await startBackendServer();
