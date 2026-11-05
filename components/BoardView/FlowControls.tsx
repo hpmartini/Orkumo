@@ -4,6 +4,7 @@ import {
   BUILD_LABEL,
   DELEGATE_LABEL,
   DYNAMIC_LABEL,
+  FOLLOWUP_LABEL,
   GO_LABEL,
   MODE_LABELS,
   NEED_INPUT_LABEL,
@@ -12,9 +13,10 @@ import {
   setMode,
   startText,
   toggleLabel,
+  UPDATE_LABEL,
   type FlowMode,
 } from '../../utils/issueControls';
-import { startWorkflow } from '../../services/boardApi';
+import { addIssueComment, startWorkflow } from '../../services/boardApi';
 import { labelsFor } from './IssueFields';
 import type { IssueSave } from './IssueEditors';
 
@@ -33,7 +35,8 @@ const btnState = (on: boolean) =>
 /**
  * mw-board control labels as buttons; a label missing in the repo disables its button.
  * Umsetzen only ever sets mw:build (taking the approval back is done on GitHub) and starts the
- * issue right away via `mw board go`.
+ * issue right away via `mw board go`. Überarbeiten (Briefed) and Nacharbeiten (to Review) post
+ * the feedback as comment, set mw:update / mw:followup and start the same way.
  */
 export const FlowControls: React.FC<{
   labels: BoardLabel[];
@@ -41,8 +44,12 @@ export const FlowControls: React.FC<{
   onSave: IssueSave;
   /** GitHub URL of the issue; without it Umsetzen only sets the label */
   issueUrl?: string | null;
-}> = ({ labels, repoOptions, onSave, issueUrl }) => {
+  /** GitHub node id of the issue; without it no feedback can be posted */
+  issueId?: string | null;
+}> = ({ labels, repoOptions, onSave, issueUrl, issueId }) => {
   const [startMsg, setStartMsg] = useState<string | null>(null);
+  const [startWhat, setStartWhat] = useState('Umsetzung');
+  const [feedback, setFeedback] = useState('');
   const names = labels.map((l) => l.name);
   const exists = (label: string) => !!repoOptions?.labels.some((l) => l.name === label);
   const apply = (next: string[]) =>
@@ -64,17 +71,45 @@ export const FlowControls: React.FC<{
     );
   };
   const building = names.includes(BUILD_LABEL);
-  const build = async () => {
+  const busy = startMsg === 'startet…';
+  /** `prepare` writes comment/label; only when it succeeds the issue starts now (`mw board go`) */
+  const startAfter = async (what: string, prepare: () => Promise<boolean>) => {
+    setStartWhat(what);
     setStartMsg('startet…');
     try {
-      if (!building && !(await apply(toggleLabel(names, BUILD_LABEL, true)))) {
-        return setStartMsg(null);
-      }
+      if (!(await prepare())) return setStartMsg(null);
       setStartMsg(issueUrl ? startText(await startWorkflow(issueUrl)) : null);
     } catch (e) {
       setStartMsg(`Nicht gestartet: ${e instanceof Error ? e.message : 'Fehler'}`);
     }
   };
+  const build = () =>
+    startAfter('Umsetzung', async () => building || apply(toggleLabel(names, BUILD_LABEL, true)));
+  const text = feedback.trim();
+  const sendFeedback = (label: string) =>
+    startAfter('Rückmeldung', async () => {
+      if (!issueId) return false;
+      // comment first: when the poll sees the label, the feedback must already be there
+      await addIssueComment(issueId, text);
+      if (!(await apply(toggleLabel(names, label, true)))) return false;
+      setFeedback('');
+      return true;
+    });
+  const feedbackButton = (label: string, name: string, hint: string) => (
+    <button
+      onClick={() => sendFeedback(label)}
+      disabled={!exists(label) || !issueId || !text || busy}
+      title={
+        missing(label) ??
+        (text
+          ? `${hint}: Rückmeldung als Kommentar, ${label} setzen`
+          : 'Erst Rückmeldung schreiben')
+      }
+      className={`${BTN} ${btnState(false)}`}
+    >
+      {name}
+    </button>
+  );
   const mode = currentMode(names);
 
   return (
@@ -91,7 +126,7 @@ export const FlowControls: React.FC<{
         {toggle(GO_LABEL, 'Freigeben', 'Issue für mw board freigeben')}
         <button
           onClick={build}
-          disabled={!exists(BUILD_LABEL) || startMsg === 'startet…'}
+          disabled={!exists(BUILD_LABEL) || busy}
           aria-pressed={building}
           title={
             missing(BUILD_LABEL) ??
@@ -105,8 +140,22 @@ export const FlowControls: React.FC<{
         {toggle(DELEGATE_LABEL, 'Delegate', 'Teilaufgaben an Codex/MiniMax abgeben')}
         {toggle(REVIEW_LABEL, 'Review', 'Unabhängiges Review vor dem PR')}
       </div>
+      <div className="mt-2">
+        <textarea
+          value={feedback}
+          onChange={(e) => setFeedback(e.target.value)}
+          rows={2}
+          placeholder="Rückmeldung an die Session (wird als Kommentar gepostet)"
+          aria-label="Rückmeldung"
+          className="w-full bg-gray-850 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-100 resize-y focus:outline-none focus:border-gray-500"
+        />
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {feedbackButton(UPDATE_LABEL, 'Überarbeiten', 'Ziel-Vertrag überarbeiten (Briefed)')}
+          {feedbackButton(FOLLOWUP_LABEL, 'Nacharbeiten', 'PR nacharbeiten (to Review)')}
+        </div>
+      </div>
       <p role="status" className="mt-1.5 text-xs text-gray-400 empty:hidden">
-        {startMsg && `Umsetzung: ${startMsg}`}
+        {startMsg && `${startWhat}: ${startMsg}`}
       </p>
       <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="mw-Modus">
         {MODES.map(({ mode: m, label }) => {

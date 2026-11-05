@@ -90,7 +90,7 @@ describe('status columns', () => {
   it('detects the done option by name', () => {
     expect(isDoneOption(OPTIONS[2])).toBe(true);
     expect(isDoneOption({ id: 'x', name: 'done', color: 'GREEN' })).toBe(true);
-    expect(isDoneOption({ id: 'x', name: 'to Deploy', color: 'ORANGE' })).toBe(false);
+    expect(isDoneOption({ id: 'x', name: 'Briefed', color: 'ORANGE' })).toBe(false);
     expect(isDoneOption({ id: 'x', name: 'Done soon', color: 'GREEN' })).toBe(false);
   });
 
@@ -530,7 +530,7 @@ describe('deriveAgentLinks', () => {
 
 describe('columnTint', () => {
   it('reproduces the mockup tints (hex 24 / 14 alpha)', () => {
-    // mockup: Backlog #94a8d6, Todo #7dd3fc, In Progress #fde047, to Review #c4b5fd, to Deploy #fdba74, Done #6ee7b7
+    // mockup: Backlog #94a8d6, Todo #7dd3fc, In Progress #fde047, to Review #c4b5fd, Done #6ee7b7
     expect(columnTint('GRAY')).toEqual({
       head: 'rgba(148, 168, 214, 0.14)',
       cell: 'rgba(148, 168, 214, 0.08)',

@@ -106,13 +106,20 @@ beforeEach(() => {
   api.fetchIssueComments.mockResolvedValue([comment]);
   api.fetchRepoOptions.mockResolvedValue({
     repositoryId: 'R',
-    labels: ['bug', 'mw:go', 'mw:build', 'mw:dynamic', 'mw:delegate', 'mw:image'].map(
-      (name, i) => ({
-        id: `L${i}`,
-        name,
-        color: '000000',
-      })
-    ),
+    labels: [
+      'bug',
+      'mw:go',
+      'mw:build',
+      'mw:dynamic',
+      'mw:delegate',
+      'mw:image',
+      'mw:update',
+      'mw:followup',
+    ].map((name, i) => ({
+      id: `L${i}`,
+      name,
+      color: '000000',
+    })),
     assignees: [],
     milestones: [],
   });
@@ -340,5 +347,83 @@ describe('IssueModal (#104)', () => {
     await screen.findByRole('dialog');
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(onClose).toHaveBeenCalled();
+  });
+});
+
+// briefing 2026-11-05: feedback on the contract (Briefed) and on the PR (to Review)
+describe.each([
+  ['AC-3', 'Überarbeiten', 'mw:update'],
+  ['AC-4', 'Nacharbeiten', 'mw:followup'],
+])('%s: %s', (_, name, label) => {
+  const button = async () => {
+    const b = (await screen.findByRole('button', { name })) as HTMLButtonElement;
+    await screen.findByText('Rückfrage?');
+    return b;
+  };
+
+  it('stays disabled without text', async () => {
+    renderModal();
+    const b = await button();
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Umsetzen' }) as HTMLButtonElement).disabled).toBe(
+        false
+      )
+    );
+    expect(b.disabled).toBe(true);
+    fireEvent.change(screen.getByLabelText('Rückmeldung'), { target: { value: '   ' } });
+    expect(b.disabled).toBe(true);
+  });
+
+  it(`posts the comment, sets ${label}, then starts now`, async () => {
+    api.addIssueComment.mockResolvedValue([]);
+    renderModal();
+    const b = await button();
+    const box = screen.getByLabelText('Rückmeldung') as HTMLTextAreaElement;
+    fireEvent.change(box, { target: { value: ' Bitte Abschnitt 2 kürzen ' } });
+    await waitFor(() => expect(b.disabled).toBe(false));
+    fireEvent.click(b);
+    await waitFor(() => expect(api.startWorkflow).toHaveBeenCalledTimes(1));
+    expect(api.addIssueComment).toHaveBeenCalledWith('I_1', 'Bitte Abschnitt 2 kürzen');
+    expect(api.updateBoardIssue).toHaveBeenCalledWith('PVTI_1', {
+      labels: ['bug', 'mw:go', label],
+    });
+    expect(api.startWorkflow).toHaveBeenCalledWith('https://github.com/o/r/issues/7');
+    const order = [api.addIssueComment, api.updateBoardIssue, api.startWorkflow].map(
+      (m) => m.mock.invocationCallOrder[0]
+    );
+    expect(order).toEqual([...order].sort((a, b) => a - b));
+    expect((await screen.findByRole('status')).textContent).toBe('Rückmeldung: gestartet');
+    expect(box.value).toBe('');
+  });
+
+  it('a failed comment sets no label and starts nothing', async () => {
+    api.addIssueComment.mockRejectedValue(new Error('gh down'));
+    renderModal();
+    const b = await button();
+    fireEvent.change(screen.getByLabelText('Rückmeldung'), { target: { value: 'x' } });
+    await waitFor(() => expect(b.disabled).toBe(false));
+    fireEvent.click(b);
+    expect(await screen.findByText('Rückmeldung: Nicht gestartet: gh down')).toBeTruthy();
+    expect(api.updateBoardIssue).not.toHaveBeenCalled();
+    expect(api.startWorkflow).not.toHaveBeenCalled();
+  });
+
+  it(`is disabled when ${label} is missing in the repo`, async () => {
+    api.fetchRepoOptions.mockResolvedValue({
+      repositoryId: 'R',
+      labels: [{ id: 'L0', name: 'mw:build', color: '000000' }],
+      assignees: [],
+      milestones: [],
+    });
+    renderModal();
+    const b = await button();
+    fireEvent.change(screen.getByLabelText('Rückmeldung'), { target: { value: 'x' } });
+    await waitFor(() =>
+      expect((screen.getByRole('button', { name: 'Umsetzen' }) as HTMLButtonElement).disabled).toBe(
+        false
+      )
+    );
+    expect(b.disabled).toBe(true);
+    expect(b.title).toBe(`Label ${label} gibt es im Repo nicht`);
   });
 });

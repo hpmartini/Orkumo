@@ -193,6 +193,7 @@ const OffBoardIssue: React.FC<{
                   repoOptions={repoOptions}
                   onSave={saveLabels}
                   issueUrl={issue.url}
+                  issueId={issue.issueId}
                 />
                 {issue.body && (
                   <div className="rounded-md border border-gray-700 bg-gray-850 px-3 py-2 text-xs text-gray-200 whitespace-pre-wrap break-words">

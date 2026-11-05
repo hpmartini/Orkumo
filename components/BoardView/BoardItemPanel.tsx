@@ -321,6 +321,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
             repoOptions={repoOptions}
             onSave={save}
             issueUrl={item.url}
+            issueId={item.issueId}
           />
         )}
 

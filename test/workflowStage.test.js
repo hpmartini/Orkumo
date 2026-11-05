@@ -178,13 +178,114 @@ describe('deriveWorkflowState', () => {
     expect(s).toMatchObject({ stage: 'review', waitingOn: 'hape', go: null });
   });
 
-  it('closed, Done or to Deploy: done', () => {
+  it('closed or Done: done', () => {
     expect(deriveWorkflowState(item({ state: 'CLOSED', prs: ['MERGED'] }), 'Done')).toMatchObject({
       stage: 'done',
       reason: 'Gemerged',
       since: '2026-10-26T09:00:00Z',
     });
-    expect(deriveWorkflowState(item(), 'to Deploy').reason).toBe('Wartet auf Deploy');
+    expect(deriveWorkflowState(item(), 'Done').stage).toBe('done');
+  });
+});
+
+// mw 7.9 columns (briefing 2026-11-05): column -> stage and who it waits on
+describe('mw 7.9 columns (AC-1)', () => {
+  const FED_BACK = 'Rückmeldung übergeben, wartet auf den Poll';
+  const cases = [
+    ['Todo, start marker', item({ comments: [startC()] }), 'Todo', 'briefing', 'agent', null],
+    [
+      'Briefed',
+      item({ comments: [startC(), briefedC] }),
+      'Briefed',
+      'awaiting',
+      'hape',
+      { kind: 'build' },
+    ],
+    [
+      'Briefed without briefed marker',
+      item({ comments: [startC()] }),
+      'Briefed',
+      'awaiting',
+      'hape',
+      { kind: 'build' },
+    ],
+    [
+      'Briefed + mw:build',
+      item({ comments: [startC(), briefedC], labels: ['mw:go', 'mw:build'] }),
+      'Briefed',
+      'awaiting',
+      'poll',
+      { kind: 'poll' },
+    ],
+    [
+      'Briefed + mw:update',
+      item({ comments: [startC(), briefedC], labels: ['mw:go', 'mw:update'] }),
+      'Briefed',
+      'awaiting',
+      'poll',
+      { kind: 'poll' },
+    ],
+    [
+      'Briefed + mw:update, picked up (fed)',
+      item({
+        comments: [startC(), briefedC, at('fed', T(13))],
+        labels: ['mw:go', 'mw:update'],
+      }),
+      'Briefed',
+      'briefing',
+      'agent',
+      null,
+    ],
+    [
+      'In Progress, goal',
+      item({ comments: [startC(), briefedC, goalC] }),
+      'In Progress',
+      'building',
+      'agent',
+      null,
+    ],
+    [
+      'legacy: briefed in In Progress, no goal',
+      item({ comments: [startC(), briefedC] }),
+      'In Progress',
+      'awaiting',
+      'hape',
+      { kind: 'build' },
+    ],
+    [
+      'to Review',
+      item({ comments: [startC(), briefedC, goalC], prs: ['OPEN'] }),
+      'to Review',
+      'review',
+      'hape',
+      null,
+    ],
+    [
+      'to Review + mw:followup',
+      item({ comments: [startC(), briefedC, goalC], labels: ['mw:go', 'mw:followup'] }),
+      'to Review',
+      'review',
+      'poll',
+      { kind: 'poll' },
+    ],
+    [
+      'Done',
+      item({ comments: [startC(), briefedC, goalC], state: 'CLOSED', prs: ['MERGED'] }),
+      'Done',
+      'done',
+      null,
+      null,
+    ],
+  ];
+  it.each(cases)('%s', (_, i, status, stage, waitingOn, go) => {
+    expect(deriveWorkflowState(i, status)).toMatchObject({ stage, waitingOn, go });
+  });
+
+  it('a set mw:update or mw:followup reads as feedback handed over', () => {
+    const upd = item({ comments: [startC(), briefedC], labels: ['mw:go', 'mw:update'] });
+    const fup = item({ comments: [startC(), briefedC, goalC], labels: ['mw:go', 'mw:followup'] });
+    expect(deriveWorkflowState(upd, 'Briefed').reason).toBe(FED_BACK);
+    expect(deriveWorkflowState(fup, 'to Review').reason).toBe(FED_BACK);
   });
 });
 
@@ -268,13 +369,6 @@ describe('mw 7 stations (AC-1)', () => {
       'to Review',
       'review',
       'to_review',
-    ],
-    [
-      'merged, to Deploy',
-      item({ comments: [startC(), briefedC, goalC], prs: ['MERGED'] }),
-      'to Deploy',
-      'done',
-      'deploy',
     ],
     [
       'merged, Done',
