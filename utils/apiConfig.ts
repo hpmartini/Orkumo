@@ -3,7 +3,6 @@
  * (Vite dev server with proxy vs Electron production with direct API calls)
  */
 
-import { Capacitor } from '@capacitor/core';
 import { PORTS } from '../config/defaults';
 import { readPairing, type Pairing } from './remoteClient';
 
@@ -20,8 +19,12 @@ export const isElectron =
 const SERVER_PORT =
   (typeof window !== 'undefined' && window.electronAPI?.serverPort) || PORTS.server;
 
-// iOS app (Capacitor): the bundle runs from capacitor://localhost and talks to the paired Mac.
-export const isNativeApp = Capacitor.isNativePlatform();
+/** A bundle loaded from a non-web origin (e.g. capacitor://) has no server of its own. */
+export const isBundledOrigin = (protocol: string): boolean => !/^(https?|file):$/.test(protocol);
+
+// Bundled client such as the iOS app from DevHub-pro: talks to the paired Mac (remoteClient).
+export const isNativeApp =
+  typeof window !== 'undefined' && isBundledOrigin(window.location.protocol);
 export const pairing = isNativeApp ? readPairing() : null;
 
 /** Server origin when the API is not same-origin (Electron, iOS app); '' otherwise. */

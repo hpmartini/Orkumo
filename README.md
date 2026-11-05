@@ -93,9 +93,9 @@ Security: sessions can only be dispatched into (and `--add-dir` only point at) t
 
 API: `GET /api/agents`, `GET /api/agents/stream` (SSE), `POST /api/agents/dispatch`, `GET /api/agents/:id/logs`, `POST /api/agents/:id/reply|stop|respawn`, `DELETE /api/agents/:id`, `PUT /api/agents/:id/name|pin`, `PUT /api/agents/order`, `GET /api/agents/daemon`, `POST /api/agents/daemon/stop`, `GET /api/agents/subagents|repos|commands|past`, `GET|PUT /api/settings/agent-view`.
 
-## 📱 iOS-App (iPhone & iPad)
+## 📱 Remote-Zugang für mobile Clients
 
-Die iOS-App ist eine Capacitor-Hülle um denselben React-Build (`ios/`). Sie ist ein reiner Client: Server, PTY und `claude` laufen weiter auf dem Mac, die App verbindet sich über das Tailscale-Tailnet. v1: Agents, Board, Terminal.
+Der Server kann Clients außerhalb des Macs bedienen, etwa die iOS-App für iPhone und iPad. Die App gehört zu DevHub Pro (privates Repo `hpmartini/DevHub-pro`, `apps/ios`) und wird dort gegen einen DevHub-Checkout gebaut. Sie ist ein reiner Client: Server, PTY und `claude` laufen weiter auf dem Mac, die Verbindung läuft über das Tailscale-Tailnet.
 
 **1. Remote-Zugang auf dem Mac einschalten** (Default: aus, alles bleibt localhost-only)
 
@@ -108,20 +108,9 @@ tailscale serve --bg --https=8443 http://127.0.0.1:3099   # HTTPS nur im Tailnet
 - HTTPS ist Pflicht: WKWebView blockt `http`-Fetch und -WebSocket aus der App (`capacitor://`) als Mixed Content. Bind an die Tailnet-IP mit http reicht daher nicht.
 - Läuft `tailscale serve` auf einem anderen Port als 443 oder unter anderem Namen: `DEVORBIT_REMOTE_URL=https://<mac>.<tailnet>.ts.net:8443` setzen, sonst nimmt die Pairing-Anzeige `https://<MagicDNS-Name>`.
 
-**2. Koppeln:** Admin Panel → „iOS-App“ zeigt Adresse, Token, den Link `devorbit://pair?…` und denselben Link als QR-Code. QR-Code mit der Kamera-App scannen, den Link auf iPhone/iPad öffnen (AirDrop, Notiz) oder Adresse und Token in der App eingeben. Lehnt der Server den Token ab, fragt die App neu danach.
+**2. Koppeln:** Admin Panel → „iOS-App“ zeigt Adresse, Token, den Link `devorbit://pair?…` und denselben Link als QR-Code.
 
-**3. App bauen und installieren** (Xcode, kostenloses Personal Team reicht)
-
-```bash
-bun run ios:sync    # vite build + cap sync ios
-bun run ios:open    # Xcode: Target App → Signing & Capabilities → Team wählen → Gerät → Run
-```
-
-**End-to-End-Check im Simulator** (paart, lädt Agents und Board, tippt einen Befehl in ein Shell-Terminal, prüft die Markerdatei auf dem Mac):
-
-```bash
-bun run ios:e2e "iPhone 16" https://<mac>.<tailnet>.ts.net:8443 http://127.0.0.1:3001 /tmp/ios-e2e
-```
+**Gebündelte Clients:** Eine App, die den Web-Build mitbringt, ersetzt `index.tsx` durch einen eigenen Einstieg und nutzt `App.tsx`, `utils/apiConfig.ts` (`isNativeApp`, `pairing`) und `utils/remoteClient.ts` (Pairing, Token an fetch, SSE und WebSocket). Erkannt wird sie an einem Nicht-Web-Origin (z. B. `capacitor://`); dann gelten HashRouter und die gespeicherte Server-Adresse.
 
 ## 🐳 Docker Deployment
 

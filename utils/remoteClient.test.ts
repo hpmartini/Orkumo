@@ -10,7 +10,7 @@ import {
   savePairing,
   withToken,
 } from './remoteClient';
-import { serverOrigin, isNativeApp, API_BASE_URL } from './apiConfig';
+import { serverOrigin, isNativeApp, isBundledOrigin, API_BASE_URL } from './apiConfig';
 
 const PAIRING = { url: 'https://mac.tail1.ts.net', token: 'secret' };
 
@@ -127,5 +127,11 @@ describe('apiConfig', () => {
     expect(serverOrigin(true, PAIRING, false)).toBe('https://mac.tail1.ts.net');
     expect(serverOrigin(false, null, true)).toMatch(/^http:\/\/localhost:\d+$/);
     expect(serverOrigin(false, null, false)).toBe('');
+  });
+  it('treats only a non-web origin as a bundled client (iOS app: capacitor://)', () => {
+    expect(isBundledOrigin('capacitor:')).toBe(true);
+    expect(isBundledOrigin('https:')).toBe(false);
+    expect(isBundledOrigin('http:')).toBe(false);
+    expect(isBundledOrigin('file:')).toBe(false);
   });
 });

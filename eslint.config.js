@@ -172,7 +172,6 @@ export default [
       'dist-server/**',
       'dist-electron/**',
       'dist-landing/**',
-      'ios/**', // Capacitor project; ios/App/App/public is a copy of dist
       '*.config.js',
       '*.config.ts',
     ],
