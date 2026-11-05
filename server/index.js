@@ -32,7 +32,7 @@ import { initializeDatabase, isDatabaseConnected, getDb } from './db/index.js';
 import { terminalSessionManager } from './services/TerminalSessionManager.js';
 import { settingsService } from './services/settingsService.js';
 import { ideService } from './services/ideService.js';
-import * as healthService from './services/healthService.js';
+import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
 import * as meshService from './services/meshService.js';
 import * as remoteAccess from './services/remoteAccess.js';
@@ -648,17 +648,16 @@ app.get('/api/claude-cli/status', async (req, res) => {
 });
 
 // ============================================
-// System Health Endpoints
+// Tool Versions (#184)
 // ============================================
 
 /**
- * GET /api/system/health
- * Get full system health report with top processes
+ * GET /api/system/versions
+ * Global tool versions plus the Node version each scanned project pins
  */
-app.get('/api/system/health', async (req, res) => {
+app.get('/api/system/versions', async (req, res) => {
   try {
-    const health = await healthService.getSystemHealth();
-    res.json(health);
+    res.json(await getToolVersions(scanAllDirectories()));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

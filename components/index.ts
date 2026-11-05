@@ -1,4 +1,4 @@
-export { SystemHealth } from './SystemHealth';
+export { ToolVersions } from './ToolVersions';
 export { ErrorBoundary } from './ErrorBoundary';
 export { AdminPanel } from './AdminPanel';
 export { ContextTabs } from './ContextTabs';

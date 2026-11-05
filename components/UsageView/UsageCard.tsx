@@ -2,7 +2,7 @@ import React from 'react';
 import { BarChart3, ChevronRight, RefreshCw } from 'lucide-react';
 import { useUsage } from './useUsage';
 import { LimitBar } from './LimitBar';
-import { formatTokens, todayKey, tokensOn } from '../../utils/usage';
+import { formatTokens, staleAge, todayKey, tokensOn } from '../../utils/usage';
 
 interface UsageCardProps {
   onOpen: () => void;
@@ -65,18 +65,35 @@ export const UsageCard: React.FC<UsageCardProps> = ({ onOpen }) => {
               key={p.id}
               className="py-2 first:pt-0 last:pb-0 grid grid-cols-[minmax(0,7rem)_1fr_1fr_auto] items-center gap-3"
             >
-              <span className="text-xs text-gray-300 truncate" title={p.label}>
+              <span className="text-xs text-gray-300 truncate min-w-0" title={p.label}>
                 {p.label}
+                {staleAge(p.limits?.asOf, now) && (
+                  <span
+                    className="block text-[10px] text-yellow-400"
+                    title={`Limit-Stand ${staleAge(p.limits?.asOf, now)}`}
+                  >
+                    veraltet · {staleAge(p.limits?.asOf, now)}
+                  </span>
+                )}
               </span>
               {p.available ? (
                 <>
-                  <LimitBar
-                    label="5 h"
-                    window={p.limits?.fiveHour}
-                    unknownText="unbekannt"
-                    compact
-                    now={now}
-                  />
+                  {p.limits && !p.limits.fiveHour ? (
+                    <span
+                      className="text-[11px] text-gray-500"
+                      title="Die Quelle liefert kein 5-Stunden-Fenster"
+                    >
+                      kein 5-h-Limit
+                    </span>
+                  ) : (
+                    <LimitBar
+                      label="5 h"
+                      window={p.limits?.fiveHour}
+                      unknownText="unbekannt"
+                      compact
+                      now={now}
+                    />
+                  )}
                   <LimitBar
                     label="Woche"
                     window={p.limits?.weekly}

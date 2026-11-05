@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { act, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
-import { TitleBar } from '../components/TitleBar';
+import { ModeSwitcher } from '../components/ModeSwitcher';
 import { ModuleMode } from '../components/ModuleMount';
 import { modeCommands, type ModeEntry } from '../hooks/useModules';
 
@@ -11,27 +11,17 @@ vi.mock('/api/modules/with-mode/ui.js', () => import('./fixtures/premium/with-mo
 
 const MODE: ModeEntry = { id: 'with-mode', label: 'Fixture Mode', icon: 'Boxes', scoped: true };
 
-const titleBar = (modes?: ModeEntry[]) =>
+// #184: mode toggles live in the mode bar next to the robot, not in the title bar
+const modeBar = (modes?: ModeEntry[]) =>
   render(
     <MemoryRouter initialEntries={['/agents']}>
-      <TitleBar
-        onOpenDashboard={() => {}}
-        contexts={[]}
-        activeId={null}
-        onSelect={() => {}}
-        onReorder={() => {}}
-        onEdit={() => {}}
-        onCreate={() => {}}
-        apps={[]}
-        projectDirs={[]}
-        modes={modes}
-      />
+      <ModeSwitcher modes={modes} />
     </MemoryRouter>
   );
 
 describe('module modes (#165)', () => {
-  it('a mode module gets a title-bar toggle and an "Open <label>" palette command', () => {
-    titleBar([MODE]);
+  it('a mode module gets a mode-bar toggle and an "Open <label>" palette command', () => {
+    modeBar([MODE]);
     const toggles = screen.getAllByRole('button', { pressed: false }).map((b) => b.ariaLabel);
     expect(toggles.indexOf('Fixture Mode')).toBeLessThan(toggles.indexOf('Board'));
 
@@ -43,7 +33,7 @@ describe('module modes (#165)', () => {
   });
 
   it('without modules: no Workflows toggle and no mode command', () => {
-    titleBar();
+    modeBar();
     expect(screen.queryByRole('button', { name: /workflow/i })).toBeNull();
     expect(modeCommands([], vi.fn())).toEqual([]);
   });

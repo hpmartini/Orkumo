@@ -6,6 +6,7 @@ import type { AgentGrouping } from '../types';
 
 const nav: RailNavProps = {
   onOpenDashboard: vi.fn(),
+  onOpenContextDashboard: vi.fn(),
   onOpenSettings: vi.fn(),
   onOpenProject: vi.fn(),
   onStartApp: vi.fn(),

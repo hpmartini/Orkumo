@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { AlertTriangle, BarChart3, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, BarChart3, RefreshCw } from 'lucide-react';
 import {
   Bar,
   BarChart,
@@ -19,6 +19,7 @@ import {
   formatPercent,
   formatTokens,
   modelTable,
+  staleAge,
   seriesByModel,
   seriesByProvider,
   usageKpis,
@@ -40,6 +41,7 @@ const SERIES_COLORS = [
 
 const SOURCE_LABEL: Record<UsageLimitSource, string> = {
   statusline: 'Statusline',
+  oauth: 'Claude-Abo live',
   'claude-cache': 'Claude-Cache',
   rollout: 'Codex-Rollout',
 };
@@ -69,15 +71,21 @@ const ProviderLimits: React.FC<{ provider: UsageProvider; compact?: boolean; now
   const { limits } = provider;
   if (!limits)
     return <p className="text-xs text-gray-500">Limit unbekannt – keine Quelle für Plan-Limits</p>;
+  const stale = staleAge(limits.asOf, now);
   return (
     <div className="space-y-3">
       <div className={`grid gap-4 ${compact ? 'grid-cols-1' : 'sm:grid-cols-2'}`}>
-        <LimitBar label="5 Stunden" window={limits.fiveHour} compact={compact} now={now} />
+        {/* plans without a 5h window (source has none) get no empty bar (#184) */}
+        {limits.fiveHour && (
+          <LimitBar label="5 Stunden" window={limits.fiveHour} compact={compact} now={now} />
+        )}
         <LimitBar label="Woche" window={limits.weekly} compact={compact} now={now} />
       </div>
       <p className="text-[11px] text-gray-500">
         Quelle: {SOURCE_LABEL[limits.source] ?? limits.source} · Stand {formatStand(limits.asOf)}
         {limits.plan && ` · Plan ${limits.plan}`}
+        {!limits.fiveHour && ' · kein 5-h-Limit in der Quelle'}
+        {stale && <span className="text-yellow-400"> · veraltet ({stale})</span>}
       </p>
     </div>
   );
@@ -105,10 +113,12 @@ const Skeleton: React.FC = () => (
 
 interface UsageViewProps {
   active: boolean;
+  /** Back to the previous view (#184): the page has no other way out */
+  onBack?: () => void;
 }
 
 /** Full "Nutzung" page: plan limits, KPIs, daily chart and model table per provider */
-export const UsageView: React.FC<UsageViewProps> = ({ active }) => {
+export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
   const [days, setDays] = useState<UsageDays>(7);
   const [selected, setSelected] = useState<string>(ALL_PROVIDERS_ID);
   const { data, error, loading, refresh } = useUsage(days, active);
@@ -159,6 +169,16 @@ export const UsageView: React.FC<UsageViewProps> = ({ active }) => {
     <div className="h-full overflow-y-auto bg-gray-900 text-gray-200">
       <div className="max-w-7xl mx-auto p-6 space-y-5">
         <header className="flex flex-wrap items-center gap-3">
+          {onBack && (
+            <button
+              onClick={onBack}
+              aria-label="Zurück"
+              title="Zurück"
+              className="flex items-center gap-1.5 px-2 py-1 -ml-2 rounded-md text-sm text-gray-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+            >
+              <ArrowLeft size={14} aria-hidden="true" /> Zurück
+            </button>
+          )}
           <BarChart3 size={20} className="text-blue-400" aria-hidden="true" />
           <h1 className="text-lg font-semibold text-gray-100 mr-auto">Nutzung</h1>
           <div

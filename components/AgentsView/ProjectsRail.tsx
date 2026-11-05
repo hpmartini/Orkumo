@@ -16,7 +16,10 @@ import { moduleIcon } from '../moduleIcon';
 
 /** App-level navigation and actions the merged rail needs from App.tsx */
 export interface RailNavProps {
+  /** Global dashboard (all contexts) */
   onOpenDashboard: () => void;
+  /** Dashboard of the active context (#184) */
+  onOpenContextDashboard: () => void;
   /** Modes of loaded modules: one rail button each, and per-agent/repo entries for scoped ones */
   modes?: ModeEntry[];
   onOpenSettings: () => void;

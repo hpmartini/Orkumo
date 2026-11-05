@@ -10,16 +10,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 DevOrbit Dashboard is a React-based workspace for agentic development. It scans the directories configured in the admin panel as a project registry (projects open in Code mode, `/code?path=`); it no longer starts, stops or analyzes apps (issue #143).
 
-The overview (`/dashboard`) shows:
+Mode bar (#184, `components/ModeSwitcher.tsx`) in the AgentsView header next to the robot: Agents · modes of loaded modules (e.g. Workflows, #165) · Board · Code; the route is the state. The robot opens the context dashboard (`/dashboard?scope=context`), the rocket in the title bar the global one (`/dashboard`).
 
-- Agent situation (`components/AgentOverview.tsx`, derivation in `utils/agentOverview.ts`): running / needs input / working / done, lists "cache expires < 10 min" and "compaction needed"; each entry opens the agent in `/agents`
+The dashboard (`/dashboard`, context variant filtered to the active context's project paths via `utils/projectScope.ts`) shows:
+
+- Agent table (`components/AgentOverview.tsx`, `utils/agentTable.ts`, buckets from `utils/agentOverview.ts`): stat filters (running / needs input / working / done / cache expires < 10 min / compaction needed), search, grouping, actions jump / stop / restart / rename / delete with an in-app confirm dialog
+- Sessions card (`components/UsageView/SessionsCard.tsx`, `GET /api/usage/sessions?days=`): last 7 days, tabs newest / most tokens / longest (first to last answer)
 - Compact usage card linking to the usage page
-- System Health: memory, CPU, top processes by CPU and RSS, top apps (`server/services/healthService.js`)
+- Tool versions (`server/services/toolVersionsService.js`, `GET /api/system/versions`): node, npm, git, docker; on the context dashboard also the Node version each project pins (.nvmrc, .node-version, engines.node)
 
 Usage page (`/usage`, `components/UsageView/`, `server/services/usageService.js`, route `/api/usage?days=1..90`):
 
 - Tokens per day, model and provider (input, output, cache read, cache write) for Claude Code, each Codex account and MiniMax, read from local session logs (`~/.claude/projects`, `$CODEX_HOME/sessions`)
-- Plan limits (5h / week): Codex from the newest `rate_limits` event; Claude from the statusline snapshot written by `scripts/claude-rate-limits-tap.sh`, fallback `~/.claude.json`; missing source shows "Limit unbekannt"
+- Plan limits (5h / week): Codex from the newest `rate_limits` event (also outside the window for idle accounts; a window past its reset counts as 0 %); Claude from a fresh statusline snapshot (`scripts/claude-rate-limits-tap.sh`), else live from the endpoint Claude Code's `/usage` calls with the subscription login (token from keychain / `.credentials.json`, server-side only, 5 min cache, no refresh), else `~/.claude.json`; missing source shows "Limit unbekannt", a source without a 5h window shows no 5h bar, snapshots older than 1 h are marked "veraltet" with their age; back button to the previous view
 - `scripts/verify-usage.mjs --days 30` re-sums the same logs independently and diffs per day and provider
 
 Further modes:

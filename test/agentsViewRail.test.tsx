@@ -79,6 +79,7 @@ vi.mock('../components/CommandPalette', async (orig) => ({
 
 const nav = {
   onOpenDashboard: () => {},
+  onOpenContextDashboard: () => {},
   onOpenSettings: () => {},
   onOpenProject: () => {},
   onStartApp: () => {},

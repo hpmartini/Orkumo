@@ -306,74 +306,24 @@ export interface SystemVersions {
   timestamp: number;
 }
 
-export interface MemoryInfo {
-  total: number;
-  free: number;
-  used: number;
-  usedPercent: number;
+export interface ProjectNodePin {
+  version: string;
+  source: '.nvmrc' | '.node-version' | 'engines';
 }
 
-export interface CpuInfo {
-  cores: number;
-  model: string;
-  loadAverage: {
-    '1min': number;
-    '5min': number;
-    '15min': number;
-  };
-}
-
-export interface DiskInfo {
-  total: number;
-  used: number;
-  available: number;
-  usedPercent: number;
-}
-
-export interface TopProcess {
-  pid: number;
-  name: string;
-  /** executable path, without arguments */
-  command: string;
-  cpuPercent: number;
-  rssBytes: number;
-}
-
-export interface TopApp {
-  name: string;
-  processCount: number;
-  cpuPercent: number;
-  rssBytes: number;
-}
-
-export interface TopProcesses {
-  byCpu: TopProcess[];
-  byMemory: TopProcess[];
-  byApp: TopApp[];
-}
-
-export interface SystemHealthReport {
-  system: {
-    versions: SystemVersions;
-    memory: MemoryInfo;
-    cpu: CpuInfo;
-    disk: DiskInfo | null;
-    platform: string;
-    arch: string;
-    hostname: string;
-    uptime: number;
-  };
-  topProcesses: TopProcesses;
-  timestamp: number;
+export interface ToolVersions {
+  system: SystemVersions;
+  /** Node version pinned per project id (only pinned projects) */
+  projects: Record<string, ProjectNodePin>;
 }
 
 /**
- * Get full system health report
+ * Global tool versions plus the Node version each project pins (#184)
  */
-export async function fetchSystemHealth(): Promise<SystemHealthReport> {
-  const response = await fetchWithRetry(`${API_BASE}/system/health`);
+export async function fetchToolVersions(): Promise<ToolVersions> {
+  const response = await fetchWithRetry(`${API_BASE}/system/versions`);
   if (!response.ok) {
-    throw new Error('Failed to fetch system health');
+    throw new Error('Failed to fetch tool versions');
   }
   return response.json();
 }
@@ -381,6 +331,14 @@ export async function fetchSystemHealth(): Promise<SystemHealthReport> {
 /**
  * Token usage and plan limits per AI provider
  */
+export async function fetchUsageSessions(
+  days: number
+): Promise<import('../components/UsageView/types').UsageSessionsResponse> {
+  const response = await fetchWithRetry(`${API_BASE}/usage/sessions?days=${days}`);
+  if (!response.ok) throw new Error('Failed to fetch sessions');
+  return response.json();
+}
+
 export async function fetchUsage(
   days: import('../components/UsageView/types').UsageDays
 ): Promise<import('../components/UsageView/types').UsageResponse> {

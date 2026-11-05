@@ -12,7 +12,7 @@ import { isElectron, isNativeApp } from './utils/apiConfig';
 import { Bot, Rocket } from 'lucide-react';
 import { Toaster } from 'react-hot-toast';
 import {
-  SystemHealth,
+  ToolVersions,
   ErrorBoundary,
   AdminPanel,
   TitleBar,
@@ -25,7 +25,7 @@ import { ModuleMode } from './components/ModuleMount';
 import { modeCommands, useModulesState, type ModeEntry } from './hooks/useModules';
 import { useApps } from './hooks';
 import { AgentOverview } from './components/AgentOverview';
-import { UsageView, UsageCard } from './components/UsageView';
+import { UsageView, UsageCard, SessionsCard } from './components/UsageView';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useProjectContexts, ROUTE_KEY } from './hooks/useProjectContexts';
 import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
@@ -56,6 +56,9 @@ function AppContent() {
   const knownRoute = HOST_TABS.includes(segment) || modes.some((m) => m.id === segment);
   // Unknown paths are redirected below once modules are known; until then show the agents view
   const activeTab = knownRoute ? segment : 'agents';
+  // Robot = dashboard of the active context, rocket = global dashboard (#184)
+  const isContextDashboard =
+    activeTab === 'dashboard' && new URLSearchParams(location.search).get('scope') === 'context';
 
   const { apps, loading, settings, refreshApps } = useApps();
 
@@ -68,6 +71,11 @@ function AppContent() {
     const members = new Set(contextAppIds);
     return apps.filter((app) => members.has(app.id));
   }, [apps, contextAppIds]);
+  // A context without own project list spans everything, like its other views
+  const dashboardScope = useMemo(
+    () => (isContextDashboard && contextAppIds ? contextApps.map((a) => a.path) : undefined),
+    [isContextDashboard, contextAppIds, contextApps]
+  );
   // Configured project directories (admin panel): context dialog and tabs cluster by them
   const [projectDirs, setProjectDirs] = useState<string[]>([]);
   const loadProjectDirs = useCallback(() => {
@@ -125,6 +133,10 @@ function AppContent() {
   }, []);
 
   const handleSelectDashboard = () => navigate('/dashboard');
+  const handleSelectContextDashboard = () => navigate('/dashboard?scope=context');
+  // Back from the usage details: previous view inside the app, else the dashboard
+  const handleBackFromUsage = () =>
+    location.key !== 'default' ? navigate(-1) : handleSelectDashboard();
   // Stable: AgentsView's attach callbacks depend on it
   const openAgentsView = useCallback(() => navigate('/agents'), [navigate]);
 
@@ -244,7 +256,6 @@ function AppContent() {
         onCreate={() => setEditingContext('new')}
         apps={apps}
         projectDirs={projectDirs}
-        modes={modes}
       />
 
       {/* One shell: the agents rail on every route; the other views fill its main area */}
@@ -283,22 +294,49 @@ function AppContent() {
                 onOpenView={openAgentsView}
                 nav={{
                   onOpenDashboard: handleSelectDashboard,
+                  onOpenContextDashboard: handleSelectContextDashboard,
                   modes,
                   onOpenSettings: () => setAdminPanelOpen(true),
                   onOpenProject: handleSelectApp,
                 }}
               >
-                {/* Dashboard: the start view behind the rocket and the agents icon */}
+                {/* Dashboard: global behind the rocket, the active context's behind the robot */}
                 <div
                   className={
                     activeTab === 'dashboard' ? 'absolute inset-0 overflow-auto' : 'hidden'
                   }
                 >
                   <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 space-y-8 animate-in fade-in duration-500">
-                    <AgentOverview active={activeTab === 'dashboard'} />
+                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                      {isContextDashboard ? (
+                        <>
+                          <Bot size={18} className="text-blue-400" />
+                          {contexts.active?.name ?? 'Context'}
+                          <span className="text-sm font-normal text-gray-400">
+                            {dashboardScope ? `${dashboardScope.length} projects` : 'all projects'}
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          <Rocket size={18} className="text-blue-400" />
+                          Dashboard
+                          <span className="text-sm font-normal text-gray-400">all contexts</span>
+                        </>
+                      )}
+                    </h2>
+                    <AgentOverview
+                      active={activeTab === 'dashboard'}
+                      projectPaths={dashboardScope}
+                    />
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      <UsageCard onOpen={() => navigate('/usage')} />
-                      <SystemHealth />
+                      <SessionsCard
+                        active={activeTab === 'dashboard'}
+                        projectPaths={dashboardScope}
+                      />
+                      <div className="space-y-8">
+                        <UsageCard onOpen={() => navigate('/usage')} />
+                        <ToolVersions apps={isContextDashboard ? contextApps : undefined} />
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -310,7 +348,7 @@ function AppContent() {
                   }
                   aria-hidden={activeTab !== 'usage'}
                 >
-                  <UsageView active={activeTab === 'usage'} />
+                  <UsageView active={activeTab === 'usage'} onBack={handleBackFromUsage} />
                 </div>
 
                 {/* Agent task board - kept mounted like the agents view, polls only while active */}

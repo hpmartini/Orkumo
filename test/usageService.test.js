@@ -6,10 +6,12 @@ import path from 'path';
 
 const {
   getUsage,
+  getSessions,
   parseCodexHomes,
   parseClaudeFile,
   codexLimits,
   claudeLimits,
+  claudeOauthLimits,
   windowStart,
   localDate,
   usageRouter,
@@ -76,7 +78,7 @@ describe('usageService - claude transcripts', () => {
     const lines = [];
     for (let i = 0; i < 20; i++) lines.push(filler, line(i));
     fs.writeFileSync(file, lines.join('\n')); // no trailing newline on purpose
-    expect((await parseClaudeFile(file)).size).toBe(20);
+    expect((await parseClaudeFile(file)).entries.size).toBe(20);
   });
 });
 
@@ -127,9 +129,103 @@ describe('usageService - codex rollouts', () => {
     });
   });
 
-  it('nulls usedPercent once a window has reset', () => {
+  it('a codex window past its reset with no newer snapshot is at 0 % (#184: 5h bar vanished)', () => {
     const raw = { primary: { used_percent: 99, window_minutes: 300, resets_at: NOW / 1000 - 1 } };
-    expect(codexLimits({ raw, asOf: 1 }, NOW).fiveHour.usedPercent).toBeNull();
+    expect(codexLimits({ raw, asOf: 1 }, NOW).fiveHour).toEqual({
+      usedPercent: 0,
+      resetsAt: null,
+      reset: true,
+      windowMinutes: 300,
+    });
+    expect(codexLimits({ raw, asOf: 1 }, NOW).weekly).toBeNull();
+  });
+
+  it('an idle account without rollouts in the window keeps its last snapshot (#184 Codex B)', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-idle-'));
+    const day = path.join(dir, 'sessions', '2026', '09', '24');
+    fs.mkdirSync(day, { recursive: true });
+    const file = path.join(day, 'rollout-2026-09-24T10-00-00-idle.jsonl');
+    const asOf = Date.parse('2026-09-24T10:00:00Z');
+    const rate_limits = {
+      primary: { used_percent: 40, window_minutes: 300, resets_at: asOf / 1000 + 3600 },
+      secondary: { used_percent: 55, window_minutes: 10080, resets_at: NOW / 1000 + 3600 },
+    };
+    fs.writeFileSync(
+      file,
+      JSON.stringify({
+        timestamp: '2026-09-24T10:00:00Z',
+        type: 'event_msg',
+        payload: { type: 'token_count', info: null, rate_limits },
+      }) + '\n'
+    );
+    fs.utimesSync(file, asOf / 1000, asOf / 1000);
+    const src = { id: 'idle', label: 'Idle', kind: 'codex', dir };
+    const [idle] = (await getUsage({ days: 7, now: NOW, sources: [src] })).providers;
+    expect(idle.totals.total).toBe(0);
+    expect(idle.limits).toMatchObject({
+      asOf,
+      fiveHour: { usedPercent: 0, reset: true },
+      weekly: { usedPercent: 55 },
+    });
+  });
+});
+
+describe('usageService - sessions (#184)', () => {
+  it('one row per transcript in the window with tokens and first/last activity', async () => {
+    const { sessions } = await getSessions({ days: 7, now: NOW, sources: SOURCES });
+    const byIdS = Object.fromEntries(sessions.map((s) => [s.id, s]));
+    expect(Object.keys(byIdS).sort()).toEqual(
+      [
+        'claude:forked',
+        'claude:session',
+        'codex-a:rollout-2026-10-28T12-00-00-aaa',
+        'codex-a:rollout-2026-10-28T13-00-00-bbb',
+      ].sort()
+    );
+    expect(byIdS['codex-a:rollout-2026-10-28T12-00-00-aaa']).toMatchObject({
+      provider: 'Codex A',
+      firstMs: Date.parse('2026-10-28T12:00:00Z'),
+      lastMs: Date.parse('2026-10-29T12:00:00Z'),
+      tokens: 1650,
+    });
+    for (const s of sessions) expect(s.lastMs).toBeGreaterThanOrEqual(s.firstMs);
+  });
+
+  it('skips subagent transcripts and keeps the custom title and cwd', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-sess-'));
+    const proj = path.join(dir, 'projects', 'p');
+    fs.mkdirSync(path.join(proj, 'abc', 'subagents'), { recursive: true });
+    const line = (ts, out) =>
+      JSON.stringify({
+        type: 'assistant',
+        timestamp: ts,
+        cwd: '/repo',
+        gitBranch: 'feat/x',
+        requestId: ts,
+        message: { id: ts, model: 'm', usage: { input_tokens: 1, output_tokens: out } },
+      });
+    const body = [
+      JSON.stringify({ type: 'custom-title', customTitle: 'Mein Titel' }),
+      line('2026-10-29T08:00:00Z', 9),
+      line('2026-10-29T11:00:00Z', 19),
+    ].join('\n');
+    fs.writeFileSync(path.join(proj, 'abc.jsonl'), body);
+    fs.writeFileSync(path.join(proj, 'abc', 'subagents', 'agent-1.jsonl'), body);
+    const src = { id: 'c', label: 'Claude', kind: 'claude', dir };
+    const { sessions } = await getSessions({ days: 1, now: NOW, sources: [src] });
+    expect(sessions).toEqual([
+      {
+        id: 'c:abc',
+        providerId: 'c',
+        provider: 'Claude',
+        title: 'Mein Titel',
+        cwd: '/repo',
+        branch: 'feat/x',
+        firstMs: Date.parse('2026-10-29T08:00:00Z'),
+        lastMs: Date.parse('2026-10-29T11:00:00Z'),
+        tokens: 30,
+      },
+    ]);
   });
 });
 
@@ -164,6 +260,66 @@ describe('usageService - claude limits', () => {
       weekly: { usedPercent: null },
       source: 'claude-cache',
     });
+  });
+
+  it('a plan without a 5h window (statusline has no five_hour) yields fiveHour null (#184)', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'usage-no5h-'));
+    const limitsFile = path.join(tmp, 'snap.json');
+    fs.writeFileSync(
+      limitsFile,
+      JSON.stringify({
+        capturedAt: NOW,
+        rate_limits: { seven_day: { used_percentage: 7, resets_at: NOW / 1000 + 3600 } },
+      })
+    );
+    const limits = await claudeLimits({ limitsFile }, NOW);
+    expect(limits.fiveHour).toBeNull();
+    expect(limits.weekly).toMatchObject({ usedPercent: 7 });
+  });
+
+  it('reads live limits from the subscription endpoint: week only when the plan has no 5h window', async () => {
+    let seen;
+    const fetchFn = async (url, init) => {
+      seen = { url, auth: init.headers.Authorization };
+      return {
+        ok: true,
+        json: async () => ({
+          five_hour: null,
+          seven_day: { utilization: 27, resets_at: new Date(NOW + 86400000).toISOString() },
+        }),
+      };
+    };
+    const readOauth = async () => ({
+      accessToken: 't0k',
+      expiresAt: NOW + 1000,
+      subscriptionType: 'max',
+    });
+    const limits = await claudeOauthLimits({ dir: '/x' }, NOW, { readOauth, fetchFn });
+    expect(seen).toEqual({ url: 'https://api.anthropic.com/api/oauth/usage', auth: 'Bearer t0k' });
+    expect(limits).toEqual({
+      fiveHour: null,
+      weekly: { usedPercent: 27, resetsAt: NOW + 86400000, windowMinutes: 10080 },
+      source: 'oauth',
+      asOf: NOW,
+      plan: 'max',
+    });
+    expect(JSON.stringify(limits)).not.toContain('t0k');
+  });
+
+  it('skips the endpoint with an expired or missing login, or a failed response', async () => {
+    const fetchFn = async () => ({ ok: false });
+    const expired = async () => ({ accessToken: 'x', expiresAt: NOW - 1 });
+    let called = false;
+    const spy = async () => ((called = true), { ok: true, json: async () => ({}) });
+    expect(await claudeOauthLimits({}, NOW, { readOauth: expired, fetchFn: spy })).toBeNull();
+    expect(
+      await claudeOauthLimits({}, NOW, { readOauth: async () => null, fetchFn: spy })
+    ).toBeNull();
+    expect(called).toBe(false);
+    const ok = async () => ({ accessToken: 'x', expiresAt: NOW + 1 });
+    expect(await claudeOauthLimits({}, NOW, { readOauth: ok, fetchFn })).toBeNull();
+    const unknownShape = async () => ({ ok: true, json: async () => ({ limits: [] }) });
+    expect(await claudeOauthLimits({}, NOW, { readOauth: ok, fetchFn: unknownShape })).toBeNull();
   });
 
   it('has no limits without a source', async () => {

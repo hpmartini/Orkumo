@@ -83,6 +83,7 @@ import {
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
 import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
+import { ModeSwitcher } from '../ModeSwitcher';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
 import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
@@ -1765,15 +1766,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         className={`relative ${active ? 'flex' : 'hidden md:flex'} flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 border-b border-gray-800 shrink-0`}
       >
         <button
-          onClick={nav.onOpenDashboard}
+          onClick={nav.onOpenContextDashboard}
           className="p-1 -m-1 rounded text-blue-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-          title="Dashboard"
-          aria-label="Open dashboard"
+          title="Dashboard of this context"
+          aria-label="Open context dashboard"
         >
           <Bot size={18} />
         </button>
+        <ModeSwitcher modes={nav.modes} />
         <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <div className="text-sm font-semibold leading-tight">Agents</div>
           <AgentSummaryBar
             counts={{
               ...counts,

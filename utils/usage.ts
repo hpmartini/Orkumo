@@ -1,5 +1,6 @@
 import type {
   UsageDaily,
+  UsageSession,
   UsageProvider,
   UsageTokens,
   UsageTotals,
@@ -179,7 +180,8 @@ export function formatTokens(n: number): string {
 }
 
 /** "in 2 h 53 min", "in 4 T 6 h", "in 12 min", "jetzt" */
-export function formatResetIn(resetsAt: number, now = Date.now()): string {
+export function formatResetIn(resetsAt: number | null, now = Date.now()): string {
+  if (resetsAt == null) return 'erfolgt';
   const min = Math.floor((resetsAt - now) / 60_000);
   if (min <= 0) return 'jetzt';
   const d = Math.floor(min / 1440);
@@ -201,4 +203,53 @@ export function limitStatus(window: UsageWindow | null | undefined): LimitStatus
 
 export function formatPercent(rate: number | null): string {
   return rate == null ? '–' : `${(rate * 100).toFixed(1)} %`;
+}
+
+/** Limit snapshots older than this are flagged with their age instead of passing as live */
+export const LIMITS_STALE_MS = 60 * 60_000;
+
+/** "12 min", "3 h", "26 T" */
+export function formatAge(ms: number): string {
+  const min = Math.max(0, Math.floor(ms / 60_000));
+  if (min < 60) return `${min} min`;
+  if (min < 1440) return `${Math.floor(min / 60)} h`;
+  return `${Math.floor(min / 1440)} T`;
+}
+
+/** null when fresh, else "vor 26 T" for the stale hint */
+export function staleAge(asOf: number | null | undefined, now: number): string | null {
+  if (asOf == null) return null;
+  return now - asOf > LIMITS_STALE_MS ? `vor ${formatAge(now - asOf)}` : null;
+}
+
+export type SessionSort = 'recent' | 'tokens' | 'duration';
+
+export const sessionDuration = (s: UsageSession): number => s.lastMs - s.firstMs;
+
+const SESSION_KEY: Record<SessionSort, (s: UsageSession) => number> = {
+  recent: (s) => s.lastMs,
+  tokens: (s) => s.tokens,
+  duration: sessionDuration,
+};
+
+/** Top `limit` sessions by the chosen tab, optionally only those whose cwd is in the projects */
+export function rankSessions(
+  sessions: UsageSession[],
+  sort: SessionSort,
+  inScope: (cwd: string | undefined) => boolean = () => true,
+  limit = 10
+): UsageSession[] {
+  const key = SESSION_KEY[sort];
+  return sessions
+    .filter((s) => inScope(s.cwd ?? undefined))
+    .sort((a, b) => key(b) - key(a) || b.lastMs - a.lastMs)
+    .slice(0, limit);
+}
+
+/** "2 h 05 min", "14 min", "< 1 min" */
+export function formatDuration(ms: number): string {
+  const min = Math.floor(ms / 60_000);
+  if (min < 1) return '< 1 min';
+  const h = Math.floor(min / 60);
+  return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
 }
