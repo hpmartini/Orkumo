@@ -2,9 +2,16 @@
  * Issue modal (#104): mw-board control labels as buttons and comment quote/reply text.
  */
 import type { IssueComment } from '../types';
-import { BUILD_LABEL, GO_LABEL, IMAGE_LABEL, NEED_INPUT_LABEL } from './workflowStage.js';
+import {
+  BUILD_LABEL,
+  FOLLOWUP_LABEL,
+  GO_LABEL,
+  IMAGE_LABEL,
+  NEED_INPUT_LABEL,
+  UPDATE_LABEL,
+} from './workflowStage.js';
 
-export { BUILD_LABEL, GO_LABEL, NEED_INPUT_LABEL };
+export { BUILD_LABEL, FOLLOWUP_LABEL, GO_LABEL, NEED_INPUT_LABEL, UPDATE_LABEL };
 export const DYNAMIC_LABEL = 'mw:dynamic';
 export const DELEGATE_LABEL = 'mw:delegate';
 export const REVIEW_LABEL = 'mw:review';
