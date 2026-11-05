@@ -279,7 +279,7 @@ The code-server integration **exceeds** the research recommendations:
 
 ### Recommendations
 
-**For immediate use**: ✅ Ready to deploy
+**For immediate use**: ✅ Ready for deployment
 
 - Just set `CODE_SERVER_PASSWORD` in `.env`
 - Run `docker compose up code-server -d`

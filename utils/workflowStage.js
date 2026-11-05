@@ -26,6 +26,9 @@ export const WORKFLOW_STAGES = /** @type {const} */ ([
 
 export const GO_LABEL = 'mw:go';
 export const BUILD_LABEL = 'mw:build';
+/** Feedback on the contract (Briefed) or on the PR (to Review), handed to the session by the poll */
+export const UPDATE_LABEL = 'mw:update';
+export const FOLLOWUP_LABEL = 'mw:followup';
 export const NEED_INPUT_LABEL = 'need-input';
 export const IMAGE_LABEL = 'mw:image';
 
@@ -144,7 +147,7 @@ export function workflowSwitches(item) {
  * The abstract stage of one issue.
  * @param {{ state: string, closedAt?: string | null, labels: { name: string }[],
  *   mwMarkers?: MwMarker[], pullRequests: { state: string }[] }} item
- * @param {string | null} statusName MACC column name (Todo, In Progress, to Review, to Deploy, Done)
+ * @param {string | null} statusName MACC column name (Todo, Briefed, In Progress, to Review, Done)
  * @returns {WorkflowState}
  */
 export function deriveWorkflowState(item, statusName) {
@@ -183,7 +186,10 @@ export function deriveWorkflowState(item, statusName) {
       ? { ...base, stage, waitingOn: 'hape', reason: error.label, since: error.at, go: null }
       : { ...base, stage, waitingOn, reason, since, go };
 
-  if (item.state !== 'OPEN' || status === 'done' || status === 'to deploy') {
+  const fedBack = (/** @type {WorkflowStageId} */ stage) =>
+    state(stage, 'poll', 'Rückmeldung übergeben, wartet auf den Poll', null, POLL);
+
+  if (item.state !== 'OPEN' || status === 'done') {
     const merged = item.pullRequests.some((p) => p.state === 'MERGED');
     if (lastIndex(markers, 'removed') >= 0)
       return state(
@@ -194,19 +200,18 @@ export function deriveWorkflowState(item, statusName) {
       );
     if (lastIndex(markers, 'wrap') >= 0)
       return state('done', 'agent', 'Session räumt auf', at(lastIndex(markers, 'wrap')));
-    return state(
-      'done',
-      null,
-      status === 'to deploy' ? 'Wartet auf Deploy' : merged ? 'Gemerged' : 'Abgeschlossen',
-      item.closedAt ?? null
-    );
+    return state('done', null, merged ? 'Gemerged' : 'Abgeschlossen', item.closedAt ?? null);
   }
-  if (status === 'to review')
+  if (status === 'to review') {
+    if (labels.has(FOLLOWUP_LABEL)) return fedBack('review');
     return state('review', 'hape', 'PR offen, wartet auf Review', at(lastIndex(markers, 'review')));
+  }
   if (labels.has(NEED_INPUT_LABEL)) return state('briefing', 'hape', 'Rückfrage offen', at(iAsk));
-  if (iBriefed > iGoal) {
+  // Briefed column; a briefed marker in In Progress is the same stage (before the poll migrated)
+  if (status === 'briefed' || iBriefed > iGoal) {
     if (iFed > iBriefed)
       return state('briefing', 'agent', 'Rückmeldung, Vertrag wird überarbeitet', at(iFed));
+    if (labels.has(UPDATE_LABEL)) return fedBack('awaiting');
     return labels.has(BUILD_LABEL)
       ? state('awaiting', 'poll', 'GO gegeben, startet beim nächsten Poll', at(iBriefed), POLL)
       : state('awaiting', 'hape', 'Ziel-Vertrag wartet auf GO', at(iBriefed), { kind: 'build' });
