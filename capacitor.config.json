@@ -1,6 +1,6 @@
 {
   "appId": "de.martinilabs.devorbit",
-  "appName": "DevOrbit",
+  "appName": "Orkumo",
   "webDir": "dist",
   "ios": {
     "contentInset": "always",

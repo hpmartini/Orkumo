@@ -9,7 +9,7 @@
  * Port configuration
  */
 export const PORTS = {
-  /** Port for DevHub frontend (Vite dev server); off 3000/3001 so it never collides with the apps it manages */
+  /** Port for Orkumo frontend (Vite dev server); off 3000/3001 so it never collides with the apps it manages */
   devhub: 3098,
 
   /** Port for backend API server */

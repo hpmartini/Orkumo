@@ -8,7 +8,7 @@ import os from 'os';
 import path from 'path';
 
 // realpath: macOS tmpdir lives under /var, which validatePath forbids
-const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'devorbit-190-'));
+const root = fs.mkdtempSync(path.join(fs.realpathSync(os.tmpdir()), 'orkumo-190-'));
 const home = path.join(root, 'home');
 const altConfig = path.join(root, 'alt-claude');
 const fakeClaude = path.join(root, 'claude');

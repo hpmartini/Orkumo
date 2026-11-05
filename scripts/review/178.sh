@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Review #178 (Quickreply readable): tests, then a throwaway Vite on this checkout against the running DevOrbit server.
+# Review #178 (Quickreply readable): tests, then a throwaway Vite on this checkout against the running Orkumo server.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -12,7 +12,7 @@ bunx vitest run test/terminalScreen.test.ts test/PeekPanel.test.tsx
 bunx tsc --noEmit -p .
 
 curl -sf -o /dev/null "http://localhost:$SERVER_PORT/api/agents" \
-  || { echo "DevOrbit server not reachable on :$SERVER_PORT (set SERVER_PORT)"; exit 1; }
+  || { echo "Orkumo server not reachable on :$SERVER_PORT (set SERVER_PORT)"; exit 1; }
 
 VITE_PORT="$PORT" SERVER_PORT="$SERVER_PORT" bunx vite --port "$PORT" >/dev/null 2>&1 &
 VITE_PID=$!

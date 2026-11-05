@@ -488,7 +488,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                 checked={settings.disabled}
                 onChange={(e) => onUpdate({ disabled: e.target.checked })}
               />
-              Hide the agent view in DevOrbit (mirrors the CLI `disableAgentView` setting)
+              Hide the agent view in Orkumo (mirrors the CLI `disableAgentView` setting)
             </label>
             {userSettings?.disableAgentView && (
               <div className="text-xs text-yellow-300">

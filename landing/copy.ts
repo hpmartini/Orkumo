@@ -1,10 +1,10 @@
 // All visible copy of the landing page. Every claim is grounded in README / code; no numbers, prices or users invented.
 
 export const META = {
-  title: 'DevOrbit · One workspace. Every agent.',
+  title: 'Orkumo · One workspace. Every agent.',
   description:
-    'DevOrbit is a local workspace for Claude Code agents: plan on its own issue board, steer every session, watch what needs you, review pull requests and edit in VS Code — terminal first, without switching apps.',
-  ogTitle: 'DevOrbit · one window for dozens of coding agents',
+    'Orkumo is a local workspace for Claude Code agents: plan on its own issue board, steer every session, watch what needs you, review pull requests and edit in VS Code — terminal first, without switching apps.',
+  ogTitle: 'Orkumo · one window for dozens of coding agents',
   ogDescription:
     'Plan, steer, monitor, review and edit agent work across all your projects. Real terminals, VS Code and a browser built in. Runs on your machine.',
 };
@@ -48,7 +48,7 @@ export const DEMO_ALTS = {
 
 export const FEATURES_INTRO = {
   title: 'Five jobs, one window.',
-  lead: 'Running ten agents across six repositories means ten terminals, six browser tabs, a board, a PR list and an editor. DevOrbit keeps all of it in one structured surface, linked by issue, agent, branch and pull request.',
+  lead: 'Running ten agents across six repositories means ten terminals, six browser tabs, a board, a PR list and an editor. Orkumo keeps all of it in one structured surface, linked by issue, agent, branch and pull request.',
 };
 
 export type Feature = {
@@ -66,7 +66,7 @@ export const FEATURES: Feature[] = [
     id: 'plan',
     verb: 'Plan',
     title: 'Plan the work on a board built in.',
-    body: 'DevOrbit brings its own issue and kanban board — no detour to GitHub. Write the issue, set its status, hand it to an agent — the card already knows which session and which pull request belong to it.',
+    body: 'Orkumo brings its own issue and kanban board — no detour to GitHub. Write the issue, set its status, hand it to an agent — the card already knows which session and which pull request belong to it.',
     points: [
       'Issues as cards in swimlanes, drag and drop to change status, kept in sync with GitHub in the background',
       'One panel for labels, sub-issues, comments, linked agents and pull requests',
@@ -121,7 +121,7 @@ export const FEATURES: Feature[] = [
     id: 'edit',
     verb: 'Edit',
     title: 'Found something in review? Fix it in VS Code, right here.',
-    body: 'A full VS Code runs inside DevOrbit, opened on the project — or on the exact worktree of the agent you came from. Extensions, git, debugger and terminal included.',
+    body: 'A full VS Code runs inside Orkumo, opened on the project — or on the exact worktree of the agent you came from. Extensions, git, debugger and terminal included.',
     points: [
       'VS Code (code-server) per project or per agent worktree',
       'Open a pull request’s branch in VS Code with one click',
@@ -154,7 +154,7 @@ export const WORKSPACE = {
 export const WORKFLOW = {
   badge: 'Pro',
   title: 'Watch the workflow run, live.',
-  lead: 'For orchestrated runs DevOrbit shows every issue on its station: which one is being briefed, which one waits for your GO, and which one feedback sent back for another round.',
+  lead: 'For orchestrated runs Orkumo shows every issue on its station: which one is being briefed, which one waits for your GO, and which one feedback sent back for another round.',
   points: [
     'Queued → Brief → GO → Build → Review → Done, drawn from each run’s real state',
     'Loops stay visible: feedback at the GO gate sends the issue back to its brief, with the round count',
@@ -167,7 +167,7 @@ export const WORKFLOW = {
 
 export const SCALE = {
   title: 'Dozens of projects. Every machine you own.',
-  lead: 'Point DevOrbit at your project folders and every repository shows up — with its board, its agents and its pull requests. Machines in your Tailscale tailnet join the same list.',
+  lead: 'Point Orkumo at your project folders and every repository shows up — with its board, its agents and its pull requests. Machines in your Tailscale tailnet join the same list.',
   points: [
     'All configured project folders in one registry, each opens in Code mode',
     'Sessions on other machines appear in the same agent list, tagged with their host',
@@ -180,7 +180,7 @@ export const PRINCIPLES = {
   items: [
     {
       title: 'The unmodified claude CLI',
-      text: 'DevOrbit drives the CLI you already have. It does not patch it, wrap it or read tokens out of it.',
+      text: 'Orkumo drives the CLI you already have. It does not patch it, wrap it or read tokens out of it.',
     },
     {
       title: 'Runs on your machine',
@@ -215,7 +215,7 @@ export const INSTALL = {
   sourceLead:
     'Needs Bun, Node.js, Docker for Postgres and Redis, and the claude CLI signed in once. The dashboard then runs on port 3098.',
   sourceUrl: 'http://localhost:3098',
-  sourceNote: 'VS Code inside DevOrbit needs code-server on the machine (README, "Web IDE").',
+  sourceNote: 'VS Code inside Orkumo needs code-server on the machine (README, "Web IDE").',
   dockerTitle: 'Or Docker, from a release',
   dockerLead:
     'No checkout, no build: take docker-compose.release.yml and init-db.sql from the releases page and start the stack.',
@@ -230,7 +230,7 @@ export const FAQ = [
   {
     question: 'Do I need an API key?',
     answer:
-      'No. DevOrbit drives the claude CLI you are already signed in with and uses that subscription — no second key, no token scraping.',
+      'No. Orkumo drives the claude CLI you are already signed in with and uses that subscription — no second key, no token scraping.',
   },
   {
     question: 'Which agents does it work with?',
@@ -238,7 +238,7 @@ export const FAQ = [
       'Agents are Claude Code sessions. The usage page additionally reads local logs of Codex accounts and MiniMax, so you see all your token use in one place.',
   },
   {
-    question: 'Does DevOrbit change the claude CLI?',
+    question: 'Does Orkumo change the claude CLI?',
     answer:
       'No. It uses the unmodified CLI and the state it already keeps in your home directory. Nothing is patched, wrapped or bypassed.',
   },

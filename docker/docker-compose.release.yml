@@ -1,4 +1,4 @@
-# DevOrbit from prebuilt GHCR images - no repo checkout, no local build.
+# Orkumo from prebuilt GHCR images - no repo checkout, no local build.
 # Download this file and init-db.sql from a GitHub release into one folder, then:
 #   docker compose -f docker-compose.release.yml up -d
 # Terminals need the PTY-Host on the host machine (see README "Docker from a release").
@@ -23,7 +23,7 @@ services:
     extra_hosts:
       - "host.docker.internal:host-gateway"
     # Docker socket is not mounted by default (it grants root on the host). To manage containers
-    # from DevOrbit, add "- /var/run/docker.sock:/var/run/docker.sock" here.
+    # from Orkumo, add "- /var/run/docker.sock:/var/run/docker.sock" here.
     volumes:
       - ${DEVORBIT_PROJECTS_DIR:-${HOME}/Projects}:/home/coder/Projects
       - devorbit-data:/app/data

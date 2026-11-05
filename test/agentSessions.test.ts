@@ -166,7 +166,7 @@ describe('summaries and formatting', () => {
   });
 
   it('names directory groups by project, worktrees with their folder', () => {
-    expect(dirName('/Users/x/PROJECTS/DevOrbitDashboard')).toBe('DevOrbitDashboard');
+    expect(dirName('/Users/x/PROJECTS/Orkumo')).toBe('Orkumo');
     expect(dirName('/Users/x/PROJECTS/App/.claude/worktrees/fix-1')).toBe('App · fix-1');
   });
 
@@ -355,7 +355,7 @@ describe('groupSessions (project)', () => {
     expect(groups[0].sessions).toHaveLength(3);
   });
 
-  it('groups a worktree with its DevOrbit app', () => {
+  it('groups a worktree with its Orkumo app', () => {
     const sessions = [
       session({ id: 'a', cwd: '/code/api' }),
       session({ id: 'b', cwd: '/code/api/.claude/worktrees/agents-ui' }),

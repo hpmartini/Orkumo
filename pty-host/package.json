@@ -1,7 +1,7 @@
 {
-  "name": "devorbit-pty-host",
+  "name": "orkumo-pty-host",
   "version": "1.0.0",
-  "description": "PTY Host Service - runs on host machine to spawn shells for DevOrbit Dashboard",
+  "description": "PTY Host Service - runs on host machine to spawn shells for Orkumo",
   "type": "module",
   "trustedDependencies": [
     "node-pty"

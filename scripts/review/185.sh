@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Review #185: one browser bar. Runs the browser tests and tsc, then starts this branch in Electron
-# on throwaway ports with its own profile (your running DevOrbit stays untouched). Ctrl+C stops all.
+# on throwaway ports with its own profile (your running Orkumo stays untouched). Ctrl+C stops all.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 

@@ -15,7 +15,7 @@ const { makeExecutable } = require('./node-pty-binaries.cjs');
 
 async function afterPack(context) {
   const appOutDir = context.appOutDir;
-  const resourcesPath = path.join(appOutDir, 'DevOrbitDashboard.app', 'Contents', 'Resources', 'app.asar.unpacked');
+  const resourcesPath = path.join(appOutDir, 'Orkumo.app', 'Contents', 'Resources', 'app.asar.unpacked');
   const nodePtyPath = path.join(resourcesPath, 'node_modules', 'node-pty');
 
   // Source: pre-built binaries from the project's node_modules

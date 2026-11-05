@@ -10,13 +10,13 @@ web
 
 ## Users
 
-Primary: developers who run several coding agents (Claude Code) in parallel across repos and machines and lose track of which agent works on which issue, branch and PR. They meet DevOrbit through the public GitHub repo `hpmartini/DevHub` and its landing page. (inferred from the public repo; confirmed: the page targets public visitors)
+Primary: developers who run several coding agents (Claude Code) in parallel across repos and machines and lose track of which agent works on which issue, branch and PR. They meet Orkumo through the public GitHub repo `hpmartini/Orkumo` and its landing page. (inferred from the public repo; confirmed: the page targets public visitors)
 
-Owner and first user: Hape, who uses DevOrbit as his complete daily work environment.
+Owner and first user: Hape, who uses Orkumo as his complete daily work environment.
 
 ## Product Purpose
 
-DevOrbit is an ADE (Agentic Development Environment): plan issues, steer agents, edit code and use terminals across all devices without leaving the app. Success: a visitor understands the context idea in seconds and starts DevOrbit locally from the repo.
+Orkumo is an ADE (Agentic Development Environment): plan issues, steer agents, edit code and use terminals across all devices without leaving the app. Success: a visitor understands the context idea in seconds and starts Orkumo locally from the repo.
 
 ## Positioning
 
@@ -35,7 +35,7 @@ Features are modes of one environment connected by the **context**: Issue ↔ Ag
 
 ## Brand Commitments
 
-- Name: DevOrbit. Repo name DevHub appears only in links.
+- Name: Orkumo. Repo name Orkumo appears only in links.
 - Landing page language: English.
 - Brief-pinned (issue #37): dark atmosphere instead of flat colour, asymmetric bento grid, staggered reveals, magnetic or tilt hover, distinctive type instead of Inter/Roboto/system fonts, no generic "AI slop".
 - Logo: `public/logo.png`, `public/favicon.svg`.

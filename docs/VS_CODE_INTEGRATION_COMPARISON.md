@@ -1,6 +1,6 @@
 # VS Code Integration: Implementation vs Research
 
-This document compares the DevOrbit Dashboard's current code-server implementation against the original research recommendations.
+This document compares the Orkumo's current code-server implementation against the original research recommendations.
 
 ## Executive Summary
 

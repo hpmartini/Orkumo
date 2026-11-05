@@ -32,7 +32,7 @@ export interface SessionGroup {
   title: string;
   /** Directory path for directory groups (dispatch target) */
   cwd?: string;
-  /** DevOrbit app behind a project group (header opens its detail view) */
+  /** Orkumo app behind a project group (header opens its detail view) */
   appId?: string;
   sessions: AgentSession[];
   /** Sessions hidden behind the "… N more" row */
@@ -113,7 +113,7 @@ export function groupSessions(
     collapsed?: string[];
     sort?: AgentSort;
     lookup?: SessionLookup;
-    /** DevOrbit apps, needed for the 'project' grouping */
+    /** Orkumo apps, needed for the 'project' grouping */
     apps?: ProjectApp[];
   } = {}
 ): SessionGroup[] {
@@ -165,7 +165,7 @@ export function groupSessions(
   });
 }
 
-/** Minimal DevOrbit app shape for the 'project' grouping */
+/** Minimal Orkumo app shape for the 'project' grouping */
 export interface ProjectApp {
   id: string;
   name: string;
@@ -217,7 +217,7 @@ export function sessionsInContext(
 }
 
 /**
- * One cluster per DevOrbit app (most specific app path wins); sessions outside every app
+ * One cluster per Orkumo app (most specific app path wins); sessions outside every app
  * cluster by repo root (subfolders and worktrees join their main checkout) after the apps.
  * Titled by the GitHub repo name when known, with the local folder in parentheses if it differs.
  */
@@ -274,7 +274,7 @@ function projectGroups(
 // Sorting and quick filters (need per-session context and matched servers)
 // ---------------------------------------------------------------------
 
-/** A dev-server port of a DevOrbit app that lives in a session's directory */
+/** A dev-server port of a Orkumo app that lives in a session's directory */
 export interface AgentServer {
   port: number;
   running: boolean;
@@ -284,7 +284,7 @@ export interface AgentServer {
   pid?: number;
 }
 
-/** Minimal DevOrbit app shape needed to match servers to sessions */
+/** Minimal Orkumo app shape needed to match servers to sessions */
 export interface ServerApp {
   name: string;
   path: string;
@@ -675,7 +675,7 @@ const isUnder = (parent: string, child: string) =>
   child === parent || child.startsWith(parent.replace(/\/+$/, '') + '/');
 
 /**
- * DevOrbit apps whose directory equals, contains or lies inside the session's directory.
+ * Orkumo apps whose directory equals, contains or lies inside the session's directory.
  */
 export function matchServers(session: AgentSession, apps: ServerApp[]): AgentServer[] {
   const dirs = [session.cwd, session.worktree].filter((d): d is string => !!d);
@@ -700,7 +700,7 @@ export function matchServers(session: AgentSession, apps: ServerApp[]): AgentSer
 }
 
 /**
- * A session's servers: DevOrbit apps in its directory plus really listening
+ * A session's servers: Orkumo apps in its directory plus really listening
  * processes (AgentContext.servers), deduped by port. Listening processes win
  * because they prove the port is live.
  */

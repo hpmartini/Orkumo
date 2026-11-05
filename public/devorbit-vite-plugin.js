@@ -1,7 +1,7 @@
 /**
- * DevOrbit Vite Plugin
+ * Orkumo Vite Plugin
  *
- * Add this to your vite.config.ts to enable console/network capture in DevOrbit:
+ * Add this to your vite.config.ts to enable console/network capture in Orkumo:
  *
  * import { devorbitPlugin } from './node_modules/devorbit-vite-plugin.js';
  * // or copy this file to your project

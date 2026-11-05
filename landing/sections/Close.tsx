@@ -39,7 +39,7 @@ export function Close() {
 
       <footer className="border-t border-hairline">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-5 py-6 sm:px-9">
-          <span className="display-face text-text">DevOrbit</span>
+          <span className="display-face text-text">Orkumo</span>
           <span className="text-xs text-muted">{CLOSE.footer}</span>
           <a
             href={REPO}

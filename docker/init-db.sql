@@ -1,4 +1,4 @@
--- DevOrbit Dashboard Database Schema
+-- Orkumo Database Schema
 -- This script initializes the database with all required tables
 
 -- Enable UUID extension

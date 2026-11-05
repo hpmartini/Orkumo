@@ -16,7 +16,7 @@ const comment = (body, createdAt = '2026-10-25T10:00:00Z', login = 'hpmartini') 
   author: { login },
 });
 const TRUSTED = ['hpmartini'];
-// marker lines as mw 7.0.2 board.py writes them (cf. hpmartini/DevHub#136)
+// marker lines as mw 7.0.2 board.py writes them (cf. hpmartini/Orkumo#136)
 const startC = (mode = 'default', sw = 'dynamic=on delegate=off review=off') =>
   comment(`Abgeholt\n\n<!-- mw-board:start session=${SID} mode=${mode} ${sw} -->`);
 const briefedC = comment(

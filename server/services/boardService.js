@@ -93,7 +93,7 @@ function ghGraphql(query, stringVars = {}, typedVars = {}) {
         if (error?.code === 'ENOENT') {
           return reject(
             httpError(
-              `GitHub CLI (gh) nicht gefunden: nicht im PATH des DevOrbit-Servers (${process.env.PATH || 'leer'}). gh installieren bzw. Desktop-App von main neu bauen.`,
+              `GitHub CLI (gh) nicht gefunden: nicht im PATH des Orkumo-Servers (${process.env.PATH || 'leer'}). gh installieren bzw. Desktop-App von main neu bauen.`,
               502
             )
           );

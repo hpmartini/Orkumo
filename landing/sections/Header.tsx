@@ -10,7 +10,7 @@ export function Header() {
         className="mx-auto flex h-14 max-w-7xl items-center gap-5 px-5 sm:px-9"
       >
         <a href="#top" className="display-face text-xl text-text">
-          DevOrbit
+          Orkumo
         </a>
         <div className="ml-auto hidden items-center gap-6 md:flex">
           {NAV.map((link) => (

@@ -1557,7 +1557,7 @@ app.patch(
   }
 );
 
-// Directories DevOrbit knows about: configured scan roots and projects (with their subfolders),
+// Directories Orkumo knows about: configured scan roots and projects (with their subfolders),
 // plus repos, worktrees and agent cwds found elsewhere (only the folder itself)
 async function knownDirs() {
   const sessions = await agentService.listSessions({ all: true }).catch(() => []);
@@ -1568,7 +1568,7 @@ async function knownDirs() {
   };
 }
 
-// Code mode: the Web-IDE opens a folder only when DevOrbit knows it
+// Code mode: the Web-IDE opens a folder only when Orkumo knows it
 app.get('/api/code/folder', agentLimiter, async (req, res) => {
   try {
     const { roots, exact } = await knownDirs();
@@ -2369,7 +2369,7 @@ async function startServer() {
   server.listen(PORT, host, () => {
     // Cold 30-day scan takes seconds; warm the file cache so the first page view is fast.
     getUsage({ days: 30 }).catch((err) => console.warn('Usage warm-up failed:', err.message));
-    console.log(`🚀 DevOrbit API Server running on http://localhost:${PORT}`);
+    console.log(`🚀 Orkumo API Server running on http://localhost:${PORT}`);
     console.log(
       `   Database: ${dbConnected ? '✅ Connected' : '⚠️  Not connected (using file storage)'}`
     );

@@ -1743,7 +1743,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         <AlertTriangle size={32} className="text-yellow-500" />
         <div className="text-gray-200 font-medium">Claude Code CLI not found</div>
         <div className="text-sm">
-          Install it on the machine running the DevOrbit server, then run{' '}
+          Install it on the machine running the Orkumo server, then run{' '}
           <code className="text-blue-300">claude</code> once to sign in.
         </div>
         <pre className="text-xs bg-gray-950 border border-gray-800 rounded p-3">

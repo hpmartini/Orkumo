@@ -119,7 +119,7 @@ export const RailNav: React.FC<{
   </div>
 );
 
-/** Collapsible list of DevOrbit apps for the status grouping (favorites first) */
+/** Collapsible list of Orkumo apps for the status grouping (favorites first) */
 export const ProjectsSection: React.FC<{
   apps: AgentConfigLike[];
   nav: RailNavProps;

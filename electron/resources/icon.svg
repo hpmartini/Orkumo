@@ -11,7 +11,7 @@
   <!-- Background circle -->
   <circle cx="256" cy="256" r="240" fill="url(#bg-gradient)"/>
 
-  <!-- DevOrbit "D" letter -->
+  <!-- Orkumo "D" letter -->
   <path d="M 180 160 L 240 160 Q 320 160 340 210 Q 360 260 340 310 Q 320 360 240 360 L 180 360 Z M 220 200 L 220 320 L 240 320 Q 290 320 305 285 Q 320 250 305 215 Q 290 200 240 200 Z" fill="white"/>
 
   <!-- Orbit ring -->

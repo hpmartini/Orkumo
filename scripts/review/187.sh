@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Review #187: context dialog resizable, project directories collapsible. Runs the dialog tests, then
-# serves this branch's UI on a throwaway Vite port. API: the DevOrbit server already running on :3099
+# serves this branch's UI on a throwaway Vite port. API: the Orkumo server already running on :3099
 # (real project scan), else a throwaway server from this checkout. Ctrl+C stops everything it started.
 # --check: also runs the browser measurement (AC-1..3) against the real scan and exits.
 set -euo pipefail

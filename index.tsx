@@ -36,7 +36,7 @@ function handleLink(link: string) {
     paired &&
     changed &&
     !isRejectedToken(paired.token) &&
-    window.confirm(`Mit DevOrbit-Server ${new URL(paired.url).host} verbinden?`)
+    window.confirm(`Mit Orkumo-Server ${new URL(paired.url).host} verbinden?`)
   ) {
     savePairing(paired);
     window.location.hash = '#/agents';

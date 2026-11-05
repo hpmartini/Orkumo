@@ -5,14 +5,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-# own ports on purpose: a shell SERVER_PORT usually points at the running DevHub, not this branch
+# own ports on purpose: a shell SERVER_PORT usually points at the running Orkumo, not this branch
 SERVER_PORT="${REVIEW_188_SERVER_PORT:-3288}"
 VITE_PORT="${REVIEW_188_VITE_PORT:-5288}"
 if curl -s -o /dev/null "http://127.0.0.1:$SERVER_PORT/api/health"; then
   echo "Port $SERVER_PORT belegt; REVIEW_188_SERVER_PORT setzen" >&2
   exit 1
 fi
-demo="$(mktemp -d /tmp/devhub-188.XXXX)"
+demo="$(mktemp -d /tmp/orkumo-188.XXXX)"
 pids=()
 cleanup() {
   for p in ${pids[@]+"${pids[@]}"}; do pkill -P "$p" 2>/dev/null || true; kill "$p" 2>/dev/null || true; done

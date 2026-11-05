@@ -143,7 +143,7 @@ const ensureCodeServerRunning = async (
             success: false,
             error:
               'Could not connect to backend server.\n\n' +
-              'The DevOrbit backend server may not be running.\n' +
+              'The Orkumo backend server may not be running.\n' +
               'This is an internal error - please restart the application.',
           };
         }

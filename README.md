@@ -1,8 +1,8 @@
-# DevOrbit Dashboard
+# Orkumo
 
-> **Vision:** DevOrbit ist die komplette Arbeitsumgebung für agentische Entwicklung (ADE): Issues planen, Agents steuern, Code editieren, Terminal, über alle Geräte hinweg, verbunden über den Kontext Issue ↔ Agent ↔ Worktree ↔ PR ↔ Code. Details: [docs/VISION.md](docs/VISION.md).
+> **Vision:** Orkumo ist die komplette Arbeitsumgebung für agentische Entwicklung (ADE): Issues planen, Agents steuern, Code editieren, Terminal, über alle Geräte hinweg, verbunden über den Kontext Issue ↔ Agent ↔ Worktree ↔ PR ↔ Code. Details: [docs/VISION.md](docs/VISION.md).
 
-**DevOrbit Dashboard** is a workspace for agentic development: agents, code, board, workflows and terminal around your local projects.
+**Orkumo** is a workspace for agentic development: agents, code, board, workflows and terminal around your local projects.
 
 ## 🚀 Features
 
@@ -30,7 +30,7 @@
 
 ```bash
 git clone <repository-url>
-cd devorbit-dashboard
+cd Orkumo
 bun install
 ```
 
@@ -74,9 +74,9 @@ The project follows a monorepo-like structure with a unified backend and fronten
 
 ## 🤖 Claude Code Agents View
 
-DevOrbit ships a browser counterpart of Claude Code's [agent view](https://code.claude.com/docs/en/agent-view) (`claude agents`). Open it from the sidebar (**Agents**, shortcut `a`) or at `/agents`.
+Orkumo ships a browser counterpart of Claude Code's [agent view](https://code.claude.com/docs/en/agent-view) (`claude agents`). Open it from the sidebar (**Agents**, shortcut `a`) or at `/agents`.
 
-It talks to the Claude Code CLI installed on the machine running the DevOrbit server (`claude --bg`, `claude agents --json`, `claude logs|stop|respawn|rm`, `claude daemon …`) and reads the session state the CLI keeps under `~/.claude/jobs`. Requirements: Claude Code ≥ 2.1.2xx on the host, signed in once (`claude`). The view is not available in the Docker deployment (the CLI runs on the host, the API container has no access to it).
+It talks to the Claude Code CLI installed on the machine running the Orkumo server (`claude --bg`, `claude agents --json`, `claude logs|stop|respawn|rm`, `claude daemon …`) and reads the session state the CLI keeps under `~/.claude/jobs`. Requirements: Claude Code ≥ 2.1.2xx on the host, signed in once (`claude`). The view is not available in the Docker deployment (the CLI runs on the host, the API container has no access to it).
 
 What you get:
 
@@ -135,11 +135,11 @@ Access the dashboard at `http://localhost:3000`.
 
 ### Docker from a release (no checkout, no build)
 
-Every [release](https://github.com/hpmartini/DevHub/releases) ships the desktop installers (`.dmg`, `.AppImage`, `.deb`, `.rpm`, see [DESKTOP.md](DESKTOP.md)) and multi-arch images (`ghcr.io/hpmartini/devhub-api`, `devhub-frontend`, amd64 + arm64).
+Every [release](https://github.com/hpmartini/Orkumo/releases) ships the desktop installers (`.dmg`, `.AppImage`, `.deb`, `.rpm`, see [DESKTOP.md](DESKTOP.md)) and multi-arch images (`ghcr.io/hpmartini/devhub-api`, `devhub-frontend`, amd64 + arm64).
 
 ```bash
-mkdir devorbit && cd devorbit
-gh release download <tag> --repo hpmartini/DevHub -p docker-compose.release.yml -p init-db.sql  # <tag> from the releases page, e.g. v1.0.0
+mkdir orkumo && cd orkumo
+gh release download <tag> --repo hpmartini/Orkumo -p docker-compose.release.yml -p init-db.sql  # <tag> from the releases page, e.g. v1.0.0
 docker compose -f docker-compose.release.yml up -d   # http://localhost:3000
 ```
 
@@ -150,7 +150,7 @@ Terminals need the PTY-Host on the host: `git clone` this repo, `bun run pty-hos
 
 ## 💻 Web IDE: code-server Integration
 
-DevOrbit Dashboard embeds **code-server** (VS Code in the browser) as its only integrated editor: extensions, integrated terminal, git and debugging, opened directly on the project folder.
+Orkumo embeds **code-server** (VS Code in the browser) as its only integrated editor: extensions, integrated terminal, git and debugging, opened directly on the project folder.
 
 ### 🚀 Quick Setup
 
@@ -193,7 +193,7 @@ DevOrbit Dashboard embeds **code-server** (VS Code in the browser) as its only i
    ```
 
 4. **Access from Dashboard**
-   - Open DevOrbit Dashboard
+   - Open Orkumo
    - Navigate to any project's detail view
    - Click the editor switcher in the top-right
    - Select "VS Code"
@@ -219,7 +219,7 @@ DevOrbit Dashboard embeds **code-server** (VS Code in the browser) as its only i
 
 #### Network Architecture
 
-DevOrbit Dashboard uses an nginx reverse proxy to route traffic to services:
+Orkumo uses an nginx reverse proxy to route traffic to services:
 
 ```
 Browser → http://localhost:3000/code-server/ → Nginx (frontend container) → code-server:8080
@@ -537,7 +537,7 @@ VITE_CODE_SERVER_URL=http://localhost:8444
 
 ### 🌐 CORS and Cross-Origin Configuration
 
-code-server runs on a **different origin** than the DevOrbit Dashboard (different ports), which can cause CORS-related issues in certain scenarios.
+code-server runs on a **different origin** than the Orkumo (different ports), which can cause CORS-related issues in certain scenarios.
 
 #### Default Configuration
 

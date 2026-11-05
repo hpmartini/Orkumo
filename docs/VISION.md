@@ -1,10 +1,10 @@
-# DevOrbit Leitbild: ADE (Agentic Development Environment)
+# Orkumo Leitbild: ADE (Agentic Development Environment)
 
-> Quelle der Wahrheit für alle Menschen und Agenten, die an DevOrbit arbeiten. Bei Widerspruch gewinnt dieses Dokument.
+> Quelle der Wahrheit für alle Menschen und Agenten, die an Orkumo arbeiten. Bei Widerspruch gewinnt dieses Dokument.
 
 ## Ziel
 
-**DevOrbit ist Hapes komplette Arbeitsumgebung für agentische Entwicklung.** Issues planen, Agents steuern, Code editieren, Terminals nutzen, über alle Geräte hinweg, ohne die Anwendung zu verlassen.
+**Orkumo ist Hapes komplette Arbeitsumgebung für agentische Entwicklung.** Issues planen, Agents steuern, Code editieren, Terminals nutzen, über alle Geräte hinweg, ohne die Anwendung zu verlassen.
 
 Features entstehen nicht als getrennte Inseln (Agents-Liste, Board, Mesh, Web-IDE), sondern als Modi derselben Umgebung, verbunden über den **Kontext**.
 
@@ -48,7 +48,7 @@ Alle Modi leben unter **einer einheitlichen Shell/UI** (gemeinsame Navigation, S
 
 ## Roadmap-Reihenfolge
 
-Epics (GitHub `hpmartini/DevHub`, Board MACC = users/hpmartini/projects/4):
+Epics (GitHub `hpmartini/Orkumo`, Board MACC = users/hpmartini/projects/4):
 
 | #   | Säule               | Inhalt                                                    | Issues        |
 | :-- | :------------------ | :-------------------------------------------------------- | :------------ |

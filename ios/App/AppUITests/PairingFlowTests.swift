@@ -1,6 +1,6 @@
 import XCTest
 
-/// End-to-end check for the iOS app (Issue #120) against a running DevOrbit server.
+/// End-to-end check for the iOS app (Issue #120) against a running Orkumo server.
 /// Inputs come from the environment (xcodebuild: TEST_RUNNER_<NAME>=…):
 /// PAIR_LINK (devorbit://pair?…), TERMINAL_PATH (app route with a shell terminal),
 /// MARKER (file the typed shell command creates), ATTACH_ID + ATTACH_PROMPT (agent session to attach and what to send, optional),
@@ -22,7 +22,7 @@ final class PairingFlowTests: XCTestCase {
         for label in ["Cancel", "Abbrechen"] where springboard.buttons[label].exists {
             springboard.buttons[label].tap()
         }
-        XCTAssertTrue(app.staticTexts["Mit DevOrbit verbinden"].waitForExistence(timeout: 15))
+        XCTAssertTrue(app.staticTexts["Mit Orkumo verbinden"].waitForExistence(timeout: 15))
         shot("01-pairing")
 
         open(env["PAIR_LINK"]!)
@@ -87,7 +87,7 @@ final class PairingFlowTests: XCTestCase {
 
     private func open(_ link: String) {
         app.open(URL(string: link)!)
-        // simctl-style "Open in DevOrbit?" confirmation, if iOS asks
+        // simctl-style "Open in Orkumo?" confirmation, if iOS asks
         let springboard = XCUIApplication(bundleIdentifier: "com.apple.springboard")
         for label in ["Open", "Öffnen"] where springboard.buttons[label].waitForExistence(timeout: 2) {
             springboard.buttons[label].tap()

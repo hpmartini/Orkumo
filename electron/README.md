@@ -1,6 +1,6 @@
-# DevOrbit Dashboard - Electron Desktop Application
+# Orkumo - Electron Desktop Application
 
-This directory contains the Electron implementation for the DevOrbit Dashboard desktop application.
+This directory contains the Electron implementation for the Orkumo desktop application.
 
 ## Architecture
 
@@ -125,7 +125,7 @@ The Electron app respects the following environment variables:
 This happens when the app isn't properly signed. For development:
 
 ```bash
-xattr -cr /Applications/DevOrbit\ Dashboard.app
+xattr -cr /Applications/Orkumo.app
 ```
 
 ### Linux: Permission denied
@@ -133,7 +133,7 @@ xattr -cr /Applications/DevOrbit\ Dashboard.app
 Make the AppImage executable:
 
 ```bash
-chmod +x DevOrbit-Dashboard-1.0.0.AppImage
+chmod +x Orkumo-1.0.0.AppImage
 ```
 
 ### Native module errors

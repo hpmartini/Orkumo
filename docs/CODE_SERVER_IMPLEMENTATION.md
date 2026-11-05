@@ -2,7 +2,7 @@
 
 ## Overview
 
-DevOrbit Dashboard has **full code-server integration** already implemented and production-ready. This document provides a comprehensive overview of the implementation.
+Orkumo has **full code-server integration** already implemented and production-ready. This document provides a comprehensive overview of the implementation.
 
 ## Architecture
 
@@ -75,7 +75,7 @@ services:
 
 ### Network Architecture
 
-DevOrbit uses nginx as a reverse proxy to route traffic to code-server:
+Orkumo uses nginx as a reverse proxy to route traffic to code-server:
 
 ```
 Browser Request Flow:

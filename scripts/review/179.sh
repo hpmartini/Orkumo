@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Review #179: searchable slice picker on /board. Runs the board tests, then serves this branch's UI
-# on a throwaway Vite port. API: the DevOrbit server already running on :3099 (real board data),
+# on a throwaway Vite port. API: the Orkumo server already running on :3099 (real board data),
 # else a throwaway server from this checkout. Ctrl+C stops everything it started.
 set -euo pipefail
 cd "$(dirname "$0")/../.."

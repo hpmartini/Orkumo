@@ -13,7 +13,7 @@ enc() { python3 -c "import sys,urllib.parse;print(urllib.parse.quote(sys.argv[1]
 TOKEN=$(curl -sf "$LOCAL/api/remote/pairing" | json "['token']")
 APP_ID=$(curl -sf "$LOCAL/api/apps" | json "[0]['id']")
 APP_NAME=$(curl -sf "$LOCAL/api/apps" | json "[0]['name']")
-MARKER=/tmp/devorbit-ios-e2e-$RANDOM
+MARKER=/tmp/orkumo-ios-e2e-$RANDOM
 A=$((RANDOM + 10000)) B=$((RANDOM + 10000)) SUM=$((A + B))
 UDID=$(xcrun simctl list devices available | grep "    $SIM (" | head -1 | sed -E 's/.*\(([0-9A-F-]{36})\).*/\1/')
 rm -rf "$OUT" && mkdir -p "$OUT"

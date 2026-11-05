@@ -115,7 +115,7 @@ const PACKAGE_LINES = [
 const README_LINES = [
   '# storefront',
   '',
-  'The demo storefront behind the DevOrbit landing page.',
+  'The demo storefront behind the Orkumo landing page.',
   'Every file in it is synthetic.',
   '',
   '## Run it',

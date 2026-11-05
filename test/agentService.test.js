@@ -169,7 +169,7 @@ describe('agentService - state helpers', () => {
   });
 
   it('slugs project directories like Claude Code does', () => {
-    expect(projectSlug('/home/user/DevHub')).toBe('-home-user-DevHub');
+    expect(projectSlug('/home/user/Orkumo')).toBe('-home-user-Orkumo');
   });
 });
 

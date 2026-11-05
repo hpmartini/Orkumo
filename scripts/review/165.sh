@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Review #165: DevHub without and with the Workflows premium module (hpmartini/DevHub-pro).
+# Review #165: Orkumo without and with the Workflows premium module (hpmartini/DevHub-pro).
 # Run from the root of a checkout of feat/165-workflow-premium (see PR "Review-Anleitung").
 # Builds DevHub-pro in a temp dir, runs both test suites, then starts server + Vite on spare
 # ports with the module loaded. Ctrl+C stops everything and removes the temp dir.
@@ -20,13 +20,13 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 cd "$ROOT"
-echo "== DevHub: install, tests, build (without module)"
+echo "== Orkumo: install, tests, build (without module)"
 bun install --silent
 bunx vitest run
 bun run build >/dev/null
 if grep -rn "WorkflowView\|/api/workflows\|workflowsUrl" --include='*.ts' --include='*.tsx' --include='*.js' \
   App.tsx components hooks services server utils types.ts; then
-  echo "FAIL: workflow view code left in DevHub" >&2
+  echo "FAIL: workflow view code left in Orkumo" >&2
   exit 1
 fi
 

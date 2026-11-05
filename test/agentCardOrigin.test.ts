@@ -30,8 +30,8 @@ function session(partial: Partial<AgentSession>): AgentSession {
 
 describe('parseWorkflowName (#159, AC-2)', () => {
   it('strips the mw board prefix', () => {
-    expect(parseWorkflowName('MACC DevHub#159 Darstellung Project-/Agent-Panel')).toEqual({
-      repo: 'DevHub',
+    expect(parseWorkflowName('MACC Orkumo#159 Darstellung Project-/Agent-Panel')).toEqual({
+      repo: 'Orkumo',
       number: 159,
       title: 'Darstellung Project-/Agent-Panel',
     });
@@ -46,17 +46,17 @@ describe('parseWorkflowName (#159, AC-2)', () => {
   });
 
   it('falls back to the full name when no title follows the prefix', () => {
-    expect(parseWorkflowName('MACC DevHub#12')?.title).toBe('MACC DevHub#12');
-    expect(parseWorkflowName('MACC DevHub#12   ')?.title).toBe('MACC DevHub#12');
+    expect(parseWorkflowName('MACC Orkumo#12')?.title).toBe('MACC Orkumo#12');
+    expect(parseWorkflowName('MACC Orkumo#12   ')?.title).toBe('MACC Orkumo#12');
   });
 
   it('leaves every other name alone', () => {
     for (const name of [
       'browser-panel externe urls',
-      'MAC DevHub#1 typo',
-      'macc DevHub#1 lowercase',
-      'Fix MACC DevHub#1 later',
-      'MACC DevHub#abc title',
+      'MAC Orkumo#1 typo',
+      'macc Orkumo#1 lowercase',
+      'Fix MACC Orkumo#1 later',
+      'MACC Orkumo#abc title',
       '',
       null,
       undefined,
@@ -67,10 +67,10 @@ describe('parseWorkflowName (#159, AC-2)', () => {
 });
 
 describe('workflow origin (#159, AC-1)', () => {
-  const byPrefix = session({ id: 'a', name: 'MACC DevHub#37 Landingpage' });
+  const byPrefix = session({ id: 'a', name: 'MACC Orkumo#37 Landingpage' });
   const byLink = session({ id: 'b', name: 'renamed by hand' });
   const local = session({ id: 'c', name: 'package.json build install' });
-  const lookup: SessionLookup = { workflowIssues: new Map([['b', 'hpmartini/DevHub#140']]) };
+  const lookup: SessionLookup = { workflowIssues: new Map([['b', 'hpmartini/Orkumo#140']]) };
 
   it('detects workflow agents by name prefix or mw-board link', () => {
     expect(isWorkflowSession(byPrefix)).toBe(true);
@@ -100,7 +100,7 @@ describe('workflow origin (#159, AC-1)', () => {
   it('origin chips AND-combine with state chips', () => {
     const working = session({
       id: 'w',
-      name: 'MACC DevHub#1 x',
+      name: 'MACC Orkumo#1 x',
       state: 'working',
       displayState: 'working',
     });
@@ -113,17 +113,17 @@ describe('workflow origin (#159, AC-1)', () => {
   });
 
   it('resolves the issue key: mw-board link, linked issues, repo slug', () => {
-    expect(workflowIssue(byLink, lookup)).toEqual({ key: 'hpmartini/DevHub#140', number: 140 });
-    expect(workflowIssue(byPrefix, undefined, ['other/x#1', 'hpmartini/devhub#37'])).toEqual({
-      key: 'hpmartini/devhub#37',
+    expect(workflowIssue(byLink, lookup)).toEqual({ key: 'hpmartini/Orkumo#140', number: 140 });
+    expect(workflowIssue(byPrefix, undefined, ['other/x#1', 'hpmartini/orkumo#37'])).toEqual({
+      key: 'hpmartini/orkumo#37',
       number: 37,
     });
     const withSlug: SessionLookup = {
       contexts: {
-        a: { repo: { slug: 'hpmartini/DevHub' } } as never,
+        a: { repo: { slug: 'hpmartini/Orkumo' } } as never,
       },
     };
-    expect(workflowIssue(byPrefix, withSlug)).toEqual({ key: 'hpmartini/DevHub#37', number: 37 });
+    expect(workflowIssue(byPrefix, withSlug)).toEqual({ key: 'hpmartini/Orkumo#37', number: 37 });
     expect(workflowIssue(byPrefix)).toEqual({ key: null, number: 37 });
     expect(workflowIssue(local, lookup)).toBeNull();
   });

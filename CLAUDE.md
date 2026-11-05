@@ -2,13 +2,13 @@
 
 ## Leitbild
 
-DevOrbit ist Hapes komplette Arbeitsumgebung für agentische Entwicklung (ADE). Kernobjekt ist der Kontext Issue ↔ Agent ↔ Worktree/Branch ↔ PR ↔ Code; Modi (Überblick, Board, Agents, Code, Terminal) teilen eine Shell. Verbindlich: [docs/VISION.md](docs/VISION.md).
+Orkumo ist Hapes komplette Arbeitsumgebung für agentische Entwicklung (ADE). Kernobjekt ist der Kontext Issue ↔ Agent ↔ Worktree/Branch ↔ PR ↔ Code; Modi (Überblick, Board, Agents, Code, Terminal) teilen eine Shell. Verbindlich: [docs/VISION.md](docs/VISION.md).
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Project Overview
 
-DevOrbit Dashboard is a React-based workspace for agentic development. It scans the directories configured in the admin panel as a project registry (projects open in Code mode, `/code?path=`); it no longer starts, stops or analyzes apps (issue #143).
+Orkumo is a React-based workspace for agentic development. It scans the directories configured in the admin panel as a project registry (projects open in Code mode, `/code?path=`); it no longer starts, stops or analyzes apps (issue #143).
 
 Mode bar (#184, `components/ModeSwitcher.tsx`) in the AgentsView header next to the robot: Agents · modes of loaded modules (e.g. Workflows, #165) · Board · Code; the route is the state. The robot opens the context dashboard (`/dashboard?scope=context`), the rocket in the title bar the global one (`/dashboard`).
 

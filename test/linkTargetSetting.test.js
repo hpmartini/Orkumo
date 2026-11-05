@@ -4,7 +4,7 @@ import os from 'os';
 import path from 'path';
 
 // SETTINGS_FILE is resolved at import time, so the data dir must be set first
-const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devorbit-link-target-'));
+const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orkumo-link-target-'));
 let settingsService;
 
 beforeAll(async () => {

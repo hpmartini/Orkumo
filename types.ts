@@ -667,7 +667,7 @@ export interface ProjectContext {
 }
 export type BoardSwimlaneMode = 'parent' | 'repo' | 'none';
 
-/** Persisted board preferences. Slice keys are `${kind}:${value}`, e.g. "repo:hpmartini/DevHub". */
+/** Persisted board preferences. Slice keys are `${kind}:${value}`, e.g. "repo:hpmartini/Orkumo". */
 export interface BoardSettings {
   source: BoardSource;
   favorites: string[];

@@ -1,8 +1,8 @@
 /**
- * DevOrbit Console/Network Logger
+ * Orkumo Console/Network Logger
  *
  * This script captures console output and network requests and sends them
- * to the DevOrbit dashboard via postMessage.
+ * to the Orkumo dashboard via postMessage.
  *
  * SAFETY FEATURES:
  * - Only runs when embedded in an iframe (not standalone)
@@ -10,7 +10,7 @@
  * - Gracefully handles errors without breaking the app
  * - Uses wildcard origin - no port dependency
  */
-(function() {
+(function () {
   'use strict';
 
   // === SAFETY CHECKS ===
@@ -18,7 +18,7 @@
   // 1. Don't run if already injected
   if (window.__DEVORBIT_LOGGER__) return;
 
-  // 2. Only run when embedded in an iframe (DevOrbit embeds apps in iframes)
+  // 2. Only run when embedded in an iframe (Orkumo embeds apps in iframes)
   if (window.self === window.top) return;
 
   // 3. Only run in development (localhost)
@@ -30,7 +30,7 @@
 
   // === CONFIGURATION ===
 
-  // Use wildcard origin - works regardless of DevOrbit's port
+  // Use wildcard origin - works regardless of Orkumo's port
   var targetOrigin = '*';
 
   // Store original methods
@@ -48,7 +48,7 @@
    * Safely serialize arguments for postMessage
    */
   function serializeArgs(args) {
-    return Array.prototype.map.call(args, function(arg) {
+    return Array.prototype.map.call(args, function (arg) {
       try {
         if (arg instanceof Error) {
           return {
@@ -68,14 +68,18 @@
         } else if (typeof arg === 'object') {
           // Handle circular references and non-serializable objects
           try {
-            return JSON.stringify(arg, function(key, value) {
-              if (typeof value === 'function') return '[Function]';
-              if (typeof value === 'symbol') return value.toString();
-              if (value instanceof Error) return { name: value.name, message: value.message };
-              if (value instanceof HTMLElement) return '[HTMLElement: ' + value.tagName + ']';
-              if (value instanceof Window) return '[Window]';
-              return value;
-            }, 2);
+            return JSON.stringify(
+              arg,
+              function (key, value) {
+                if (typeof value === 'function') return '[Function]';
+                if (typeof value === 'symbol') return value.toString();
+                if (value instanceof Error) return { name: value.name, message: value.message };
+                if (value instanceof HTMLElement) return '[HTMLElement: ' + value.tagName + ']';
+                if (value instanceof Window) return '[Window]';
+                return value;
+              },
+              2
+            );
           } catch (e) {
             return '[Object: ' + Object.prototype.toString.call(arg) + ']';
           }
@@ -101,9 +105,9 @@
 
   // === CONSOLE INTERCEPTION ===
 
-  ['log', 'warn', 'error', 'info', 'debug'].forEach(function(method) {
-    console[method] = function() {
-      // Send to DevOrbit
+  ['log', 'warn', 'error', 'info', 'debug'].forEach(function (method) {
+    console[method] = function () {
+      // Send to Orkumo
       postToParent({
         type: 'devorbit-console',
         method: method,
@@ -119,7 +123,7 @@
 
   // === ERROR HANDLING ===
 
-  window.addEventListener('error', function(event) {
+  window.addEventListener('error', function (event) {
     postToParent({
       type: 'devorbit-console',
       method: 'error',
@@ -133,7 +137,7 @@
     });
   });
 
-  window.addEventListener('unhandledrejection', function(event) {
+  window.addEventListener('unhandledrejection', function (event) {
     postToParent({
       type: 'devorbit-console',
       method: 'error',
@@ -148,7 +152,7 @@
 
   var originalFetch = window.fetch;
   if (originalFetch) {
-    window.fetch = function(input, init) {
+    window.fetch = function (input, init) {
       var startTime = Date.now();
       var method = (init && init.method) || 'GET';
       var url;
@@ -166,8 +170,9 @@
         url = '[Unknown URL]';
       }
 
-      return originalFetch.apply(this, arguments)
-        .then(function(response) {
+      return originalFetch
+        .apply(this, arguments)
+        .then(function (response) {
           postToParent({
             type: 'devorbit-network',
             method: method,
@@ -179,7 +184,7 @@
           });
           return response;
         })
-        .catch(function(error) {
+        .catch(function (error) {
           postToParent({
             type: 'devorbit-network',
             method: method,
@@ -198,7 +203,7 @@
   var originalXHROpen = XMLHttpRequest.prototype.open;
   var originalXHRSend = XMLHttpRequest.prototype.send;
 
-  XMLHttpRequest.prototype.open = function(method, url) {
+  XMLHttpRequest.prototype.open = function (method, url) {
     this._devorbit = {
       method: method,
       url: url,
@@ -207,13 +212,13 @@
     return originalXHROpen.apply(this, arguments);
   };
 
-  XMLHttpRequest.prototype.send = function() {
+  XMLHttpRequest.prototype.send = function () {
     var xhr = this;
     if (xhr._devorbit) {
       xhr._devorbit.startTime = Date.now();
     }
 
-    var handleComplete = function() {
+    var handleComplete = function () {
       if (xhr._devorbit) {
         postToParent({
           type: 'devorbit-network',
@@ -238,6 +243,6 @@
 
   // === INITIALIZATION COMPLETE ===
 
-  // Log that DevOrbit logger is active (visible in DevOrbit console)
-  console.log('[DevOrbit] Console/Network logging active');
+  // Log that Orkumo logger is active (visible in Orkumo console)
+  console.log('[Orkumo] Console/Network logging active');
 })();

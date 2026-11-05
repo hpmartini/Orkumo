@@ -41,7 +41,7 @@ describe('rankCommands', () => {
     cmd('a', 'Open settings'),
     cmd('b', 'New agent task', 'command', { keywords: 'dispatch compose' }),
     cmd('c', 'build-agent', 'agent'),
-    cmd('d', 'DevOrbit', 'project'),
+    cmd('d', 'Orkumo', 'project'),
   ];
   it('keeps order for an empty query and filters by mode', () => {
     expect(rankCommands(list, '').map((r) => r.command.id)).toEqual(['a', 'b', 'c', 'd']);

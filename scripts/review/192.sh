@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Review #192: agents-rail context menu stays inside the window. Runs the tests, then serves this branch's UI
-# on a throwaway Vite port. API: the DevOrbit server already running on :3099 (real sessions),
+# on a throwaway Vite port. API: the Orkumo server already running on :3099 (real sessions),
 # else a throwaway server from this checkout. Ctrl+C stops everything it started.
 set -euo pipefail
 cd "$(dirname "$0")/../.."

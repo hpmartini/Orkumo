@@ -196,7 +196,7 @@ describe('agentContextService - resolveRepoIdentity', () => {
 
 describe('agentContextService - gitInfo with a real git worktree', () => {
   it('names a linked worktree after the main repository', async () => {
-    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'devorbit-wt-')));
+    const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'orkumo-wt-')));
     try {
       const main = path.join(root, 'main-repo');
       const git = (...args) =>

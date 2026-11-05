@@ -10,7 +10,7 @@ import { fileURLToPath } from 'url';
 // it must answer the same with and without a loaded module.
 const ROOT = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
 const MODULE_DIRS = {
-  'without module': '/nonexistent-devhub-modules',
+  'without module': '/nonexistent-orkumo-modules',
   'with module': path.join(ROOT, 'test/fixtures/premium/with-mode'),
 };
 
@@ -28,7 +28,7 @@ describe.each(Object.entries(MODULE_DIRS))('POST /api/board/poll %s', (_label, m
   let dataDir;
 
   beforeAll(async () => {
-    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'devhub-poll-'));
+    dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orkumo-poll-'));
     const port = await freePort();
     base = `http://127.0.0.1:${port}`;
     child = spawn(process.execPath, ['server/index.js'], {

@@ -1,5 +1,5 @@
 {
-  "name": "devorbit-dashboard",
+  "name": "orkumo",
   "private": true,
   "packageManager": "bun@1.2.18",
   "trustedDependencies": [

@@ -36,7 +36,7 @@ afterEach(async () => {
 
 describe('moduleLoader', () => {
   it('without a modules directory: empty list, no routes', async () => {
-    const { loaded, get } = await start(path.join(os.tmpdir(), 'devhub-does-not-exist'));
+    const { loaded, get } = await start(path.join(os.tmpdir(), 'orkumo-does-not-exist'));
     expect(loaded).toEqual([]);
     expect(await (await get('/')).json()).toEqual([]);
     expect((await get('/premium-placeholder')).status).toBe(404);

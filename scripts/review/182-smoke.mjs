@@ -6,7 +6,7 @@ import os from 'os';
 import path from 'path';
 import { wireBrowserViewNav, goHistory } from '../../electron/browserViewNav.js';
 
-app.setPath('userData', path.join(os.tmpdir(), `devorbit-182-smoke-${process.pid}`));
+app.setPath('userData', path.join(os.tmpdir(), `orkumo-182-smoke-${process.pid}`));
 
 const hits = {};
 const server = createServer((req, res) => {

@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 VITE_PORT="${REVIEW_VITE_PORT:-3190}"
-# not SERVER_PORT: a shell that runs DevOrbit exports it, and the review must not reach the live server
+# not SERVER_PORT: a shell that runs Orkumo exports it, and the review must not reach the live server
 SERVER_PORT="${REVIEW_SERVER_PORT:-3189}"
 DATA_DIR="$(mktemp -d "${TMPDIR:-/tmp}/devorbit-190-XXXX")"
 pids=()

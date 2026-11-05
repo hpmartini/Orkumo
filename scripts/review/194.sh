@@ -24,7 +24,7 @@ for _ in $(seq 1 60); do curl -sf -o /dev/null "http://localhost:$SERVER_PORT/ap
 echo "--- AC-4: this branch (:$SERVER_PORT)"
 node scripts/review/194-check.mjs "http://localhost:$SERVER_PORT" || true
 if curl -sf -o /dev/null "http://localhost:3099/api/agents"; then
-  echo "--- before: running DevOrbit (:3099, main)"
+  echo "--- before: running Orkumo (:3099, main)"
   node scripts/review/194-check.mjs http://localhost:3099 || true
 fi
 

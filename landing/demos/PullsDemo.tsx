@@ -56,7 +56,7 @@ const PULLS: Pull[] = [
     session: 'Rewrite the install guide',
     diff: [
       '-## Install',
-      '+## Install DevOrbit',
+      '+## Install Orkumo',
       '+1. Download the pre-release',
       '+2. Point it at your project folders',
     ],

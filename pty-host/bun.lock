@@ -2,7 +2,7 @@
   "lockfileVersion": 1,
   "workspaces": {
     "": {
-      "name": "devorbit-pty-host",
+      "name": "orkumo-pty-host",
       "dependencies": {
         "node-pty": "^1.1.0",
         "ws": "^8.18.0",

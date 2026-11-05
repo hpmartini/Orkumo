@@ -25,7 +25,7 @@ const session = {
   id: 's1',
   sessionId: null,
   kind: 'background',
-  cwd: '/home/dev/DevHub',
+  cwd: '/home/dev/Orkumo',
   startedAt: 1000,
   name: 'fixture-178',
   state: 'blocked',

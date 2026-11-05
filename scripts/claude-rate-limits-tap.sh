@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Claude Code statusline wrapper: snapshots .rate_limits for DevOrbit, then runs the real statusline.
+# Claude Code statusline wrapper: snapshots .rate_limits for Orkumo, then runs the real statusline.
 # Usage (settings.json statusLine.command): bash scripts/claude-rate-limits-tap.sh <real statusline command...>
 # Never fails the statusline: every snapshot error is swallowed.
 

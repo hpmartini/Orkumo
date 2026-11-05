@@ -18,11 +18,11 @@ const CHOICES = [
   { name: 'clip-tool', path: `${HOME}/Code/clip-tool`, source: 'session' },
   { name: 'clip-tool', path: `${HOME}/code/clip-tool`, source: 'app' },
   { name: 'site-a', path: `${HOME}/Sites/site-a`, source: 'session' },
-  { name: 'devorbit-dashboard', path: `${HOME}/code/DevOrbitDashboard`, source: 'app' },
-  { name: 'DevOrbitDashboard', path: `${HOME}/Code/DevOrbitDashboard`, source: 'session' },
+  { name: 'orkumo', path: `${HOME}/code/Orkumo`, source: 'app' },
+  { name: 'Orkumo', path: `${HOME}/Code/Orkumo`, source: 'session' },
   {
     name: 'issue-37-landing',
-    path: `${HOME}/Code/DevOrbitDashboard/.claude/worktrees/issue-37-landing`,
+    path: `${HOME}/Code/Orkumo/.claude/worktrees/issue-37-landing`,
     source: 'session',
   },
   { name: 'agentic', path: `${HOME}/Code/agentic/`, source: 'repo' },
@@ -45,10 +45,10 @@ describe('groupDirectories', () => {
       'agentic',
       'bakery-monorepo',
       'clip-tool',
-      'DevOrbitDashboard',
+      'Orkumo',
       'issue-37-landing',
     ]);
-    expect(projects.entries[4].detail).toBe('worktree of DevOrbitDashboard');
+    expect(projects.entries[4].detail).toBe('worktree of Orkumo');
   });
 
   it('pins current then home on top, not repeated in their groups (AC-2)', () => {
@@ -72,9 +72,9 @@ describe('groupDirectories', () => {
   });
 
   it('filters by name and path and drops empty groups (AC-4)', () => {
-    const groups = groupDirectories(CHOICES, { home: HOME, query: 'dev' });
+    const groups = groupDirectories(CHOICES, { home: HOME, query: 'orku' });
     expect(labels(groups)).toEqual(['~/Code']);
-    expect(names(groups, '~/Code')).toEqual(['DevOrbitDashboard', 'issue-37-landing']);
+    expect(names(groups, '~/Code')).toEqual(['Orkumo', 'issue-37-landing']);
     expect(groupDirectories(CHOICES, { home: HOME, query: 'Sites' })[0].entries[0].name).toBe(
       'site-a'
     );
@@ -92,8 +92,8 @@ describe('dedupeDirectories (AC-3)', () => {
   });
 
   it('prefers the name of the higher-ranked source and shows the basename as detail', () => {
-    const dev = dedupeDirectories(CHOICES).find((e) => e.path.endsWith('/DevOrbitDashboard'))!;
-    expect(dev.name).toBe('DevOrbitDashboard');
+    const dev = dedupeDirectories(CHOICES).find((e) => e.path.endsWith('/Orkumo'))!;
+    expect(dev.name).toBe('Orkumo');
     expect(dev.detail).toBeNull();
     const bake = dedupeDirectories(CHOICES).find((e) => e.name === 'bakery-monorepo')!;
     expect(bake.detail).toBe('Bakery');

@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
-LOG="$(mktemp -t devorbit-182-smoke)"
+LOG="$(mktemp -t orkumo-182-smoke)"
 SMOKE_PID=""
 LIVE_PID=""
 cleanup() {
@@ -42,7 +42,7 @@ fi
 grep -q "all checks passed" "$LOG"
 
 if [[ "${1:-}" == "--live" ]]; then
-  echo "== starting desktop app (quit the installed DevOrbit first: same single-instance lock)"
+  echo "== starting desktop app (quit the installed Orkumo first: same single-instance lock)"
   bun run electron:dev &
   LIVE_PID=$!
   cat <<'TXT'

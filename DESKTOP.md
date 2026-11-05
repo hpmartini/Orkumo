@@ -1,6 +1,6 @@
-# DevOrbit Dashboard - Desktop Application
+# Orkumo - Desktop Application
 
-DevOrbit Dashboard is now available as a native desktop application using Electron! This provides a seamless native experience with all the features of the web version.
+Orkumo is now available as a native desktop application using Electron! This provides a seamless native experience with all the features of the web version.
 
 ## Features
 
@@ -29,7 +29,7 @@ DevOrbit Dashboard is now available as a native desktop application using Electr
 
 ### Download Pre-built Binaries
 
-Download the latest release for your platform from the [Releases](https://github.com/hpmartini/DevHub/releases) page:
+Download the latest release for your platform from the [Releases](https://github.com/hpmartini/Orkumo/releases) page:
 
 - **macOS**: Download `.dmg` file (supports both Intel and Apple Silicon)
 - **Linux**: Download `.AppImage`, `.deb`, or `.rpm` based on your distribution
@@ -41,8 +41,8 @@ Prefer Docker? Each release also ships GHCR images and a compose file, see [READ
 1. **Clone the repository**
 
 ```bash
-git clone https://github.com/hpmartini/DevHub.git
-cd DevHub
+git clone https://github.com/hpmartini/Orkumo.git
+cd Orkumo
 ```
 
 2. **Install dependencies**
@@ -108,7 +108,7 @@ When running in development mode (`bun run electron:dev`):
 
 ### Updates
 
-The app has no auto-updater (removed in #125). Install a new version from the [Releases](https://github.com/hpmartini/DevHub/releases) page. What a working auto-updater would need is tracked in #126.
+The app has no auto-updater (removed in #125). Install a new version from the [Releases](https://github.com/hpmartini/Orkumo/releases) page. What a working auto-updater would need is tracked in #126.
 
 ## Architecture
 
@@ -207,7 +207,7 @@ If you're building from source or auditing the code:
 **"App is damaged and can't be opened"**
 
 - This happens when the app isn't properly signed (development builds)
-- Solution: Run `xattr -cr /Applications/DevOrbit\ Dashboard.app`
+- Solution: Run `xattr -cr /Applications/Orkumo\ Dashboard.app`
 
 **"App can't be opened because Apple cannot check it for malicious software"**
 
@@ -218,7 +218,7 @@ If you're building from source or auditing the code:
 
 **AppImage won't run**
 
-- Make it executable: `chmod +x DevOrbit-Dashboard-*.AppImage`
+- Make it executable: `chmod +x Orkumo-*.AppImage`
 - Install FUSE if needed: `sudo apt install fuse libfuse2` (Ubuntu/Debian)
 
 **Permission denied errors**
@@ -311,8 +311,8 @@ Same as the main project. See [LICENSE](LICENSE) for details.
 
 For issues and questions:
 
-- **GitHub Issues**: [Report a bug or request a feature](https://github.com/hpmartini/DevHub/issues)
-- **Discussions**: [Ask questions and share ideas](https://github.com/hpmartini/DevHub/discussions)
+- **GitHub Issues**: [Report a bug or request a feature](https://github.com/hpmartini/Orkumo/issues)
+- **Discussions**: [Ask questions and share ideas](https://github.com/hpmartini/Orkumo/discussions)
 
 ---
 

@@ -44,7 +44,7 @@ function item(partial: Partial<BoardItem> = {}): BoardItem {
     number: seq,
     title: `Issue ${seq}`,
     url: null,
-    repo: 'hpmartini/DevHub',
+    repo: 'hpmartini/Orkumo',
     state: 'OPEN',
     stateReason: null,
     statusOptionId: 'o-todo',
@@ -73,10 +73,10 @@ const prLink = (href: string): AgentPrLink => ({
 
 describe('keys', () => {
   it('builds issue keys and short repo names', () => {
-    expect(issueKey('hpmartini/DevHub', 44)).toBe('hpmartini/DevHub#44');
-    expect(shortRepo('hpmartini/DevHub')).toBe('DevHub');
+    expect(issueKey('hpmartini/Orkumo', 44)).toBe('hpmartini/Orkumo#44');
+    expect(shortRepo('hpmartini/Orkumo')).toBe('Orkumo');
     expect(shortRepo(null)).toBe('');
-    expect(sliceKey('repo', 'hpmartini/DevHub')).toBe('repo:hpmartini/DevHub');
+    expect(sliceKey('repo', 'hpmartini/Orkumo')).toBe('repo:hpmartini/Orkumo');
   });
 
   it('uses the item id for drafts', () => {
@@ -152,7 +152,7 @@ describe('withinDoneWindow', () => {
 
 describe('slices', () => {
   const a = item({
-    repo: 'hpmartini/DevHub',
+    repo: 'hpmartini/Orkumo',
     labels: [
       { name: 'bug', color: 'd73a4a' },
       { name: 'ui', color: '000000' },
@@ -160,13 +160,13 @@ describe('slices', () => {
     milestone: 'M1',
     assignees: ['hape', 'bot'],
   });
-  const b = item({ repo: 'hpmartini/DevHub', labels: [{ name: 'bug', color: 'd73a4a' }] });
+  const b = item({ repo: 'hpmartini/Orkumo', labels: [{ name: 'bug', color: 'd73a4a' }] });
   const c = item({ repo: 'hpmartini/glen' });
   const d = item({ repo: 'hpmartini/zeta' });
   const draft = item({ type: 'DraftIssue', repo: null, number: null });
 
   it('extracts values per kind', () => {
-    expect(sliceValues(a, 'repo')).toEqual(['hpmartini/DevHub']);
+    expect(sliceValues(a, 'repo')).toEqual(['hpmartini/Orkumo']);
     expect(sliceValues(a, 'label')).toEqual(['bug', 'ui']);
     expect(sliceValues(a, 'milestone')).toEqual(['M1']);
     expect(sliceValues(a, 'assignee')).toEqual(['hape', 'bot']);
@@ -177,7 +177,7 @@ describe('slices', () => {
   it('sorts by manual order, then count desc, then name', () => {
     const s = buildSlices([a, b, c, d, draft], 'repo', { favorites: [], order: [], hidden: [] });
     expect(s.others.map((e) => e.value)).toEqual([
-      'hpmartini/DevHub',
+      'hpmartini/Orkumo',
       'hpmartini/glen',
       'hpmartini/zeta',
     ]);
@@ -190,7 +190,7 @@ describe('slices', () => {
     });
     expect(ordered.others.map((e) => e.value)).toEqual([
       'hpmartini/zeta',
-      'hpmartini/DevHub',
+      'hpmartini/Orkumo',
       'hpmartini/glen',
     ]);
   });
@@ -203,7 +203,7 @@ describe('slices', () => {
     });
     expect(s.favorites.map((e) => e.key)).toEqual(['repo:hpmartini/glen']);
     expect(s.favorites[0].favorite).toBe(true);
-    expect(s.others.map((e) => e.key)).toEqual(['repo:hpmartini/DevHub']);
+    expect(s.others.map((e) => e.key)).toEqual(['repo:hpmartini/Orkumo']);
     expect(s.hidden.map((e) => e.key)).toEqual(['repo:hpmartini/zeta']);
     expect(s.hidden[0].hidden).toBe(true);
   });
@@ -242,13 +242,13 @@ describe('slices', () => {
     it('keeps favorites, others and hidden as labelled groups', () => {
       expect(shape('')).toEqual([
         ['Favoriten', ['hpmartini/glen']],
-        ['Repo', ['hpmartini/DevHub']],
+        ['Repo', ['hpmartini/Orkumo']],
         ['Ausgeblendet', ['hpmartini/zeta']],
       ]);
     });
 
     it('filters live, case-insensitive by substring, dropping empty groups', () => {
-      expect(shape('dev')).toEqual([['Repo', ['hpmartini/DevHub']]]);
+      expect(shape('ork')).toEqual([['Repo', ['hpmartini/Orkumo']]]);
       expect(shape('  ZET ')).toEqual([['Ausgeblendet', ['hpmartini/zeta']]]);
       expect(shape('hpmartini/gl')).toEqual([['Favoriten', ['hpmartini/glen']]]);
       expect(shape('nope')).toEqual([]);
@@ -298,7 +298,7 @@ describe('slices', () => {
     });
 
     it('filters by the selected slice value', () => {
-      expect(filterItems(all, { kind: 'repo', selected: 'hpmartini/DevHub', hidden: [] })).toEqual([
+      expect(filterItems(all, { kind: 'repo', selected: 'hpmartini/Orkumo', hidden: [] })).toEqual([
         a,
         b,
       ]);
@@ -331,7 +331,7 @@ describe('matchesQuery', () => {
   it('matches title, #nr and repo case-insensitively', () => {
     expect(matchesQuery(it44, 'task BOARD')).toBe(true);
     expect(matchesQuery(it44, '#44')).toBe(true);
-    expect(matchesQuery(it44, 'devhub#44')).toBe(true);
+    expect(matchesQuery(it44, 'orkumo#44')).toBe(true);
     expect(matchesQuery(it44, '#45')).toBe(false);
     expect(matchesQuery(it44, 'mesh')).toBe(false);
   });
@@ -371,8 +371,8 @@ describe('moveSliceKey', () => {
 });
 
 describe('buildLanes', () => {
-  const parentA = { repo: 'hpmartini/DevHub', number: 1, title: 'Epic A' };
-  const parentB = { repo: 'hpmartini/DevHub', number: 2, title: 'Epic B' };
+  const parentA = { repo: 'hpmartini/Orkumo', number: 1, title: 'Epic A' };
+  const parentB = { repo: 'hpmartini/Orkumo', number: 2, title: 'Epic B' };
   const done = new Set(['o-done']);
   const items = [
     item({ parent: parentA, statusOptionId: 'o-done' }),
@@ -388,8 +388,8 @@ describe('buildLanes', () => {
   it('parent: one lane per parent, by size, "Ohne Parent" last', () => {
     const lanes = buildLanes(items, 'parent', done);
     expect(lanes.map((l) => l.key)).toEqual([
-      'hpmartini/DevHub#2',
-      'hpmartini/DevHub#1',
+      'hpmartini/Orkumo#2',
+      'hpmartini/Orkumo#1',
       'parent:none',
     ]);
     expect(lanes[0].title).toBe('Epic B');
@@ -401,7 +401,7 @@ describe('buildLanes', () => {
   it('repo: one lane per repo', () => {
     const lanes = buildLanes(items, 'repo', done);
     expect(lanes.map((l) => [l.title, l.total])).toEqual([
-      ['DevHub', 7],
+      ['Orkumo', 7],
       ['glen', 1],
     ]);
   });
@@ -415,14 +415,14 @@ describe('buildLanes', () => {
 
 describe('deriveAgentLinks', () => {
   const uuid = '6259550d-1555-4cd2-85d1-d37082bb80f4';
-  const issue44 = item({ repo: 'hpmartini/DevHub', number: 44, mwBoardSessions: [uuid] });
-  const prUrl = 'https://github.com/hpmartini/DevOrbitDashboard/pull/50';
+  const issue44 = item({ repo: 'hpmartini/Orkumo', number: 44, mwBoardSessions: [uuid] });
+  const prUrl = 'https://github.com/hpmartini/Orkumo/pull/50';
   const issue45 = item({
-    repo: 'hpmartini/DevOrbitDashboard',
+    repo: 'hpmartini/Orkumo',
     number: 45,
     pullRequests: [
       {
-        repo: 'hpmartini/DevOrbitDashboard',
+        repo: 'hpmartini/Orkumo',
         number: 50,
         url: prUrl,
         title: 'Closes #45',
@@ -433,20 +433,20 @@ describe('deriveAgentLinks', () => {
   });
   const prItem = item({
     type: 'PullRequest',
-    repo: 'hpmartini/DevOrbitDashboard',
+    repo: 'hpmartini/Orkumo',
     number: 50,
     url: prUrl,
   });
 
   it('links mw-board sessions to job id = first 8 chars of the uuid', () => {
     expect(deriveAgentLinks([issue44], [{ id: '6259550d', sessionId: uuid, links: [] }])).toEqual([
-      { jobId: '6259550d', issueKey: 'hpmartini/DevHub#44', via: 'mw-board' },
+      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'mw-board' },
     ]);
   });
 
   it('keeps the mw-board link without a live session', () => {
     expect(deriveAgentLinks([issue44], [])).toEqual([
-      { jobId: '6259550d', issueKey: 'hpmartini/DevHub#44', via: 'mw-board' },
+      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'mw-board' },
     ]);
   });
 
@@ -462,8 +462,8 @@ describe('deriveAgentLinks', () => {
       [{ id: 'abcd1234', sessionId: null, links: [prLink(`${prUrl}/`)] }]
     );
     expect(links).toEqual([
-      { jobId: 'abcd1234', issueKey: 'hpmartini/DevOrbitDashboard#45', via: 'pr' },
-      { jobId: 'abcd1234', issueKey: 'hpmartini/DevOrbitDashboard#50', via: 'pr' },
+      { jobId: 'abcd1234', issueKey: 'hpmartini/Orkumo#45', via: 'pr' },
+      { jobId: 'abcd1234', issueKey: 'hpmartini/Orkumo#50', via: 'pr' },
     ]);
   });
 
@@ -478,14 +478,14 @@ describe('deriveAgentLinks', () => {
 
   it('dedups per (job, issue) and prefers mw-board', () => {
     const both = item({
-      repo: 'hpmartini/DevHub',
+      repo: 'hpmartini/Orkumo',
       number: 44,
       mwBoardSessions: [uuid, uuid],
       pullRequests: [
         {
-          repo: 'hpmartini/DevHub',
+          repo: 'hpmartini/Orkumo',
           number: 9,
-          url: 'https://github.com/hpmartini/DevHub/pull/9',
+          url: 'https://github.com/hpmartini/Orkumo/pull/9',
           title: null,
           state: 'OPEN',
           checks: null,
@@ -498,12 +498,12 @@ describe('deriveAgentLinks', () => {
         {
           id: '6259550d',
           sessionId: uuid,
-          links: [prLink('https://github.com/hpmartini/DevHub/pull/9')],
+          links: [prLink('https://github.com/hpmartini/Orkumo/pull/9')],
         },
       ]
     );
     expect(links).toEqual([
-      { jobId: '6259550d', issueKey: 'hpmartini/DevHub#44', via: 'mw-board' },
+      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'mw-board' },
     ]);
   });
 
@@ -550,8 +550,8 @@ describe('columnTint', () => {
 
 describe('parseIssueRef', () => {
   it('reads #n, n, owner/name#n and issue URLs', () => {
-    expect(parseIssueRef('#12', 'hpmartini/DevHub')).toEqual({
-      repo: 'hpmartini/DevHub',
+    expect(parseIssueRef('#12', 'hpmartini/Orkumo')).toEqual({
+      repo: 'hpmartini/Orkumo',
       number: 12,
     });
     expect(parseIssueRef(' 7 ', 'a/b')).toEqual({ repo: 'a/b', number: 7 });
@@ -582,7 +582,7 @@ describe('parseIssueRef', () => {
       expect(matchesContextFilter(y, ['label:epic-a', 'label:bug'])).toBe(true);
       expect(matchesContextFilter(x, ['label:epic-a', 'milestone:v2'])).toBe(true);
       expect(matchesContextFilter(y, ['label:bug', 'milestone:v2'])).toBe(false);
-      expect(matchesContextFilter(y, ['repo:hpmartini/DevHub'])).toBe(false);
+      expect(matchesContextFilter(y, ['repo:hpmartini/Orkumo'])).toBe(false);
     });
 
     it('parses comma-separated keys and drops unknown kinds', () => {

@@ -1,4 +1,4 @@
-// Production build of the landing page for GitHub Pages (served under /DevHub/).
+// Production build of the landing page for GitHub Pages (served under /Orkumo/).
 /* global Bun */
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
@@ -11,7 +11,7 @@ rmSync('dist-landing', { recursive: true, force: true });
 const result = await Bun.build({
   entrypoints: ['landing/index.html'],
   outdir: 'dist-landing',
-  publicPath: process.env.LANDING_BASE ?? '/DevHub/',
+  publicPath: process.env.LANDING_BASE ?? '/Orkumo/',
   plugins: [tailwind],
   minify: true,
   // fonts as separate files; inlined they would block the first paint
@@ -29,7 +29,7 @@ for (const out of result.outputs)
 
 // Prerender the page into #root so text paints before the bundle runs; main.tsx hydrates it.
 // At runtime Bun resolves image imports to local file paths: swap them for the hashed URLs.
-const publicPath = process.env.LANDING_BASE ?? '/DevHub/';
+const publicPath = process.env.LANDING_BASE ?? '/Orkumo/';
 const hashed = new Map(
   result.outputs
     .filter((o) => o.kind === 'asset')

@@ -1,8 +1,8 @@
-# DevOrbit Dashboard - Implementation Plan
+# Orkumo - Implementation Plan
 
 ## Roadmap (Leitbild)
 
-Leitbild: [docs/VISION.md](docs/VISION.md). Epics in `hpmartini/DevHub`, Board MACC.
+Leitbild: [docs/VISION.md](docs/VISION.md). Epics in `hpmartini/Orkumo`, Board MACC.
 
 | #   | Säule               | Issues        |
 | :-- | :------------------ | :------------ |
@@ -133,7 +133,7 @@ Modify `hooks/useApps.ts` to:
 ### File Structure
 
 ```
-DevOrbit Dashboard/
+Orkumo/
 ├── server/
 │   ├── index.js           # Express entry point
 │   ├── services/

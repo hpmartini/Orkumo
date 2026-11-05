@@ -3,7 +3,7 @@
   "configVersion": 0,
   "workspaces": {
     "": {
-      "name": "devorbit-dashboard",
+      "name": "orkumo",
       "dependencies": {
         "@capacitor/app": "^8.1.2",
         "@capacitor/core": "^8.5.3",

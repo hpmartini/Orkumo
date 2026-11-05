@@ -1,6 +1,6 @@
 {
   "appId": "com.devorbit.dashboard",
-  "productName": "DevOrbitDashboard",
+  "productName": "Orkumo",
   "copyright": "Copyright \u00a9 2026",
   "directories": {
     "output": "dist-electron",
@@ -53,12 +53,12 @@
     "target": ["AppImage", "deb", "rpm"],
     "category": "Development",
     "synopsis": "Developer dashboard for managing local development applications",
-    "description": "DevOrbit Dashboard is a comprehensive developer dashboard that monitors and manages local development applications with AI-powered insights."
+    "description": "Orkumo is a comprehensive developer dashboard that monitors and manages local development applications with AI-powered insights."
   },
   "publish": {
     "provider": "github",
     "owner": "hpmartini",
-    "repo": "DevHub"
+    "repo": "Orkumo"
   },
   "afterPack": "scripts/fix-node-pty-binaries.cjs",
   "afterSign": "electron/notarize.js",

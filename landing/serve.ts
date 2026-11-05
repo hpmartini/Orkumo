@@ -1,13 +1,13 @@
-// Serves dist-landing under /DevHub/ like GitHub Pages does, for local checks (404s, Lighthouse).
+// Serves dist-landing under /Orkumo/ like GitHub Pages does, for local checks (404s, Lighthouse).
 /* global Bun */
-const BASE = '/DevHub/';
+const BASE = '/Orkumo/';
 const port = Number(process.env.PORT ?? 4173);
 
 Bun.serve({
   port,
   async fetch(req) {
     const { pathname } = new URL(req.url);
-    if (pathname === '/DevHub') return Response.redirect(BASE, 301);
+    if (pathname === '/Orkumo') return Response.redirect(BASE, 301);
     if (!pathname.startsWith(BASE)) return new Response('Not found', { status: 404 });
     const rel = pathname.slice(BASE.length) || 'index.html';
     if (rel.includes('..')) return new Response('Not found', { status: 404 });

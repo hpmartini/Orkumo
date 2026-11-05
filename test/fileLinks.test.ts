@@ -42,7 +42,7 @@ describe('findFilePaths', () => {
   });
 
   it('never treats URLs or prose as paths', () => {
-    expect(paths('https://github.com/hpmartini/DevHub/issues/188')).toEqual([]);
+    expect(paths('https://github.com/hpmartini/Orkumo/issues/188')).toEqual([]);
     expect(paths('visit http://localhost:3000/api/x.json now')).toEqual([]);
     expect(paths('and/or, km/h, 1/2, / alone, ~/ alone')).toEqual([]);
   });

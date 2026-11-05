@@ -1,5 +1,5 @@
 /**
- * iOS app (Capacitor) connection to a DevOrbit server on the Mac (Issue #120).
+ * iOS app (Capacitor) connection to an Orkumo server on the Mac (Issue #120).
  *
  * Pairing = server URL + token, stored in localStorage. The token rides on every
  * request to that server: header for fetch, `token` query param for EventSource and

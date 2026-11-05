@@ -68,16 +68,16 @@ describe('boardService - mapItem', () => {
           id: 'I_44',
           number: 44,
           title: 'Board',
-          url: 'https://github.com/hpmartini/DevHub/issues/44',
+          url: 'https://github.com/hpmartini/Orkumo/issues/44',
           state: 'OPEN',
           updatedAt: '2026-10-23T10:00:00Z',
           closedAt: null,
-          repository: { nameWithOwner: 'hpmartini/DevHub' },
+          repository: { nameWithOwner: 'hpmartini/Orkumo' },
           parent: {
             id: 'I_40',
             number: 40,
             title: 'Epic',
-            repository: { nameWithOwner: 'hpmartini/DevHub' },
+            repository: { nameWithOwner: 'hpmartini/Orkumo' },
           },
           subIssuesSummary: { total: 3, completed: 1 },
           labels: { nodes: [{ name: 'prio: high', color: 'f97316' }] },
@@ -87,10 +87,10 @@ describe('boardService - mapItem', () => {
             nodes: [
               {
                 number: 50,
-                url: 'https://github.com/hpmartini/DevHub/pull/50',
+                url: 'https://github.com/hpmartini/Orkumo/pull/50',
                 title: 'Fix',
                 state: 'OPEN',
-                repository: { nameWithOwner: 'hpmartini/DevHub' },
+                repository: { nameWithOwner: 'hpmartini/Orkumo' },
                 statusCheckRollup: { state: 'FAILURE' },
               },
             ],
@@ -110,21 +110,21 @@ describe('boardService - mapItem', () => {
       issueId: 'I_44',
       number: 44,
       title: 'Board',
-      url: 'https://github.com/hpmartini/DevHub/issues/44',
-      repo: 'hpmartini/DevHub',
+      url: 'https://github.com/hpmartini/Orkumo/issues/44',
+      repo: 'hpmartini/Orkumo',
       state: 'OPEN',
       stateReason: null,
       statusOptionId: '47fc9ee4',
       labels: [{ name: 'prio: high', color: 'f97316' }],
       milestone: 'M1',
       assignees: ['hpmartini'],
-      parent: { id: 'I_40', repo: 'hpmartini/DevHub', number: 40, title: 'Epic' },
+      parent: { id: 'I_40', repo: 'hpmartini/Orkumo', number: 40, title: 'Epic' },
       subIssues: { total: 3, completed: 1 },
       pullRequests: [
         {
-          repo: 'hpmartini/DevHub',
+          repo: 'hpmartini/Orkumo',
           number: 50,
-          url: 'https://github.com/hpmartini/DevHub/pull/50',
+          url: 'https://github.com/hpmartini/Orkumo/pull/50',
           title: 'Fix',
           state: 'OPEN',
           checks: 'failure',
@@ -244,20 +244,20 @@ describe('boardService - status write during in-flight fetch', () => {
 
 describe('boardService - pickRepoPath', () => {
   const entries = [
-    { path: '/w/DevOrbitDashboard/.claude/worktrees/issue-44-board', slug: 'hpmartini/DevHub' },
-    { path: '/w/DevOrbitDashboard', slug: 'hpmartini/DevHub' },
-    { path: '/w/archive/old/DevHub-copy', slug: 'hpmartini/DevHub' },
+    { path: '/w/Orkumo/.claude/worktrees/issue-44-board', slug: 'hpmartini/Orkumo' },
+    { path: '/w/Orkumo', slug: 'hpmartini/Orkumo' },
+    { path: '/w/archive/old/Orkumo-copy', slug: 'hpmartini/Orkumo' },
     { path: '/w/glen', slug: 'hpmartini/glen' },
     { path: '/w/no-remote', slug: null },
   ];
 
   it('matches the origin slug case-insensitively, main checkout before worktree, shortest first', () => {
-    expect(pickRepoPath('HPMARTINI/devhub', entries)).toBe('/w/DevOrbitDashboard');
+    expect(pickRepoPath('HPMARTINI/orkumo', entries)).toBe('/w/Orkumo');
     expect(pickRepoPath('hpmartini/glen', entries)).toBe('/w/glen');
   });
 
   it('falls back to a worktree when it is the only checkout', () => {
-    expect(pickRepoPath('hpmartini/DevHub', entries.slice(0, 1))).toBe(entries[0].path);
+    expect(pickRepoPath('hpmartini/Orkumo', entries.slice(0, 1))).toBe(entries[0].path);
   });
 
   it('returns null when no local checkout has that origin', () => {
@@ -323,7 +323,7 @@ describe('boardService - updateIssue', () => {
       number: 7,
       title: 'Old',
       state: 'OPEN',
-      repository: { nameWithOwner: 'hpmartini/DevHub' },
+      repository: { nameWithOwner: 'hpmartini/Orkumo' },
       ...over,
     },
   });
@@ -424,7 +424,7 @@ describe('boardService - writes vs. board fetches (#72)', () => {
       number: 1,
       title: id,
       state: 'OPEN',
-      repository: { nameWithOwner: 'hpmartini/DevHub' },
+      repository: { nameWithOwner: 'hpmartini/Orkumo' },
       ...over,
     },
   });
@@ -482,7 +482,7 @@ describe('boardService - writes vs. board fetches (#72)', () => {
 
     await getBoard(source);
     const refreshing = getBoard(source, { refresh: true });
-    const item = await createIssue(source, { repo: 'hpmartini/DevHub', title: 'new' });
+    const item = await createIssue(source, { repo: 'hpmartini/Orkumo', title: 'new' });
     expect(item.itemId).toBe('PVTI_new');
     releaseStale();
 
@@ -504,7 +504,7 @@ describe('boardService - writes vs. board fetches (#72)', () => {
     ]);
 
     await getBoard(source);
-    await createIssue(source, { repo: 'hpmartini/DevHub', title: 'new' });
+    await createIssue(source, { repo: 'hpmartini/Orkumo', title: 'new' });
 
     vi.setSystemTime(t0 + 1000); // fetch starts after the create
     expect(ids(await getBoard(source, { refresh: true }))).toEqual(['PVTI_a', 'PVTI_new']);
@@ -525,18 +525,18 @@ describe('boardService - writes vs. board fetches (#72)', () => {
       [ITEM_Q, refetched(node('PVTI_new'))],
     ]);
 
-    const err = await createIssue(source, { repo: 'hpmartini/DevHub', title: 'new' }).catch(
+    const err = await createIssue(source, { repo: 'hpmartini/Orkumo', title: 'new' }).catch(
       (e) => e
     );
     expect(err).toBeInstanceOf(Error);
     expect(err.status).toBe(502);
-    expect(err.message).toMatch(/hpmartini\/DevHub#99/);
+    expect(err.message).toMatch(/hpmartini\/Orkumo#99/);
     expect(err.details.issue).toMatchObject({ id: 'I_new', number: 99 });
 
     addFails = false;
     calls.length = 0;
     const item = await createIssue(source, {
-      repo: 'hpmartini/DevHub',
+      repo: 'hpmartini/Orkumo',
       title: 'new',
       issueId: 'I_new',
     });
@@ -597,7 +597,7 @@ describe('boardService - writes vs. board fetches (#72)', () => {
     ]);
     const err = await updateIssue(source, 'PVTI_i', {
       title: 'New',
-      addSubIssue: { repo: 'hpmartini/DevHub', number: 9 },
+      addSubIssue: { repo: 'hpmartini/Orkumo', number: 9 },
     }).catch((e) => e);
 
     expect(calls.find((a) => String(a[3]).includes('updateIssue(input'))).toContain('title=New');
@@ -611,7 +611,7 @@ describe('boardService - writes vs. board fetches (#72)', () => {
     clearCache();
     const enoent = Object.assign(new Error('spawn gh ENOENT'), { code: 'ENOENT' });
     routeGh([['', enoent]]);
-    const err = await createIssue(source, { repo: 'hpmartini/DevHub', title: 'new' }).catch(
+    const err = await createIssue(source, { repo: 'hpmartini/Orkumo', title: 'new' }).catch(
       (e) => e
     );
     expect(err.status).toBe(502);

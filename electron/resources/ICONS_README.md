@@ -79,7 +79,7 @@ When creating your icon:
 
 ## Provided SVG Template
 
-The `icon.svg` file in this directory provides a basic template for the DevOrbit Dashboard icon. You can:
+The `icon.svg` file in this directory provides a basic template for the Orkumo icon. You can:
 
 1. Use it as-is by converting to the required formats
 2. Customize it in a vector graphics editor (Inkscape, Adobe Illustrator, Figma)

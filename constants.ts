@@ -13,7 +13,7 @@ export { APP_NAME } from './electron/constants.js';
  * Port configuration constants
  */
 
-/** Port reserved for DevHub itself */
+/** Port reserved for Orkumo itself */
 export const DEVHUB_RESERVED_PORT = PORTS.devhub;
 
 /** Default starting port for configuring application ports */

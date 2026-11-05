@@ -1,4 +1,4 @@
-# TASK.md - DevOrbit Dashboard
+# TASK.md - Orkumo
 
 ## Review Summary
 
@@ -443,10 +443,10 @@ The following existing tasks are related to the new features above:
 ### #95: Issues anlegen / Labels vergeben in der Desktop-App (2026-10-27)
 
 - [x] **[VERIFY]** #72-Funktionen fehlten in der installierten App
-  - Issue: Board und `/agents` boten in `/Applications/DevOrbitDashboard.app` kein „Neues Issue“ und keine Label-Bearbeitung.
+  - Issue: Board und `/agents` boten in `/Applications/Orkumo.app` kein „Neues Issue“ und keine Label-Bearbeitung.
   - Root cause: Zwei veraltete Builds. Die App vom 26.10. 10:43 war aus `chore/drop-native-windows` gebaut (31 Commits hinter `main`, ohne #82: `/api/board/issues`, `repo-options` fehlten). Der Neubau vom 26.10. 18:24 hat #82, aber noch nicht `b5d2888` (Homebrew-PATH): Aus Finder/Dock gestartet findet der Server `gh` nicht (`gh failed: spawn gh ENOENT`), Board und Anlegen scheitern.
   - Solution: kein Code nötig, `main` ab `b5d2888` enthält beides. App von `main` neu bauen.
-  - Verified: installierte App (18:24) mit Finder-PATH `/usr/bin:/bin:/usr/sbin:/sbin` → `repo-options` und `items` liefern ENOENT. `main` in Electron (unpackaged, gleicher Minimal-PATH, eigenes `--user-data-dir`, `SERVER_PORT=3491`, per CDP bedient): Board „+“ in Todo mit `mw:dynamic` → #113. Mit Shell-PATH zusätzlich: `/agents` „+“ an DevHub mit `mw:go` → #112 (Backlog), Panel: Label `mw:build` gesetzt und entfernt (#111). `gh issue view` bestätigt. Testissues #110–#113 geschlossen. vitest 508/508, tsc sauber.
+  - Verified: installierte App (18:24) mit Finder-PATH `/usr/bin:/bin:/usr/sbin:/sbin` → `repo-options` und `items` liefern ENOENT. `main` in Electron (unpackaged, gleicher Minimal-PATH, eigenes `--user-data-dir`, `SERVER_PORT=3491`, per CDP bedient): Board „+“ in Todo mit `mw:dynamic` → #113. Mit Shell-PATH zusätzlich: `/agents` „+“ an Orkumo mit `mw:go` → #112 (Backlog), Panel: Label `mw:build` gesetzt und entfernt (#111). `gh issue view` bestätigt. Testissues #110–#113 geschlossen. vitest 508/508, tsc sauber.
   - #106 („Mindestens in der Electron-App keine Issues anlegen“, Meldung „falsches Verzeichnis“): siehe unten.
 
 ### #106: Issues anlegen in der Desktop-App, Meldung „falsches Verzeichnis“ (2026-10-27)
@@ -454,7 +454,7 @@ The following existing tasks are related to the new features above:
 - [x] **[FIX]** Meldung `gh failed: spawn gh ENOENT` wurde als „falsches Verzeichnis“ gelesen
   - Root cause: wie #95. Der installierte Build (26.10. 18:24) hat `b5d2888` (Homebrew im PATH) nicht; aus dem Dock gestartet findet der Server `gh` nicht. Nachgestellt: dessen `dist-server` mit Finder-PATH → `POST /api/board/issues` und `repo-options` antworten `{"error":"gh failed: spawn gh ENOENT"}`. ENOENT („no such file or directory“) liest sich wie ein Verzeichnisfehler. Im Anlegen-Pfad gibt es sonst keine Verzeichnis-Meldung.
   - Solution: `ghGraphql` (`server/services/boardService.js`) meldet bei ENOENT „GitHub CLI (gh) nicht gefunden …“ samt Server-PATH. App von `main` neu bauen.
-  - Verified: `main` in Electron (unpackaged, Finder-PATH, eigenes `--user-data-dir`, Ports 3591/3592, per CDP): Board „+“ in Todo → #122, `/agents` „+“ an DevHub → #123, beide auf MACC (`gh issue view`). Testissues geschlossen. vitest 577/577, Build grün.
+  - Verified: `main` in Electron (unpackaged, Finder-PATH, eigenes `--user-data-dir`, Ports 3591/3592, per CDP): Board „+“ in Todo → #122, `/agents` „+“ an Orkumo → #123, beide auf MACC (`gh issue view`). Testissues geschlossen. vitest 577/577, Build grün.
 
 - Alt: #106 betrifft denselben Build (gemeldet 21:45, App 18:24 ohne PATH-Fix), vermutlich dieselbe Ursache. Der Wortlaut „falsches Verzeichnis“ passt eher zu `agentService.js` (Agent-Start außerhalb der Projektordner); nach dem Neubau gegenprüfen.
 
@@ -462,8 +462,8 @@ The following existing tasks are related to the new features above:
 
 ### App startet weder als Electron- noch als Web-App (2026-10-27)
 
-- [x] **[FIX]** Default-Ports 3000/3001 kollidierten mit den Projekten, die DevOrbit selbst verwaltet
-  - Issue: Gepackte App (`/Applications/DevOrbitDashboard.app`) brach mit „Port 3001 is already in use“ ab; die Web-App ohne lokale Overrides hätte dieselben Ports (3000/3001) gebraucht. Dort liefen `next-server` (3000) und eine bun-API (3001).
+- [x] **[FIX]** Default-Ports 3000/3001 kollidierten mit den Projekten, die Orkumo selbst verwaltet
+  - Issue: Gepackte App (`/Applications/Orkumo.app`) brach mit „Port 3001 is already in use“ ab; die Web-App ohne lokale Overrides hätte dieselben Ports (3000/3001) gebraucht. Dort liefen `next-server` (3000) und eine bun-API (3001).
   - Approach: `bun run dev`, `electron:dev`, `build`, `bundle:server` und die installierte App einzeln gestartet und die Ausgabe gelesen. Dev lief nur, weil `.env.local` `VITE_PORT`/`SERVER_PORT` auf 3098/3099 überschreibt; die gepackte App liest `.env.local` nicht.
   - Solution: `PORTS.devhub`/`PORTS.server` in `config/defaults.{js,ts}` auf 3098/3099 (wie Docker); `vite.config.ts` nutzt `PORTS` statt eigener Literale. `appStart` (Startport verwalteter Apps) bleibt 3001.
 - Verifikation: vitest 508/508, Build und Server-Bundle grün; App mit `bun run electron:build:mac` neu gebaut, in `/Applications` ersetzt, startet und lauscht auf 3099 (`/api/health` ok).
@@ -535,7 +535,7 @@ The following existing tasks are related to the new features above:
   - Approach: Fehlertext bis zum Handler verfolgt; geprüft, dass kein anderer Filter (webRequest, CSP, will-navigate) externe Hosts blockt.
   - Solution: Host-Allowlist entfernt, Protokollprüfung (nur http/https) bleibt. Die BrowserView ist sandboxed, ohne Node und ohne Preload. Neu: eigene Session (`persist:browser-preview`) mit Permission-Handler, der Kamera/Mikro/Standort usw. nur localhost-Seiten gewährt (Electron-Default ohne Handler: alles erlauben).
 - Verifikation: `node --check electron/main.js` ok. Electron-Smoke-Test mit denselben `webPreferences` und demselben Handler: `https://example.com/` lädt (Titel „Example Domain"), Geolocation-Anfrage von example.com abgelehnt. Nicht end-to-end durch die laufende App geklickt.
-- Grenzen: Im reinen Web-Modus (iframe) bleiben Seiten mit `X-Frame-Options`/`frame-ancestors` gesperrt; das setzt die Zielseite, nicht DevOrbit. `window.open` aus der Vorschau öffnet weiter ein eigenes Electron-Fenster (wie vorher bei localhost). Cookies/Logins der Vorschau liegen jetzt in der eigenen Session, bestehende Logins aus der Default-Session sind dort einmalig weg.
+- Grenzen: Im reinen Web-Modus (iframe) bleiben Seiten mit `X-Frame-Options`/`frame-ancestors` gesperrt; das setzt die Zielseite, nicht Orkumo. `window.open` aus der Vorschau öffnet weiter ein eigenes Electron-Fenster (wie vorher bei localhost). Cookies/Logins der Vorschau liegen jetzt in der eigenen Session, bestehende Logins aus der Default-Session sind dort einmalig weg.
 
 ---
 

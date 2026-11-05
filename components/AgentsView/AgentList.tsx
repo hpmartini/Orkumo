@@ -85,7 +85,7 @@ interface AgentListProps {
   lookup?: SessionLookup;
   /** Repo / issue / sub-agent data per session id (may be empty while loading) */
   contexts: Record<string, AgentContext | undefined>;
-  /** Matched DevOrbit dev servers per session id */
+  /** Matched Orkumo dev servers per session id */
   servers: Map<string, AgentServer[]>;
   /** Filters hide everything: show a different empty state */
   filtered?: boolean;
@@ -750,7 +750,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                   const isFav = !!favoriteSessionIds?.has(session.id);
                   const ctx = contexts[session.id];
                   const repo = displayRepo(session, ctx);
-                  // Stopped DevOrbit apps only carry their configured port: not worth a row entry
+                  // Stopped Orkumo apps only carry their configured port: not worth a row entry
                   const sessionServers = (servers.get(session.id) || []).filter((s) => s.running);
                   const issueKeys = (onOpenIssue && issuesByAgent?.get(session.id)) || [];
                   const workflow = workflowIssue(session, lookup, issueKeys);

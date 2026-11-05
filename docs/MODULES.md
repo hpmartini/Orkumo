@@ -1,6 +1,6 @@
 # Optional Modules
 
-At start the server loads optional modules from a directory. No directory, no modules: no routes, no UI, nothing in the build changes. Modules are how separately distributed features plug into DevHub without touching this repo.
+At start the server loads optional modules from a directory. No directory, no modules: no routes, no UI, nothing in the build changes. Modules are how separately distributed features plug into Orkumo without touching this repo.
 
 ## Location
 

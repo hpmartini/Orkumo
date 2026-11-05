@@ -4,4 +4,4 @@ Dieses Repo wird von mehreren Agent-Familien bearbeitet. Verbindliche Anweisunge
 
 ## Leitbild
 
-DevOrbit ist Hapes komplette Arbeitsumgebung für agentische Entwicklung (ADE). Verbindlich: [docs/VISION.md](docs/VISION.md).
+Orkumo ist Hapes komplette Arbeitsumgebung für agentische Entwicklung (ADE). Verbindlich: [docs/VISION.md](docs/VISION.md).

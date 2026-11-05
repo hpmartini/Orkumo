@@ -1,5 +1,5 @@
 ---
-name: DevOrbit Landing (landing/)
+name: Orkumo Landing (landing/)
 description: Design system of the public landing page in landing/ only; the root React app is not covered.
 colors:
   app-blue: '#3b82f6'
@@ -168,9 +168,9 @@ components:
     padding: '4px 12px'
 ---
 
-# Design System: DevOrbit Landing (landing/)
+# Design System: Orkumo Landing (landing/)
 
-Scope: the static landing page in `landing/` (entry `landing/index.html`, tokens in `landing/styles.css`). The DevOrbit app itself (root React app) is not covered; do not apply these tokens there.
+Scope: the static landing page in `landing/` (entry `landing/index.html`, tokens in `landing/styles.css`). The Orkumo app itself (root React app) is not covered; do not apply these tokens there.
 
 ## Overview
 

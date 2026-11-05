@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { Link2 } from 'lucide-react';
 import { lastServerUrl, normalizeServerUrl, savePairing } from '../utils/remoteClient';
 
-/** First start of the iOS app: connect to the DevOrbit server on the Mac (Issue #120). */
+/** First start of the iOS app: connect to the Orkumo server on the Mac (Issue #120). */
 export const PairingScreen: React.FC<{ message?: string }> = ({ message }) => {
   const [url, setUrl] = useState(lastServerUrl);
   const [token, setToken] = useState('');
@@ -42,7 +42,7 @@ export const PairingScreen: React.FC<{ message?: string }> = ({ message }) => {
       <form onSubmit={submit} className="w-full max-w-md space-y-4">
         <div className="flex items-center gap-2">
           <Link2 className="h-6 w-6 text-blue-400" aria-hidden />
-          <h1 className="text-xl font-semibold">Mit DevOrbit verbinden</h1>
+          <h1 className="text-xl font-semibold">Mit Orkumo verbinden</h1>
         </div>
         <p className="text-sm text-gray-400">
           Adresse und Token stehen auf dem Mac unter Admin Panel → iOS-App. Oder den Pairing-Link

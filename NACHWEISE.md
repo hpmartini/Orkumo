@@ -14,7 +14,7 @@ Vertrag: [briefings/2026-11-04-umsetzen-button.md](briefings/2026-11-04-umsetzen
 
 ## Offen
 
-AC-6 offen: Klick auf „Umsetzen“ im echten Dialog (DevHub#194, Dev-Server Worktree :3288/:3289) vom Auto-Mode-Klassifikator verweigert („External System Writes“: der Klick ruft echt `mw board go` bzw. den launchd-Poll-Kick auf). Nachholen: Hape klickt zweimal „Umsetzen“ in `/board?item=hpmartini%2FDevHub%23194` und prüft `gh issue view 194 --json labels -q '[.labels[].name]'`
+AC-6 offen: Klick auf „Umsetzen“ im echten Dialog (Orkumo#194, Dev-Server Worktree :3288/:3289) vom Auto-Mode-Klassifikator verweigert („External System Writes“: der Klick ruft echt `mw board go` bzw. den launchd-Poll-Kick auf). Nachholen: Hape klickt zweimal „Umsetzen“ in `/board?item=hpmartini%2FOrkumo%23194` und prüft `gh issue view 194 --json labels -q '[.labels[].name]'`
 
 ## Hinweise
 
