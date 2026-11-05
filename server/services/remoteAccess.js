@@ -29,6 +29,16 @@ const FORWARD_HEADERS = [
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
+// Browsers send Origin on cross-site POSTs; cors() is open, so host-launching routes refuse non-loopback origins.
+export function isLoopbackOrigin(origin) {
+  if (!origin) return true;
+  try {
+    return LOCAL_HOSTS.has(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+}
+
 const hostName = (host) => {
   try {
     return new URL(`http://${host}`).hostname;

@@ -38,6 +38,7 @@ import * as meshService from './services/meshService.js';
 import * as remoteAccess from './services/remoteAccess.js';
 import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
+import fileOpenRoutes from './services/fileOpenRoutes.js';
 import { usageRouter, getUsage } from './services/usageService.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
@@ -139,6 +140,7 @@ app.use(remoteAccess.requireRemoteToken);
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
 app.use('/api/terminal/ghostty', ghosttyRoutes);
+app.use('/api/files', fileOpenRoutes);
 app.use('/api/usage', usageRouter);
 
 // Optional modules (docs/MODULES.md). Mounted now, filled by load() in startServer(),

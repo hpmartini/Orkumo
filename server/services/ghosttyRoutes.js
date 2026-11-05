@@ -3,6 +3,7 @@ import { execFile } from 'child_process';
 import * as agentService from './agentService.js';
 import rateLimit from 'express-rate-limit';
 import { getGhosttyConfig } from './ghosttyConfigService.js';
+import { isLoopbackOrigin } from './remoteAccess.js';
 
 const router = express.Router();
 
@@ -21,16 +22,6 @@ function isAllowedClaudeArgs(args) {
     (args[0] === 'attach' || args[0] === '--resume') &&
     agentService.SHORT_ID_RE.test(args[1])
   );
-}
-
-// Browsers send Origin on cross-site POSTs; cors() is open, so refuse non-loopback origins here.
-function isLoopbackOrigin(origin) {
-  if (!origin) return true;
-  try {
-    return ['localhost', '127.0.0.1', '[::1]'].includes(new URL(origin).hostname);
-  } catch {
-    return false;
-  }
 }
 
 router.get('/', (req, res) => {

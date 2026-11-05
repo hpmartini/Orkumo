@@ -3,6 +3,7 @@ import { Terminal as XTerm } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { openLink } from '../../utils/links';
+import { createFileLinkProvider, type FilePathMatch } from '../../utils/fileLinks';
 import '@xterm/xterm/css/xterm.css';
 import {
   RefreshCw,
@@ -68,6 +69,22 @@ export function buildAttachUrl(
   return `${getWsUrl('/api/pty')}?sessionId=${ptySession}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}&command=${command}&args=${args}`;
 }
 
+/** Cmd/Ctrl-click on a file path (#188): the server opens it with the Mac's default app */
+async function openFile(match: FilePathMatch, cwd: string) {
+  try {
+    const res = await fetch(`${API_BASE_URL}/files/open`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: match.path, cwd }),
+    });
+    const body = await res.json().catch(() => null);
+    if (!res.ok) throw new Error(body?.error || res.statusText);
+    if (body?.action === 'revealed') toast(`Startbare Datei, im Finder gezeigt: ${match.path}`);
+  } catch (err) {
+    toast.error(`Datei öffnen fehlgeschlagen: ${err instanceof Error ? err.message : err}`);
+  }
+}
+
 /**
  * A terminal pane attached to a background Claude Code session (`claude attach <id>`).
  * The xterm instance lives for the whole lifetime of the pane; the WebSocket/PTY can be
@@ -101,6 +118,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   onCloseRef.current = onClose;
   const onOpenLinkRef = useRef(onOpenLink);
   onOpenLinkRef.current = onOpenLink;
+  // the provider is registered once; cwd is stable per pane but read through a ref like the other props
+  const cwdRef = useRef(session.cwd);
+  cwdRef.current = session.cwd;
   const ghostty = useGhosttyTheme();
   const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
   const optionsRef = useRef(options);
@@ -146,6 +166,12 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         const open = onOpenLinkRef.current;
         // after xterm's own mouseup handling: opening the split remounts this terminal
         setTimeout(() => openLink(uri, open));
+      })
+    );
+    terminal.registerLinkProvider(
+      createFileLinkProvider(terminal, (event, match) => {
+        if (!(event.metaKey || event.ctrlKey)) return;
+        void openFile(match, cwdRef.current);
       })
     );
     terminal.open(container);
