@@ -10,7 +10,7 @@ import {
 } from 'react-router-dom';
 import { isElectron, isNativeApp } from './utils/apiConfig';
 import { Bot, Rocket } from 'lucide-react';
-import { Toaster } from 'react-hot-toast';
+import { PassThroughToaster } from './components/PassThroughToaster';
 import {
   ToolVersions,
   ErrorBoundary,
@@ -223,8 +223,8 @@ function AppContent() {
 
   return (
     <div className="min-h-screen bg-gray-900 text-gray-100 font-sans flex overflow-hidden">
-      {/* Toast notifications */}
-      <Toaster
+      {/* Toast notifications: click-through, never block controls (#183) */}
+      <PassThroughToaster
         position="top-right"
         toastOptions={{
           duration: 4000,
