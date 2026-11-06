@@ -1,0 +1,4 @@
+#!/bin/sh
+# Stand-in for the claude CLI in route tests (#88): no agent sessions, so the repo allow list
+# never waits on the real `claude agents --json --all`.
+echo '[]'

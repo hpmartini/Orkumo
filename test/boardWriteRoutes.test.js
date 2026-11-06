@@ -39,6 +39,7 @@ describe('board write routes (#88)', { timeout: 30_000 }, () => {
 
   beforeAll(async () => {
     fs.chmodSync(path.join(FAKE_GH_DIR, 'gh'), 0o755);
+    fs.chmodSync(path.join(FAKE_GH_DIR, 'claude'), 0o755);
     dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'orkumo-writes-'));
     ghLog = path.join(dataDir, 'gh.log');
     const port = await freePort();
@@ -48,6 +49,9 @@ describe('board write routes (#88)', { timeout: 30_000 }, () => {
       env: {
         ...process.env,
         PATH: `${FAKE_GH_DIR}:${process.env.PATH}`,
+        // the fallback lookup lists agent sessions and scans $HOME: keep both off this machine
+        CLAUDE_CLI_PATH: path.join(FAKE_GH_DIR, 'claude'),
+        HOME: dataDir,
         FAKE_GH_LOG: ghLog,
         SERVER_PORT: String(port),
         DEVORBIT_DATA_PATH: dataDir,
@@ -103,6 +107,21 @@ describe('board write routes (#88)', { timeout: 30_000 }, () => {
     expect(followUps.sort()).toEqual(['after=A1', 'after=L1', 'after=M1']);
     expect(calls.some((a) => a.some((x) => x.includes('items(first')))).toBe(false);
     expect(calls.some((a) => a.some((x) => x.includes('fragment M on ProjectV2')))).toBe(true);
+  });
+
+  it('AC-7: only this machine may switch the board source that backs the allow list', async () => {
+    const remote = (source) =>
+      fetch(`${base}/api/board/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'X-Forwarded-For': '100.64.0.9' },
+        body: JSON.stringify({ source }),
+      }).then((r) => r.status);
+    expect(await remote({ owner: 'evil', number: 7 })).toBe(403);
+    expect(await remote({ owner: 'o', number: 1 })).toBe(200);
+    expect((await call('GET', '/api/board/settings')).body.source).toEqual({
+      owner: 'o',
+      number: 1,
+    });
   });
 
   it('AC-1: an unknown label is still a 400', async () => {

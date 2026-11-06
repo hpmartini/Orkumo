@@ -1944,8 +1944,11 @@ app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
     if (
       req.body.source &&
       (req.body.source.owner !== source.owner || req.body.source.number !== source.number)
-    )
+    ) {
+      // The board decides which repos the write routes accept, so only this machine may switch it
+      if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
       boardService.clearCache();
+    }
     res.json(settingsService.updateBoardSettings(req.body));
   } catch (error) {
     sendAgentError(res, error);
