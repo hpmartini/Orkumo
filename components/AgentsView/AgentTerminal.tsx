@@ -75,7 +75,7 @@ export function buildAttachUrl(
 
 /** PTY WebSocket URL for a plain shell in `cwd` (#207): no command, so the server starts its default shell */
 export function buildShellUrl(cwd: string, cols: number, rows: number): string {
-  return `${getWsUrl('/api/pty')}?sessionId=shell-${Date.now()}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
+  return `${getWsUrl('/api/pty')}?sessionId=shell-${Date.now()}-${Math.random().toString(36).slice(2)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
 }
 
 /** Cmd/Ctrl-click on a file path (#188): the server opens it with the Mac's default app */
@@ -279,13 +279,21 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           case 'output':
             terminal.write(data.data);
             break;
-          case 'connected':
+          case 'connected': {
+            // control characters stripped: a folder name must not drive the terminal
+            const safe = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, '');
+            const cwd = safe(data.cwd ?? session.cwd);
+            // the server falls back to $HOME when the folder is gone (e.g. a removed worktree)
+            if (shell && data.cwd && data.cwd !== session.cwd.replace(/(.)\/+$/, '$1')) {
+              terminal.write(`\x1b[33m# ${safe(session.cwd)} not found\x1b[0m\r\n`);
+            }
             terminal.write(
               shell
-                ? `\x1b[2m# ${data.shell ?? 'shell'} in ${session.cwd} (PID ${data.pid})\x1b[0m\r\n`
+                ? `\x1b[2m# ${data.shell ?? 'shell'} in ${cwd} (PID ${data.pid})\x1b[0m\r\n`
                 : `\x1b[2m# ${session.ptyCommand ?? 'claude'} ${(session.ptyArgs ?? ['attach', session.id]).join(' ')} (PID ${data.pid})\x1b[0m\r\n`
             );
             break;
+          }
           case 'exit':
             terminal.write(
               `\r\n\x1b[2m# ${shell ? 'shell exited' : 'detached'} (exit code ${data.exitCode})\x1b[0m\r\n`

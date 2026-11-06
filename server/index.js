@@ -2284,6 +2284,7 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
         pid: result.pid,
         shell: result.shell,
         sessionType: result.type,
+        cwd, // the directory actually used: a missing one falls back to $HOME (#207)
       })
     );
 
