@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Serves <root>/<tag>/<file> the way github.com serves hpmartini/Orkumo releases, for the #126 e2e:
-//   /hpmartini/Orkumo/releases.atom                         feed, newest tag first
+//   /hpmartini/Orkumo/releases.atom                         feed, newest release first (creation order, like GitHub)
 //   /api/v3/repos/hpmartini/Orkumo/releases/latest          newest non-prerelease (GitHub Enterprise API path,
 //                                                           used by electron-updater for a non-github.com host)
 //   /hpmartini/Orkumo/releases/download/<tag>/<file>        assets
@@ -17,7 +17,9 @@ const tags = () =>
   fs
     .readdirSync(root)
     .filter((t) => semver.valid(t))
-    .sort((a, b) => semver.rcompare(a, b));
+    .map((t) => [t, fs.statSync(path.join(root, t)).birthtimeMs])
+    .sort((a, b) => b[1] - a[1] || semver.rcompare(a[0], b[0]))
+    .map(([t]) => t);
 
 http
   .createServer((req, res) => {
@@ -34,6 +36,7 @@ http
       return res.end(`<?xml version="1.0" encoding="UTF-8"?><feed xmlns="http://www.w3.org/2005/Atom">${entries}</feed>`);
     }
     if (url.pathname === `/api/v3/repos/hpmartini/Orkumo/releases/latest`) {
+      // release.yml enforces rc tag <=> "Pre-release" flag, so the tag decides here
       const final = tags().find((t) => !semver.prerelease(t));
       if (!final) {
         res.writeHead(404);

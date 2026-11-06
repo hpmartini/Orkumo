@@ -46,9 +46,19 @@ jobs:
             echo "::error::Tag $TAG passt nicht zum Schema vX.Y.Z oder vX.Y.Z-rc.N (siehe DESKTOP.md)"
             exit 1
           fi
+          # /releases/latest (rc -> final check, electron/updater.js) skips only releases flagged as prerelease
+          if [[ "$TAG" == *-rc.* ]] && [ "$PRERELEASE" != true ]; then
+            echo "::error::$TAG ist ein Release Candidate: Release als Pre-release markieren"
+            exit 1
+          fi
+          if [[ "$TAG" != *-rc.* ]] && [ "$PRERELEASE" = true ]; then
+            echo "::error::$TAG ist final: Pre-release-Häkchen entfernen"
+            exit 1
+          fi
           npm pkg set version="${TAG#v}"
         env:
           TAG: ${{ github.event.release.tag_name }}
+          PRERELEASE: ${{ github.event.release.prerelease }}
 
       - name: Build app
         run: bun run build && bun run bundle:server
@@ -63,7 +73,8 @@ jobs:
           if [ -n "${CSC_LINK:-}" ]; then
             signing=(-c.mac.hardenedRuntime=true -c.mac.entitlements=electron/entitlements.mac.plist -c.mac.entitlementsInherit=electron/entitlements.mac.plist)
           else
-            unset CSC_LINK CSC_KEY_PASSWORD
+            # notarizing an ad-hoc app would fail the release
+            unset CSC_LINK CSC_KEY_PASSWORD APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
             export CSC_IDENTITY_AUTO_DISCOVERY=false
           fi
           bunx electron-builder ${{ matrix.flags }} --publish never ${signing[@]+"${signing[@]}"}

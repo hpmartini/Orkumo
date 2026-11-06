@@ -28,6 +28,7 @@ cat > "$work/builder.json" <<JSON
   "npmRebuild": false,
   "compression": "store",
   "mac": { "target": ["zip"], "hardenedRuntime": false, "gatekeeperAssess": false },
+  "deb": { "compression": "gz" },
   "linux": { "target": ["AppImage"], "category": "Development", "maintainer": "Orkumo" },
   "publish": { "provider": "github", "owner": "hpmartini", "repo": "Orkumo" }
 }

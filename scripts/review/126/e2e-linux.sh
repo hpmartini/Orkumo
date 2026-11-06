@@ -10,23 +10,38 @@ mkdir -p "$work"
 trap '[ -n "${KEEP:-}" ] || rm -rf "$work"' EXIT
 
 for v in 1.0.0-rc.1 1.0.0-rc.2; do
-  [ -d "$work/build-$v" ] || "$here/build-fixture.sh" "$v" "$work/build-$v" --linux AppImage deb "--$arch" >"$work/build-$v.log" 2>&1
+  [ -d "$work/build-$v" ] || "$here/build-fixture.sh" "$v" "$work/build-$v" --linux AppImage "--$arch" >"$work/build-$v.log" 2>&1
 done
 suffix=$([ "$arch" = x64 ] && echo linux || echo "linux-$arch")
 rm -rf "$work/feed"
 for v in 1.0.0-rc.1 1.0.0-rc.2; do
   mkdir -p "$work/feed/v$v"
-  cp "$work/build-$v"/*.AppImage "$work/build-$v"/*.deb "$work/build-$v/latest-$suffix.yml" "$work/feed/v$v/"
+  cp "$work/build-$v"/*.AppImage "$work/build-$v/latest-$suffix.yml" "$work/feed/v$v/"
   cp "$work/build-$v"/*.blockmap "$work/feed/v$v/" 2>/dev/null || true
 done
 cp "$here/fake-github.mjs" "$work/"
 cp "$work/build-1.0.0-rc.1"/*.AppImage "$work/installed.AppImage"
+# .deb: fpm on macOS writes an empty archive, so the rc.1 package is built in Linux like CI (ubuntu runner),
+# from the same unpacked rc.1 app
+eb=$(node -p "require('$here/../../../node_modules/electron-builder/package.json').version")
+ev=$(node -p "require('$here/../../../node_modules/electron/package.json').version")
+rm -rf "$work/debproj" && mkdir -p "$work/debproj"
+cat > "$work/debproj/package.json" <<JSON
+{ "name": "orkumo-update-fixture", "productName": "OrkumoUpdateFixture", "version": "1.0.0-rc.1",
+  "author": { "name": "Orkumo", "email": "noreply@example.invalid" }, "homepage": "https://example.invalid/orkumo",
+  "description": "update e2e fixture", "license": "MIT",
+  "build": { "appId": "com.devorbit.update-fixture", "productName": "OrkumoUpdateFixture", "electronVersion": "$ev",
+    "directories": { "output": "/w/debout" }, "linux": { "target": ["deb"], "category": "Development" },
+    "publish": { "provider": "github", "owner": "hpmartini", "repo": "Orkumo" } } }
+JSON
 platform=$([ "$arch" = x64 ] && echo linux/amd64 || echo linux/arm64)
 
 docker run --rm --platform "$platform" -v "$work:/w" node:20-bookworm bash -euo pipefail -c '
   apt-get update -qq >/dev/null
   DEBIAN_FRONTEND=noninteractive apt-get install -y -qq xvfb xauth libnss3 libgtk-3-0 libgbm1 libasound2 libxss1 libxtst6 >/dev/null 2>&1
   cd /w && npm init -y >/dev/null && npm i -s semver@7 >/dev/null
+  rm -rf debout && cp -r build-1.0.0-rc.1/linux-'"$arch"'-unpacked /tmp/unpacked
+  (cd debproj && npm i -s -D electron-builder@'"$eb"' >/dev/null && npx electron-builder --linux deb --prepackaged /tmp/unpacked --publish never >/w/debbuild.log 2>&1)
   node fake-github.mjs feed 18126 > server.log 2>&1 &
   sleep 1
   chown -R node /w
@@ -42,7 +57,7 @@ docker run --rm --platform "$platform" -v "$work:/w" node:20-bookworm bash -euo 
   echo "sha before $sha_before after $(sha256sum installed.AppImage | cut -c1-16)"
   echo "rc.2 AppImage $(sha256sum feed/v1.0.0-rc.2/*.AppImage | cut -c1-16)"
   # .deb: the real package (resources/package-type=deb -> DebUpdater, no APPIMAGE) -> notify only
-  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ./feed/v1.0.0-rc.1/*.deb >/dev/null 2>&1
+  DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ./debout/*.deb >/dev/null 2>&1
   echo "deb package-type $(cat /opt/OrkumoUpdateFixture/resources/package-type)"
   su node -c "DISPLAY=$DISPLAY ORKUMO_UPDATE_FEED=$ORKUMO_UPDATE_FEED ORKUMO_E2E_LOG=/w/deb.log \
     /opt/OrkumoUpdateFixture/orkumo-update-fixture" || true

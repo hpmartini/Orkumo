@@ -916,8 +916,7 @@ function startUpdateCheck() {
     getWindow: () => mainWindow,
     mode,
   });
-  // after a delay so the backend and window settle first
-  if (check) setTimeout(check, 5000);
+  if (check) check();
 }
 
 /**
@@ -937,7 +936,8 @@ app.whenReady().then(async () => {
     // Create main window
     createWindow();
 
-    startUpdateCheck();
+    // after a delay so the backend and window settle first (codesign check included)
+    setTimeout(startUpdateCheck, 5000);
 
     // On macOS, recreate window when dock icon is clicked
     app.on('activate', () => {

@@ -118,7 +118,7 @@ Five seconds after start the app checks [GitHub Releases](https://github.com/hpm
 
 A failed background check is only logged, never shown. An rc installation is offered newer rcs and the final release of the same or a later version.
 
-**Tag schema:** `vX.Y.Z` or `vX.Y.Z-rc.N` (e.g. `v1.0.0-rc.8`). electron-updater treats the first prerelease part as channel, so `v1.0.0-rc7` would be its own channel `rc7` and never receive an update; the release workflow rejects other tags.
+**Tag schema:** `vX.Y.Z` or `vX.Y.Z-rc.N` (e.g. `v1.0.0-rc.8`). electron-updater treats the first prerelease part as channel, so `v1.0.0-rc7` would be its own channel `rc7` and never receive an update; the release workflow rejects other tags. Publish `-rc.N` releases with "Set as a pre-release" and final ones without it (the workflow checks this): rc installs find the final release via `/releases/latest`, which only skips flagged prereleases.
 
 **Release assets:** besides the installers the workflow uploads `latest*.yml`/`rc*.yml` and `*.blockmap` (`scripts/release/release-assets.sh`); the `merge-mac-yml` job merges the arm64 and x64 `*-mac.yml` into one file.
 

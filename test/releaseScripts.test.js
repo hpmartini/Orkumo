@@ -119,4 +119,31 @@ describe('release tag schema (#126 point 4)', () => {
   it.each(['v1.0.0-rc7', '1.0.0', 'v1.0.0-beta.1', 'v1.0.0-rc.1-x'])('rejects %s', (tag) =>
     expect(accepts(tag)).toBe(false)
   );
+
+  // the whole "Set version from tag" step, run against a scratch package.json
+  const step = yaml
+    .load(workflow)
+    .jobs.build.steps.find((s) => s.name === 'Set version from tag').run;
+  const runStep = (TAG, PRERELEASE) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tag-'));
+    fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"x","version":"0.0.0"}');
+    try {
+      execFileSync('bash', ['-c', step], {
+        cwd: dir,
+        env: { ...process.env, TAG, PRERELEASE },
+        stdio: 'pipe',
+      });
+      return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version;
+    } catch {
+      return null;
+    }
+  };
+  it.each([
+    ['v1.0.0-rc.8', 'true', '1.0.0-rc.8'],
+    ['v1.0.0', 'false', '1.0.0'],
+    ['v1.0.0-rc.8', 'false', null], // /releases/latest would return the rc
+    ['v1.0.0', 'true', null], // rc installs would never see the final release
+  ])('%s with prerelease=%s → %s', (tag, pre, version) => {
+    expect(runStep(tag, pre)).toBe(version);
+  });
 });
