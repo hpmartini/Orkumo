@@ -241,8 +241,12 @@ export interface AgentContext {
 export interface AgentSession {
   /** Short id (`claude attach <id>`), or `interactive-<pid>` for foreground sessions */
   id: string;
-  /** Full session UUID (usable with `claude --resume`) */
+  /** Full session UUID (usable with `claude --resume`); for a background job the transcript it writes now */
   sessionId: string | null;
+  /** Background job: every transcript id it wrote (respawns write a new one, #236) */
+  sessionIds?: string[];
+  /** Rail: other sessions on the same transcript, shown as copies of this one (#236) */
+  copies?: AgentSession[];
   kind: 'background' | 'interactive';
   /** Client-side cloud/remote session: PTY args instead of `attach <id>` */
   ptyArgs?: string[];

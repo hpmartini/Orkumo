@@ -95,7 +95,12 @@ export function createPtySession(
 
   try {
     // Re-detect shell at spawn time to ensure we use the best available
-    const shellToUse = isCustomCommand ? command : detectShell();
+    // CLAUDE_CLI_PATH pins the binary, like agentService.resolveClaudeBinary (review stubs, #236)
+    const shellToUse = !isCustomCommand
+      ? detectShell()
+      : command === 'claude' && process.env.CLAUDE_CLI_PATH
+        ? process.env.CLAUDE_CLI_PATH
+        : command;
 
     // Build a clean environment for the PTY
     // Ensure PATH includes common binary locations

@@ -970,6 +970,18 @@ export const AgentList: React.FC<AgentListProps> = ({
                               {slot.title}
                             </span>
                           )}
+                          {session.copies && session.copies.length > 0 && (
+                            <span
+                              className="shrink-0 leading-4 px-1 rounded border text-[10px] font-medium text-amber-200 border-amber-400/60 bg-amber-400/10"
+                              title={`Second process on this session (same worktree, can overwrite work):\n${session.copies
+                                .map((c) => `${c.id} · ${c.sessionId ?? ''}`)
+                                .join('\n')}`}
+                              data-testid="copy-badge"
+                            >
+                              +{session.copies.length}{' '}
+                              {session.copies.length === 1 ? 'copy' : 'copies'}
+                            </span>
+                          )}
                           {session.pinned && <Pin size={10} className="text-blue-300 shrink-0" />}
                           {isOpen && (
                             <span
