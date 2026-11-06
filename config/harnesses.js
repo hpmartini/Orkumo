@@ -21,7 +21,9 @@ export const HARNESS_PROMPT_SUPPORT = Object.freeze({
 
 export const HARNESS_COMMANDS = Object.freeze(Object.keys(HARNESS_PROMPT_SUPPORT));
 
-export const MAX_HARNESS_PROMPT = 8000;
+// the prompt travels in the ws URL: 1500 chars of 3-byte UTF-8 percent-encode to ~13.5 KB,
+// below Node's 16 KB header limit, so a too-long prompt gets this error instead of a 431
+export const MAX_HARNESS_PROMPT = 1500;
 
 export function isHarnessCommand(command) {
   return Object.hasOwn(HARNESS_PROMPT_SUPPORT, command);
