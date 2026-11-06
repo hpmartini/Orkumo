@@ -722,7 +722,7 @@ export async function rawSessionsJson(options = {}) {
   return result.stdout;
 }
 
-async function findSession(id) {
+export async function findSession(id) {
   const sessions = await listSessions({ all: true });
   return sessions.find((s) => s.id === id) || null;
 }

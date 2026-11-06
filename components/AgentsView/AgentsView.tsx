@@ -118,12 +118,7 @@ import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
 import { promptWithImages } from '../../utils/composer';
-import {
-  groupDirectories,
-  samePath,
-  shortenHome,
-  type DirectoryChoice,
-} from '../../utils/directoryGroups';
+import { DirectoryPicker } from './DirectoryPicker';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -907,32 +902,39 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       const chat = chats.chats.find((c) => c.id === chatId);
       closePane(chatId);
       await stopChatSession(chatId);
+      if (chat?.viewOf) {
+        // A live view has no process of its own: the agent's terminal is the agent itself
+        attach(chat.viewOf);
+        return;
+      }
       openInteractiveClaude(chat?.cwd || homeDir || '', chat?.name || 'claude', [
         '--resume',
         sessionId,
       ]);
     },
-    [chats.chats, closePane, stopChatSession, openInteractiveClaude, homeDir]
+    [chats.chats, closePane, stopChatSession, openInteractiveClaude, homeDir, attach]
   );
 
-  /** "Open as chat": the terminal's claude process ends first, then the Chat pane resumes it */
+  /**
+   * "Open as chat": a running background agent, and any agent mid-turn, opens as a live view of
+   * its own process (chat is just another view). An idle local terminal or a finished job hands
+   * its session to a chat process instead.
+   */
   const openAgentInChat = useCallback(
     async (session: AgentSession, sessionId: string) => {
-      if (session.displayState === 'working' || session.displayState === 'waiting') {
-        showHint('Agent is working: open it as chat once the turn is done', 'info');
-        return;
-      }
-      if (session.kind === 'background') {
-        // Closing the pane only detaches `claude attach`; the job itself has to stop
+      const working = session.displayState === 'working' || session.displayState === 'waiting';
+      const liveJob =
+        session.kind === 'background' &&
+        (session.displayState === 'idle' || session.displayState === 'needs-input');
+      if (working || liveJob) {
         try {
-          await stopAgent(session.id);
+          // A background pane only detaches; a local terminal stays open, it is the agent
+          if (session.kind === 'background') closeAnyPane(session.id);
+          attach(await chats.openView(session.id));
         } catch (err) {
-          // A finished or stopped job may already be gone; only a live one must stop first
-          if (session.displayState === 'idle' || session.displayState === 'needs-input') {
-            showHint(err instanceof Error ? err.message : 'Stop failed', 'error', 6000);
-            return;
-          }
+          showHint(err instanceof Error ? err.message : 'Chat view failed', 'error', 6000);
         }
+        return;
       }
       // For a local terminal, closing the pane kills its PTY (server side, on WebSocket close)
       closeAnyPane(session.id);
@@ -940,7 +942,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       if (session.kind !== 'background') await new Promise((r) => setTimeout(r, 500));
       await openChat(session.cwd, { resume: sessionId, name: session.name || undefined });
     },
-    [showHint, closeAnyPane, openChat]
+    [showHint, closeAnyPane, openChat, chats, attach]
   );
 
   /**
@@ -957,9 +959,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         attach(running.id);
         return true;
       }
-      // needs-input with a waiting process is an open question or permission prompt: keep the terminal
-      const finishedTurn = session.displayState === 'needs-input' && session.status !== 'waiting';
-      if (!CHAT_OPENABLE.has(session.displayState) && !finishedTurn) return false;
+      // An open question or permission prompt is not in the transcript: keep the terminal
+      const prompting =
+        session.displayState === 'waiting' ||
+        (session.displayState === 'needs-input' && session.status === 'waiting');
+      if (prompting) return false;
+      // Mid-turn the chat is a live view of the running agent
+      const viewable = session.displayState === 'working' || session.displayState === 'needs-input';
+      if (!CHAT_OPENABLE.has(session.displayState) && !viewable) return false;
       void openAgentInChat(session, sessionId);
       return true;
     },
@@ -2634,101 +2641,6 @@ const PromptEditor: React.FC<{
             className="px-3 py-1.5 rounded bg-blue-600 hover:bg-blue-500 text-white"
           >
             Use prompt
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-/** Directory picker for the dispatch target, grouped by parent directory (#158) */
-const DirectoryPicker: React.FC<{
-  choices: DirectoryChoice[];
-  current: string | null;
-  home: string | null;
-  onCancel: () => void;
-  onPick: (path: string) => void;
-}> = ({ choices, current, home, onCancel, onPick }) => {
-  const [query, setQuery] = useState('');
-  const [custom, setCustom] = useState(current || '');
-  const groups = useMemo(
-    () => groupDirectories(choices, { home, current, query }),
-    [choices, home, current, query]
-  );
-  const first = groups[0]?.entries[0];
-  return (
-    <div
-      className="fixed inset-0 z-[95] bg-black/60 flex items-start justify-center pt-24 p-4"
-      onClick={onCancel}
-      role="dialog"
-      aria-modal="true"
-    >
-      <div
-        className="w-full max-w-xl bg-gray-900 border border-gray-700 rounded-xl shadow-2xl overflow-hidden"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="px-4 py-3 border-b border-gray-800">
-          <input
-            autoFocus
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') onCancel();
-              if (e.key === 'Enter' && first) onPick(first.path);
-            }}
-            placeholder="Directory for new sessions…"
-            className="w-full bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none"
-          />
-        </div>
-        <div className="max-h-[45vh] overflow-y-auto pb-1">
-          {groups.map((group) => (
-            <div key={group.key} role="group" aria-label={group.label ?? 'Current and home'}>
-              {group.label && (
-                <div
-                  className="px-4 pt-3 pb-1 text-[11px] font-mono text-gray-400 truncate border-t border-gray-800/70"
-                  title={group.label}
-                >
-                  {group.label}
-                </div>
-              )}
-              {group.entries.map((entry) => (
-                <button
-                  key={entry.path}
-                  data-testid="dir-choice"
-                  title={entry.path}
-                  onClick={() => onPick(entry.path)}
-                  className={`w-full text-left px-4 py-1.5 flex items-center gap-3 min-w-0 whitespace-nowrap hover:bg-gray-800 ${entry === first ? 'bg-gray-800/40' : ''} ${samePath(entry.path, current) ? 'text-blue-300' : 'text-gray-100'}`}
-                >
-                  <span className="text-sm truncate min-w-0">{entry.name}</span>
-                  <span className="text-xs text-gray-500 font-mono truncate min-w-0 flex-1 basis-0">
-                    {group.label ? entry.detail : shortenHome(entry.path, home)}
-                  </span>
-                  <span className="shrink-0 text-[10px] text-gray-500">
-                    {entry.sources.join(' · ')}
-                  </span>
-                </button>
-              ))}
-            </div>
-          ))}
-          {groups.length === 0 && (
-            <div className="px-4 py-4 text-sm text-gray-500">No matches.</div>
-          )}
-        </div>
-        <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-800">
-          <input
-            value={custom}
-            onChange={(e) => setCustom(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && custom.trim()) onPick(custom.trim());
-            }}
-            placeholder="/absolute/path"
-            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono text-gray-100 outline-none focus:border-blue-500"
-          />
-          <button
-            onClick={() => custom.trim() && onPick(custom.trim())}
-            className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs"
-          >
-            Use path
           </button>
         </div>
       </div>

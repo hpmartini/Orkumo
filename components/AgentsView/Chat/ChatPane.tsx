@@ -29,7 +29,7 @@ import { ChatMessageView } from './ChatMessages';
 import { ChatComposer } from './ChatComposer';
 import { ChatActivity } from './ChatActivity';
 import { ChatStatusLine } from './ChatStatusLine';
-import { splitImages } from '../../../utils/chatComposer';
+import { splitAtBuiltin, splitImages } from '../../../utils/chatComposer';
 
 type Action = { type: 'reset' } | { type: 'event'; event: unknown };
 const reducer = (state: ChatState, action: Action): ChatState =>
@@ -161,7 +161,10 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     setError(null);
     try {
       const paths = await Promise.all(images.map(uploadAgentImage));
-      await sendChatMessage(session.id, promptWithImages(text, paths));
+      const builtins = new Set(state.commands.filter((c) => c.builtin).map((c) => c.name));
+      const [first, ...rest] = splitAtBuiltin(text, builtins);
+      await sendChatMessage(session.id, promptWithImages(first, paths));
+      for (const turn of rest) await sendChatMessage(session.id, turn);
       setText('');
       setImages([]);
       stickToBottom.current = true;
@@ -175,7 +178,17 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
 
   const stopTurn = () => interruptChat(session.id).catch((e: Error) => setError(e.message));
 
-  const status = ended ? 'ended' : waiting ? 'needs permission' : state.busy ? 'working…' : 'ready';
+  const live = Boolean(session.viewOf);
+  const status = ended
+    ? 'ended'
+    : waiting
+      ? 'needs permission'
+      : state.busy
+        ? 'working…'
+        : live
+          ? 'live view'
+          : 'ready';
+  const resumeId = state.sessionId ?? session.sessionId;
 
   return (
     <div
@@ -237,11 +250,15 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         )}
         <button
           type="button"
-          disabled={!state.sessionId}
-          onClick={() => state.sessionId && onOpenInTerminal(state.sessionId)}
+          disabled={!resumeId}
+          onClick={() => resumeId && onOpenInTerminal(resumeId)}
           onMouseDown={keepFocus}
           className={iconBtn}
-          title="Open in terminal: ends the chat and resumes the session with claude --resume"
+          title={
+            live
+              ? "Open the agent's terminal (the live view closes, the agent keeps running)"
+              : 'Open in terminal: ends the chat and resumes the session with claude --resume'
+          }
           aria-label="Open in terminal"
         >
           <SquareTerminal size={14} />
@@ -263,7 +280,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           onClick={onClose}
           onMouseDown={keepFocus}
           className={iconBtn}
-          title="End chat and close"
+          title={live ? 'Close the live view (the agent keeps running)' : 'End chat and close'}
           aria-label="End chat and close"
         >
           <X size={14} />

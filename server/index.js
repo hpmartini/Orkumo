@@ -1282,6 +1282,29 @@ const chatStartSchema = z.object({
   name: z.string().max(80).optional().nullable(),
 });
 
+/** Live chat view of a running agent (no second process); the agent is looked up server-side */
+app.post(
+  '/api/agents/chat/view',
+  agentLimiter,
+  validate(z.object({ agentId: z.string().regex(agentService.SHORT_ID_RE) })),
+  async (req, res) => {
+    try {
+      const agent = await agentService.findSession(req.body.agentId);
+      if (!agent) return res.status(404).json({ error: 'Agent not found' });
+      res.status(201).json(
+        chatService.viewAgent({
+          agentId: agent.id,
+          sessionId: agent.sessionId,
+          cwd: agent.cwd,
+          name: agent.name,
+        })
+      );
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
 app.get('/api/agents/chat', (req, res) => {
   res.json({ chats: chatService.listChats() });
 });
@@ -1324,9 +1347,9 @@ app.get('/api/agents/chat/:chatId/stream', validateParams(chatIdSchema), (req, r
   req.on('error', cleanup);
 });
 
-const chatAction = (fn) => (req, res) => {
+const chatAction = (fn) => async (req, res) => {
   try {
-    fn(req);
+    await fn(req);
     res.json(chatService.chatSummary(req.params.chatId));
   } catch (error) {
     sendAgentError(res, error);

@@ -195,3 +195,18 @@ export function splitImages(text: string): { text: string; images: string[] } {
     .join('\n');
   return { text: rest.trim(), images };
 }
+
+/**
+ * The CLI runs a built-in command (`/compact`, `/model` …) only as the first word of a message.
+ * "erst das, dann /compact" becomes two turns: the text before, then the command with its rest.
+ * Skills and agents stay inline: the model calls them from anywhere in the text.
+ */
+export function splitAtBuiltin(text: string, builtins: ReadonlySet<string>): string[] {
+  for (const m of text.matchAll(/(^|\s)\/([\w:.-]+)/g)) {
+    const at = m.index! + m[1].length;
+    if (at === 0 || !builtins.has(m[2])) continue;
+    const before = text.slice(0, at).trim();
+    return before ? [before, text.slice(at)] : [text];
+  }
+  return [text];
+}
