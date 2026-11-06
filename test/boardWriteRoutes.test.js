@@ -24,10 +24,10 @@ describe('board write routes (#88)', { timeout: 30_000 }, () => {
   let dataDir;
   let ghLog;
 
-  const call = async (method, url, body) => {
+  const call = async (method, url, body, headers = {}) => {
     const res = await fetch(base + url, {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...headers },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
     return { status: res.status, body: await res.json().catch(() => null) };
@@ -153,8 +153,17 @@ describe('board write routes (#88)', { timeout: 30_000 }, () => {
         title: 'x',
         issueId: 'I_foreign',
       }),
+      // a remote client (behind tailscale serve) gets the same answer
+      await call(
+        'POST',
+        '/api/board/issues',
+        { repo: 'o/foreign', title: 'x' },
+        {
+          'X-Forwarded-For': '100.64.0.9',
+        }
+      ),
     ];
-    expect(refused.map((r) => r.status)).toEqual([403, 403, 403, 403, 403, 403, 403]);
+    expect(refused.map((r) => r.status)).toEqual([403, 403, 403, 403, 403, 403, 403, 403]);
     const mutations = ghCalls().filter((a) => a.some((x) => x.startsWith('query=mutation')));
     expect(mutations).toEqual([]);
   });
