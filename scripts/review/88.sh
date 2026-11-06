@@ -45,7 +45,7 @@ if [ "$LIVE" = "--live" ]; then
   echo "== AC-4 cold-cache create in hpmartini/Orkumo (server just started, board not loaded)"
   OUT=$(j -X POST "$BASE/api/board/issues" -d '{"repo":"hpmartini/Orkumo","title":"[test #88] cold-cache create","body":"Test from scripts/review/88.sh, closed right away.","labels":[]}')
   echo "$OUT" | tail -1
-  echo "$OUT" | tail -1 | grep -q 'HTTP 201' || { echo "$OUT" | head -1; exit 1; }
+  echo "$OUT" | tail -1 | grep -q 'HTTP 201' || { echo "$OUT" | head -1; tail -20 "$TMP/server.log"; exit 1; }
   ITEM=$(echo "$OUT" | head -1 | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const j=JSON.parse(s);console.log(j.itemId+" "+j.number)})')
   read -r ITEM_ID NUMBER <<<"$ITEM"
   echo "created #$NUMBER ($ITEM_ID)"
