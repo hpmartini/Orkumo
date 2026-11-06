@@ -672,6 +672,39 @@ export function applyLinkFilter(
   );
 }
 
+/**
+ * Rail text search (#198): every whitespace-separated word must occur (case-insensitive) in the
+ * session's name, directory, agent, branch, or the number / title of a linked PR or issue.
+ */
+export function applyTextQuery(
+  sessions: AgentSession[],
+  query: string,
+  issuesByAgent?: Map<string, string[]>,
+  lookup?: SessionLookup,
+  issueTitles?: Map<string, string>
+): AgentSession[] {
+  const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return sessions;
+  return sessions.filter((s) => {
+    const issues = sessionLinkKeys(s, issuesByAgent?.get(s.id), lookup)
+      .filter((k) => k.startsWith('issue:'))
+      .map((k) => k.slice(6));
+    const text = [
+      s.name,
+      s.cwd,
+      s.worktree,
+      s.agent,
+      lookup?.contexts?.[s.id]?.repo?.branch,
+      ...s.links.flatMap((l) => [l.number ? `#${l.number}` : '', l.title]),
+      ...issues.flatMap((k) => [k, issueTitles?.get(k)]),
+    ]
+      .filter(Boolean)
+      .join('\n')
+      .toLowerCase();
+    return words.every((w) => text.includes(w));
+  });
+}
+
 const isUnder = (parent: string, child: string) =>
   child === parent || child.startsWith(parent.replace(/\/+$/, '') + '/');
 

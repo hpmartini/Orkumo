@@ -66,6 +66,7 @@ import {
   railItems,
   documentTitle,
   applyQuickFilters,
+  applyTextQuery,
   applyLinkFilter,
   collectLinkEntries,
   sessionsInContext,
@@ -398,7 +399,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       return next;
     });
   }, []);
-  const filterActive = quickFilters.size > 0 || linkFilter.size > 0;
+  const [textQuery, setTextQuery] = useState('');
+  const filterActive = quickFilters.size > 0 || linkFilter.size > 0 || !!textQuery.trim();
   const contextSessions = useMemo(
     () => sessionsInContext(visibleSessions, apps, contextAppIds, lookup),
     [visibleSessions, apps, contextAppIds, lookup]
@@ -413,12 +415,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
   const shownSessions = useMemo(
     () =>
-      applyQuickFilters(
-        applyLinkFilter(contextSessions, linkFilter, issuesByAgent, lookup),
-        quickFilters,
-        lookup
+      applyTextQuery(
+        applyQuickFilters(
+          applyLinkFilter(contextSessions, linkFilter, issuesByAgent, lookup),
+          quickFilters,
+          lookup
+        ),
+        textQuery,
+        issuesByAgent,
+        lookup,
+        issueTitles
       ),
-    [contextSessions, linkFilter, issuesByAgent, quickFilters, lookup]
+    [contextSessions, linkFilter, issuesByAgent, quickFilters, lookup, textQuery, issueTitles]
   );
   const chipCounts = useMemo(() => {
     const result = {} as Record<AgentQuickFilter, number>;
@@ -1874,6 +1882,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         cmd('filter.clear', 'Clear all filters', 'Rail', () => {
           setQuickFilters(new Set());
           setLinkFilter(new Set());
+          setTextQuery('');
           setInput('');
         })
       );
@@ -2214,11 +2223,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             onClear={() => {
               setQuickFilters(new Set());
               setLinkFilter(new Set());
+              setTextQuery('');
               if (filter) setInput('');
             }}
             linkEntries={linkEntries}
             linkSelected={linkFilter}
             onToggleLink={toggleLinkFilter}
+            query={textQuery}
+            onQuery={setTextQuery}
           />
           {loading && sessions.length === 0 ? (
             <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
