@@ -132,7 +132,8 @@ file: `PTY_HOST_EXEC_RULES`, default `~/.config/orkumo/exec-rules.json`. Missing
 [{ "command": "my-tool", "args": ["start", "{issue}", "--json"] }]
 ```
 
-Same placeholders and checks as above; every other argument must match exactly. The provider's
+Same placeholders and checks as above (`{issue}` only as a whole argument, `{uid}` anywhere); every
+other argument must match exactly. The provider's
 documentation ships the rules its `commands` need.
 
 ## HTTP API

@@ -79,6 +79,11 @@ describe('validateProvider', () => {
     ['annotate missing', { ...ok, annotate: undefined }, /annotate/],
     ['unknown placeholder', { ...ok, commands: { go: ['t', '{cmd}'] } }, /unknown placeholder/],
     ['placeholder as command', { ...ok, commands: { go: ['{issue}'] } }, /command itself/],
+    [
+      '{issue} inside an argument',
+      { ...ok, commands: { go: ['t', '--issue={issue}'] } },
+      /whole argument/,
+    ],
     ['non-string argv', { ...ok, commands: { go: ['t', 1] } }, /string array/],
     ['bad sessionName', { ...ok, sessionName: '(' }, /Invalid regular expression|Unterminated/],
   ])('refuses %s', (_l, wf, err) => {

@@ -60,6 +60,9 @@ export function validateProvider(wf) {
       for (const [, p] of a.matchAll(PLACEHOLDER)) {
         if (!ALLOWED_PLACEHOLDERS.has(p)) fail(`commands.${name}: unknown placeholder {${p}}`);
       }
+      // pty-host matches the URL only as a whole argument (pty-host/execPolicy.js)
+      if (a.includes('{issue}') && a !== '{issue}')
+        fail(`commands.${name}: {issue} must be a whole argument`);
     }
     if (PLACEHOLDER.test(argv[0]))
       fail(`commands.${name}: the command itself takes no placeholder`);
@@ -108,7 +111,7 @@ function checkAnnotation(a) {
 export function annotateItem(item, comments, statusName) {
   if (!provider || item.type !== 'Issue') return null;
   try {
-    const plain = { ...item, comments };
+    const plain = structuredClone({ ...item, comments }); // provider cannot touch the cached item
     delete plain.workflow;
     return checkAnnotation(provider.annotate(plain, statusName ?? null));
   } catch (error) {
