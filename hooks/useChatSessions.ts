@@ -3,6 +3,7 @@ import type { AgentSession } from '../types';
 import {
   fetchChats,
   startChat,
+  viewAgentAsChat,
   stopChat,
   sendChatMessage,
   type ChatStartRequest,
@@ -15,6 +16,7 @@ const toSession = (c: ChatSummary): AgentSession => ({
   sessionId: c.sessionId,
   kind: 'interactive',
   chat: true,
+  viewOf: c.view ?? null,
   cwd: c.cwd,
   startedAt: c.startedAt,
   name: c.name,
@@ -54,6 +56,15 @@ export function useChatSessions() {
     return summary.id;
   }, []);
 
+  /** Opens (or reuses) the live chat view of an agent; returns the pane id */
+  const openView = useCallback(async (agentId: string) => {
+    const summary = await viewAgentAsChat(agentId);
+    setChats((prev) =>
+      prev.some((c) => c.id === summary.id) ? prev : [...prev, toSession(summary)]
+    );
+    return summary.id;
+  }, []);
+
   const isChat = useCallback((id: string) => chats.some((c) => c.id === id), [chats]);
 
   /** Ends the chat process (pane closed, tab closed, handed to the terminal) */
@@ -62,5 +73,5 @@ export function useChatSessions() {
     return stopChat(id).catch(() => ({ stopped: false }));
   }, []);
 
-  return { chats, loaded, open, isChat, stop };
+  return { chats, loaded, open, openView, isChat, stop };
 }

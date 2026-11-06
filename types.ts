@@ -252,6 +252,8 @@ export interface AgentSession {
   ptyArgs?: string[];
   /** Chat session (#189): rendered by the Chat pane, id is the server chat id */
   chat?: boolean;
+  /** Chat pane that is a live view of this agent id (no own process) */
+  viewOf?: string | null;
   /** PTY command for ptyArgs (default `claude`; `ssh` for remote attach; another harness, #195) */
   ptyCommand?: AgentHarness | 'ssh';
   /** Tailscale device the session runs on (remote sessions only) */

@@ -7,6 +7,7 @@ import {
   endKey,
   homeKey,
   indentList,
+  splitAtBuiltin,
   splitImages,
   suggestionQuery,
 } from '../utils/chatComposer';
@@ -118,5 +119,20 @@ describe('splitImages', () => {
       text: 'look',
       images: ['/d/agent-images/a.png'],
     });
+  });
+});
+
+describe('splitAtBuiltin', () => {
+  const builtins = new Set(['compact', 'model']);
+  it('sends the text first, then the built-in command with its rest', () => {
+    expect(splitAtBuiltin('erst das, dann /compact kurz', builtins)).toEqual([
+      'erst das, dann',
+      '/compact kurz',
+    ]);
+  });
+  it('leaves commands at the start, skills and paths alone', () => {
+    expect(splitAtBuiltin('/compact jetzt', builtins)).toEqual(['/compact jetzt']);
+    expect(splitAtBuiltin('mach /review bitte', builtins)).toEqual(['mach /review bitte']);
+    expect(splitAtBuiltin('see a/compact', builtins)).toEqual(['see a/compact']);
   });
 });

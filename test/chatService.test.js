@@ -19,6 +19,7 @@ const {
   listChats,
   historyEvents,
   loadHistory,
+  viewAgent,
 } = await import('../server/services/chatService.js');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-test-'));
@@ -313,5 +314,54 @@ describe('history of a resumed chat', () => {
     fs.writeFileSync(path.join(projects, '-elsewhere', `${SID}.jsonl`), lines.join('\n'));
     expect(loadHistory(SID, '/some/worktree', projects)).toHaveLength(3);
     expect(loadHistory('11111111-1111-4111-8111-111111111111', '/x', projects)).toEqual([]);
+  });
+});
+
+describe('viewAgent (live chat view of a running agent)', () => {
+  const VID = '22222222-2222-4222-8222-222222222222';
+  const user = (text) => JSON.stringify({ type: 'user', message: { role: 'user', content: text } });
+
+  it('tails the transcript, sends via attach only, never stops the agent', async () => {
+    const projects = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-view-'));
+    const dir = path.join(projects, '-work');
+    fs.mkdirSync(dir);
+    const file = path.join(dir, `${VID}.jsonl`);
+    fs.writeFileSync(file, `${user('first')}\n`);
+    const reply = vi.fn().mockResolvedValue({ delivered: true });
+    const s = viewAgent(
+      { agentId: 'job1', sessionId: VID, cwd: '/work', name: 'job' },
+      {
+        projectsDir: projects,
+        pollMs: 20,
+        reply,
+        listCommands: async () => [],
+        listAgents: async () => [],
+      }
+    );
+    expect(s.view).toBe('job1');
+    // a second open reuses the same view
+    expect(
+      viewAgent({ agentId: 'job1', sessionId: VID, cwd: '/work' }, { projectsDir: projects }).id
+    ).toBe(s.id);
+
+    const seen = [];
+    const off = watchChat(s.id, (e) => seen.push(e));
+    const third = user('partial');
+    fs.appendFileSync(file, `${user('second')}\n${third.slice(0, 10)}`);
+    await new Promise((r) => setTimeout(r, 80));
+    fs.appendFileSync(file, `${third.slice(10)}\n`);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(seen.filter((e) => e.type === 'devorbit_user').map((e) => e.text)).toEqual([
+      'first',
+      'second',
+      'partial',
+    ]);
+
+    await sendMessage(s.id, 'go on');
+    expect(reply).toHaveBeenCalledWith('job1', 'go on', { mode: 'attach' });
+    expect(() => interruptChat(s.id)).toThrow(/Live view/);
+    off();
+    expect(stopChat(s.id)).toBe(true);
+    expect(listChats().some((c) => c.id === s.id)).toBe(false);
   });
 });

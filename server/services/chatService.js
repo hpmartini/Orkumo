@@ -19,6 +19,9 @@ import {
   getAllowedDirectories,
   isUnsafeFlagsAllowed,
   resolveClaudeBinary,
+  replySession,
+  listSlashCommands,
+  listSubagents,
 } from './agentService.js';
 
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'manual', 'dontAsk', 'plan'];
@@ -232,6 +235,7 @@ function summary(s) {
     running: s.running,
     startedAt: s.startedAt,
     pendingPermissions: s.pending.size,
+    view: s.view ?? null,
   };
 }
 
@@ -253,6 +257,7 @@ function record(s, event) {
 }
 
 function write(s, obj) {
+  if (s.view) throw badRequest('Live view: the agent runs in its own process, use its terminal');
   if (!s.running || !s.proc.stdin.writable) throw badRequest('Chat session is not running');
   s.proc.stdin.write(`${JSON.stringify(obj)}\n`);
 }
@@ -387,6 +392,91 @@ export function startChat(opts, context = {}) {
   return summary(s);
 }
 
+/** How often a live view looks for new transcript lines */
+const VIEW_POLL_MS = 1000;
+
+/**
+ * Live chat view of an agent that runs in its own process (terminal or `claude --bg`): tails
+ * the session transcript instead of spawning a second claude, so it works mid-turn and never
+ * stops the agent. Messages go to the agent through `claude attach` (replySession).
+ * @param {{ agentId: string, sessionId: string, cwd: string, name?: string }} agent
+ */
+export function viewAgent(agent, context = {}) {
+  if (!UUID_RE.test(agent.sessionId || '')) throw badRequest('Agent has no session id yet');
+  for (const existing of sessions.values())
+    if (existing.view === agent.agentId && existing.running) return summary(existing);
+  const s = {
+    id: crypto.randomUUID(),
+    view: agent.agentId,
+    cwd: agent.cwd,
+    name: agent.name || agent.cwd.split('/').pop() || 'agent',
+    sessionId: agent.sessionId,
+    model: null,
+    busy: false,
+    running: true,
+    startedAt: Date.now(),
+    events: [],
+    pending: new Map(),
+    watchers: 0,
+    orphanTimer: null,
+    reply: context.reply ?? replySession,
+  };
+  sessions.set(s.id, s);
+  const projectsDir = context.projectsDir;
+  let file = null;
+  let offset = 0;
+  let rest = '';
+  const tick = () => {
+    file ??= findTranscript(s.sessionId, s.cwd, projectsDir);
+    if (!file) return;
+    let size;
+    try {
+      size = fs.statSync(file).size;
+    } catch {
+      return;
+    }
+    if (offset === 0 && size > HISTORY_BYTES) offset = size - HISTORY_BYTES;
+    if (size < offset) offset = 0; // rewritten
+    if (size === offset) return;
+    const buffer = Buffer.alloc(size - offset);
+    const fd = fs.openSync(file, 'r');
+    try {
+      fs.readSync(fd, buffer, 0, buffer.length, offset);
+    } finally {
+      fs.closeSync(fd);
+    }
+    const first = offset > 0 && s.events.length === 0;
+    offset = size;
+    const lines = (rest + buffer.toString('utf8')).split('\n');
+    rest = lines.pop() ?? '';
+    if (first) lines.shift(); // started mid-file: partial first line
+    for (const event of historyEvents(lines)) record(s, event);
+  };
+  tick();
+  s.timer = setInterval(tick, context.pollMs ?? VIEW_POLL_MS);
+  // The `/` and `@` picker: the agent's skills and subagents (its own init answer is not ours)
+  Promise.all([
+    (context.listCommands ?? listSlashCommands)(s.cwd),
+    (context.listAgents ?? listSubagents)(s.cwd),
+  ])
+    .then(([commands, agents]) =>
+      record(
+        s,
+        commandsEvent(
+          commands.filter((c) => c.source !== 'builtin'),
+          agents
+        )
+      )
+    )
+    .catch(() => {
+      // no picker entries; typing still works
+    });
+  s.timer.unref?.();
+  armOrphanTimer(s);
+  chatEvents.emit('change', listChats());
+  return summary(s);
+}
+
 function armOrphanTimer(s) {
   clearTimeout(s.orphanTimer);
   if (s.running && s.watchers === 0) {
@@ -413,6 +503,11 @@ export function listChats() {
 export function sendMessage(id, text) {
   const s = get(id);
   if (typeof text !== 'string' || !text.trim()) throw badRequest('Message is empty');
+  if (s.view) {
+    // attach only: a --resume fallback would start a second process on the same session
+    // The agent's transcript brings the message back into the view
+    return s.reply(s.view, text, { mode: 'attach' }).then(() => undefined);
+  }
   write(s, { type: 'user', message: { role: 'user', content: text } });
   s.busy = true;
   record(s, { type: 'devorbit_user', text });
@@ -459,7 +554,10 @@ export function stopChat(id) {
   const s = sessions.get(id);
   if (!s) return false;
   sessions.delete(id);
-  if (s.running) {
+  if (s.view) {
+    clearInterval(s.timer);
+    s.running = false;
+  } else if (s.running) {
     try {
       s.proc.stdin.end();
       s.proc.kill('SIGTERM');
@@ -479,6 +577,7 @@ export function stopChat(id) {
 export async function stopChatAndWait(id, timeoutMs = 4000) {
   const s = sessions.get(id);
   if (!stopChat(id)) return false;
+  if (s.view) return true;
   await Promise.race([s.exited, new Promise((r) => setTimeout(r, timeoutMs).unref?.())]);
   return true;
 }

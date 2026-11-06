@@ -328,6 +328,8 @@ export interface ChatSummary {
   running: boolean;
   startedAt: number;
   pendingPermissions: number;
+  /** Agent id when this chat is a live view of an agent running in its own process */
+  view?: string | null;
 }
 
 export interface ChatStartRequest {
@@ -342,6 +344,10 @@ export interface ChatStartRequest {
 
 export const fetchChats = () =>
   request<{ chats: ChatSummary[] }>('/agents/chat').then((d) => d.chats);
+
+/** Live chat view of a running agent: no second process, works mid-turn */
+export const viewAgentAsChat = (agentId: string) =>
+  request<ChatSummary>('/agents/chat/view', { method: 'POST', body: JSON.stringify({ agentId }) });
 
 export const startChat = (body: ChatStartRequest) =>
   request<ChatSummary>('/agents/chat', { method: 'POST', body: JSON.stringify(body) });
