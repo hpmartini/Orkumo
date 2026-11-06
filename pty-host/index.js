@@ -18,14 +18,15 @@ import os from 'os';
 import fs from 'fs';
 import crypto from 'crypto';
 import { isAllowedExec } from './execPolicy.js';
+import { HARNESS_COMMANDS, harnessArgsError } from '../config/harnesses.js';
 
 const PORT = process.env.PTY_HOST_PORT || 3096;
 const HTTP_PORT = process.env.PTY_HOST_HTTP_PORT || 3097;
 const HTTP_TOKEN = process.env.PTY_HOST_HTTP_TOKEN || '';
 // Loopback only: Docker Desktop reaches it via host.docker.internal. Widen deliberately, never by default.
 const BIND_HOST = process.env.PTY_HOST_BIND || '127.0.0.1';
-// The API only ever delegates the Claude CLI; anything else must not run through this host.
-const ALLOWED_COMMANDS = new Set(['claude']);
+// The API only delegates the Claude CLI and the agent harnesses (#195); nothing else runs here.
+const ALLOWED_COMMANDS = new Set(['claude', ...HARNESS_COMMANDS]);
 
 function tokenMatches(provided) {
   if (typeof provided !== 'string') return false;
@@ -87,6 +88,13 @@ wss.on('connection', (ws, req) => {
     } catch {
       // ignore malformed args, fall back to default shell
     }
+  }
+
+  // Same argument policy as the API, in case anything else reaches this socket
+  if (HARNESS_COMMANDS.includes(customCommand) && harnessArgsError(customCommand, customArgs)) {
+    console.warn(`[PTY-Host] Rejected harness args for ${customCommand}`);
+    ws.close(1008, 'Forbidden');
+    return;
   }
 
   console.log(

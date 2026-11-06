@@ -248,8 +248,8 @@ export interface AgentSession {
   ptyArgs?: string[];
   /** Chat session (#189): rendered by the Chat pane, id is the server chat id */
   chat?: boolean;
-  /** PTY command for ptyArgs (default `claude`; `ssh` for remote attach) */
-  ptyCommand?: 'claude' | 'ssh';
+  /** PTY command for ptyArgs (default `claude`; `ssh` for remote attach; another harness, #195) */
+  ptyCommand?: AgentHarness | 'ssh';
   /** Tailscale device the session runs on (remote sessions only) */
   host?: string;
   cwd: string;
@@ -337,6 +337,9 @@ export interface AgentCapabilities {
 export type AgentGrouping = 'state' | 'directory' | 'project' | 'none';
 export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
 /** When a session card shows its details (issues, PRs, servers, sub-agents) */
+/** CLI an agent runs with (#195); everything from `claude agents` / chats is `claude` */
+export type AgentHarness = 'claude' | 'omp' | 'opencode' | 'codex' | 'pi';
+
 export type AgentCardDetails = 'hover' | 'click' | 'always';
 export type AgentCardDensity = 'comfortable' | 'compact';
 /** Detail elements of an agent card (#159); each sits in one AgentCardSlot */
@@ -350,12 +353,15 @@ export type AgentCardElement =
   | 'status'
   | 'links'
   | 'servers'
-  | 'subagents';
+  | 'subagents'
+  | 'harness';
 /** left = column under the status glyph, title = after the name, row2-4 = lines below it */
 export type AgentCardSlot = 'left' | 'title' | 'row2' | 'row3' | 'row4' | 'details' | 'hidden';
 export type AgentCardFields = Record<AgentCardElement, AgentCardSlot>;
 
 export interface AgentDispatchDefaults {
+  /** Harness preselected when creating an agent (#195) */
+  harness: AgentHarness;
   model: string | null;
   effort: string | null;
   permissionMode: string | null;
@@ -465,6 +471,7 @@ export interface AgentNotification {
 }
 
 export const DEFAULT_AGENT_DISPATCH_DEFAULTS: AgentDispatchDefaults = {
+  harness: 'claude',
   model: null,
   effort: null,
   permissionMode: null,
@@ -491,6 +498,7 @@ export const DEFAULT_AGENT_CARD_FIELDS: AgentCardFields = {
   links: 'details',
   servers: 'details',
   subagents: 'details',
+  harness: 'title',
 };
 
 export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {

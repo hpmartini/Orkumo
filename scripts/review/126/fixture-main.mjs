@@ -1,6 +1,7 @@
 // Minimal Electron app for the #126 update e2e: wires electron/updater.js exactly like electron/main.js,
 // but answers dialogs automatically and writes every step to $ORKUMO_E2E_LOG.
-import { app, dialog, shell } from 'electron';
+import { app } from 'electron';
+import { setImmediate } from 'node:timers';
 import electronUpdater from 'electron-updater';
 import fs from 'node:fs';
 import {

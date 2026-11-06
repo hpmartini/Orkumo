@@ -51,10 +51,12 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
     links: 'details',
     servers: 'details',
     subagents: 'details',
+    harness: 'title',
   },
   disabled: false, // Mirrors the CLI `disableAgentView` setting
   chatSubmitKey: 'mod+enter', // 'enter' | 'mod+enter': key that sends a chat message (#189)
   dispatch: {
+    harness: 'claude', // default harness of new agents (#195)
     model: null,
     effort: null,
     permissionMode: null,

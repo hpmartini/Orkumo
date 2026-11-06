@@ -59,6 +59,12 @@ import {
   parsePids,
 } from './services/processStatsService.js';
 import { PORTS, TERMINAL, RATE_LIMIT, TIMEOUTS } from '../config/defaults.js';
+import {
+  HARNESS_COMMANDS,
+  isHarnessCommand,
+  harnessArgsError,
+  resolveHarnessBinary,
+} from '../config/harnesses.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -1476,6 +1482,16 @@ app.put(
   }
 );
 
+/** Agent harnesses (#195) and whether their binary is installed; null = unknown (Docker, host-side) */
+app.get('/api/agents/harnesses', (req, res) => {
+  res.json(
+    HARNESS_COMMANDS.map((id) => ({
+      id,
+      installed: isRunningInDocker ? null : Boolean(resolveHarnessBinary(id)),
+    }))
+  );
+});
+
 app.get('/api/agents/daemon', async (req, res) => {
   try {
     res.json(await agentService.daemonStatus());
@@ -2369,9 +2385,42 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
-  let args = [];
+  // Harness agents (#195): fixed argument shapes, a project directory as cwd, installed binary
+  let spawnCommand = command;
+  let harnessArgs = null;
+  if (isHarnessCommand(command)) {
+    const reject = (message) => {
+      console.error(`[PTY] Rejected harness ${command}: ${message}`);
+      ws.send(JSON.stringify({ type: 'error', message }));
+      ws.close();
+    };
+    try {
+      harnessArgs = JSON.parse(url.searchParams.get('args') || '[]');
+    } catch {
+      return reject('Failed to parse args');
+    }
+    const argsError = harnessArgsError(command, harnessArgs);
+    if (argsError) return reject(argsError);
+    try {
+      cwd = agentService.assertAllowedPath(
+        cwdParam,
+        agentService.getAllowedDirectories(),
+        'Working directory'
+      );
+    } catch (error) {
+      return reject(error.message);
+    }
+    // shortcut: in Docker the binary lives on the host, pty-host resolves it there
+    if (!isRunningInDocker) {
+      spawnCommand = resolveHarnessBinary(command);
+      if (!spawnCommand) return reject(`${command} is not installed on this machine`);
+    }
+  }
+
+  let args = harnessArgs ?? [];
   const argsParam = url.searchParams.get('args');
-  if (argsParam) {
+  // harness args are already parsed above; a second decodeURIComponent would mangle a `%` prompt
+  if (argsParam && !harnessArgs) {
     try {
       const parsedArgs = JSON.parse(decodeURIComponent(argsParam));
       // Validate that args is an array of strings
@@ -2446,7 +2495,7 @@ wss.on('connection', (ws, req) => {
   }
 
   const startPty = () => {
-    const options = command ? { command, args } : {};
+    const options = command ? { command: spawnCommand, args } : {};
 
     console.log(
       `[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`

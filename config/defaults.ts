@@ -75,7 +75,7 @@ export const TERMINAL = {
   defaultRows: 24,
 
   /** Whitelist of allowed custom commands */
-  allowedCommands: ['claude'] as readonly string[],
+  allowedCommands: ['claude', 'omp', 'opencode', 'codex', 'pi'] as readonly string[],
 
   /** Maximum number of arguments to prevent DoS */
   maxArgsLength: 50,

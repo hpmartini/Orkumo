@@ -65,7 +65,7 @@ export function buildAttachUrl(
   cols: number,
   rows: number,
   cliArgs: string[] = ['attach', sessionId],
-  command: 'claude' | 'ssh' = 'claude'
+  command: NonNullable<AgentSession['ptyCommand']> = 'claude'
 ): string {
   const ptySession = `agent-${sessionId}-${Date.now()}`;
   const args = encodeURIComponent(JSON.stringify(cliArgs));
@@ -362,7 +362,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           showLabel: true,
         },
     // Ghostty attaches locally only: a remote (ssh) pane has no local session to open
-    ...(session.ptyCommand === 'ssh'
+    // …and only Claude Code sessions: other harnesses (#195) have no `claude attach` counterpart
+    ...(session.ptyCommand && session.ptyCommand !== 'claude'
       ? []
       : [
           {
