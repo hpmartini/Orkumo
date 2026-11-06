@@ -108,7 +108,23 @@ When running in development mode (`bun run electron:dev`):
 
 ### Updates
 
-The app has no auto-updater (removed in #125). Install a new version from the [Releases](https://github.com/hpmartini/Orkumo/releases) page. What a working auto-updater would need is tracked in #126.
+Five seconds after start the app checks [GitHub Releases](https://github.com/hpmartini/Orkumo/releases) (`electron/updater.js`, #126). What happens next depends on the installation:
+
+| Installation                                                                            | Behaviour                                               |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Linux AppImage                                                                          | asks, downloads, installs on restart                    |
+| macOS, signed with a Developer ID                                                       | asks, downloads, installs on restart (Squirrel.Mac)     |
+| macOS ad-hoc signed (CI without Apple secrets), `.deb`/`.rpm`, `electron-builder --dir` | only reports the new version and opens its release page |
+
+A failed background check is only logged, never shown. An rc installation is offered newer rcs and the final release of the same or a later version.
+
+**Tag schema:** `vX.Y.Z` or `vX.Y.Z-rc.N` (e.g. `v1.0.0-rc.8`). electron-updater treats the first prerelease part as channel, so `v1.0.0-rc7` would be its own channel `rc7` and never receive an update; the release workflow rejects other tags. Publish `-rc.N` releases with "Set as a pre-release" and final ones without it (the workflow checks this): rc installs find the final release via `/releases/latest`, which only skips flagged prereleases.
+
+**Release assets:** besides the installers the workflow uploads `latest*.yml`/`rc*.yml` and `*.blockmap` (`scripts/release/release-assets.sh`); the `merge-mac-yml` job merges the arm64 and x64 `*-mac.yml` into one file.
+
+**macOS signing:** with the repository secrets `CSC_LINK` (base64 .p12 of the Developer ID Application certificate), `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` the workflow signs with hardened runtime and notarizes (`electron/notarize.js`); without them it builds ad-hoc as before and macOS apps fall back to the notice.
+
+`ORKUMO_DISABLE_UPDATES=1` turns the check off. `ORKUMO_UPDATE_FEED=http://host:port` points it at a fake GitHub (e2e tests in `scripts/review/126/`).
 
 ## Architecture
 
