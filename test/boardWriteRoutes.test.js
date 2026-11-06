@@ -128,8 +128,14 @@ describe('board write routes (#88)', { timeout: 30_000 }, () => {
       await call('PUT', '/api/board/issues/I_foreign/labels', { labels: [] }),
       await call('POST', '/api/board/issues/I_foreign/comments', { body: 'hi' }),
       await call('POST', '/api/board/images?repo=o/foreign', {}),
+      // resuming a create must not put a foreign issue on the board via an allowed repo
+      await call('POST', '/api/board/issues', {
+        repo: 'o/onboard',
+        title: 'x',
+        issueId: 'I_foreign',
+      }),
     ];
-    expect(refused.map((r) => r.status)).toEqual([403, 403, 403, 403, 403, 403]);
+    expect(refused.map((r) => r.status)).toEqual([403, 403, 403, 403, 403, 403, 403]);
     const mutations = ghCalls().filter((a) => a.some((x) => x.startsWith('query=mutation')));
     expect(mutations).toEqual([]);
   });

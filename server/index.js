@@ -1899,7 +1899,11 @@ app.put(
 app.post('/api/board/issues', agentLimiter, validate(createIssueSchema), async (req, res) => {
   try {
     const { source } = settingsService.getBoardSettings();
-    const allowed = assertWritableRepo(req.body.repo);
+    // A resumed create (issueId) puts that issue on the board, so its own repo is checked too
+    const allowed = Promise.all([
+      assertWritableRepo(req.body.repo),
+      req.body.issueId && assertWritableIssue(req.body.issueId),
+    ]);
     res.status(201).json(await boardService.createIssue(source, req.body, { allowed }));
   } catch (error) {
     sendAgentError(res, error);
