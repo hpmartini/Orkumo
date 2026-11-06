@@ -90,7 +90,10 @@ describe('suggestions', () => {
     ]);
     expect(chatSuggestions('/', 'compact', ctx)[0].hint).toBe('<instructions>');
     expect(chatSuggestions('@', 'review', ctx).map((s) => s.insert)).toEqual([
+      '@agent-reviewer ',
       '@src/review.ts ',
+    ]);
+    expect(chatSuggestions('@', 'agent-rev', ctx).map((s) => s.insert)).toEqual([
       '@agent-reviewer ',
     ]);
   });

@@ -142,9 +142,10 @@ export function chatSuggestions(
         hint: c.argumentHint || '',
       }));
   }
+  // `@agent-rev` and `@rev` both find the agent `reviewer`
   const agents = rank(
     ctx.agents,
-    query,
+    query.replace(/^agent-/i, ''),
     (a) => a.name,
     (a) => a.description
   ).map(
@@ -170,7 +171,8 @@ export function chatSuggestions(
       hint: '',
     })
   );
-  return [...files, ...agents].slice(0, limit);
+  // Agents are few, so they lead; otherwise thousands of path matches bury them
+  return [...agents, ...files].slice(0, limit);
 }
 
 /** `[Image: /path]` lines the composer appends → image paths + the text without them */

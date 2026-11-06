@@ -39,7 +39,12 @@ function listFiles(cwd) {
       ['ls-files', '-co', '--exclude-standard'],
       { cwd, timeout: 5000, maxBuffer: 32 * 1024 * 1024 },
       (error, stdout) => {
-        const files = error ? [] : String(stdout).split('\n').filter(Boolean);
+        // Untracked dependency folders (not in .gitignore) would flood every @ query
+        const files = error
+          ? []
+          : String(stdout)
+              .split('\n')
+              .filter((f) => f && !/(^|\/)node_modules\//.test(f));
         fileLists.set(cwd, { at: Date.now(), files });
         resolve(files);
       }
