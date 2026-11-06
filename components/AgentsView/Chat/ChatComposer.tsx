@@ -65,8 +65,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     const el = inputRef.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, MAX_HEIGHT)}px`;
-    el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden';
+    // border-box: scrollHeight excludes the border, so add it or the text scrolls by 2px
+    const height = el.scrollHeight + el.offsetHeight - el.clientHeight;
+    el.style.height = `${Math.min(height, MAX_HEIGHT)}px`;
+    el.style.overflowY = height > MAX_HEIGHT ? 'auto' : 'hidden';
     if (pendingCaret.current !== null) {
       el.setSelectionRange(pendingCaret.current, pendingCaret.current);
       setCaret(pendingCaret.current);
@@ -157,10 +159,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       onSubmit();
       return;
     }
-    const newline =
-      e.key === 'Enter' &&
-      !e.nativeEvent.isComposing &&
-      (submitKey === 'enter' ? e.shiftKey : plain && !e.shiftKey);
+    // Any Enter that did not send inserts a newline (Shift+Enter in both submit modes)
+    const newline = e.key === 'Enter' && !e.nativeEvent.isComposing && plain;
     if (newline && collapsed) {
       const edit = continueList(value, pos);
       if (edit) {
