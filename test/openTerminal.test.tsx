@@ -26,7 +26,7 @@ const SESSIONS: AgentSession[] = [
   },
 ];
 
-const hoisted = vi.hoisted(() => ({ grouping: 'directory' as string }));
+const hoisted = vi.hoisted(() => ({ grouping: 'directory' as string, cardDetails: 'click' }));
 
 vi.mock('../hooks/useAgentSessions', () => ({
   useAgentSessions: () => ({
@@ -35,7 +35,11 @@ vi.mock('../hooks/useAgentSessions', () => ({
     userSettings: null,
     cliInstalled: true,
     capabilities: null,
-    settings: { ...DEFAULT_AGENT_VIEW_SETTINGS, grouping: hoisted.grouping },
+    settings: {
+      ...DEFAULT_AGENT_VIEW_SETTINGS,
+      grouping: hoisted.grouping,
+      cardDetails: hoisted.cardDetails,
+    },
     updateSettings: () => {},
     loading: false,
     error: null,
@@ -71,8 +75,9 @@ const nav = {
   onStopApp: () => {},
 };
 
-const renderView = (grouping: string) => {
+const renderView = (grouping: string, cardDetails = 'click') => {
   hoisted.grouping = grouping;
+  hoisted.cardDetails = cardDetails;
   render(
     <MemoryRouter>
       <AgentsView active apps={[]} onExit={() => {}} nav={nav} onOpenView={() => {}} />
@@ -146,5 +151,29 @@ describe('Open terminal here (#207)', () => {
     fireEvent.contextMenu(header(/^Favorites$/));
     expect(menuLabels().length).toBeGreaterThan(0);
     expect(menuLabels()).not.toContain('Open terminal here');
+  });
+});
+
+// #242 AC-5: "Keep details open" only where a click does not already keep them open
+describe('Keep details open (#242)', () => {
+  it.each([
+    ['hover', true],
+    ['click', false],
+    ['always', false],
+  ])('in %s mode the row menu offers it: %s', (mode, offered) => {
+    renderView('directory', mode);
+    fireEvent.contextMenu(screen.getByText('alpha-worker'));
+    expect(menuLabels()).toContain('Rename');
+    expect(menuLabels().includes('Keep details open')).toBe(offered);
+  });
+
+  it('a card pinned in hover mode can still be unpinned after switching to click', () => {
+    renderView('directory', 'hover');
+    fireEvent.contextMenu(screen.getByText('alpha-worker'));
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Keep details open' }));
+    cleanup();
+    renderView('directory', 'click');
+    fireEvent.contextMenu(screen.getByText('alpha-worker'));
+    expect(menuLabels()).toContain('Hide details');
   });
 });

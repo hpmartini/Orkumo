@@ -111,8 +111,11 @@ describe('agent card settings defaults and persistence (#135)', () => {
       cardDetails: 'click',
       cardDensity: 'comfortable',
     });
-    // #181: a saved `hover` stays, only unset files get the new default
-    stored = JSON.stringify({ agentView: { cardDetails: 'hover' }, version: 1 });
+    // #242: a `hover` chosen after the one-time migration (marker set) stays
+    stored = JSON.stringify({
+      agentView: { cardDetails: 'hover', cardDetailsMigrated: true },
+      version: 1,
+    });
     expect(settingsService.getAgentViewSettings().cardDetails).toBe('hover');
     settingsService.updateAgentViewSettings({ cardDetails: 'always', cardDensity: 'compact' });
     expect(JSON.parse(stored).agentView).toMatchObject({
