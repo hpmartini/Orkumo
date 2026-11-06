@@ -105,6 +105,28 @@ function renderList(
 }
 
 const card = () => screen.getByRole('option');
+
+describe('AgentList harness badge (#195, AC-6)', () => {
+  it.each([
+    [session({}), 'Claude Code'],
+    [session({ chat: true, kind: 'interactive' }), 'Claude Code'],
+    [session({ kind: 'interactive', ptyArgs: ['--session-id', 'x'] }), 'Claude Code'],
+    [session({ kind: 'interactive', ptyCommand: 'omp', ptyArgs: [] }), 'Oh My Pi'],
+    [session({ kind: 'interactive', ptyCommand: 'opencode', ptyArgs: [] }), 'OpenCode'],
+    [session({ kind: 'interactive', ptyCommand: 'codex', ptyArgs: ['--', 'hi'] }), 'Codex'],
+    [session({ kind: 'interactive', ptyCommand: 'pi', ptyArgs: [] }), 'Pi'],
+  ])('shows the harness of every kind of session (%#)', (s, label) => {
+    renderList(s);
+    expect(within(card()).getByLabelText(`Harness: ${label}`).textContent).toBe(label);
+  });
+
+  it('is positioned or hidden through cardFields', () => {
+    renderList(session({ ptyCommand: 'codex' }), {
+      cardFields: { ...DEFAULT_AGENT_CARD_FIELDS, harness: 'hidden' },
+    });
+    expect(within(card()).queryByLabelText(/Harness:/)).toBeNull();
+  });
+});
 const leftColumn = () => card().firstElementChild as HTMLElement;
 
 describe('AgentList workflow card (#159, AC-3)', () => {

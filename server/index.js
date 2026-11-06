@@ -59,6 +59,12 @@ import {
   parsePids,
 } from './services/processStatsService.js';
 import { PORTS, TERMINAL, RATE_LIMIT, TIMEOUTS } from '../config/defaults.js';
+import {
+  HARNESS_COMMANDS,
+  isHarnessCommand,
+  harnessArgsError,
+  resolveHarnessBinary,
+} from '../config/harnesses.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -1476,6 +1482,16 @@ app.put(
   }
 );
 
+/** Agent harnesses (#195) and whether their binary is installed; null = unknown (Docker, host-side) */
+app.get('/api/agents/harnesses', (req, res) => {
+  res.json(
+    HARNESS_COMMANDS.map((id) => ({
+      id,
+      installed: isRunningInDocker ? null : Boolean(resolveHarnessBinary(id)),
+    }))
+  );
+});
+
 app.get('/api/agents/daemon', async (req, res) => {
   try {
     res.json(await agentService.daemonStatus());
@@ -2369,6 +2385,38 @@ wss.on('connection', (ws, req) => {
     return;
   }
 
+  // Harness agents (#195): fixed argument shapes, a project directory as cwd, installed binary
+  let spawnCommand = command;
+  if (isHarnessCommand(command)) {
+    const reject = (message) => {
+      console.error(`[PTY] Rejected harness ${command}: ${message}`);
+      ws.send(JSON.stringify({ type: 'error', message }));
+      ws.close();
+    };
+    let harnessArgs;
+    try {
+      harnessArgs = JSON.parse(url.searchParams.get('args') || '[]');
+    } catch {
+      return reject('Failed to parse args');
+    }
+    const argsError = harnessArgsError(command, harnessArgs);
+    if (argsError) return reject(argsError);
+    try {
+      cwd = agentService.assertAllowedPath(
+        cwdParam,
+        agentService.getAllowedDirectories(),
+        'Working directory'
+      );
+    } catch (error) {
+      return reject(error.message);
+    }
+    // shortcut: in Docker the binary lives on the host, pty-host resolves it there
+    if (!isRunningInDocker) {
+      spawnCommand = resolveHarnessBinary(command);
+      if (!spawnCommand) return reject(`${command} is not installed on this machine`);
+    }
+  }
+
   let args = [];
   const argsParam = url.searchParams.get('args');
   if (argsParam) {
@@ -2410,7 +2458,8 @@ wss.on('connection', (ws, req) => {
       const maxArgLength = 1000; // Prevent extremely long individual arguments
 
       for (const arg of parsedArgs) {
-        if (arg.length > maxArgLength) {
+        // harness prompts are bounded by harnessArgsError (MAX_HARNESS_PROMPT)
+        if (arg.length > maxArgLength && !isHarnessCommand(command)) {
           console.error(`[PTY] Argument exceeds maximum length: ${arg.length} > ${maxArgLength}`);
           ws.send(
             JSON.stringify({
@@ -2446,7 +2495,7 @@ wss.on('connection', (ws, req) => {
   }
 
   const startPty = () => {
-    const options = command ? { command, args } : {};
+    const options = command ? { command: spawnCommand, args } : {};
 
     console.log(
       `[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`

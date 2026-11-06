@@ -16,6 +16,7 @@ import {
 import type { AgentConfigLike } from './types';
 import type {
   AgentSession,
+  AgentHarness,
   AgentSubagent,
   AgentRepo,
   AgentSlashCommand,
@@ -49,6 +50,7 @@ import {
   stopAgent,
   openCloudSession,
   uploadAgentImage,
+  fetchHarnesses,
 } from '../../services/agentsApi';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
@@ -82,6 +84,7 @@ import {
   NavItem,
   SessionGroup,
   resumableSessionId,
+  harnessLabel,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
 import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
@@ -244,6 +247,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // 'chat' = New chat (#189): stream-json session in a Chat pane
   const [composerMode, setComposerMode] = useState<'task' | 'agent' | 'chat'>('task');
   const [agentCwd, setAgentCwd] = useState<string | null>(null);
+  // Harness of the next agent (#195), preset from the default on every open
+  const [composerHarness, setComposerHarness] = useState<AgentHarness>('claude');
+  const [harnessInstalled, setHarnessInstalled] = useState<Record<string, boolean | null>>({});
+  useEffect(() => {
+    fetchHarnesses()
+      .then((list) => setHarnessInstalled(Object.fromEntries(list.map((h) => [h.id, h.installed]))))
+      .catch(() => {});
+  }, []);
   const [composerImages, setComposerImages] = useState<File[]>([]);
   const [homeDir, setHomeDir] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
@@ -502,11 +513,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     defaultCwd,
   ]);
 
-  const openComposer = useCallback((mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
-    setComposerMode(mode);
-    if (mode !== 'task') setAgentCwd(cwd);
-    setComposerOpen(true);
-  }, []);
+  const openComposer = useCallback(
+    (mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
+      setComposerMode(mode);
+      if (mode !== 'task') setAgentCwd(cwd);
+      setComposerHarness(settings.dispatch.harness);
+      setComposerOpen(true);
+    },
+    [settings.dispatch.harness]
+  );
   const composerCwd =
     composerMode === 'agent'
       ? agentCwd || homeDir
@@ -788,12 +803,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [attachRemote, showHint]
   );
 
-  /** Opens an interactive `claude` PTY in `cwd` (for ~ and folders whose trust prompt is pending) */
+  /**
+   * Opens an interactive PTY in `cwd`: `claude` (for ~ and folders whose trust prompt is pending)
+   * or another harness (#195), which gets `ptyArgs` as is.
+   */
   const openInteractiveClaude = useCallback(
-    (cwd: string, name: string, ptyArgs: string[] = []) => {
+    (cwd: string, name: string, ptyArgs: string[] = [], command: AgentHarness = 'claude') => {
       const id = `interactive-${Date.now()}`;
       // A known session id lets "Open as chat" resume this terminal's session later
-      if (ptyArgs.length === 0) ptyArgs = ['--session-id', crypto.randomUUID()];
+      if (command === 'claude' && ptyArgs.length === 0)
+        ptyArgs = ['--session-id', crypto.randomUUID()];
       setCloudSessions((prev) => [
         ...prev,
         {
@@ -805,6 +824,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           name,
           state: null,
           ptyArgs,
+          ...(command !== 'claude' && { ptyCommand: command }),
           pinned: false,
           order: null,
           links: [],
@@ -1069,6 +1089,38 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         await openChat(composerCwd, {}, promptWithImages(input, paths));
         return;
       }
+      if (composerHarness !== 'claude') {
+        // Other harnesses (#195) run interactively in a terminal pane; the server checks the args
+        const cwd = composerMode === 'agent' ? agentCwd || targetCwd : targetCwd;
+        if (!cwd) {
+          showHint('Pick a project directory first', 'error');
+          return;
+        }
+        if (harnessInstalled[composerHarness] === false) {
+          showHint(`${harnessLabel(composerHarness)} is not installed on this machine`, 'error');
+          return;
+        }
+        const paths = await uploadComposerImages();
+        if (!paths) return;
+        const prompt = promptWithImages(input, paths).trim();
+        if (prompt && composerHarness === 'opencode') {
+          showHint(
+            'OpenCode takes no start prompt: leave it empty and type in the terminal',
+            'error',
+            8000
+          );
+          return;
+        }
+        openInteractiveClaude(
+          cwd,
+          `${composerHarness} · ${cwd.split('/').filter(Boolean).pop() || cwd}`,
+          prompt ? ['--', prompt] : [],
+          composerHarness
+        );
+        setInput('');
+        setComposerImages([]);
+        return;
+      }
       if (composerMode === 'agent') {
         // The CLI refuses `--bg` in ~ (trusted one session at a time): run it interactively there
         if (homeDir && composerCwd === homeDir) {
@@ -1143,6 +1195,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [
       composerMode,
       composerCwd,
+      composerHarness,
+      harnessInstalled,
+      agentCwd,
+      targetCwd,
       homeDir,
       composerImages.length,
       uploadComposerImages,
@@ -2405,6 +2461,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onPickDirectory={() => setPickDirOpen(true)}
         targetCwd={composerCwd}
         variant={composerMode}
+        harness={composerMode === 'chat' ? undefined : composerHarness}
+        onHarnessChange={setComposerHarness}
+        harnessInstalled={harnessInstalled}
         images={composerImages}
         onImagesChange={setComposerImages}
         hint={hint?.text || (dispatching ? 'Dispatching…' : null)}

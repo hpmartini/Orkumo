@@ -3,6 +3,7 @@
  */
 import type {
   AgentSession,
+  AgentHarness,
   AgentDisplayState,
   AgentGrouping,
   AgentPrLink,
@@ -913,7 +914,26 @@ export const CARD_ELEMENTS: { key: AgentCardElement; label: string }[] = [
   { key: 'links', label: 'Linked issues' },
   { key: 'servers', label: 'Dev servers' },
   { key: 'subagents', label: 'Running sub-agents' },
+  { key: 'harness', label: 'Harness (Claude Code, Codex, …)' },
 ];
+
+/** Agent harnesses (#195) in picker order, with their display names */
+export const HARNESSES: { id: AgentHarness; label: string }[] = [
+  { id: 'claude', label: 'Claude Code' },
+  { id: 'omp', label: 'Oh My Pi' },
+  { id: 'opencode', label: 'OpenCode' },
+  { id: 'codex', label: 'Codex' },
+  { id: 'pi', label: 'Pi' },
+];
+
+export const harnessLabel = (id: AgentHarness): string =>
+  HARNESSES.find((h) => h.id === id)?.label ?? id;
+
+/** Which CLI a session runs with: a harness PTY names it, everything else is Claude Code */
+export function sessionHarness(session: AgentSession): AgentHarness {
+  const cmd = session.ptyCommand;
+  return cmd && cmd !== 'ssh' ? cmd : 'claude';
+}
 
 export const CARD_SLOTS: { key: AgentCardSlot; label: string }[] = [
   { key: 'left', label: 'Left, under the status icon' },
@@ -1019,7 +1039,8 @@ export function shortenPath(cwd: string, max = 40): string {
  * Remote (ssh) and cloud panes run elsewhere; chats already are chats.
  */
 export function resumableSessionId(session: AgentSession): string | null {
-  if (session.chat || session.host || session.ptyCommand === 'ssh') return null;
+  if (session.chat || session.host || sessionHarness(session) !== 'claude') return null;
+  if (session.ptyCommand === 'ssh') return null;
   if (session.sessionId) return session.sessionId;
   const args = session.ptyArgs ?? [];
   if (args.includes('--cloud')) return null;

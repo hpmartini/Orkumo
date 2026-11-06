@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState, useCallback } from 'react';
 import { Send, FolderOpen, PenSquare } from 'lucide-react';
-import type { AgentSubagent, AgentRepo, AgentSlashCommand } from '../../types';
+import type { AgentSubagent, AgentRepo, AgentSlashCommand, AgentHarness } from '../../types';
+import { HARNESSES } from '../../utils/agentSessions';
 import { computeSuggestions, Suggestion } from '../../utils/agentInput';
 import { submitIntent } from '../../utils/composer';
 
@@ -23,6 +24,11 @@ interface DispatchInputProps {
   variant?: 'task' | 'agent' | 'chat';
   /** Rendered below the textarea (image attachments) */
   attachments?: React.ReactNode;
+  /** Harness picker (#195); omitted = no picker (chat) */
+  harness?: AgentHarness;
+  onHarnessChange?: (harness: AgentHarness) => void;
+  /** false marks a harness as not installed; missing/null = unknown */
+  harnessInstalled?: Record<string, boolean | null>;
 }
 
 const MIN_HEIGHT = 96;
@@ -51,16 +57,26 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   inputRef,
   variant = 'task',
   attachments,
+  harness,
+  onHarnessChange,
+  harnessInstalled = {},
 }) => {
-  // Agent and chat both start one session and attach it right away
-  const isAgent = variant !== 'task';
+  // @agent, /command and ! are Claude Code syntax; other harnesses get the text as their first message
+  const otherHarness = harness !== undefined && harness !== 'claude';
+  // Agent, chat and other harnesses start one session and attach it right away
+  const isAgent = variant !== 'task' || otherHarness;
   const [caret, setCaret] = useState(0);
   const [suggestionsOpen, setSuggestionsOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
 
   const suggestionState = useMemo(
-    () => computeSuggestions(value, caret, { subagents, repos, commands }),
-    [value, caret, subagents, repos, commands]
+    () =>
+      computeSuggestions(
+        value,
+        caret,
+        otherHarness ? { subagents: [], repos: [], commands: [] } : { subagents, repos, commands }
+      ),
+    [otherHarness, value, caret, subagents, repos, commands]
   );
   const suggestions = suggestionState.suggestions;
   const showSuggestions = suggestionsOpen && suggestions.length > 0;
@@ -238,6 +254,25 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
             {targetCwd || 'Pick a directory'}
           </span>
         </button>
+        {harness !== undefined && (
+          <label className="flex items-center gap-1.5 text-xs text-gray-200">
+            <span>Harness</span>
+            <select
+              value={harness}
+              onChange={(e) => onHarnessChange?.(e.target.value as AgentHarness)}
+              disabled={disabled}
+              className="bg-gray-900 border border-gray-600 rounded-md px-1.5 py-1 text-xs text-gray-50 focus-visible:outline-2 focus-visible:outline-blue-400"
+              title="CLI the new agent runs with"
+            >
+              {HARNESSES.map((h) => (
+                <option key={h.id} value={h.id} disabled={harnessInstalled[h.id] === false}>
+                  {h.label}
+                  {harnessInstalled[h.id] === false ? ' (not installed)' : ''}
+                </option>
+              ))}
+            </select>
+          </label>
+        )}
         <span className="flex-1" />
         <button
           type="button"
@@ -285,8 +320,9 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
           </span>
         ) : (
           <span className="text-gray-300">
-            @agent · @repo · /command · ! shell command · Cmd/Ctrl+Enter to send · Enter for a new
-            line
+            {otherHarness
+              ? 'Runs interactively in a terminal pane · Cmd/Ctrl+Enter to start · Enter for a new line'
+              : '@agent · @repo · /command · ! shell command · Cmd/Ctrl+Enter to send · Enter for a new line'}
           </span>
         )}
       </div>

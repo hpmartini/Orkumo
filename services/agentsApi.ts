@@ -195,6 +195,11 @@ export function fetchAgentDaemon(): Promise<AgentDaemonStatus> {
   return request<AgentDaemonStatus>('/agents/daemon');
 }
 
+/** Non-Claude harnesses (#195) and whether their CLI is installed (null: unknown, Docker) */
+export function fetchHarnesses(): Promise<{ id: string; installed: boolean | null }[]> {
+  return request('/agents/harnesses');
+}
+
 export function stopAgentDaemon(options: {
   any?: boolean;
   keepWorkers?: boolean;

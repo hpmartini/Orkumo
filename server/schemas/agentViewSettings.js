@@ -27,6 +27,7 @@ export const agentViewSettingsSchema = z
             'links',
             'servers',
             'subagents',
+            'harness',
           ].map((k) => [
             k,
             z.enum(['left', 'title', 'row2', 'row3', 'row4', 'details', 'hidden']).optional(),
@@ -41,6 +42,7 @@ export const agentViewSettingsSchema = z
     agentOpenView: z.enum(['chat', 'terminal']).optional(),
     dispatch: z
       .object({
+        harness: z.enum(['claude', 'omp', 'opencode', 'codex', 'pi']).optional(),
         model: optionalShortString,
         effort: optionalShortString,
         permissionMode: optionalShortString,

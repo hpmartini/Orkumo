@@ -22,6 +22,7 @@ import type {
   AgentCardDetails,
   AgentCardDensity,
   AgentCardElement,
+  AgentHarness,
   AgentCardFields,
 } from '../../types';
 import { DEFAULT_AGENT_CARD_FIELDS } from '../../types';
@@ -41,6 +42,8 @@ import {
   isWorkflowSession,
   parseWorkflowName,
   workflowIssue,
+  sessionHarness,
+  harnessLabel,
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
@@ -52,6 +55,15 @@ import { cacheCountdown, isCacheWarning } from '../../utils/agentCache';
 
 /** Pointer has to rest this long on a card before its details open (hover mode) */
 const HOVER_DETAILS_DELAY_MS = 200;
+
+/** Harness badge colours (#195): Claude stays quiet, the others stand out */
+const HARNESS_BADGE: Record<AgentHarness, string> = {
+  claude: 'border-gray-600 text-gray-300',
+  omp: 'border-fuchsia-500/60 text-fuchsia-200',
+  opencode: 'border-sky-500/60 text-sky-200',
+  codex: 'border-emerald-500/60 text-emerald-200',
+  pi: 'border-amber-500/60 text-amber-200',
+};
 
 /** Drag payload of a group header (separate from the workspace tab drag) */
 export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
@@ -766,7 +778,17 @@ export const AgentList: React.FC<AgentListProps> = ({
                       : session.state === 'working'
                         ? session.detail
                         : null;
+                  const harness = sessionHarness(session);
                   const nodes: Record<AgentCardElement, React.ReactNode> = {
+                    harness: (
+                      <span
+                        className={`shrink-0 leading-4 px-1 rounded border text-[10px] font-medium ${HARNESS_BADGE[harness]}`}
+                        title={`Runs with ${harnessLabel(harness)}`}
+                        aria-label={`Harness: ${harnessLabel(harness)}`}
+                      >
+                        {harnessLabel(harness)}
+                      </span>
+                    ),
                     issue:
                       workflow &&
                       (workflow.key && onOpenIssue ? (

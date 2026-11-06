@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Settings2, AlertTriangle, Power, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type {
+  AgentHarness,
   AgentViewSettings,
   AgentDispatchDefaults,
   ClaudeUserSettings,
@@ -11,7 +12,7 @@ import type {
   AgentCardSlot,
 } from '../../types';
 import { DEFAULT_AGENT_CARD_FIELDS } from '../../types';
-import { CARD_ELEMENTS, CARD_SLOTS } from '../../utils/agentSessions';
+import { CARD_ELEMENTS, CARD_SLOTS, HARNESSES } from '../../utils/agentSessions';
 import { stopAgentDaemon, respawnAllAgents } from '../../services/agentsApi';
 
 interface AgentSettingsPanelProps {
@@ -290,6 +291,32 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                 Browser notifications when the tab is hidden
               </label>
             </div>
+          </section>
+
+          {/* Default harness (#195) */}
+          <section className="space-y-2">
+            <h4 className="text-xs text-gray-500">Harness</h4>
+            <div className="max-w-xs">
+              <label className={label} htmlFor="agent-default-harness">
+                Default harness for new agents
+              </label>
+              <select
+                id="agent-default-harness"
+                className={field}
+                value={dispatch.harness}
+                onChange={(e) => setDispatch({ harness: e.target.value as AgentHarness })}
+              >
+                {HARNESSES.map((h) => (
+                  <option key={h.id} value={h.id}>
+                    {h.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <p className="text-xs text-gray-500">
+              Preselected in New task / New agent. Other harnesses run interactively in a terminal
+              pane; the flags below apply to Claude Code only.
+            </p>
           </section>
 
           {/* Dispatch defaults */}
