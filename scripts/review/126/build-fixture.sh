@@ -16,7 +16,7 @@ bun build "$repo/scripts/review/126/fixture-main.mjs" --target=node --format=cjs
   --outfile "$work/app/main.cjs" >/dev/null
 cat > "$work/app/package.json" <<JSON
 { "name": "orkumo-update-fixture", "productName": "OrkumoUpdateFixture", "version": "$version",
-  "main": "main.cjs", "author": "Orkumo", "description": "update e2e fixture", "license": "MIT" }
+  "main": "main.cjs", "author": { "name": "Orkumo", "email": "noreply@example.invalid" }, "homepage": "https://example.invalid/orkumo", "description": "update e2e fixture", "license": "MIT" }
 JSON
 cat > "$work/builder.json" <<JSON
 {

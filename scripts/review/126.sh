@@ -22,6 +22,14 @@ if command -v actionlint >/dev/null; then actionlint .github/workflows/release.y
 
 status=0
 if [ "$(uname)" = Darwin ]; then
+  echo "== Developer-ID detection on installed apps (install vs notify mode on macOS)"
+  for a in /Applications/*.app; do
+    printf '%s\n' "$a"
+  done | head -5 | node --input-type=module -e "
+    import { isDeveloperIdSigned } from './electron/updater.js';
+    import fs from 'node:fs';
+    for (const a of fs.readFileSync(0, 'utf8').trim().split('\n')) console.log(isDeveloperIdSigned(a) ? 'Developer ID' : 'other       ', a);
+  "
   echo "== e2e macOS (AC-1, AC-4, AC-5, AC-7)"
   WORK="$work/mac" KEEP=1 scripts/review/126/e2e-mac.sh || status=1
 fi

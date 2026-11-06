@@ -75,20 +75,30 @@ describe('resolveUpdateMode', () => {
 describe('isDeveloperIdSigned', () => {
   const devId =
     'Executable=/x\nAuthority=Developer ID Application: Martini Labs (ABC123)\nAuthority=Apple Root CA';
-  it('accepts a Developer ID authority (codesign prints to stderr; execFileSync throws only on failure)', () => {
-    expect(isDeveloperIdSigned('/A.app', () => devId)).toBe(true);
+  const spawn = (stderr) => () => ({ status: 0, stdout: '', stderr });
+  it('accepts a Developer ID authority (codesign prints to stderr)', () => {
+    expect(isDeveloperIdSigned('/A.app', spawn(devId))).toBe(true);
   });
-  it('rejects ad-hoc signatures', () => {
-    expect(isDeveloperIdSigned('/A.app', () => 'Signature=adhoc\nTeamIdentifier=not set')).toBe(
+  it('ignores stdout', () => {
+    expect(isDeveloperIdSigned('/A.app', () => ({ stdout: devId, stderr: '' }))).toBe(false);
+  });
+  it('rejects ad-hoc and unsigned', () => {
+    expect(isDeveloperIdSigned('/A.app', spawn('Signature=adhoc\nTeamIdentifier=not set'))).toBe(
       false
     );
+    expect(
+      isDeveloperIdSigned('/A.app', () => ({
+        status: 1,
+        stderr: 'code object is not signed at all',
+      }))
+    ).toBe(false);
   });
-  it('reads stderr when codesign exits non-zero', () => {
-    const exec = () => {
-      throw Object.assign(new Error('fail'), { stderr: 'code object is not signed at all' });
-    };
-    expect(isDeveloperIdSigned('/A.app', exec)).toBe(false);
-  });
+  it.runIf(process.platform === 'darwin')(
+    'real codesign: a system app is not Developer ID signed',
+    () => {
+      expect(isDeveloperIdSigned('/System/Applications/Calculator.app')).toBe(false);
+    }
+  );
 });
 
 describe('feedOverride', () => {

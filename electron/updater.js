@@ -4,7 +4,7 @@
  * - notify: only reports a new version and opens its release page (ad-hoc/unsigned mac, .deb/.rpm, `--dir` builds)
  * Background check errors are only logged, never shown (#125: an error sheet pushed the window onto another display).
  */
-import { execFileSync } from 'child_process';
+import { spawnSync } from 'child_process';
 import * as fs from 'fs';
 import path from 'path';
 
@@ -12,18 +12,13 @@ export const GITHUB_FEED = { provider: 'github', owner: 'hpmartini', repo: 'Orku
 export const RELEASES_URL = `https://github.com/${GITHUB_FEED.owner}/${GITHUB_FEED.repo}/releases`;
 
 /** Squirrel.Mac only accepts an update whose signature matches the running app: needs a Developer ID. */
-export function isDeveloperIdSigned(appBundlePath, exec = execFileSync) {
-  try {
-    // codesign writes the details to stderr
-    const out = exec('codesign', ['-dv', '--verbose=2', appBundlePath], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-      timeout: 5000,
-    });
-    return /Authority=Developer ID Application/.test(String(out));
-  } catch (error) {
-    return /Authority=Developer ID Application/.test(String(error?.stderr ?? ''));
-  }
+export function isDeveloperIdSigned(appBundlePath, spawn = spawnSync) {
+  // codesign -dv prints the details to stderr, even on success
+  const { stderr } = spawn('codesign', ['-dv', '--verbose=2', appBundlePath], {
+    encoding: 'utf8',
+    timeout: 5000,
+  });
+  return /^Authority=Developer ID Application/m.test(String(stderr ?? ''));
 }
 
 /** @returns {'off' | 'notify' | 'install'} */

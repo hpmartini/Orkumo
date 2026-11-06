@@ -51,6 +51,10 @@ app.whenReady().then(async () => {
   const result = await check();
   write(`check-done available=${Boolean(result?.isUpdateAvailable)}`);
   // install mode with an update: download + quitAndInstall end the process; otherwise done
-  if (mode !== 'install' || !result?.isUpdateAvailable) setTimeout(() => app.exit(0), 1500);
-  else setTimeout(() => app.exit(3), 120000);
+  // no timers: a windowless app gets App Nap on macOS and its timers may not fire for minutes
+  if (mode !== 'install' || !result?.isUpdateAvailable) {
+    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); // let the dialog handler finish
+    write('exiting');
+    app.exit(0);
+  }
 });

@@ -38,7 +38,16 @@ run() { # <name> <app> <feed-url> <expect-regex>... ; prefix a regex with ! for 
   local name=$1 app=$2 feed=$3 log="$work/$1.log"
   shift 3
   : >"$log"
-  ORKUMO_UPDATE_FEED=$feed ORKUMO_E2E_LOG=$log "$app/Contents/MacOS/OrkumoUpdateFixture" >/dev/null 2>&1 || true
+  ORKUMO_UPDATE_FEED=$feed ORKUMO_E2E_LOG=$log "$app/Contents/MacOS/OrkumoUpdateFixture" >/dev/null 2>&1 &
+  local app_pid=$! waited=0
+  while kill -0 "$app_pid" 2>/dev/null; do
+    # the windowless fixture sometimes lingers after check-done (seen under load); the check itself is finished then
+    if grep -q '^check-done' "$log" && [ $waited -ge 15 ]; then kill "$app_pid"; echo "exit-slow (killed after check-done)" >>"$log"; break; fi
+    if [ $waited -ge 120 ]; then kill "$app_pid"; echo "timeout" >>"$log"; break; fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$app_pid" 2>/dev/null || true
   local ok=1
   for re in "$@"; do
     if [[ $re == !* ]]; then
@@ -69,7 +78,7 @@ feed="http://127.0.0.1:$port"
 # AC-4: rc.1 -> rc.2 in channel rc; ad-hoc build = notify mode (AC-7)
 f="$work/feed-a"; release "$f" 1.0.0-rc.1; release "$f" 1.0.0-rc.2; serve "$f"
 run ac4-rc1-to-rc2 "$rc1" "$feed" 'mode=notify' 'update-available 1\.0\.0-rc\.2' \
-  'openExternal https://github\.com/hpmartini/Orkumo/releases/tag/v1\.0\.0-rc\.2' '!Squirrel|ERR_' '!dialog error'
+  'openExternal https://github\.com/hpmartini/Orkumo/releases/tag/v1\.0\.0-rc\.2' '!Squirrel|ERR_' '!dialog error' '!timeout'
 
 # AC-4: rc.10 sorts after rc.9
 f="$work/feed-b"; release "$f" 1.0.0-rc.9; release "$f" 1.0.0-rc.10; serve "$f"

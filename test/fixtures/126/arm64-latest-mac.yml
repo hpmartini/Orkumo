@@ -1,0 +1,8 @@
+version: 1.0.0-rc.1
+files:
+  - url: OrkumoUpdateFixture-1.0.0-rc.1-arm64-mac.zip
+    sha512: JzPcBsDdu1wmliPjkM58Ek4jo7wb9ZQ/B9VhueZYu9i1EFeFtMwTzvRXUF6wdOlcy2XN6jgMkcGUcT0HojaXJg==
+    size: 267360946
+path: OrkumoUpdateFixture-1.0.0-rc.1-arm64-mac.zip
+sha512: JzPcBsDdu1wmliPjkM58Ek4jo7wb9ZQ/B9VhueZYu9i1EFeFtMwTzvRXUF6wdOlcy2XN6jgMkcGUcT0HojaXJg==
+releaseDate: '2026-11-06T12:27:44.967Z'
