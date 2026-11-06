@@ -14,6 +14,7 @@ const GH_FAIL_TTL_MS = 10_000;
 const ghCache = new Map(); // slug -> { at, ttl, promise }
 const LSOF_TTL_MS = 5_000;
 let serverScan = null; // { at, promise }
+let parentScan = null; // { at, promise }
 // A hostile repo config must not execute code (fsmonitor, hooks) when we only read status.
 const GIT_SAFE = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
 
@@ -498,6 +499,91 @@ export function dirOwnsCwd(dir, cwd) {
   return cwd === dir || cwd.startsWith(dir.endsWith(path.sep) ? dir : dir + path.sep);
 }
 
+// Worktrees and job dirs nested in a session dir belong to other (maybe finished) sessions.
+const FOREIGN_SUBDIR = /(^|\/)\.claude\/(worktrees|jobs)\/[^/]+(\/|$)/;
+
+/** True when dir owns cwd: inside it, but not inside a nested foreign worktree or job dir. */
+export function dirOwnsServerCwd(dir, cwd) {
+  if (!dirOwnsCwd(dir, cwd)) return false;
+  // dir's own name counts too: a session in ~/.claude must not own ~/.claude/jobs/<other>
+  return !FOREIGN_SUBDIR.test(path.join(path.basename(dir), path.relative(dir, cwd)));
+}
+
+/** True when cwd lies in a .claude/worktrees/<x> or .claude/jobs/<x> dir. */
+export function isOrphanCandidate(cwd) {
+  return FOREIGN_SUBDIR.test(cwd || '');
+}
+
+/** Parse `ps -axo pid=,ppid=` into pid -> ppid. */
+export function parseParents(output) {
+  const map = new Map();
+  for (const line of String(output || '').split('\n')) {
+    const m = line.trim().match(/^(\d+)\s+(\d+)$/);
+    if (m) map.set(Number(m[1]), Number(m[2]));
+  }
+  return map;
+}
+
+/**
+ * Which session owns each listening server. Only live sessions count (pid present in parents): a
+ * finished session's worktree dir must not keep its leftover server. A session whose pid is an ancestor of the server
+ * process wins; otherwise the most specific session dir containing its cwd (dirOwnsServerCwd).
+ * Unowned servers in a worktree or job dir are orphans; other unowned ones (databases, apps) are ignored.
+ * @param {{key: string, dir: string, pid?: number|null}[]} sessions dir already resolved (realpath)
+ * @param {{pid: number, cwd: string}[]} servers cwd already resolved
+ * @param {Map<number, number>} parents pid -> ppid
+ * @returns {{owner: Map<object, string>, orphans: object[]}}
+ */
+export function assignServers(allSessions, servers, parents) {
+  const sessions = allSessions.filter((s) => s.pid && parents.has(s.pid));
+  const byPid = new Map(sessions.map((s) => [s.pid, s.key]));
+  const owner = new Map();
+  const orphans = [];
+  for (const server of servers) {
+    let key = null;
+    const seen = new Set();
+    for (let p = parents.get(server.pid); p && p > 1 && !seen.has(p); p = parents.get(p)) {
+      seen.add(p);
+      if (byPid.has(p)) {
+        key = byPid.get(p);
+        break;
+      }
+    }
+    if (!key) {
+      let best = null;
+      for (const s of sessions) {
+        if (dirOwnsServerCwd(s.dir, server.cwd) && (!best || s.dir.length > best.dir.length))
+          best = s;
+      }
+      key = best?.key ?? null;
+    }
+    if (key) owner.set(server, key);
+    else if (isOrphanCandidate(server.cwd)) orphans.push(server);
+  }
+  return { owner, orphans };
+}
+
+async function scanParents() {
+  return parseParents(await run('ps', ['-axo', 'pid=,ppid='], undefined, 5000, { lenient: true }));
+}
+
+const sessionDir = (s) => (isDir(s.worktree) ? s.worktree : isDir(s.cwd) ? s.cwd : null);
+
+/** Listening servers (cwd resolved) and which session owns each, from the current lsof/ps scans. */
+async function scanOwnership(sessions) {
+  const [listening, parents] = await Promise.all([listeningServers(), processParents()]);
+  const resolved = listening.map((l) => ({ ...l, cwd: real(l.cwd) }));
+  const owned = sessions.filter(sessionDir);
+  return {
+    resolved,
+    ...assignServers(
+      owned.map((s) => ({ key: s.id, dir: real(sessionDir(s)), pid: s.pid })),
+      resolved,
+      parents
+    ),
+  };
+}
+
 async function scanListeningServers() {
   const sockets = parseListeningSockets(
     await run('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-FpcnL'], undefined, 8000, {
@@ -529,6 +615,13 @@ function listeningServers() {
     serverScan = { at: Date.now(), promise: scanListeningServers() };
   }
   return serverScan.promise;
+}
+
+function processParents() {
+  if (!parentScan || Date.now() - parentScan.at > LSOF_TTL_MS) {
+    parentScan = { at: Date.now(), promise: scanParents() };
+  }
+  return parentScan.promise;
 }
 
 async function readState(id) {
@@ -567,11 +660,11 @@ function isDir(p) {
 }
 
 /**
- * @returns {Promise<Record<string, import('../../types').AgentContext>>}
+ * @returns {Promise<{contexts: Record<string, import('../../types').AgentContext>, orphans: object[]}>}
  */
 async function computeAgentContexts() {
   const sessions = await agentService.listSessions({ all: true });
-  const dirOf = (s) => (isDir(s.worktree) ? s.worktree : isDir(s.cwd) ? s.cwd : null);
+  const dirOf = sessionDir;
   const dirs = [...new Set(sessions.map(dirOf).filter(Boolean))];
   const repos = new Map();
   await mapLimit(dirs, CONCURRENCY, async (dir) => repos.set(dir, await gitInfo(dir)));
@@ -579,18 +672,9 @@ async function computeAgentContexts() {
   const remotes = new Map();
   await mapLimit(slugs, CONCURRENCY, async (slug) => remotes.set(slug, await ghInfo(slug)));
 
-  const listening = await listeningServers();
-  // Each server belongs to the most specific session dir containing its cwd, not to every ancestor.
-  const realDirs = new Map(dirs.map((d) => [d, real(d)]));
-  const ownerDir = new Map();
-  for (const l of listening) {
-    const cwd = real(l.cwd);
-    let best = null;
-    for (const [dir, rd] of realDirs) {
-      if (dirOwnsCwd(rd, cwd) && (!best || rd.length > realDirs.get(best).length)) best = dir;
-    }
-    if (best) ownerDir.set(l, best);
-  }
+  const { resolved, owner, orphans } = await scanOwnership(sessions);
+  // eslint-disable-next-line no-unused-vars -- cwd is stripped from the response
+  const publicServer = ({ cwd, ...server }) => server;
   const contexts = {};
   await Promise.all(
     sessions.map(async (s) => {
@@ -603,10 +687,7 @@ async function computeAgentContexts() {
         cache: await sessionCache(s, model).catch(() => null),
         issues: remote?.issues || null,
         pulls: remote?.pulls || null,
-        servers: listening
-          .filter((l) => ownerDir.get(l) === dirOf(s))
-          // eslint-disable-next-line no-unused-vars -- cwd is stripped from the response
-          .map(({ cwd, ...server }) => server),
+        servers: resolved.filter((l) => owner.get(l) === s.id).map(publicServer),
         subagents:
           s.kind === 'background'
             ? deriveSubagents(await readState(s.id))
@@ -614,34 +695,78 @@ async function computeAgentContexts() {
       };
     })
   );
-  return contexts;
+  // Orphans keep cwd: the panel shows which finished worktree or job they came from.
+  return { contexts, orphans };
 }
 
 // Stale-while-revalidate: gh + lsof take 7-12s cold, so serve the last result and refresh behind it.
 const CONTEXT_FRESH_MS = 10_000;
 let contextCache = null; // { at, value, promise }
+let contextGeneration = 0;
 
 /** Pids of the listening servers the dashboard shows: the only ones the stats route may report */
 export async function getKnownServerPids() {
-  const contexts = await getAgentContexts();
-  return new Set(Object.values(contexts).flatMap((c) => c.servers.map((server) => server.pid)));
+  const { contexts, orphans } = await agentSnapshot();
+  return new Set([
+    ...Object.values(contexts).flatMap((c) => c.servers.map((server) => server.pid)),
+    ...orphans.map((server) => server.pid),
+  ]);
 }
 
 /**
  * @returns {Promise<Record<string, import('../../types').AgentContext>>}
  */
-export function getAgentContexts() {
+export async function getAgentContexts() {
+  return (await agentSnapshot()).contexts;
+}
+
+/** Listening servers in a worktree or job dir that no running session owns. */
+export async function getOrphanServers() {
+  return (await agentSnapshot()).orphans;
+}
+
+/**
+ * SIGTERM an orphan server. Only pids the panel lists as orphans, re-checked against a fresh session
+ * list and fresh lsof/ps scans (same pid, port and cwd, still unowned), so a reused pid or a server a
+ * resumed session meanwhile owns is not hit.
+ * @returns {Promise<boolean>} false when pid is no (longer an) orphan
+ */
+export async function stopOrphanServer(pid) {
+  const listed = (await getOrphanServers()).find((server) => server.pid === pid);
+  if (!listed || pid === process.pid) return false;
+  serverScan = null;
+  parentScan = null;
+  const { orphans } = await scanOwnership(await agentService.listSessions({ all: true }));
+  if (!orphans.some((o) => o.pid === pid && o.port === listed.port && o.cwd === listed.cwd)) {
+    return false;
+  }
+  try {
+    process.kill(pid, 'SIGTERM');
+  } catch {
+    return false;
+  }
+  // a compute still in flight holds the pre-kill scan: it must not repopulate the cache
+  contextGeneration++;
+  contextCache = null;
+  serverScan = null;
+  parentScan = null;
+  return true;
+}
+
+function agentSnapshot() {
   if (contextCache?.value && Date.now() - contextCache.at < CONTEXT_FRESH_MS) {
     return Promise.resolve(contextCache.value);
   }
   if (!contextCache?.promise) {
+    const generation = contextGeneration;
     const promise = computeAgentContexts().then(
       (value) => {
-        contextCache = { at: Date.now(), value, promise: null };
+        if (generation === contextGeneration)
+          contextCache = { at: Date.now(), value, promise: null };
         return value;
       },
       (error) => {
-        contextCache.promise = null;
+        if (contextCache && generation === contextGeneration) contextCache.promise = null;
         throw error;
       }
     );

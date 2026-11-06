@@ -19,6 +19,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Agents servers panel: section "Verwaist" lists listening servers of finished worktrees and jobs (`GET /api/agents/servers/orphans`) with a confirmed Stop (`POST /api/agents/servers/:pid/stop`, orphan pids only); a server now belongs to a session only via its process ancestry or the session's own dir without nested `.claude/worktrees/*` and `.claude/jobs/*` (#243)
+
 - **Claude Code Agents View**: browser counterpart of `claude agents` at `/agents` (sidebar entry, shortcut `a`)
   - Session list grouped by state or directory, peek panel with reply / numbered choices / suggested reply
   - Dispatch input with the TUI syntax (`@agent`, `@repo`, `/resume`, `/model`, `/effort`, `! command`, `#PR`, filters)

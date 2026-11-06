@@ -42,7 +42,12 @@ import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import fileOpenRoutes from './services/fileOpenRoutes.js';
 import { usageRouter, getUsage } from './services/usageService.js';
-import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
+import {
+  getAgentContexts,
+  getKnownServerPids,
+  getOrphanServers,
+  stopOrphanServer,
+} from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowProvider from './services/workflowProvider.js';
@@ -1547,6 +1552,36 @@ app.get('/api/agents/servers/stats', agentLimiter, async (req, res) => {
     // Only servers the dashboard lists: no probing of arbitrary pids
     const known = await getKnownServerPids();
     res.json({ stats: await getServerProcessStats(pids.filter((pid) => known.has(pid))) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Listening servers left behind by finished worktree or job sessions (#243).
+app.get('/api/agents/servers/orphans', agentLimiter, async (req, res) => {
+  try {
+    res.json({ servers: await getOrphanServers() });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Only pids currently listed as orphans may be stopped: no killing of arbitrary processes.
+app.post('/api/agents/servers/:pid/stop', agentLimiter, async (req, res) => {
+  // A bodyless POST needs no CORS preflight: refuse cross-site pages before killing anything
+  const origin = req.get('origin');
+  if ((origin && !isAllowedOrigin(origin)) || req.get('sec-fetch-site') === 'cross-site') {
+    return res.status(403).json({ error: 'Cross-origin request refused' });
+  }
+  const pid = Number(req.params.pid);
+  if (!/^\d{1,9}$/.test(req.params.pid) || pid <= 1) {
+    return res.status(400).json({ error: 'pid must be a positive integer' });
+  }
+  try {
+    if (!(await stopOrphanServer(pid))) {
+      return res.status(404).json({ error: 'No orphan server with this pid' });
+    }
+    res.json({ stopped: pid });
   } catch (error) {
     sendAgentError(res, error);
   }

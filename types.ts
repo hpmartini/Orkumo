@@ -184,6 +184,11 @@ export interface AgentListeningServer {
   url: string;
 }
 
+/** Listening server in a worktree or job dir no running session owns (GET /api/agents/servers/orphans, #243) */
+export interface AgentOrphanServer extends AgentListeningServer {
+  cwd: string;
+}
+
 /** Live resource use of a listening server process (GET /api/agents/servers/stats) */
 export interface AgentServerStats {
   pid: number;
