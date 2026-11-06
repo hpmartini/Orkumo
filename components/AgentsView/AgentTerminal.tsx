@@ -26,6 +26,7 @@ import {
 import type { AgentSession } from '../../types';
 import { attachTerminalKeys } from '../../utils/terminalKeys';
 import { stateGlyph } from '../../utils/agentSessions';
+import { shellCwd } from '../../utils/agentWorkspace';
 
 /** Below this pane width the header actions fold into an overflow menu */
 const NARROW_PX = 360;
@@ -70,6 +71,11 @@ export function buildAttachUrl(
   const ptySession = `agent-${sessionId}-${Date.now()}`;
   const args = encodeURIComponent(JSON.stringify(cliArgs));
   return `${getWsUrl('/api/pty')}?sessionId=${ptySession}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}&command=${command}&args=${args}`;
+}
+
+/** PTY WebSocket URL for a plain shell in `cwd` (#207): no command, so the server starts its default shell */
+export function buildShellUrl(cwd: string, cols: number, rows: number): string {
+  return `${getWsUrl('/api/pty')}?sessionId=shell-${Date.now()}-${Math.random().toString(36).slice(2)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
 }
 
 /** Cmd/Ctrl-click on a file path (#188): the server opens it with the Mac's default app */
@@ -125,6 +131,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   // the provider is registered once; cwd is stable per pane but read through a ref like the other props
   const cwdRef = useRef(session.cwd);
   cwdRef.current = session.cwd;
+  const shell = shellCwd(session.id) !== null;
   const ghostty = useGhosttyTheme();
   const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
   const optionsRef = useRef(options);
@@ -247,14 +254,16 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     } catch {
       // ignore
     }
-    const url = buildAttachUrl(
-      session.id,
-      session.cwd,
-      terminal.cols,
-      terminal.rows,
-      session.ptyArgs,
-      session.ptyCommand
-    );
+    const url = shell
+      ? buildShellUrl(session.cwd, terminal.cols, terminal.rows)
+      : buildAttachUrl(
+          session.id,
+          session.cwd,
+          terminal.cols,
+          terminal.rows,
+          session.ptyArgs,
+          session.ptyCommand
+        );
     const ws = new WebSocket(url);
     wsRef.current = ws;
     if (generation > 0) terminal.reset();
@@ -270,13 +279,25 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           case 'output':
             terminal.write(data.data);
             break;
-          case 'connected':
+          case 'connected': {
+            // control characters stripped: a folder name must not drive the terminal
+            const safe = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, '');
+            const cwd = safe(data.cwd ?? session.cwd);
+            // the server falls back to $HOME when the folder is gone (e.g. a removed worktree)
+            if (shell && data.cwd && data.cwd !== session.cwd.replace(/(.)\/+$/, '$1')) {
+              terminal.write(`\x1b[33m# ${safe(session.cwd)} not found\x1b[0m\r\n`);
+            }
             terminal.write(
-              `\x1b[2m# ${session.ptyCommand ?? 'claude'} ${(session.ptyArgs ?? ['attach', session.id]).join(' ')} (PID ${data.pid})\x1b[0m\r\n`
+              shell
+                ? `\x1b[2m# ${data.shell ?? 'shell'} in ${cwd} (PID ${data.pid})\x1b[0m\r\n`
+                : `\x1b[2m# ${session.ptyCommand ?? 'claude'} ${(session.ptyArgs ?? ['attach', session.id]).join(' ')} (PID ${data.pid})\x1b[0m\r\n`
             );
             break;
+          }
           case 'exit':
-            terminal.write(`\r\n\x1b[2m# detached (exit code ${data.exitCode})\x1b[0m\r\n`);
+            terminal.write(
+              `\r\n\x1b[2m# ${shell ? 'shell exited' : 'detached'} (exit code ${data.exitCode})\x1b[0m\r\n`
+            );
             setExited(true);
             setConnected(false);
             break;
@@ -335,7 +356,33 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   }, [visible, active, syncSize]);
 
   const glyph = stateGlyph(session.displayState);
-  const actions = [
+  const reconnect = () => setGeneration((g) => g + 1);
+  const moveToTab = onMaximize
+    ? [
+        {
+          label: 'Move to own tab',
+          title: 'Move to its own tab',
+          icon: <Maximize2 size={12} />,
+          run: onMaximize,
+        },
+      ]
+    : [];
+  // A plain shell (#207) has nothing to peek, detach from or resume: only restart it once it ended
+  const shellActions = [
+    ...(connected
+      ? []
+      : [
+          {
+            label: 'Restart',
+            title: 'Start a new shell in this directory',
+            icon: <RefreshCw size={12} />,
+            run: reconnect,
+            showLabel: true,
+          },
+        ]),
+    ...moveToTab,
+  ];
+  const agentActions = [
     { label: 'Peek', title: 'Peek (recent output)', icon: <Eye size={12} />, run: onPeek },
     ...(onOpenAsChat
       ? [
@@ -358,7 +405,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           label: 'Reattach',
           title: 'Reattach',
           icon: <RefreshCw size={12} />,
-          run: () => setGeneration((g) => g + 1),
+          run: reconnect,
           showLabel: true,
         },
     // Ghostty attaches locally only: a remote (ssh) pane has no local session to open
@@ -373,17 +420,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
             run: openInGhostty,
           },
         ]),
-    ...(onMaximize
-      ? [
-          {
-            label: 'Move to own tab',
-            title: 'Move to its own tab',
-            icon: <Maximize2 size={12} />,
-            run: onMaximize,
-          },
-        ]
-      : []),
-  ] as {
+    ...moveToTab,
+  ];
+  const actions = (shell ? shellActions : agentActions) as {
     label: string;
     title: string;
     icon: React.ReactNode;

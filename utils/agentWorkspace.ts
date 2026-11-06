@@ -239,7 +239,7 @@ export function setTabLayout(ws: Workspace, tabId: string, layout: PaneLayout): 
 export function pruneMissing(ws: Workspace, existing: ReadonlySet<string>): Workspace {
   return ws.tabs
     .flatMap((t) => t.panes)
-    .filter((id) => !existing.has(id) && browserUrl(id) === null)
+    .filter((id) => !existing.has(id) && browserUrl(id) === null && shellCwd(id) === null)
     .reduce(removeSession, ws);
 }
 
@@ -275,6 +275,26 @@ export function openBrowser(ws: Workspace, fromId: string, url: string): Workspa
     ),
     activeTabId: tab.id,
   };
+}
+
+// Shell panes (#207): a plain shell, no agent; the cwd is part of the id so it persists
+const SHELL_PREFIX = 'shell:';
+
+/** Working directory of a shell pane id (`shell:<n>:<cwd>`), null for other panes */
+export function shellCwd(paneId: string): string | null {
+  if (!paneId.startsWith(SHELL_PREFIX)) return null;
+  const rest = paneId.slice(SHELL_PREFIX.length);
+  const colon = rest.indexOf(':');
+  return colon < 0 || !rest.slice(colon + 1) ? null : rest.slice(colon + 1);
+}
+
+/** Open a new shell in `cwd` as its own, active tab; several shells per directory are fine */
+export function openShell(ws: Workspace, cwd: string): Workspace {
+  if (!cwd) return ws;
+  const used = ws.tabs.flatMap((t) => t.panes);
+  let n = 1;
+  while (used.some((id) => id.startsWith(`${SHELL_PREFIX}${n}:`))) n++;
+  return openSession(ws, `${SHELL_PREFIX}${n}:${cwd}`);
 }
 
 /** Tab title: the name for one pane, "A + B" for two, "N agents" beyond */
