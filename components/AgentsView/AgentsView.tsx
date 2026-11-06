@@ -1664,12 +1664,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             if (slug) navigate(modeUrl(m.id)(slug, session.id));
           },
         })),
-        {
-          // Replaces the card chevron (#159)
-          id: 'details',
-          label: expandedSessions.has(session.id) ? 'Hide details' : 'Keep details open',
-          onSelect: () => toggleExpandedSession(session.id),
-        },
+        // Replaces the card chevron (#159); only hover needs it, a click already keeps them open (#242).
+        // A card pinned earlier keeps its "Hide details" so it can still be unpinned.
+        ...(settings.cardDetails === 'hover' || expandedSessions.has(session.id)
+          ? [
+              {
+                id: 'details',
+                label: expandedSessions.has(session.id) ? 'Hide details' : 'Keep details open',
+                onSelect: () => toggleExpandedSession(session.id),
+              },
+            ]
+          : []),
         {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
@@ -1729,6 +1734,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       toggleExpandedSession,
       openShell,
       scopedModes,
+      settings.cardDetails,
     ]
   );
 

@@ -88,7 +88,7 @@ interface AgentListProps {
   onFocusOpen?: (id: string) => void;
   now: number;
   grouping: AgentGrouping;
-  /** When session cards show their details; "Keep details open" pins them in every mode */
+  /** When session cards show their details; in `hover`, "Keep details open" pins them (#242) */
   cardDetails?: AgentCardDetails;
   cardDensity?: AgentCardDensity;
   /** Which card slot each detail element sits in (#159) */

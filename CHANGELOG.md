@@ -74,6 +74,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Agents panel: a `hover` card-details setting saved before #181 (the old default) migrates once to `click`; "Keep details open" only shows in hover mode (#242)
 - Path mapping now correctly handles nested `Projects` folders
 - iframe error detection with timeout fallback (onError doesn't reliably fire)
 - Retry button now properly reloads iframe

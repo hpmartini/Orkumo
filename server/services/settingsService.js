@@ -134,6 +134,15 @@ function readSettings() {
       loadedSettings.board = {};
     }
 
+    // Migrate once (#242): `hover` saved before #181 is the inherited old default, not a choice
+    if (!loadedSettings.agentView.cardDetailsMigrated) {
+      if (loadedSettings.agentView.cardDetails === 'hover') {
+        loadedSettings.agentView.cardDetails = 'click';
+      }
+      loadedSettings.agentView.cardDetailsMigrated = true;
+      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(loadedSettings, null, 2));
+    }
+
     return { ...defaultSettings, ...loadedSettings };
   } catch (error) {
     console.error('Failed to read settings:', error);
