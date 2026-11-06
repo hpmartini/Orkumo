@@ -12,6 +12,7 @@ import { EventEmitter } from 'events';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { CLI_BUILTINS } from './claudeBuiltins.js';
 import {
   paths as agentPaths,
   projectSlug,
@@ -284,10 +285,14 @@ export function commandsEvent(commands, agents) {
   return event;
 }
 
-// The CLI answers our initialize only after the first message, so a fresh chat would not know
-// its built-ins yet: reuse the ones the last chat reported (they are the same for every chat).
-// shortcut: empty until the first chat since server start has sent a message; persist if that bites
-let knownBuiltins = [];
+// The CLI answers our initialize only after the first message, so a fresh chat starts with the
+// built-ins the last chat reported, or the shipped snapshot (the same for every chat)
+let knownBuiltins = CLI_BUILTINS.map((name) => ({
+  name,
+  description: '',
+  argumentHint: '',
+  builtin: true,
+}));
 
 function recordCommands(s, event) {
   const builtins = event.commands?.filter((c) => c.builtin);
@@ -356,7 +361,7 @@ export function startChat(opts, context = {}) {
     s.markExited = resolve;
   });
   sessions.set(s.id, s);
-  if (knownBuiltins.length) record(s, { type: 'devorbit_commands', commands: knownBuiltins });
+  record(s, { type: 'devorbit_commands', commands: knownBuiltins });
 
   let buffer = '';
   proc.stdout.setEncoding('utf8');

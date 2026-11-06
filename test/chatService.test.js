@@ -209,7 +209,9 @@ describe('chatService - session lifecycle', () => {
     expect(proc.written[3].request.subtype).toBe('interrupt');
 
     emit(proc, { type: 'result', subtype: 'error_during_execution', is_error: true });
+    // the built-ins come first: the CLI lists them only after the first message
     expect(seen).toEqual([
+      'devorbit_commands',
       'system',
       'devorbit_user',
       'control_request',
@@ -245,7 +247,7 @@ describe('chatService - session lifecycle', () => {
     const replay = [];
     watchChat(chat.id, (e) => replay.push(e.type))();
     // stream deltas are live-only
-    expect(replay).toEqual(['control_request', 'devorbit_permission']);
+    expect(replay).toEqual(['devorbit_commands', 'control_request', 'devorbit_permission']);
     stopChat(chat.id);
   });
 
@@ -376,6 +378,10 @@ describe('chatService - built-ins before the first answer', () => {
   const emit = (proc, obj) => proc.stdout.emit('data', `${JSON.stringify(obj)}\n`);
   it('gives a new chat the built-ins an earlier chat reported (CLI answers init late)', () => {
     const first = startChat({ cwd: project }, { ...ctx, spawn, bin: '/bin/claude' });
+    const seeded = [];
+    watchChat(first.id, (e) => seeded.push(e))();
+    // before any CLI answer: the shipped snapshot
+    expect(seeded[0].commands.map((c) => c.name)).toContain('context');
     const proc = calls.at(-1).proc;
     emit(proc, {
       type: 'control_response',
