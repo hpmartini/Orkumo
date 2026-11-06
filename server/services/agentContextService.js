@@ -525,7 +525,8 @@ export function parseParents(output) {
 }
 
 /**
- * Which session owns each listening server: a session whose pid is an ancestor of the server
+ * Which session owns each listening server. Only live sessions count (pid present in parents): a
+ * finished session's worktree dir must not keep its leftover server. A session whose pid is an ancestor of the server
  * process wins; otherwise the most specific session dir containing its cwd (dirOwnsServerCwd).
  * Unowned servers in a worktree or job dir are orphans; other unowned ones (databases, apps) are ignored.
  * @param {{key: string, dir: string, pid?: number|null}[]} sessions dir already resolved (realpath)
@@ -533,8 +534,9 @@ export function parseParents(output) {
  * @param {Map<number, number>} parents pid -> ppid
  * @returns {{owner: Map<object, string>, orphans: object[]}}
  */
-export function assignServers(sessions, servers, parents) {
-  const byPid = new Map(sessions.filter((s) => s.pid).map((s) => [s.pid, s.key]));
+export function assignServers(allSessions, servers, parents) {
+  const sessions = allSessions.filter((s) => s.pid && parents.has(s.pid));
+  const byPid = new Map(sessions.map((s) => [s.pid, s.key]));
   const owner = new Map();
   const orphans = [];
   for (const server of servers) {
@@ -563,6 +565,23 @@ export function assignServers(sessions, servers, parents) {
 
 async function scanParents() {
   return parseParents(await run('ps', ['-axo', 'pid=,ppid='], undefined, 5000, { lenient: true }));
+}
+
+const sessionDir = (s) => (isDir(s.worktree) ? s.worktree : isDir(s.cwd) ? s.cwd : null);
+
+/** Listening servers (cwd resolved) and which session owns each, from the current lsof/ps scans. */
+async function scanOwnership(sessions) {
+  const [listening, parents] = await Promise.all([listeningServers(), processParents()]);
+  const resolved = listening.map((l) => ({ ...l, cwd: real(l.cwd) }));
+  const owned = sessions.filter(sessionDir);
+  return {
+    resolved,
+    ...assignServers(
+      owned.map((s) => ({ key: s.id, dir: real(sessionDir(s)), pid: s.pid })),
+      resolved,
+      parents
+    ),
+  };
 }
 
 async function scanListeningServers() {
@@ -645,7 +664,7 @@ function isDir(p) {
  */
 async function computeAgentContexts() {
   const sessions = await agentService.listSessions({ all: true });
-  const dirOf = (s) => (isDir(s.worktree) ? s.worktree : isDir(s.cwd) ? s.cwd : null);
+  const dirOf = sessionDir;
   const dirs = [...new Set(sessions.map(dirOf).filter(Boolean))];
   const repos = new Map();
   await mapLimit(dirs, CONCURRENCY, async (dir) => repos.set(dir, await gitInfo(dir)));
@@ -653,14 +672,7 @@ async function computeAgentContexts() {
   const remotes = new Map();
   await mapLimit(slugs, CONCURRENCY, async (slug) => remotes.set(slug, await ghInfo(slug)));
 
-  const [listening, parents] = await Promise.all([listeningServers(), processParents()]);
-  const resolved = listening.map((l) => ({ ...l, cwd: real(l.cwd) }));
-  const realDirs = new Map(dirs.map((d) => [d, real(d)]));
-  const { owner, orphans } = assignServers(
-    sessions.filter(dirOf).map((s) => ({ key: s.id, dir: realDirs.get(dirOf(s)), pid: s.pid })),
-    resolved,
-    parents
-  );
+  const { resolved, owner, orphans } = await scanOwnership(sessions);
   // eslint-disable-next-line no-unused-vars -- cwd is stripped from the response
   const publicServer = ({ cwd, ...server }) => server;
   const contexts = {};
@@ -690,6 +702,7 @@ async function computeAgentContexts() {
 // Stale-while-revalidate: gh + lsof take 7-12s cold, so serve the last result and refresh behind it.
 const CONTEXT_FRESH_MS = 10_000;
 let contextCache = null; // { at, value, promise }
+let contextGeneration = 0;
 
 /** Pids of the listening servers the dashboard shows: the only ones the stats route may report */
 export async function getKnownServerPids() {
@@ -713,16 +726,18 @@ export async function getOrphanServers() {
 }
 
 /**
- * SIGTERM an orphan server. Only pids the panel lists as orphans, re-checked against a fresh
- * lsof scan (same pid, port and cwd), so a reused pid or a server a session meanwhile owns is not hit.
+ * SIGTERM an orphan server. Only pids the panel lists as orphans, re-checked against a fresh session
+ * list and fresh lsof/ps scans (same pid, port and cwd, still unowned), so a reused pid or a server a
+ * resumed session meanwhile owns is not hit.
  * @returns {Promise<boolean>} false when pid is no (longer an) orphan
  */
 export async function stopOrphanServer(pid) {
-  const orphan = (await getOrphanServers()).find((server) => server.pid === pid);
-  if (!orphan || pid === process.pid) return false;
+  const listed = (await getOrphanServers()).find((server) => server.pid === pid);
+  if (!listed || pid === process.pid) return false;
   serverScan = null;
-  const fresh = await listeningServers();
-  if (!fresh.some((l) => l.pid === pid && l.port === orphan.port && real(l.cwd) === orphan.cwd)) {
+  parentScan = null;
+  const { orphans } = await scanOwnership(await agentService.listSessions({ all: true }));
+  if (!orphans.some((o) => o.pid === pid && o.port === listed.port && o.cwd === listed.cwd)) {
     return false;
   }
   try {
@@ -730,8 +745,11 @@ export async function stopOrphanServer(pid) {
   } catch {
     return false;
   }
+  // a compute still in flight holds the pre-kill scan: it must not repopulate the cache
+  contextGeneration++;
   contextCache = null;
   serverScan = null;
+  parentScan = null;
   return true;
 }
 
@@ -740,13 +758,15 @@ function agentSnapshot() {
     return Promise.resolve(contextCache.value);
   }
   if (!contextCache?.promise) {
+    const generation = contextGeneration;
     const promise = computeAgentContexts().then(
       (value) => {
-        contextCache = { at: Date.now(), value, promise: null };
+        if (generation === contextGeneration)
+          contextCache = { at: Date.now(), value, promise: null };
         return value;
       },
       (error) => {
-        if (contextCache) contextCache.promise = null;
+        if (contextCache && generation === contextGeneration) contextCache.promise = null;
         throw error;
       }
     );

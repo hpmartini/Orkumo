@@ -36,6 +36,8 @@ for _ in $(seq 1 30); do ORPHANS=$(curl -sf "$API/servers/orphans"); echo "$ORPH
 if echo "$ORPHANS" | grep -q "\"pid\":$ORPHAN_PID"; then echo "PASS orphan pid $ORPHAN_PID listed"; else echo "FAIL orphan not listed: $ORPHANS"; exit 1; fi
 CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/servers/$$/stop")
 if [ "$CODE" = 404 ]; then echo "PASS foreign pid $$ refused (404)"; else echo "FAIL foreign pid: $CODE"; exit 1; fi
+CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Origin: https://evil.example' "$API/servers/$ORPHAN_PID/stop")
+if [ "$CODE" = 403 ] && kill -0 "$ORPHAN_PID"; then echo "PASS cross-origin stop refused (403), orphan alive"; else echo "FAIL cross-origin: $CODE"; exit 1; fi
 CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$API/servers/abc/stop")
 if [ "$CODE" = 400 ]; then echo "PASS non-numeric pid refused (400)"; else echo "FAIL abc: $CODE"; exit 1; fi
 echo "Orphans on this machine (incl. the fake one):"

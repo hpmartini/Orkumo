@@ -68,11 +68,11 @@ export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent,
     setStopError(null);
     stopOrphanServer(pid)
       .then(() => setOrphans((list) => list.filter((o) => o.pid !== pid)))
-      .catch((error: Error) => setStopError(error.message))
-      .finally(() => {
-        setConfirmPid(null);
+      .catch((error: Error) => {
+        setStopError(error.message);
         loadOrphans();
-      });
+      })
+      .finally(() => setConfirmPid(null));
   };
 
   const copy = (port: number) => {
@@ -179,7 +179,7 @@ export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent,
             <h3 className="px-3 pt-2 pb-1 text-xs font-medium text-amber-300">
               Verwaist <span className="text-gray-500 tabular-nums">{orphans.length}</span>
               <span className="ml-2 font-normal text-gray-500">
-                no running session owns these (finished worktree or job)
+                no running session owns these (worktree or job dir)
               </span>
             </h3>
             {stopError && <p className="px-3 pb-1 text-xs text-red-400">{stopError}</p>}

@@ -1568,6 +1568,11 @@ app.get('/api/agents/servers/orphans', agentLimiter, async (req, res) => {
 
 // Only pids currently listed as orphans may be stopped: no killing of arbitrary processes.
 app.post('/api/agents/servers/:pid/stop', agentLimiter, async (req, res) => {
+  // A bodyless POST needs no CORS preflight: refuse cross-site pages before killing anything
+  const origin = req.get('origin');
+  if ((origin && !isAllowedOrigin(origin)) || req.get('sec-fetch-site') === 'cross-site') {
+    return res.status(403).json({ error: 'Cross-origin request refused' });
+  }
   const pid = Number(req.params.pid);
   if (!/^\d{1,9}$/.test(req.params.pid) || pid <= 1) {
     return res.status(400).json({ error: 'pid must be a positive integer' });

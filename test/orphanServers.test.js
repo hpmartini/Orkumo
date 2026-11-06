@@ -23,12 +23,26 @@ const {
 } = await import('../server/services/agentContextService.js');
 
 const home = os.homedir();
-const assign = (sess, servers, parents = new Map()) => {
-  const { owner, orphans } = assignServers(sess, servers, parents);
+// Sessions count as live (their pid runs) unless the test passes its own process table.
+const assign = (sess, servers, parents) => {
+  const table = parents ?? new Map(sess.filter((s) => s.pid).map((s) => [s.pid, 1]));
+  const { owner, orphans } = assignServers(sess, servers, table);
   return { ownerOf: (s) => owner.get(s) ?? null, orphans };
 };
 
 describe('assignServers (#243)', () => {
+  it('AC-1: finished session in the worktree (no or dead pid) does not keep its server', () => {
+    const server = { pid: 50, cwd: '/r/app/.claude/worktrees/x/server' };
+    const sess = [
+      { key: 'main', dir: '/r/app', pid: 10 },
+      { key: 'done', dir: '/r/app/.claude/worktrees/x', pid: null },
+      { key: 'dead', dir: '/r/app/.claude/worktrees/x', pid: 77 },
+    ];
+    const { ownerOf, orphans } = assign(sess, [server], new Map([[10, 1]]));
+    expect(ownerOf(server)).toBeNull();
+    expect(orphans).toEqual([server]);
+  });
+
   it('AC-1: server in <dir>/.claude/worktrees/x is no server of the session in <dir>', () => {
     const server = { pid: 50, cwd: '/r/app/.claude/worktrees/x/server' };
     const { ownerOf, orphans } = assign([{ key: 'main', dir: '/r/app', pid: 10 }], [server]);
@@ -129,7 +143,7 @@ describe('orphan servers end to end (#243, AC-3, AC-5)', () => {
         '-e',
         `const c=require('child_process').spawn(process.execPath,['-e',${JSON.stringify(listen)}],{cwd:${JSON.stringify(path.join(root, 'repo/.claude/worktrees'))},stdio:['ignore','inherit','inherit']});setInterval(()=>{},1e6)`,
       ],
-      { cwd: root }
+      { cwd: root, detached: true }
     );
     fs.mkdirSync(path.join(root, 'repo/.claude/worktrees/other'), { recursive: true });
     await Promise.all([firstLine(orphanProc), firstLine(sessionProc)]);
@@ -146,7 +160,7 @@ describe('orphan servers end to end (#243, AC-3, AC-5)', () => {
 
   afterAll(() => {
     orphanProc?.kill('SIGKILL');
-    sessionProc?.kill('SIGKILL');
+    if (sessionProc) process.kill(-sessionProc.pid, 'SIGKILL'); // whole group: the listening child too
     fs.rmSync(root, { recursive: true, force: true });
   });
 
