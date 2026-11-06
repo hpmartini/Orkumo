@@ -14,9 +14,9 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: macos-latest, flags: '--mac --arm64' }
-          - { os: macos-15-intel, flags: '--mac --x64' }
-          - { os: ubuntu-latest, flags: '--linux --x64' }
+          - { os: macos-latest, arch: arm64, flags: '--mac --arm64' }
+          - { os: macos-15-intel, arch: x64, flags: '--mac --x64' }
+          - { os: ubuntu-latest, arch: x64, flags: '--linux --x64' }
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -36,31 +36,91 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      # Version aus dem Tag (v1.0.0-rc7 -> 1.0.0-rc7), damit jedes Release eigene Installer-Namen hat.
+      # Version aus dem Tag (v1.0.0-rc.8 -> 1.0.0-rc.8), damit jedes Release eigene Installer-Namen hat.
+      # Schema vX.Y.Z oder vX.Y.Z-rc.N: electron-updater nimmt "rc" als Kanal und vergleicht N numerisch;
+      # v1.0.0-rc7 wäre ein eigener Kanal "rc7" und bekäme nie ein Update (#126).
       - name: Set version from tag
         shell: bash
-        run: npm pkg set version="${TAG#v}"
+        run: |
+          if ! [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$ ]]; then
+            echo "::error::Tag $TAG passt nicht zum Schema vX.Y.Z oder vX.Y.Z-rc.N (siehe DESKTOP.md)"
+            exit 1
+          fi
+          npm pkg set version="${TAG#v}"
         env:
           TAG: ${{ github.event.release.tag_name }}
 
       - name: Build app
         run: bun run build && bun run bundle:server
 
-      # Ohne Apple-Zertifikat: ad-hoc-Signatur, keine Notarisierung (Skript überspringt sie ohne APPLE_ID).
+      # Mit Secrets CSC_LINK/CSC_KEY_PASSWORD: Developer-ID-Signatur + Hardened Runtime, mit APPLE_ID & Co.
+      # zusätzlich Notarisierung (electron/notarize.js); nur so nimmt Squirrel.Mac Updates an.
+      # Ohne Zertifikat: ad-hoc wie bisher; die App meldet Updates dann nur (electron/updater.js).
       - name: Package installers
-        run: bunx electron-builder ${{ matrix.flags }} --publish never
+        shell: bash
+        run: |
+          signing=()
+          if [ -n "${CSC_LINK:-}" ]; then
+            signing=(-c.mac.hardenedRuntime=true -c.mac.entitlements=electron/entitlements.mac.plist -c.mac.entitlementsInherit=electron/entitlements.mac.plist)
+          else
+            unset CSC_LINK CSC_KEY_PASSWORD
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+          fi
+          bunx electron-builder ${{ matrix.flags }} --publish never ${signing[@]+"${signing[@]}"}
         env:
-          CSC_IDENTITY_AUTO_DISCOVERY: false
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
+      # Installer, Update-Metadaten und Blockmaps; *-mac.yml lädt merge-mac-yml zusammengeführt hoch.
       - name: Upload to release
         shell: bash
         run: |
-          # Schleife statt Wortsplitting: robust gegen Leerzeichen in Dateinamen.
-          find dist-electron -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \) -print0 |
-            while IFS= read -r -d '' f; do
+          scripts/release/release-assets.sh dist-electron --no-mac-yml |
+            while IFS= read -r f; do
               gh release upload "${{ github.event.release.tag_name }}" "$f" --clobber
             done
         env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep mac update metadata for merge
+        if: runner.os == 'macOS'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mac-yml-${{ matrix.arch }}
+          path: dist-electron/*-mac.yml
+          if-no-files-found: error
+
+  # arm64 und x64 bauen getrennt und schreiben je ein <kanal>-mac.yml; electron-updater braucht eine Datei mit beiden.
+  merge-mac-yml:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.2.18
+
+      - run: bun install --frozen-lockfile
+
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          pattern: mac-yml-*
+          path: mac-yml
+
+      - name: Merge and upload
+        shell: bash
+        run: |
+          mkdir -p merged
+          for name in $(find mac-yml -name '*-mac.yml' -exec basename {} \; | sort -u); do
+            node scripts/release/merge-mac-yml.mjs "merged/$name" mac-yml/*/"$name"
+            gh release upload "$TAG" "merged/$name" --clobber
+          done
+        env:
+          TAG: ${{ github.event.release.tag_name }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # Baut die Docker-Images (API + Frontend) für amd64/arm64, pusht sie nach GHCR

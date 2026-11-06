@@ -10,6 +10,14 @@ import { APP_NAME, LEGACY_USER_DATA_DIR } from './constants.js';
 import { wireBrowserViewNav, goHistory } from './browserViewNav.js';
 import { persistSessionCookies } from './cookiePersistence.js';
 import { PORTS } from '../config/defaults.js';
+import electronUpdater from 'electron-updater';
+import {
+  setupUpdater,
+  resolveUpdateMode,
+  hasUpdateConfigFile,
+  isDeveloperIdSigned,
+  appBundlePath,
+} from './updater.js';
 
 // Before anything reads userData (single-instance lock, sessions, data dir)
 app.setPath('userData', path.join(app.getPath('appData'), LEGACY_USER_DATA_DIR));
@@ -893,6 +901,25 @@ function setupIpcHandlers() {
   });
 }
 
+function startUpdateCheck() {
+  const mode = resolveUpdateMode({
+    isDev,
+    platform: process.platform,
+    env: process.env,
+    hasUpdateConfig: !isDev && hasUpdateConfigFile(process.resourcesPath),
+    macSigned: () => isDeveloperIdSigned(appBundlePath(process.execPath)),
+  });
+  const check = setupUpdater({
+    autoUpdater: electronUpdater.autoUpdater,
+    dialog,
+    shell,
+    getWindow: () => mainWindow,
+    mode,
+  });
+  // after a delay so the backend and window settle first
+  if (check) setTimeout(check, 5000);
+}
+
 /**
  * App lifecycle
  */
@@ -909,6 +936,8 @@ app.whenReady().then(async () => {
 
     // Create main window
     createWindow();
+
+    startUpdateCheck();
 
     // On macOS, recreate window when dock icon is clicked
     app.on('activate', () => {
