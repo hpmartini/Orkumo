@@ -19,7 +19,9 @@ import type {
   AgentContext,
   RemoteAgentsResponse,
   AgentServerStats,
+  AgentCacheInfo,
 } from '../types';
+import type { UsageLimits } from '../components/UsageView/types';
 
 const API_BASE = API_BASE_URL;
 
@@ -363,6 +365,38 @@ export const interruptChat = (id: string) =>
 
 export const stopChat = (id: string) =>
   request<{ stopped: boolean }>(chatPath(id), { method: 'DELETE' });
+
+export interface ChatStatus {
+  git: {
+    branch: string | null;
+    untracked: number;
+    changed: number;
+    ahead: number;
+    behind: number;
+  } | null;
+  cache: AgentCacheInfo | null;
+  limits: UsageLimits | null;
+}
+
+export const fetchChatStatus = (id: string) => request<ChatStatus>(chatPath(id, 'status'));
+
+export const fetchChatFiles = (id: string, q: string) =>
+  request<{ files: string[] }>(`${chatPath(id, 'files')}?q=${encodeURIComponent(q)}`).then(
+    (d) => d.files
+  );
+
+export const fetchChatShell = (id: string, shellId: string) =>
+  request<{ output: string; updatedAt: number; truncated: boolean }>(
+    chatPath(id, `shells/${encodeURIComponent(shellId)}`)
+  );
+
+/** Preview URL of an image stored by uploadAgentImage; null for any other path */
+export function agentImageUrl(path: string): string | null {
+  const name = path.split('/').pop() ?? '';
+  return /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/.test(name) && path.includes('/agent-images/')
+    ? `${API_BASE}/agents/images/${name}`
+    : null;
+}
 
 /**
  * Chat event stream. Every (re)connect replays the whole history first, so `onOpen` resets

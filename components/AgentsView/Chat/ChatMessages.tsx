@@ -1,6 +1,16 @@
 import React from 'react';
-import { Brain, ChevronRight, ShieldQuestion, Wrench, CheckCircle2, XCircle } from 'lucide-react';
+import {
+  Brain,
+  ChevronRight,
+  History,
+  ShieldQuestion,
+  Wrench,
+  CheckCircle2,
+  XCircle,
+} from 'lucide-react';
 import { toolDiff, toolSummary, type ChatBlock, type ChatMessage } from '../../../utils/chatEvents';
+import { splitImages } from '../../../utils/chatComposer';
+import { agentImageUrl } from '../../../services/agentsApi';
 import { ChatMarkdown } from './ChatMarkdown';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-blue-400';
@@ -83,7 +93,8 @@ const ToolBlock: React.FC<{ block: Extract<ChatBlock, { type: 'tool' }> }> = ({ 
   );
 };
 
-const AssistantBlock: React.FC<{ block: ChatBlock }> = ({ block }) => {
+export const AssistantBlock: React.FC<{ block: ChatBlock }> = ({ block }) => {
+  if (!block) return null;
   if (block.type === 'text') return block.text ? <ChatMarkdown text={block.text} /> : null;
   if (block.type === 'thinking')
     return (
@@ -174,23 +185,63 @@ const PermissionCard: React.FC<{
   );
 };
 
+const UserMessage: React.FC<{ text: string }> = ({ text }) => {
+  const { text: body, images } = splitImages(text);
+  const previews = images.map((p) => ({ path: p, url: agentImageUrl(p) }));
+  return (
+    <div className="flex justify-end my-3">
+      <div className="max-w-[85%] rounded-lg bg-blue-900/50 border border-blue-800/60 px-3 py-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
+        {body}
+        {previews.length > 0 && (
+          <div className={`flex flex-wrap gap-1.5 ${body ? 'mt-2' : ''}`}>
+            {previews.map(({ path, url }) =>
+              url ? (
+                <a key={path} href={url} target="_blank" rel="noreferrer" title={path}>
+                  <img
+                    src={url}
+                    alt="Attached image"
+                    loading="lazy"
+                    className="h-20 max-w-[10rem] rounded border border-blue-800/60 object-cover hover:opacity-90"
+                  />
+                </a>
+              ) : (
+                <span key={path} className="text-xs text-blue-200/80 font-mono">
+                  [Image: {path}]
+                </span>
+              )
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const ChatMessageView: React.FC<{
   message: ChatMessage;
+  showSteps: boolean;
   onAnswer: (requestId: string, decision: 'allow' | 'deny' | 'always') => void;
-}> = React.memo(({ message, onAnswer }) => {
+}> = React.memo(({ message, showSteps, onAnswer }) => {
   switch (message.kind) {
     case 'user':
+      return <UserMessage text={message.text} />;
+    case 'recap':
       return (
-        <div className="flex justify-end my-3">
-          <div className="max-w-[85%] rounded-lg bg-blue-900/50 border border-blue-800/60 px-3 py-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
+        <div className="my-3 flex gap-2 rounded-md border border-gray-800 bg-gray-900/60 px-3 py-2 text-sm text-gray-300">
+          <History size={14} aria-hidden className="mt-0.5 shrink-0 text-gray-500" />
+          <div>
+            <span className="text-gray-500">recap: </span>
             {message.text}
           </div>
         </div>
       );
-    case 'assistant':
+    case 'assistant': {
+      const blocks = showSteps ? message.blocks : message.blocks.filter((b) => b?.type === 'text');
+      if (!blocks.some((b) => b && (b.type !== 'text' || b.text)) && !message.streaming)
+        return null;
       return (
         <div className="my-3">
-          {message.blocks.map((b, i) => (
+          {blocks.map((b, i) => (
             <AssistantBlock key={i} block={b} />
           ))}
           {message.streaming && (
@@ -198,6 +249,7 @@ export const ChatMessageView: React.FC<{
           )}
         </div>
       );
+    }
     case 'permission':
       return <PermissionCard message={message} onAnswer={onAnswer} />;
     case 'result':

@@ -143,7 +143,12 @@ export function historyEvents(lines) {
   const events = [];
   for (const line of lines) {
     const rec = parseLine(line);
-    if (!rec || rec.isSidechain || rec.isMeta || rec.isCompactSummary || !rec.message) continue;
+    if (!rec || rec.isSidechain || rec.isMeta || rec.isCompactSummary) continue;
+    if (rec.type === 'system' && rec.subtype === 'away_summary' && rec.content) {
+      events.push({ type: 'system', subtype: 'away_summary', content: rec.content });
+      continue;
+    }
+    if (!rec.message) continue;
     const content = rec.message.content;
     if (rec.type === 'assistant' && Array.isArray(content)) {
       events.push({ type: 'assistant', message: rec.message, parent_tool_use_id: null });
@@ -226,6 +231,14 @@ function summary(s) {
 }
 
 function record(s, event) {
+  if (event.type === 'devorbit_commands') {
+    // One merged list in the replay buffer, however often the CLI re-sends it
+    const prev = s.events.findIndex((e) => e.type === 'devorbit_commands');
+    if (prev >= 0) {
+      event = { ...s.events[prev], ...event };
+      s.events.splice(prev, 1);
+    }
+  }
   // Deltas are only useful live; the full assistant message replays on reconnect
   if (event.type !== 'stream_event') {
     s.events.push(event);
@@ -239,6 +252,27 @@ function write(s, obj) {
   s.proc.stdin.write(`${JSON.stringify(obj)}\n`);
 }
 
+const clip = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
+
+/** The CLI's command / agent lists, trimmed: the raw init answer is ~100 KB per chat */
+export function commandsEvent(commands, agents) {
+  const event = { type: 'devorbit_commands' };
+  if (Array.isArray(commands))
+    event.commands = commands
+      .filter((c) => c && typeof c.name === 'string' && !c.name.startsWith('__'))
+      .map((c) => ({
+        name: c.name,
+        description: clip(c.description, 600),
+        argumentHint: clip(c.argumentHint, 200),
+        builtin: c.builtin === true,
+      }));
+  if (Array.isArray(agents))
+    event.agents = agents
+      .filter((a) => a && typeof a.name === 'string')
+      .map((a) => ({ name: a.name, description: clip(a.description, 600) }));
+  return event;
+}
+
 function handleMessage(s, msg) {
   if (msg.session_id && !s.sessionId) s.sessionId = msg.session_id;
   if (msg.type === 'system' && msg.subtype === 'init' && msg.model) s.model = msg.model;
@@ -246,8 +280,17 @@ function handleMessage(s, msg) {
     s.pending.set(msg.request_id, msg.request);
   }
   if (msg.type === 'result') s.busy = false;
-  // Our own initialize answer (huge command list) and hook chatter stay out of the chat
-  if (msg.type === 'control_response') return;
+  // Our own initialize answer carries the command list; the rest of it stays out of the chat
+  if (msg.type === 'control_response') {
+    const r = msg.response;
+    if (r?.request_id === `init-${s.id}` && r.response)
+      record(s, commandsEvent(r.response.commands, r.response.agents));
+    return;
+  }
+  if (msg.type === 'system' && msg.subtype === 'commands_changed') {
+    record(s, commandsEvent(msg.commands));
+    return;
+  }
   if (msg.type === 'system' && /^hook_/.test(msg.subtype || '')) return;
   record(s, msg);
 }
@@ -459,4 +502,28 @@ export function watchChat(id, onEvent) {
 
 export function chatSummary(id) {
   return summary(get(id));
+}
+
+/**
+ * Output file of a background shell this chat started. Only a path the CLI itself reported in a
+ * tool result of this session qualifies, so the client never names a file.
+ */
+export function shellOutputFile(id, shellId) {
+  const s = get(id);
+  if (!/^\w{1,40}$/.test(shellId)) return null;
+  const pattern = new RegExp(`Output is being written to: (\\S+/tasks/${shellId}\\.output)`);
+  for (const event of s.events) {
+    if (event.type !== 'user' || !Array.isArray(event.message?.content)) continue;
+    for (const block of event.message.content) {
+      const text =
+        typeof block?.content === 'string'
+          ? block.content
+          : Array.isArray(block?.content)
+            ? block.content.map((c) => c?.text || '').join('\n')
+            : '';
+      const match = text.match(pattern);
+      if (match) return match[1];
+    }
+  }
+  return null;
 }

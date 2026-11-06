@@ -215,6 +215,9 @@ export interface AgentContext {
     slug: string | null;
     branch: string | null;
     dirty: boolean;
+    /** Untracked and other changed paths from git status (chat status line) */
+    untracked?: number;
+    changed?: number;
     ahead: number;
     behind: number;
     /** true when the session runs in a linked git worktree (not the main checkout) */
@@ -381,6 +384,10 @@ export interface AgentViewSettings {
   disabled: boolean;
   /** Chat pane (#189): which key sends the message */
   chatSubmitKey: 'enter' | 'mod+enter';
+  /** Chat pane: thinking and tool calls inline in the transcript (else only in the work panel) */
+  chatShowSteps: boolean;
+  /** Clicking an idle agent with a known session opens it as chat or in the terminal */
+  agentOpenView: 'chat' | 'terminal';
   dispatch: AgentDispatchDefaults;
   version: number;
 }
@@ -498,6 +505,8 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   cardFields: DEFAULT_AGENT_CARD_FIELDS,
   disabled: false,
   chatSubmitKey: 'mod+enter',
+  chatShowSteps: false,
+  agentOpenView: 'chat',
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
 };

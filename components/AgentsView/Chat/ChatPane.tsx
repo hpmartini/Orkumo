@@ -2,15 +2,15 @@ import React, {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useReducer,
   useRef,
   useState,
 } from 'react';
-import { Maximize2, MessageSquare, Send, Square, SquareTerminal, X } from 'lucide-react';
+import { ListTree, Maximize2, MessageSquare, Send, Square, SquareTerminal, X } from 'lucide-react';
 import type { AgentSession } from '../../../types';
 import {
   initialChatState,
-  isSubmitKey,
   pendingPermissions,
   reduceChat,
   type ChatState,
@@ -26,6 +26,10 @@ import {
 } from '../../../services/agentsApi';
 import { ImageAttachments, imageDropHandlers } from '../../ImageAttachments';
 import { ChatMessageView } from './ChatMessages';
+import { ChatComposer } from './ChatComposer';
+import { ChatActivity } from './ChatActivity';
+import { ChatStatusLine } from './ChatStatusLine';
+import { splitImages } from '../../../utils/chatComposer';
 
 type Action = { type: 'reset' } | { type: 'event'; event: unknown };
 const reducer = (state: ChatState, action: Action): ChatState =>
@@ -46,6 +50,9 @@ interface ChatPaneProps {
   active: boolean;
   focused: boolean;
   submitKey: ChatSubmitKey;
+  /** Thinking and tool calls inline in the transcript (else only in the work panel) */
+  showSteps: boolean;
+  onToggleSteps: () => void;
   onFocus: () => void;
   /** Closing the pane ends the chat process */
   onClose: () => void;
@@ -61,6 +68,8 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   active,
   focused,
   submitKey,
+  showSteps,
+  onToggleSteps,
   onFocus,
   onClose,
   onMaximize,
@@ -74,7 +83,9 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   const [sending, setSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const stickToBottom = useRef(true);
+  const lastScrollTop = useRef(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(
@@ -82,6 +93,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       subscribeToChat(session.id, {
         onOpen: () => {
           setGone(false);
+          stickToBottom.current = true;
           dispatch({ type: 'reset' });
         },
         onEvent: (event) => dispatch({ type: 'event', event }),
@@ -90,11 +102,43 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     [session.id]
   );
 
-  // Follow the stream unless the user scrolled up to read
-  useLayoutEffect(() => {
+  // Follow the stream unless the user scrolled up to read. Message heights settle late
+  // (content-visibility, markdown, images), so every size change re-pins to the bottom.
+  const pinBottom = useCallback(() => {
     const el = listRef.current;
-    if (el && stickToBottom.current) el.scrollTop = el.scrollHeight;
-  }, [state.messages]);
+    if (el && stickToBottom.current) {
+      el.scrollTop = el.scrollHeight;
+      lastScrollTop.current = el.scrollTop;
+    }
+  }, []);
+  useLayoutEffect(pinBottom, [state.messages, showSteps, pinBottom]);
+  useEffect(() => {
+    const content = contentRef.current;
+    if (!content) return;
+    const observer = new ResizeObserver(pinBottom);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [pinBottom]);
+  // Back on a hidden tab: jump to the newest messages
+  useEffect(() => {
+    if (active) {
+      stickToBottom.current = true;
+      pinBottom();
+    }
+  }, [active, pinBottom]);
+
+  const history = useMemo(
+    () =>
+      state.messages
+        .filter((m): m is Extract<typeof m, { kind: 'user' }> => m.kind === 'user')
+        .map((m) => splitImages(m.text).text)
+        .filter(Boolean),
+    [state.messages]
+  );
+  const turns = useMemo(
+    () => state.messages.filter((m) => m.kind === 'result').length,
+    [state.messages]
+  );
 
   const onAnswer = useCallback(
     (requestId: string, decision: 'allow' | 'deny' | 'always') => {
@@ -163,6 +207,19 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           {status}
         </span>
         <span className="flex-1" />
+        <button
+          type="button"
+          onClick={onToggleSteps}
+          onMouseDown={keepFocus}
+          className={`${iconBtn} ${showSteps ? 'text-blue-300' : ''}`}
+          title={
+            showSteps ? 'Hide thinking and tool calls' : 'Show thinking and tool calls in the chat'
+          }
+          aria-label="Show thinking and tool calls"
+          aria-pressed={showSteps}
+        >
+          <ListTree size={13} />
+        </button>
         {state.busy && !ended && (
           <button
             type="button"
@@ -217,56 +274,57 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 py-2"
         onScroll={(e) => {
           const el = e.currentTarget;
-          stickToBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40;
+          // Only a scroll up by the user lets go; layout shifts never do
+          if (nearBottom) stickToBottom.current = true;
+          else if (el.scrollTop < lastScrollTop.current - 2) stickToBottom.current = false;
+          lastScrollTop.current = el.scrollTop;
         }}
       >
-        {state.messages.length === 0 && !ended && (
-          <div className="h-full flex items-center justify-center text-sm text-gray-500">
-            Ask Claude anything. Markdown works; paste or drop images.
-          </div>
-        )}
-        {state.messages.map((m) => (
-          // content-visibility keeps long chats (hundreds of messages) cheap to scroll
-          <div key={m.key} className="[content-visibility:auto] [contain-intrinsic-size:auto_60px]">
-            <ChatMessageView message={m} onAnswer={onAnswer} />
-          </div>
-        ))}
+        <div ref={contentRef}>
+          {state.messages.length === 0 && !ended && (
+            <div className="h-full flex items-center justify-center text-sm text-gray-500">
+              Ask Claude anything. Markdown works; paste or drop images.
+            </div>
+          )}
+          {state.messages.map((m) => (
+            // content-visibility keeps long chats (hundreds of messages) cheap to scroll
+            <div
+              key={m.key}
+              className="[content-visibility:auto] [contain-intrinsic-size:auto_60px]"
+            >
+              <ChatMessageView message={m} showSteps={showSteps} onAnswer={onAnswer} />
+            </div>
+          ))}
+        </div>
       </div>
 
       <div className="shrink-0 border-t border-gray-800 p-2">
+        <ChatActivity
+          chatId={session.id}
+          messages={state.messages}
+          sub={state.sub}
+          busy={state.busy && !ended}
+        />
         {error && (
           <div role="alert" className="mb-1 text-xs text-red-300">
             {error}
           </div>
         )}
         <div className="flex items-end gap-2">
-          <label htmlFor={`chat-input-${session.id}`} className="sr-only">
-            Message
-          </label>
-          <textarea
-            id={`chat-input-${session.id}`}
-            ref={inputRef}
+          <ChatComposer
+            chatId={session.id}
             value={text}
+            onChange={setText}
+            onSubmit={submit}
+            onStop={stopTurn}
+            busy={state.busy}
             disabled={ended}
-            rows={Math.min(8, Math.max(2, text.split('\n').length))}
-            onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && state.busy) {
-                e.preventDefault();
-                stopTurn();
-              } else if (isSubmitKey(e.nativeEvent, submitKey)) {
-                e.preventDefault();
-                submit();
-              }
-            }}
-            placeholder={
-              ended
-                ? 'Session ended'
-                : submitKey === 'enter'
-                  ? 'Message (Enter sends, Shift+Enter new line)'
-                  : 'Message (Cmd/Ctrl+Enter sends, Enter new line)'
-            }
-            className="flex-1 min-w-0 resize-none rounded-md bg-gray-900 border border-gray-700 px-2.5 py-1.5 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-400 disabled:opacity-50"
+            submitKey={submitKey}
+            history={history}
+            commands={state.commands}
+            agents={state.agents}
+            inputRef={inputRef}
           />
           <button
             type="button"
@@ -280,6 +338,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           </button>
         </div>
         <ImageAttachments images={images} onChange={setImages} disabled={sending || ended} />
+        <ChatStatusLine chatId={session.id} turns={turns} visible={active && !ended} />
       </div>
     </div>
   );

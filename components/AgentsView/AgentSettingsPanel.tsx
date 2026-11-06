@@ -197,6 +197,24 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                   <option value="enter">Enter (Shift+Enter = new line)</option>
                 </select>
               </div>
+              <div>
+                <label className={label} htmlFor="agent-open-view">
+                  Open idle agents as
+                </label>
+                <select
+                  id="agent-open-view"
+                  className={field}
+                  value={settings.agentOpenView}
+                  onChange={(e) =>
+                    onUpdate({
+                      agentOpenView: e.target.value as AgentViewSettings['agentOpenView'],
+                    })
+                  }
+                >
+                  <option value="chat">Chat (resumes the session in the chat view)</option>
+                  <option value="terminal">Terminal</option>
+                </select>
+              </div>
             </div>
             <fieldset className="space-y-2">
               <legend className={`${label} flex items-center gap-2 w-full`}>

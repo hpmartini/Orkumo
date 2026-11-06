@@ -44,6 +44,8 @@ interface AgentWorkspaceProps {
   hidden?: boolean;
   /** Chat panes (#189): key that sends a message */
   chatSubmitKey?: ChatSubmitKey;
+  chatShowSteps?: boolean;
+  onToggleChatSteps?: () => void;
   /** Chat pane "Open in terminal": end the chat, resume its CLI session in a terminal */
   onOpenChatInTerminal?: (chatId: string, sessionId: string) => void;
   /** Ends a terminal pane and resumes its CLI session in a Chat pane */
@@ -200,6 +202,8 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   focusZone,
   renderPaneMeta,
   chatSubmitKey = 'mod+enter',
+  chatShowSteps = false,
+  onToggleChatSteps,
   onOpenChatInTerminal,
   onOpenAsChat,
   hidden = false,
@@ -327,6 +331,8 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             active={session.id === tab.activeSessionId}
             focused={visible && focusZone === 'terminal' && session.id === tab.activeSessionId}
             submitKey={chatSubmitKey}
+            showSteps={chatShowSteps}
+            onToggleSteps={() => onToggleChatSteps?.()}
             onFocus={() => onFocusPane(session.id)}
             onClose={() => onClosePane(session.id)}
             onMaximize={multi ? () => onDetach(session.id) : undefined}

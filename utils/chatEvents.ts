@@ -31,7 +31,16 @@ export type ChatMessage =
       decision: 'allow' | 'deny' | 'always' | null;
     }
   | { kind: 'result'; key: string; ok: boolean; subtype: string; durationMs: number | null }
-  | { kind: 'notice'; key: string; text: string; tone: 'info' | 'error' };
+  | { kind: 'notice'; key: string; text: string; tone: 'info' | 'error' }
+  /** The CLI's "※ recap" summary (system/away_summary) */
+  | { kind: 'recap'; key: string; text: string };
+
+export interface ChatCommand {
+  name: string;
+  description: string;
+  argumentHint?: string;
+  builtin?: boolean;
+}
 
 export interface ChatState {
   messages: ChatMessage[];
@@ -43,6 +52,11 @@ export interface ChatState {
   ended: boolean;
   /** Assistant message id → index of the next block a full `assistant` event fills */
   filled: Record<string, number>;
+  /** Slash commands (built-ins, skills) and agents the CLI reported */
+  commands: ChatCommand[];
+  agents: { name: string; description: string }[];
+  /** Sub-agent blocks by the Agent tool call that runs them */
+  sub: Record<string, ChatBlock[]>;
 }
 
 export const initialChatState: ChatState = {
@@ -52,6 +66,9 @@ export const initialChatState: ChatState = {
   busy: false,
   ended: false,
   filled: {},
+  commands: [],
+  agents: [],
+  sub: {},
 };
 
 type Json = Record<string, unknown>;
@@ -181,7 +198,28 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
   switch (event.type) {
     case 'system':
       if (event.subtype === 'init') return { ...state, model: str(event.model) || state.model };
+      if (event.subtype === 'away_summary' && str(event.content))
+        return {
+          ...state,
+          messages: [
+            ...state.messages,
+            {
+              kind: 'recap',
+              key: `c${state.messages.length}`,
+              text: str(event.content).replace(/\s*\(disable recaps in \/config\)\s*$/, ''),
+            },
+          ],
+        };
       return state;
+
+    case 'devorbit_commands':
+      return {
+        ...state,
+        commands: Array.isArray(event.commands)
+          ? (event.commands as ChatCommand[])
+          : state.commands,
+        agents: Array.isArray(event.agents) ? (event.agents as ChatState['agents']) : state.agents,
+      };
 
     case 'stream_event':
       return isObj(event.event) ? reduceStreamEvent(state, event.event) : state;
@@ -190,7 +228,14 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
       const msg = event.message;
       if (!isObj(msg) || !Array.isArray(msg.content)) return state;
       // Subagent chatter (parent_tool_use_id set) stays inside its tool block
-      if (event.parent_tool_use_id) return state;
+      if (event.parent_tool_use_id) {
+        const parent = str(event.parent_tool_use_id);
+        const blocks = (msg.content as unknown[]).map(toBlock).filter((b): b is ChatBlock => !!b);
+        return {
+          ...state,
+          sub: { ...state.sub, [parent]: [...(state.sub[parent] ?? []), ...blocks] },
+        };
+      }
       const id = str(msg.id) || `a${state.messages.length}`;
       // The CLI sends one `assistant` event per finished content block, in block order
       let filled = state.filled[id] ?? 0;
@@ -217,8 +262,20 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
 
     case 'user': {
       const msg = event.message;
-      if (!isObj(msg) || event.parent_tool_use_id) return state;
-      if (!Array.isArray(msg.content)) return state;
+      if (!isObj(msg) || !Array.isArray(msg.content)) return state;
+      if (event.parent_tool_use_id) {
+        const parent = str(event.parent_tool_use_id);
+        let blocks = state.sub[parent] ?? [];
+        for (const r of msg.content as unknown[]) {
+          if (!isObj(r) || r.type !== 'tool_result') continue;
+          blocks = blocks.map((b) =>
+            b.type === 'tool' && b.id === str(r.tool_use_id)
+              ? { ...b, result: resultText(r.content), isError: r.is_error === true }
+              : b
+          );
+        }
+        return { ...state, sub: { ...state.sub, [parent]: blocks } };
+      }
       return (msg.content as unknown[]).reduce<ChatState>(
         (s, block) =>
           isObj(block) && block.type === 'tool_result' ? attachToolResult(s, block) : s,

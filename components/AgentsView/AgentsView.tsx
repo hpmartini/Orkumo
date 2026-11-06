@@ -81,6 +81,7 @@ import {
   AgentSort,
   NavItem,
   SessionGroup,
+  resumableSessionId,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
 import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
@@ -141,6 +142,13 @@ interface AgentsViewProps {
 }
 
 const noop = () => {};
+/** Agents between turns: these can move into the Chat pane without cutting off work */
+const CHAT_OPENABLE = new Set<AgentSession['displayState']>([
+  'idle',
+  'completed',
+  'failed',
+  'stopped',
+]);
 
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
@@ -871,8 +879,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         try {
           await stopAgent(session.id);
         } catch (err) {
-          showHint(err instanceof Error ? err.message : 'Stop failed', 'error', 6000);
-          return;
+          // A finished or stopped job may already be gone; only a live one must stop first
+          if (session.displayState === 'idle') {
+            showHint(err instanceof Error ? err.message : 'Stop failed', 'error', 6000);
+            return;
+          }
         }
       }
       // For a local terminal, closing the pane kills its PTY (server side, on WebSocket close)
@@ -884,11 +895,33 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [showHint, closeAnyPane, openChat]
   );
 
+  /**
+   * "Open idle agents as chat" (default): an agent between turns opens in the Chat pane, or
+   * focuses the chat that already runs its session. false = open it the usual way.
+   */
+  const openAsChat = useCallback(
+    (session: AgentSession): boolean => {
+      if (settings.agentOpenView !== 'chat') return false;
+      const sessionId = resumableSessionId(session);
+      if (!sessionId) return false;
+      const running = chats.chats.find((c) => c.sessionId === sessionId);
+      if (running) {
+        attach(running.id);
+        return true;
+      }
+      if (!CHAT_OPENABLE.has(session.displayState)) return false;
+      void openAgentInChat(session, sessionId);
+      return true;
+    },
+    [settings.agentOpenView, chats.chats, attach, openAgentInChat]
+  );
+
   const activateItem = useCallback(
     (item: NavItem | null) => {
       if (!item) return;
       if (item.type === 'group') toggleGroup(item.group);
       else if (item.type === 'more') setExpandedCompleted(true);
+      else if (openAsChat(item.session)) return;
       else if (item.session.kind !== 'interactive') attach(item.session.id);
       // Interactive and remote-control sessions keep their transcript locally: continue it here
       else if (item.session.sessionId)
@@ -898,7 +931,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         ]);
       else showHint('Interactive sessions run in their own terminal', 'info');
     },
-    [toggleGroup, attach, showHint, openInteractiveClaude]
+    [toggleGroup, attach, showHint, openInteractiveClaude, openAsChat]
   );
 
   const doDispatch = useCallback(
@@ -2255,6 +2288,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     onClosePane={live ? closeAnyPane : noop}
                     onCloseTab={live ? closeTab : noop}
                     chatSubmitKey={settings.chatSubmitKey}
+                    chatShowSteps={settings.chatShowSteps}
+                    onToggleChatSteps={() =>
+                      updateSettings({ chatShowSteps: !settings.chatShowSteps })
+                    }
                     onOpenChatInTerminal={live ? openChatInTerminal : undefined}
                     onOpenAsChat={live ? openAgentInChat : undefined}
                     onMoveTab={live ? workspaceActions.moveTab : noop}

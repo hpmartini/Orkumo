@@ -95,6 +95,15 @@ export function resolveRepoIdentity({ top, gitDir, commonDir }) {
   return { name, root, isWorktree: true, worktreeName: path.basename(top), worktreePath: top };
 }
 
+/** `git status --porcelain` → untracked (`??`) and other changed paths */
+export function statusCounts(porcelain) {
+  const lines = String(porcelain || '')
+    .split('\n')
+    .filter((l) => l.trim());
+  const untracked = lines.filter((l) => l.startsWith('??')).length;
+  return { untracked, changed: lines.length - untracked };
+}
+
 export async function gitInfo(dir) {
   const ids = await run(
     'git',
@@ -124,6 +133,7 @@ export async function gitInfo(dir) {
     slug: parseGithubSlug(remote),
     branch: name && name !== 'HEAD' ? name : null,
     dirty: Boolean(status?.trim()),
+    ...statusCounts(status),
     ...parseAheadBehind(counts),
   };
 }
@@ -276,7 +286,7 @@ export function contextWindowFor(model, cachedTokens) {
 }
 
 /** Prompt-cache stats of a session; reads only the bytes appended since the last call */
-async function sessionCache(session, model) {
+export async function sessionCache(session, model) {
   for (const file of transcriptCandidates(session)) {
     let size;
     try {

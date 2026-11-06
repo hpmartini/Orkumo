@@ -10,6 +10,14 @@ import path from 'path';
 import { getDataPath } from './dataPath.js';
 
 export const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+
+const AGENT_IMAGE_NAME =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(png|jpg|gif|webp)$/;
+
+/** Stored agent image by its server-chosen name; null for anything else (no path from clients) */
+export function agentImagePath(name, dir = path.join(getDataPath(), 'agent-images')) {
+  return AGENT_IMAGE_NAME.test(name) ? path.join(dir, name) : null;
+}
 export const ISSUE_ASSETS_BRANCH = 'issue-assets';
 
 function httpError(message, status) {

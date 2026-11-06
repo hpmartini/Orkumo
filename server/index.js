@@ -35,6 +35,7 @@ import { ideService } from './services/ideService.js';
 import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
 import * as chatService from './services/chatService.js';
+import * as chatStatus from './services/chatStatus.js';
 import * as meshService from './services/meshService.js';
 import * as remoteAccess from './services/remoteAccess.js';
 import { isSessionId } from './services/meshHosts.js';
@@ -1257,6 +1258,15 @@ app.post('/api/agents/images', agentLimiter, imageBody, async (req, res) => {
   }
 });
 
+/** GET /api/agents/images/:name - preview of an image stored for a prompt (server-chosen names only) */
+app.get('/api/agents/images/:name', (req, res) => {
+  const file = imageUpload.agentImagePath(req.params.name);
+  if (!file) return res.status(400).json({ error: 'Invalid image name' });
+  res.sendFile(file, { headers: { 'Cache-Control': 'private, max-age=86400' } }, (error) => {
+    if (error && !res.headersSent) res.status(404).json({ error: 'Image not found' });
+  });
+});
+
 // ---------------------------------------------------------------------------
 // Chat sessions (#189): `claude -p` with stream-json, rendered by the Chat pane
 // ---------------------------------------------------------------------------
@@ -1344,6 +1354,43 @@ app.post(
   '/api/agents/chat/:chatId/interrupt',
   validateParams(chatIdSchema),
   chatAction((req) => chatService.interruptChat(req.params.chatId))
+);
+
+/** Status line of a chat: git (branch, untracked, changed), prompt cache, plan limits */
+app.get('/api/agents/chat/:chatId/status', validateParams(chatIdSchema), async (req, res) => {
+  try {
+    res.json(await chatStatus.chatStatus(chatService.chatSummary(req.params.chatId)));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** `@` completion: files of the chat's repo (git ls-files) matching ?q= */
+app.get('/api/agents/chat/:chatId/files', validateParams(chatIdSchema), async (req, res) => {
+  try {
+    const { cwd } = chatService.chatSummary(req.params.chatId);
+    const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 200) : '';
+    res.json({ files: await chatStatus.chatFiles(cwd, q) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** Output tail of a background shell the chat's own CLI reported */
+app.get(
+  '/api/agents/chat/:chatId/shells/:shellId',
+  // Each param must be a chat uuid or a shell id; shellOutputFile checks the shell id again
+  validateParams(z.union([chatIdSchema, z.string().regex(/^\w{1,40}$/)])),
+  async (req, res) => {
+    try {
+      const file = chatService.shellOutputFile(req.params.chatId, req.params.shellId);
+      const tail = file && (await chatStatus.shellTail(file));
+      if (!tail) return res.status(404).json({ error: 'Shell output not found' });
+      res.json(tail);
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
 );
 
 app.delete('/api/agents/chat/:chatId', validateParams(chatIdSchema), async (req, res) => {
