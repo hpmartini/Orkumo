@@ -4,6 +4,7 @@ import {
   chatSuggestions,
   continueList,
   historyStep,
+  endKey,
   homeKey,
   indentList,
   splitImages,
@@ -20,6 +21,16 @@ describe('homeKey', () => {
   it('stays at 0 on the first line start (never loads history)', () => {
     expect(homeKey(text, 0)).toBeNull();
     expect(homeKey(text, 2)).toBe(0);
+  });
+});
+
+describe('endKey', () => {
+  const text = 'one\ntwo\nthree';
+  it('goes to the end of the line, then to the end of the line below', () => {
+    expect(endKey(text, 1)).toBe(3);
+    expect(endKey(text, 3)).toBe(7);
+    expect(endKey(text, 7)).toBe(13);
+    expect(endKey(text, 13)).toBeNull();
   });
 });
 
@@ -67,10 +78,12 @@ describe('history', () => {
 });
 
 describe('suggestions', () => {
-  it('opens on / at a line start and on @ anywhere', () => {
+  it('opens on / and @ after a space or at a line start', () => {
     expect(suggestionQuery('/com', 4)).toEqual({ trigger: '/', query: 'com', start: 0 });
     expect(suggestionQuery('see @src/ut', 11)).toEqual({ trigger: '@', query: 'src/ut', start: 4 });
     expect(suggestionQuery('a/b', 3)).toBeNull();
+    expect(suggestionQuery('first do /rev', 13)).toEqual({ trigger: '/', query: 'rev', start: 9 });
+    expect(suggestionQuery('x\n  /co', 7)).toEqual({ trigger: '/', query: 'co', start: 4 });
     expect(suggestionQuery('mail@x', 6)).toBeNull();
   });
   it('ranks prefix matches before substring and description matches', () => {

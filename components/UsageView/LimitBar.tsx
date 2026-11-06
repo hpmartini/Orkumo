@@ -22,6 +22,11 @@ interface LimitBarProps {
   /** Text shown instead of a number when the value is unknown */
   unknownText?: string;
   compact?: boolean;
+  /** Section borders in % (e.g. weekdays); dividers only, the fill stays one bar */
+  ticks?: number[];
+  /** Thin marker in %, e.g. where today sits in the week */
+  marker?: number;
+  markerLabel?: string;
   now?: number;
 }
 
@@ -31,6 +36,9 @@ export const LimitBar: React.FC<LimitBarProps> = ({
   window,
   unknownText = 'Limit unbekannt',
   compact = false,
+  ticks,
+  marker,
+  markerLabel,
   now = Date.now(),
 }) => {
   const status = limitStatus(window);
@@ -59,9 +67,25 @@ export const LimitBar: React.FC<LimitBarProps> = ({
           aria-valuenow={Math.round(pct)}
           aria-valuemin={0}
           aria-valuemax={100}
-          className={`mt-1 ${height} rounded-full bg-gray-800 overflow-hidden`}
+          className={`relative mt-1 ${height} rounded-full bg-gray-800 overflow-hidden`}
         >
           <div className={`h-full rounded-full ${BAR_TONE[status]}`} style={{ width: `${pct}%` }} />
+          {ticks?.map((t) => (
+            <span
+              key={t}
+              aria-hidden="true"
+              className="absolute inset-y-0 w-0.5 -ml-px bg-gray-950"
+              style={{ left: `${t}%` }}
+            />
+          ))}
+          {marker != null && (
+            <span
+              aria-hidden="true"
+              title={markerLabel}
+              className="absolute inset-y-0 w-0.5 -ml-px bg-white"
+              style={{ left: `${marker}%` }}
+            />
+          )}
         </div>
       )}
       {!compact && window && (

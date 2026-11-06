@@ -4,7 +4,11 @@ import type { AgentCacheInfo } from '../../types';
 import { cacheCountdown, formatCountdown, formatTokens } from '../../utils/agentCache';
 
 /** Prompt-cache countdown, context fill and hits of one session; ticks every second while warm, hidden once expired */
-export const CacheBadge: React.FC<{ cache: AgentCacheInfo }> = ({ cache }) => {
+export const CacheBadge: React.FC<{
+  cache: AgentCacheInfo;
+  /** false: countdown and hits only, the caller shows the context fill itself */
+  context?: boolean;
+}> = ({ cache, context = true }) => {
   const [now, setNow] = useState(Date.now());
   const { remainingMs, expired, warning } = cacheCountdown(cache, now);
 
@@ -33,22 +37,26 @@ export const CacheBadge: React.FC<{ cache: AgentCacheInfo }> = ({ cache }) => {
     >
       <Timer size={10} aria-hidden="true" className="shrink-0" />
       <span className={warning ? 'font-semibold' : ''}>{formatCountdown(remainingMs)}</span>
-      <span
-        className="w-8 h-1 rounded-full bg-gray-700 overflow-hidden"
-        role="meter"
-        aria-label="Context window fill"
-        aria-valuemin={0}
-        aria-valuemax={100}
-        aria-valuenow={percent}
-      >
-        <span
-          className={`block h-full ${fill > 0.8 ? 'bg-red-400' : 'bg-sky-400'} transition-[width] duration-300 motion-reduce:transition-none`}
-          style={{ width: `${percent}%` }}
-        />
-      </span>
-      <span>
-        {formatTokens(cache.cachedTokens)} · {percent}%
-      </span>
+      {context && (
+        <>
+          <span
+            className="w-8 h-1 rounded-full bg-gray-700 overflow-hidden"
+            role="meter"
+            aria-label="Context window fill"
+            aria-valuemin={0}
+            aria-valuemax={100}
+            aria-valuenow={percent}
+          >
+            <span
+              className={`block h-full ${fill > 0.8 ? 'bg-red-400' : 'bg-sky-400'} transition-[width] duration-300 motion-reduce:transition-none`}
+              style={{ width: `${percent}%` }}
+            />
+          </span>
+          <span>
+            {formatTokens(cache.cachedTokens)} · {percent}%
+          </span>
+        </>
+      )}
       <span className="text-gray-500">·</span>
       <span>{cache.hits} hits</span>
     </span>

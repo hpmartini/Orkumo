@@ -11,6 +11,7 @@ import {
   tokensOn,
   usageKpis,
   windowDates,
+  weekPace,
 } from '../utils/usage';
 import type { UsageDaily, UsageProvider } from '../components/UsageView/types';
 
@@ -209,5 +210,14 @@ describe('limitStatus', () => {
     expect(limitStatus({ usedPercent: 0, resetsAt: NOW })).toBe('ok');
     expect(limitStatus({ usedPercent: 70, resetsAt: NOW })).toBe('warn');
     expect(limitStatus({ usedPercent: 95, resetsAt: NOW })).toBe('critical');
+  });
+});
+
+describe('weekPace', () => {
+  it('splits the week into Mo–Fr plus one weekend section', () => {
+    expect(weekPace(new Date(2026, 10, 2, 0, 0).getTime())).toBe(0); // Monday 00:00
+    expect(weekPace(new Date(2026, 10, 6, 12, 0).getTime())).toBeCloseTo((4.5 / 6) * 100); // Friday noon
+    expect(weekPace(new Date(2026, 10, 7, 0, 0).getTime())).toBeCloseTo((5 / 6) * 100); // Saturday
+    expect(weekPace(new Date(2026, 10, 8, 0, 0).getTime())).toBeCloseTo((5.5 / 6) * 100); // Sunday
   });
 });

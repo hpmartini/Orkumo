@@ -4,6 +4,7 @@ import {
   browseHistory,
   chatSuggestions,
   continueList,
+  endKey,
   historyStep,
   homeKey,
   indentList,
@@ -177,8 +178,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       }
       return;
     }
-    if (e.key === 'Home' && plain && !e.shiftKey && collapsed) {
-      const target = homeKey(value, pos);
+    if ((e.key === 'Home' || e.key === 'End') && plain && !e.shiftKey && collapsed) {
+      const target = e.key === 'Home' ? homeKey(value, pos) : endKey(value, pos);
       e.preventDefault();
       if (target !== null) {
         el.setSelectionRange(target, target);

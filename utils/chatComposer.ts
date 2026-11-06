@@ -23,6 +23,13 @@ export function homeKey(text: string, caret: number): number | null {
   return caret > start ? start : lineStart(text, caret - 1);
 }
 
+/** End: end of the line; already there → end of the line below. Never leaves the text. */
+export function endKey(text: string, caret: number): number | null {
+  const end = lineEnd(text, caret);
+  if (caret < end) return end;
+  return end === text.length ? null : lineEnd(text, caret + 1);
+}
+
 /** Newline inside a list item: continue the bullet; on an empty item end the list instead */
 export function continueList(text: string, caret: number): Edit | null {
   const start = lineStart(text, caret);
@@ -95,7 +102,7 @@ export function suggestionQuery(
   caret: number
 ): { trigger: '/' | '@'; query: string; start: number } | null {
   const before = text.slice(0, caret);
-  const slash = before.match(/(?:^|\n)\/([^\s/]*)$/);
+  const slash = before.match(/(?:^|\s)\/([^\s/]*)$/);
   if (slash) return { trigger: '/', query: slash[1], start: caret - slash[1].length - 1 };
   const at = before.match(/(?:^|\s)@([^\s@]*)$/);
   if (at) return { trigger: '@', query: at[1], start: caret - at[1].length - 1 };

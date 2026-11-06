@@ -253,3 +253,15 @@ export function formatDuration(ms: number): string {
   const h = Math.floor(min / 60);
   return h ? `${h} h ${String(min % 60).padStart(2, '0')} min` : `${min} min`;
 }
+
+/** Week bar sections Mo, Di, Mi, Do, Fr, weekend (Sa+So count as one), as % borders */
+export const WEEK_TICKS = [1, 2, 3, 4, 5].map((i) => (i / 6) * 100);
+
+/** Where `now` sits on that week bar in % (Mon 00:00 = 0, Sun 24:00 = 100), local time */
+export function weekPace(now = Date.now()): number {
+  const d = new Date(now);
+  const day = (d.getDay() + 6) % 7; // 0 = Monday
+  const ofDay = (d.getHours() * 60 + d.getMinutes()) / 1440;
+  const section = day < 5 ? day + ofDay : 5 + (day - 5 + ofDay) / 2;
+  return (section / 6) * 100;
+}
