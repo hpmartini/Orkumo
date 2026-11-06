@@ -281,6 +281,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
             break;
           case 'connected': {
             // control characters stripped: a folder name must not drive the terminal
+            // eslint-disable-next-line no-control-regex -- matching control characters is the point
             const safe = (s: string) => s.replace(/[\x00-\x1f\x7f]/g, '');
             const cwd = safe(data.cwd ?? session.cwd);
             // the server falls back to $HOME when the folder is gone (e.g. a removed worktree)
@@ -388,7 +389,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
       ? [
           {
             label: 'Open as chat',
-            title: 'Open as chat: ends this terminal and resumes the session in the chat UI',
+            title:
+              session.kind === 'background' || session.displayState === 'working'
+                ? 'Open as chat: a live view of this agent, it keeps running'
+                : 'Open as chat: ends this terminal and resumes the session in the chat UI',
             icon: <MessageSquare size={12} />,
             run: onOpenAsChat,
           },

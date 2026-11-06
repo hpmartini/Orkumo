@@ -20,6 +20,7 @@ import {
   isUnsafeFlagsAllowed,
   resolveClaudeBinary,
   replySession,
+  interruptSession,
   listSlashCommands,
   listSubagents,
 } from './agentService.js';
@@ -283,6 +284,17 @@ export function commandsEvent(commands, agents) {
   return event;
 }
 
+// The CLI answers our initialize only after the first message, so a fresh chat would not know
+// its built-ins yet: reuse the ones the last chat reported (they are the same for every chat).
+// shortcut: empty until the first chat since server start has sent a message; persist if that bites
+let knownBuiltins = [];
+
+function recordCommands(s, event) {
+  const builtins = event.commands?.filter((c) => c.builtin);
+  if (builtins?.length) knownBuiltins = builtins;
+  record(s, event);
+}
+
 function handleMessage(s, msg) {
   if (msg.session_id && !s.sessionId) s.sessionId = msg.session_id;
   if (msg.type === 'system' && msg.subtype === 'init' && msg.model) s.model = msg.model;
@@ -294,11 +306,11 @@ function handleMessage(s, msg) {
   if (msg.type === 'control_response') {
     const r = msg.response;
     if (r?.request_id === `init-${s.id}` && r.response)
-      record(s, commandsEvent(r.response.commands, r.response.agents));
+      recordCommands(s, commandsEvent(r.response.commands, r.response.agents));
     return;
   }
   if (msg.type === 'system' && msg.subtype === 'commands_changed') {
-    record(s, commandsEvent(msg.commands));
+    recordCommands(s, commandsEvent(msg.commands));
     return;
   }
   if (msg.type === 'system' && /^hook_/.test(msg.subtype || '')) return;
@@ -344,6 +356,7 @@ export function startChat(opts, context = {}) {
     s.markExited = resolve;
   });
   sessions.set(s.id, s);
+  if (knownBuiltins.length) record(s, { type: 'devorbit_commands', commands: knownBuiltins });
 
   let buffer = '';
   proc.stdout.setEncoding('utf8');
@@ -420,6 +433,7 @@ export function viewAgent(agent, context = {}) {
     watchers: 0,
     orphanTimer: null,
     reply: context.reply ?? replySession,
+    interrupt: context.interrupt ?? interruptSession,
   };
   sessions.set(s.id, s);
   const projectsDir = context.projectsDir;
@@ -542,6 +556,7 @@ export function answerPermission(id, requestId, decision) {
 
 export function interruptChat(id) {
   const s = get(id);
+  if (s.view) return s.interrupt(s.view);
   write(s, {
     type: 'control_request',
     request_id: `int-${Date.now()}`,

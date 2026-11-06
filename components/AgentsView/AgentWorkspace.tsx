@@ -355,6 +355,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
         {session.chat ? (
           <ChatPane
             session={session}
+            agent={session.viewOf ? sessions.find((x) => x.id === session.viewOf) : undefined}
             active={session.id === tab.activeSessionId}
             focused={visible && focusZone === 'terminal' && session.id === tab.activeSessionId}
             submitKey={chatSubmitKey}

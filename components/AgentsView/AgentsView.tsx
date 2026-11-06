@@ -984,13 +984,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         attach(running.id);
         return true;
       }
-      // An open question or permission prompt is not in the transcript: keep the terminal
+      // A prompt is not in the transcript; the live view shows it from `claude logs`, which only
+      // background jobs have, so a prompting local terminal stays a terminal
       const prompting =
         session.displayState === 'waiting' ||
         (session.displayState === 'needs-input' && session.status === 'waiting');
-      if (prompting) return false;
+      if (prompting && session.kind !== 'background') return false;
       // Mid-turn the chat is a live view of the running agent
-      const viewable = session.displayState === 'working' || session.displayState === 'needs-input';
+      const viewable =
+        session.displayState === 'working' || session.displayState === 'needs-input' || prompting;
       if (!CHAT_OPENABLE.has(session.displayState) && !viewable) return false;
       // A live view starts no process; a resume on a held transcript does (#236)
       const live = session.displayState === 'working';

@@ -328,12 +328,14 @@ describe('viewAgent (live chat view of a running agent)', () => {
     const file = path.join(dir, `${VID}.jsonl`);
     fs.writeFileSync(file, `${user('first')}\n`);
     const reply = vi.fn().mockResolvedValue({ delivered: true });
+    const interrupt = vi.fn().mockResolvedValue(undefined);
     const s = viewAgent(
       { agentId: 'job1', sessionId: VID, cwd: '/work', name: 'job' },
       {
         projectsDir: projects,
         pollMs: 20,
         reply,
+        interrupt,
         listCommands: async () => [],
         listAgents: async () => [],
       }
@@ -359,9 +361,35 @@ describe('viewAgent (live chat view of a running agent)', () => {
 
     await sendMessage(s.id, 'go on');
     expect(reply).toHaveBeenCalledWith('job1', 'go on', { mode: 'attach' });
-    expect(() => interruptChat(s.id)).toThrow(/Live view/);
+    await interruptChat(s.id);
+    expect(interrupt).toHaveBeenCalledWith('job1');
+    expect(() => answerPermission(s.id, 'r1', 'allow')).toThrow(/No such permission/);
     off();
     expect(stopChat(s.id)).toBe(true);
     expect(listChats().some((c) => c.id === s.id)).toBe(false);
+  });
+});
+
+// Last: it leaves the module's cached built-ins set, which earlier tests do not expect
+describe('chatService - built-ins before the first answer', () => {
+  const { spawn, calls } = fakeSpawn();
+  const emit = (proc, obj) => proc.stdout.emit('data', `${JSON.stringify(obj)}\n`);
+  it('gives a new chat the built-ins an earlier chat reported (CLI answers init late)', () => {
+    const first = startChat({ cwd: project }, { ...ctx, spawn, bin: '/bin/claude' });
+    const proc = calls.at(-1).proc;
+    emit(proc, {
+      type: 'control_response',
+      response: {
+        request_id: `init-${first.id}`,
+        response: { commands: [{ name: 'context', builtin: true }, { name: 'my-skill' }] },
+      },
+    });
+    const second = startChat({ cwd: project }, { ...ctx, spawn, bin: '/bin/claude' });
+    const events = [];
+    watchChat(second.id, (e) => events.push(e))();
+    const cmds = events.find((e) => e.type === 'devorbit_commands');
+    expect(cmds.commands.map((c) => c.name)).toEqual(['context']);
+    stopChat(first.id);
+    stopChat(second.id);
   });
 });

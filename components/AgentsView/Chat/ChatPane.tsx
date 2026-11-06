@@ -19,6 +19,7 @@ import {
 import { promptWithImages } from '../../../utils/composer';
 import {
   answerChatPermission,
+  fetchAgentLogs,
   interruptChat,
   sendChatMessage,
   subscribeToChat,
@@ -30,6 +31,37 @@ import { ChatComposer } from './ChatComposer';
 import { ChatActivity } from './ChatActivity';
 import { ChatStatusLine } from './ChatStatusLine';
 import { splitAtBuiltin, splitImages } from '../../../utils/chatComposer';
+import { extractNumberedChoices } from '../../../utils/agentInput';
+import { renderTerminalScreen } from '../../../utils/terminalScreen';
+
+/** Rendered screen tail of an agent that waits on a question or permission (not in its transcript) */
+function useAgentPrompt(agentId: string | null): string | null {
+  const [text, setText] = useState('');
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+    const load = () =>
+      fetchAgentLogs(agentId, 60)
+        .then((logs) => (logs.source === 'logs' ? renderTerminalScreen(logs.text) : ''))
+        .then((screen) => {
+          if (cancelled) return;
+          // the TUI pads its screen with empty rows above the bottom rule
+          const lines = screen.split('\n').filter((line) => line.trim());
+          setText(lines.slice(-18).join('\n'));
+        })
+        .catch(() => {
+          // keep the last text; the terminal still has the prompt
+        });
+    load();
+    const timer = setInterval(load, 3000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+      setText('');
+    };
+  }, [agentId]);
+  return agentId ? text : null;
+}
 
 type Action = { type: 'reset' } | { type: 'event'; event: unknown };
 const reducer = (state: ChatState, action: Action): ChatState =>
@@ -47,6 +79,8 @@ const keepFocus = (e: React.MouseEvent) => {
 
 interface ChatPaneProps {
   session: AgentSession;
+  /** Live view: the agent this chat shows (its state comes from the agent list) */
+  agent?: AgentSession;
   active: boolean;
   focused: boolean;
   submitKey: ChatSubmitKey;
@@ -65,6 +99,7 @@ interface ChatPaneProps {
 /** Chat UI for a `claude -p` stream-json session (#189) */
 export const ChatPane: React.FC<ChatPaneProps> = ({
   session,
+  agent,
   active,
   focused,
   submitKey,
@@ -153,7 +188,28 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   );
 
   const ended = state.ended || gone;
-  const waiting = pendingPermissions(state).length > 0;
+  const live = Boolean(session.viewOf);
+  // A live view has no process events of its own: busy and prompts come from the agent's state
+  const prompting =
+    live &&
+    (agent?.displayState === 'waiting' ||
+      (agent?.displayState === 'needs-input' && agent?.status === 'waiting'));
+  const busy = live ? agent?.displayState === 'working' : state.busy;
+  const waiting = pendingPermissions(state).length > 0 || prompting;
+  const prompt = useAgentPrompt(prompting ? session.viewOf! : null);
+
+  const choices = prompt ? extractNumberedChoices(prompt) : [];
+  const answerPrompt = async (answer: string) => {
+    setSending(true);
+    setError(null);
+    try {
+      await sendChatMessage(session.id, answer);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Sending failed');
+    } finally {
+      setSending(false);
+    }
+  };
 
   const submit = async () => {
     if (sending || ended || (!text.trim() && images.length === 0)) return;
@@ -178,12 +234,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
 
   const stopTurn = () => interruptChat(session.id).catch((e: Error) => setError(e.message));
 
-  const live = Boolean(session.viewOf);
   const status = ended
     ? 'ended'
     : waiting
       ? 'needs permission'
-      : state.busy
+      : busy
         ? 'working…'
         : live
           ? 'live view'
@@ -218,7 +273,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           <span className="text-gray-500 truncate min-w-0 hidden sm:inline">{state.model}</span>
         )}
         <span
-          className={`shrink-0 ${waiting ? 'text-amber-300' : state.busy ? 'text-blue-300' : 'text-gray-500'}`}
+          className={`shrink-0 ${waiting ? 'text-amber-300' : busy ? 'text-blue-300' : 'text-gray-500'}`}
         >
           {status}
         </span>
@@ -236,7 +291,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         >
           <ListTree size={13} />
         </button>
-        {state.busy && !ended && (
+        {busy && !ended && (
           <button
             type="button"
             onClick={stopTurn}
@@ -320,11 +375,39 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       </div>
 
       <div className="shrink-0 border-t border-gray-800 p-2">
+        {prompt !== null && (
+          <div
+            role="status"
+            className="mb-2 rounded-md border border-amber-400/40 bg-amber-500/10 p-2"
+          >
+            <div className="text-xs font-medium text-amber-200">
+              The agent is asking: answer below (e.g. 1, 2) or in its terminal
+            </div>
+            <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-xs text-gray-200 font-mono">
+              {prompt || '…'}
+            </pre>
+            {choices.length > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {choices.map((c) => (
+                  <button
+                    key={c.number}
+                    type="button"
+                    disabled={sending}
+                    onClick={() => answerPrompt(String(c.number))}
+                    className="rounded border border-amber-400/40 bg-gray-900 px-2 py-1 text-xs text-gray-100 hover:bg-amber-500/20 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50"
+                  >
+                    {c.number}. {c.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         <ChatActivity
           chatId={session.id}
           messages={state.messages}
           sub={state.sub}
-          busy={state.busy && !ended}
+          busy={Boolean(busy) && !ended}
         />
         {error && (
           <div role="alert" className="mb-1 text-xs text-red-300">
@@ -338,7 +421,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             onChange={setText}
             onSubmit={submit}
             onStop={stopTurn}
-            busy={state.busy}
+            busy={Boolean(busy)}
             disabled={ended}
             submitKey={submitKey}
             history={history}

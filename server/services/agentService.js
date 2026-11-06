@@ -963,7 +963,16 @@ export async function replySession(id, text, options = {}) {
   return { delivered: true, mode: 'resume', output: result.stdout.trim() };
 }
 
-function replyViaAttach(id, cwd, message) {
+/** Esc through `claude attach`: interrupts the running turn like the key in the TUI */
+export async function interruptSession(id) {
+  const session = await findSession(id);
+  if (!session) throw new Error('Session not found');
+  await replyViaAttach(id, session.cwd, '\x1b', { raw: true });
+  triggerRefresh();
+}
+
+/** `raw`: write the keys as they are, without Enter (interrupt) */
+function replyViaAttach(id, cwd, message, { raw = false } = {}) {
   return new Promise((resolve, reject) => {
     const pty = nodePty;
     const bin = resolveClaudeBinary();
@@ -1005,10 +1014,10 @@ function replyViaAttach(id, cwd, message) {
       if (sent) return;
       sent = true;
       // Multi-line replies use Shift+Enter (CSI u) so they stay in one prompt
-      const encoded = message.replace(/\r?\n/g, '\x1b[13;2u');
+      const encoded = raw ? message : message.replace(/\r?\n/g, '\x1b[13;2u');
       proc.write(encoded);
       setTimeout(() => {
-        proc.write('\r');
+        if (!raw) proc.write('\r');
         // Give the session time to accept the input, then detach with Ctrl+Z
         setTimeout(() => {
           proc.write('\x1a');
