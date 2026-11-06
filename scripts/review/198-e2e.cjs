@@ -23,7 +23,7 @@ const check = (name, ok, detail) => {
   // AC-1: visible in the filter row, placeholder, no overflow
   const box = await search.boundingBox();
   const bar = await search.evaluate((el) => {
-    const row = el.closest('.flex.items-center');
+    const row = el.closest('label').parentElement;
     return { scroll: row.scrollWidth, client: row.clientWidth };
   });
   check('AC-1 field visible with placeholder', !!box && (await search.getAttribute('placeholder')) === 'Suche');
@@ -76,11 +76,23 @@ const check = (name, ok, detail) => {
   await chip.click();
   await p.waitForTimeout(200);
   const chipOnly = await counter();
-  await search.fill(term);
+  const n = (s) => Number(s.split(' ')[0]);
+  // Term from a row inside the chip view, so the combination has hits
+  const inChip = await p.locator('[data-session-id]').first().innerText();
+  const chipTerm = inChip.split(/\s+/).filter((w) => /^[\p{L}\d-]{4,}$/u.test(w)).sort((a, c) => c.length - a.length)[0];
+  await search.fill(chipTerm);
   await p.waitForTimeout(300);
   const both = await counter();
-  const n = (s) => Number(s.split(' ')[0]);
-  check('AC-3 search within chip filter', n(both) <= n(chipOnly) && n(both) <= n(narrowed), `chip=${chipOnly} chip+search=${both} search=${narrowed}`);
+  await chip.click();
+  await p.waitForTimeout(200);
+  const searchOnly = await counter();
+  await chip.click();
+  await p.waitForTimeout(200);
+  check(
+    'AC-3 search within chip filter',
+    n(both) >= 1 && n(both) <= n(chipOnly) && n(both) <= n(searchOnly),
+    `"${chipTerm}": chip=${chipOnly} search=${searchOnly} chip+search=${both}`
+  );
   await p.screenshot({ path: `${out}/3-suche-mit-chip.png`, clip: { x: 0, y: 0, width: 520, height: 600 } });
 
   // AC-4: Clear also empties the search
