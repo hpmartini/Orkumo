@@ -255,7 +255,8 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
           blocks = setBlock(blocks, filled, keep ? streamed : block);
           filled++;
         }
-        return { ...m, blocks };
+        // Replayed history never gets a `result`, so it must not keep the typing cursor
+        return { ...m, blocks, streaming: event.history === true ? false : m.streaming };
       });
       return { ...next, filled: { ...next.filled, [id]: filled } };
     }

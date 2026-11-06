@@ -79,6 +79,16 @@ describe('shells, sub-agents, steps', () => {
 });
 
 describe('reduceChat extras', () => {
+  it('replayed history messages show no typing cursor', () => {
+    const s = fold([
+      {
+        type: 'assistant',
+        history: true,
+        message: { id: 'h1', content: [{ type: 'text', text: 'old' }] },
+      },
+    ]);
+    expect(s.messages[0]).toMatchObject({ kind: 'assistant', streaming: false });
+  });
   it('shows recaps without the /config hint', () => {
     const s = fold([
       { type: 'system', subtype: 'away_summary', content: 'Did X. (disable recaps in /config)' },

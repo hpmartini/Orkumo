@@ -151,7 +151,12 @@ export function historyEvents(lines) {
     if (!rec.message) continue;
     const content = rec.message.content;
     if (rec.type === 'assistant' && Array.isArray(content)) {
-      events.push({ type: 'assistant', message: rec.message, parent_tool_use_id: null });
+      events.push({
+        type: 'assistant',
+        message: rec.message,
+        parent_tool_use_id: null,
+        history: true,
+      });
     } else if (rec.type === 'user') {
       const text =
         typeof content === 'string'
