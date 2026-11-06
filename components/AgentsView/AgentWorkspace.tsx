@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { tabSessionLabel } from '../../utils/sessionCopies';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { X, Columns2, Rows2, LayoutGrid, Bot, Maximize2, SquareTerminal } from 'lucide-react';
 import type { AgentSession } from '../../types';
@@ -523,7 +524,11 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
                     ? 'bg-gray-800 text-white'
                     : 'text-gray-400 hover:bg-gray-850 hover:text-gray-200'
                 } ${drag?.kind === 'tab' && drag.id === tab.id ? 'opacity-40' : ''}`}
-                title={panes.map((s) => `${s.name} · ${s.cwd}`).join('\n')}
+                title={panes
+                  .map(
+                    (s) => `${s.name} · ${s.cwd}${s.sessionId ? ` · session ${s.sessionId}` : ''}`
+                  )
+                  .join('\n')}
               >
                 {isActive && <div className="absolute top-0 left-0 right-0 h-0.5 bg-blue-500" />}
                 {indicator && (
@@ -596,6 +601,14 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
                     </span>
                   )}
                   <span className="truncate flex-1">{title}</span>
+                  {tabSessionLabel(lead) && (
+                    <span
+                      className="shrink-0 font-mono text-[10px] text-gray-500"
+                      data-testid="tab-session-id"
+                    >
+                      {tabSessionLabel(lead)}
+                    </span>
+                  )}
                   {panes.length > 1 && (
                     <span
                       className="px-1 rounded bg-gray-700 text-[10px] leading-4 text-gray-300 shrink-0"

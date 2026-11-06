@@ -312,7 +312,7 @@ const normUrl = (url: string) => url.replace(/\/+$/, '');
 
 export function deriveAgentLinks(
   items: BoardItem[],
-  sessions: Pick<AgentSession, 'id' | 'sessionId' | 'links'>[]
+  sessions: Pick<AgentSession, 'id' | 'sessionId' | 'sessionIds' | 'links'>[]
 ): AgentIssueLink[] {
   const links = new Map<string, AgentIssueLink>();
   const add = (link: AgentIssueLink) => {
@@ -325,7 +325,9 @@ export function deriveAgentLinks(
     for (const uuid of item.workflow?.sessionIds ?? []) {
       const short = uuid.slice(0, 8);
       const live =
-        sessions.find((s) => s.sessionId === uuid) ?? sessions.find((s) => s.id === short);
+        // a respawned job's sessionId is its new transcript; the stored uuid may be the original (#236)
+        sessions.find((s) => s.sessionId === uuid || s.sessionIds?.includes(uuid)) ??
+        sessions.find((s) => s.id === short);
       add({ jobId: live?.id ?? short, issueKey: itemKey(item), via: 'workflow' });
     }
   }

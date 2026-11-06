@@ -672,9 +672,14 @@ export async function listSessions(options = {}) {
           : typeof state.output === 'string'
             ? state.output
             : null;
+      // A respawned job writes `resumeSessionId`; resuming the original id forks it (#236)
+      const transcripts = [
+        ...new Set([state.resumeSessionId, entry.sessionId, state.sessionId].filter(Boolean)),
+      ];
       const session = {
         id: entry.id,
-        sessionId: entry.sessionId || state.sessionId || null,
+        sessionId: transcripts[0] || null,
+        sessionIds: transcripts,
         kind: 'background',
         cwd: entry.cwd || state.cwd,
         startedAt: entry.startedAt || (state.createdAt ? Date.parse(state.createdAt) : Date.now()),

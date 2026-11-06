@@ -109,6 +109,13 @@ import { PeekPanel } from './PeekPanel';
 import { AgentWorkspace } from './AgentWorkspace';
 import { SessionLinks } from './SessionLinks';
 import { ResumePicker } from './ResumePicker';
+import { CopyWarningDialog } from './CopyWarningDialog';
+import {
+  collapseCopies,
+  openPlan,
+  resumeMakesCopy,
+  transcriptHolder,
+} from '../../utils/sessionCopies';
 import { ShortcutsHelp } from './ShortcutsHelp';
 import { AgentSettingsPanel } from './AgentSettingsPanel';
 import { useLocation, useNavigate } from 'react-router-dom';
@@ -422,7 +429,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     () =>
       applyTextQuery(
         applyQuickFilters(
-          applyLinkFilter(contextSessions, linkFilter, issuesByAgent, lookup),
+          applyLinkFilter(collapseCopies(contextSessions), linkFilter, issuesByAgent, lookup),
           quickFilters,
           lookup
         ),
@@ -946,12 +953,30 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
 
   /**
-   * "Open idle agents as chat" (default): an agent between turns opens in the Chat pane, or
-   * focuses the chat that already runs its session. false = open it the usual way.
+   * Resume that starts a new process on a held transcript: ask first (#236). `handover` = the
+   * caller stops the holder before it resumes.
+   */
+  const [pendingCopy, setPendingCopy] = useState<{
+    holder: AgentSession;
+    run: () => void;
+    handover: boolean;
+  } | null>(null);
+  const guardCopy = useCallback(
+    (holder: AgentSession | null, run: () => void, handover = false) => {
+      if (holder) setPendingCopy({ holder, run, handover });
+      else run();
+    },
+    []
+  );
+
+  /**
+   * "Open idle agents as chat" (default): an interactive agent between turns opens in the Chat
+   * pane. false = open it the usual way. A background job always attaches: as a chat it would
+   * be a second process on its session (#236).
    */
   const openAsChat = useCallback(
     (session: AgentSession): boolean => {
-      if (settings.agentOpenView !== 'chat') return false;
+      if (settings.agentOpenView !== 'chat' || session.kind === 'background') return false;
       const sessionId = resumableSessionId(session);
       if (!sessionId) return false;
       const running = chats.chats.find((c) => c.sessionId === sessionId);
@@ -967,29 +992,50 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       // Mid-turn the chat is a live view of the running agent
       const viewable = session.displayState === 'working' || session.displayState === 'needs-input';
       if (!CHAT_OPENABLE.has(session.displayState) && !viewable) return false;
-      void openAgentInChat(session, sessionId);
+      // A live view starts no process; a resume on a held transcript does (#236)
+      const live = session.displayState === 'working';
+      guardCopy(!live && resumeMakesCopy(session) ? session : null, () => {
+        void openAgentInChat(session, sessionId);
+      });
       return true;
     },
-    [settings.agentOpenView, chats.chats, attach, openAgentInChat]
+    [settings.agentOpenView, openAgentInChat, guardCopy, chats.chats, attach]
+  );
+
+  const allPanes = useMemo(
+    () => [...sessions, ...cloudSessions, ...chats.chats],
+    [sessions, cloudSessions, chats.chats]
   );
 
   const activateItem = useCallback(
     (item: NavItem | null) => {
       if (!item) return;
-      if (item.type === 'group') toggleGroup(item.group);
-      else if (item.type === 'more') setExpandedCompleted(true);
-      else if (openAsChat(item.session)) return;
-      else if (item.session.kind !== 'interactive' || sessionHarness(item.session) !== 'claude')
-        attach(item.session.id);
+      if (item.type === 'group') return toggleGroup(item.group);
+      if (item.type === 'more') return setExpandedCompleted(true);
+      const session = item.session;
+      const plan = openPlan(session, allPanes, openIdSet);
+      if (plan.type === 'attach') return attach(session.id);
+      if (plan.type === 'focus') return focusOpen(plan.paneId);
+      if (openAsChat(session)) return;
       // Interactive and remote-control sessions keep their transcript locally: continue it here
-      else if (item.session.sessionId)
-        openInteractiveClaude(item.session.cwd, item.session.name, [
-          '--resume',
-          item.session.sessionId,
-        ]);
+      const { sessionId } = plan;
+      if (sessionId)
+        guardCopy(resumeMakesCopy(session) ? session : null, () =>
+          openInteractiveClaude(session.cwd, session.name, ['--resume', sessionId])
+        );
       else showHint('Interactive sessions run in their own terminal', 'info');
     },
-    [toggleGroup, attach, showHint, openInteractiveClaude, openAsChat]
+    [
+      toggleGroup,
+      attach,
+      showHint,
+      openInteractiveClaude,
+      openAsChat,
+      allPanes,
+      openIdSet,
+      focusOpen,
+      guardCopy,
+    ]
   );
 
   const doDispatch = useCallback(
@@ -1057,7 +1103,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         case 'resume': {
           const looksLikeId = /^[a-f0-9-]{8,}$/i.test(args);
           if (looksLikeId) {
-            await doDispatch({ resume: args }, attachAfter);
+            guardCopy(transcriptHolder(sessions, args), () => {
+              void doDispatch({ resume: args }, attachAfter);
+            });
           } else {
             setResumePicker({ open: true, query: args });
           }
@@ -1089,7 +1137,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           await doDispatch({ prompt: raw.trim() }, attachAfter);
       }
     },
-    [doDispatch, updateSettings, settings.dispatch, showHint]
+    [doDispatch, updateSettings, settings.dispatch, showHint, guardCopy, sessions]
   );
 
   /** Stores the composer images on the server; null when an upload failed (hint shown) */
@@ -1112,8 +1160,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         // `/resume [id]` and `/continue` pick up an earlier session; anything else is the first message
         const resume = input.trim().match(/^\/resume(?:\s+(\S+))?$/);
         if (resume) {
-          if (resume[1]) await openChat(composerCwd, { resume: resume[1] });
-          else setResumePicker({ open: true, query: '', chat: true });
+          if (resume[1]) {
+            const id = resume[1];
+            guardCopy(transcriptHolder(sessions, id), () => {
+              void openChat(composerCwd, { resume: id });
+            });
+          } else setResumePicker({ open: true, query: '', chat: true });
           return;
         }
         if (input.trim() === '/continue') {
@@ -1229,6 +1281,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }
     },
     [
+      guardCopy,
       composerMode,
       composerCwd,
       composerHarness,
@@ -2428,8 +2481,27 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     onToggleChatSteps={() =>
                       updateSettings({ chatShowSteps: !settings.chatShowSteps })
                     }
-                    onOpenChatInTerminal={live ? openChatInTerminal : undefined}
-                    onOpenAsChat={live ? openAgentInChat : undefined}
+                    onOpenChatInTerminal={
+                      live
+                        ? (chatId, sid) =>
+                            guardCopy(
+                              chats.chats.find((c) => c.id === chatId) ?? null,
+                              () => void openChatInTerminal(chatId, sid),
+                              true
+                            )
+                        : undefined
+                    }
+                    onOpenAsChat={
+                      live
+                        ? (s, sid) =>
+                            guardCopy(
+                              resumeMakesCopy(s) ? s : null,
+                              () => void openAgentInChat(s, sid),
+                              // openAgentInChat stops a job first; a foreign terminal keeps running
+                              s.kind === 'background'
+                            )
+                        : undefined
+                    }
                     onMoveTab={live ? workspaceActions.moveTab : noop}
                     onSplit={live ? workspaceActions.split : noop}
                     onDetach={live ? workspaceActions.detach : noop}
@@ -2552,6 +2624,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         commands={commands}
         inputRef={inputRef}
       />
+      {pendingCopy && (
+        <CopyWarningDialog
+          holder={pendingCopy.holder}
+          handover={pendingCopy.handover}
+          onClose={() => setPendingCopy(null)}
+          onConfirm={() => {
+            setPendingCopy(null);
+            pendingCopy.run();
+          }}
+        />
+      )}
       <ResumePicker
         open={resumePicker.open}
         initialQuery={resumePicker.query}
@@ -2559,8 +2642,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onClose={() => setResumePicker({ open: false, query: '' })}
         onResume={(past: AgentPastSession) => {
           setResumePicker({ open: false, query: '' });
-          if (resumePicker.chat) openChat(past.cwd || composerCwd, { resume: past.sessionId });
-          else doDispatch({ resume: past.sessionId, cwd: past.cwd || targetCwd });
+          guardCopy(transcriptHolder(sessions, past.sessionId), () => {
+            if (resumePicker.chat) openChat(past.cwd || composerCwd, { resume: past.sessionId });
+            else doDispatch({ resume: past.sessionId, cwd: past.cwd || targetCwd });
+          });
         }}
       />
       {editorOpen && (
