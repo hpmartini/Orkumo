@@ -1,5 +1,5 @@
 import type { AgentSession } from '../types';
-import { resumableSessionId } from './agentSessions';
+import { resumableSessionId, sessionHarness } from './agentSessions';
 
 /**
  * Session copies (#236). `claude -p --resume <id>` keeps the session id, so a second process on
@@ -77,6 +77,28 @@ export function paneHolding(
 export function resumeMakesCopy(session: AgentSession): boolean {
   if (session.chat) return false;
   return session.kind === 'background' || session.pid != null;
+}
+
+/**
+ * What opening a rail row does: a background job or other harness attaches (never a resume), a
+ * session a pane already runs focuses that pane, anything else resumes its transcript.
+ */
+export type OpenPlan =
+  | { type: 'attach' }
+  | { type: 'focus'; paneId: string }
+  | { type: 'resume'; sessionId: string | null };
+
+export function openPlan(
+  session: AgentSession,
+  panes: AgentSession[],
+  openIds: Set<string>
+): OpenPlan {
+  if (session.kind !== 'interactive' || sessionHarness(session) !== 'claude') {
+    return { type: 'attach' };
+  }
+  const sessionId = resumableSessionId(session);
+  const held = paneHolding(panes, openIds, sessionId);
+  return held ? { type: 'focus', paneId: held } : { type: 'resume', sessionId };
 }
 
 /** Session id shown on a workspace tab: the job id for background jobs, else the transcript id */

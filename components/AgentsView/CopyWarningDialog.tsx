@@ -7,14 +7,14 @@ const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outli
 /** Asks before a resume that puts a second writer on a transcript another process holds (#236) */
 export const CopyWarningDialog: React.FC<{
   holder: AgentSession;
+  /** The caller stops the holder before it resumes; otherwise both keep running */
+  handover: boolean;
   onConfirm: () => void;
   onClose: () => void;
-}> = ({ holder, onConfirm, onClose }) => {
+}> = ({ holder, handover, onConfirm, onClose }) => {
   const dialogRef = useRef<HTMLFormElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const trapTab = useDialogA11y(true, dialogRef, () => cancelRef.current);
-  // Orkumo stops a job or chat before it resumes the session elsewhere; a foreign terminal keeps running
-  const handover = holder.kind === 'background' || !!holder.chat;
   const what = holder.chat
     ? 'a chat'
     : holder.kind === 'background'

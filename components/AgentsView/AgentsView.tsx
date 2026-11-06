@@ -112,7 +112,7 @@ import { ResumePicker } from './ResumePicker';
 import { CopyWarningDialog } from './CopyWarningDialog';
 import {
   collapseCopies,
-  paneHolding,
+  openPlan,
   resumeMakesCopy,
   transcriptHolder,
 } from '../../utils/sessionCopies';
@@ -951,17 +951,21 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
 
   /**
-   * "Open idle agents as chat" (default): an agent between turns opens in the Chat pane, or
-   * focuses the chat that already runs its session. false = open it the usual way.
+   * Resume that starts a new process on a held transcript: ask first (#236). `handover` = the
+   * caller stops the holder before it resumes.
    */
-  /** Resume that would put a second writer on a held transcript: ask first (#236) */
-  const [pendingCopy, setPendingCopy] = useState<{ holder: AgentSession; run: () => void } | null>(
-    null
+  const [pendingCopy, setPendingCopy] = useState<{
+    holder: AgentSession;
+    run: () => void;
+    handover: boolean;
+  } | null>(null);
+  const guardCopy = useCallback(
+    (holder: AgentSession | null, run: () => void, handover = false) => {
+      if (holder) setPendingCopy({ holder, run, handover });
+      else run();
+    },
+    []
   );
-  const guardCopy = useCallback((holder: AgentSession | null, run: () => void) => {
-    if (holder) setPendingCopy({ holder, run });
-    else run();
-  }, []);
 
   /**
    * "Open idle agents as chat" (default): an interactive agent between turns opens in the Chat
@@ -995,15 +999,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       if (item.type === 'group') return toggleGroup(item.group);
       if (item.type === 'more') return setExpandedCompleted(true);
       const session = item.session;
-      // Background jobs and other harnesses: `claude attach <id>` / their pane, never a resume
-      if (session.kind !== 'interactive' || sessionHarness(session) !== 'claude')
-        return attach(session.id);
-      const sessionId = resumableSessionId(session);
-      // A pane already runs this session: focus it instead of starting a second process
-      const held = paneHolding(allPanes, openIdSet, sessionId);
-      if (held) return focusOpen(held);
+      const plan = openPlan(session, allPanes, openIdSet);
+      if (plan.type === 'attach') return attach(session.id);
+      if (plan.type === 'focus') return focusOpen(plan.paneId);
       if (openAsChat(session)) return;
       // Interactive and remote-control sessions keep their transcript locally: continue it here
+      const { sessionId } = plan;
       if (sessionId)
         guardCopy(resumeMakesCopy(session) ? session : null, () =>
           openInteractiveClaude(session.cwd, session.name, ['--resume', sessionId])
@@ -2469,17 +2470,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                     onOpenChatInTerminal={
                       live
                         ? (chatId, sid) =>
-                            guardCopy(chats.chats.find((c) => c.id === chatId) ?? null, () => {
-                              void openChatInTerminal(chatId, sid);
-                            })
+                            guardCopy(
+                              chats.chats.find((c) => c.id === chatId) ?? null,
+                              () => void openChatInTerminal(chatId, sid),
+                              true
+                            )
                         : undefined
                     }
                     onOpenAsChat={
                       live
                         ? (s, sid) =>
-                            guardCopy(resumeMakesCopy(s) ? s : null, () => {
-                              void openAgentInChat(s, sid);
-                            })
+                            guardCopy(
+                              resumeMakesCopy(s) ? s : null,
+                              () => void openAgentInChat(s, sid),
+                              // openAgentInChat stops a job first; a foreign terminal keeps running
+                              s.kind === 'background'
+                            )
                         : undefined
                     }
                     onMoveTab={live ? workspaceActions.moveTab : noop}
@@ -2607,6 +2613,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       {pendingCopy && (
         <CopyWarningDialog
           holder={pendingCopy.holder}
+          handover={pendingCopy.handover}
           onClose={() => setPendingCopy(null)}
           onConfirm={() => {
             setPendingCopy(null);
