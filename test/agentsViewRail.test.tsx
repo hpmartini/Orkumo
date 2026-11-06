@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import userEvent from '@testing-library/user-event';
 import { AgentsView } from '../components/AgentsView/AgentsView';
 import { STORAGE_KEY } from '../hooks/useRailPreferences';
 import { summarizeSessions } from '../utils/agentSessions';
@@ -114,9 +115,11 @@ beforeEach(() => {
   localStorage.removeItem(STORAGE_KEY);
   hoisted.commands.clear();
   window.HTMLElement.prototype.scrollIntoView = () => {};
+  window.HTMLElement.prototype.scrollTo = () => {};
+  // Never settles: board/repo loaders keep their empty state, async tests (user-event) stay stable
   vi.stubGlobal(
     'fetch',
-    vi.fn(async () => new Response('{}', { headers: { 'Content-Type': 'application/json' } }))
+    vi.fn(() => new Promise<Response>(() => {}))
   );
 });
 afterEach(() => {
@@ -162,5 +165,91 @@ describe.each(MODES)('AgentsView rail in grouping "$grouping" (#50)', ({ groupin
     fireEvent.keyDown(document.activeElement ?? document.body, { key, shiftKey: true });
     const after = headers().map(headerTitle);
     expect(after.findIndex((t) => group.test(t))).toBe(at === 0 ? 1 : at - 1);
+  });
+  // #164: real focus via user-event; the chevron is a <button>, which the global handler used to skip
+  const selectedTitle = () => {
+    const sel = screen
+      .getAllByRole('option')
+      .find((o) => o.getAttribute('aria-selected') === 'true');
+    return sel
+      ? (within(sel)
+          .queryByRole('button', { name: /^(Expand|Collapse) / })
+          ?.getAttribute('aria-label') ?? sel.textContent)
+      : null;
+  };
+
+  it('#164 AC-1: arrow keys move the selection after a click on a group chevron', async () => {
+    const user = userEvent.setup();
+    renderView();
+    const first = headers()[0];
+    await user.click(chevron(first));
+    await user.click(chevron(first)); // reopen, keep selected
+    expect(document.activeElement).toBe(chevron(headers()[0]));
+    const start = selectedTitle();
+    await user.keyboard('{ArrowDown}');
+    const moved = selectedTitle();
+    expect(moved).not.toBe(start);
+    await user.keyboard('{ArrowUp}');
+    expect(selectedTitle()).toBe(start);
+  });
+
+  it('#164 AC-2: Tab onto the chevron, Space/Enter toggle once, then ArrowDown moves the selection', async () => {
+    const user = userEvent.setup();
+    renderView();
+    const target = chevron(header(group));
+    // Tab from the element right before the chevron in DOM order
+    const focusables = Array.from(
+      document.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input, [tabindex]:not([tabindex="-1"])'
+      )
+    );
+    focusables[focusables.indexOf(target) - 1].focus();
+    await user.tab();
+    expect(document.activeElement).toBe(target);
+    expect(isOpen(header(group))).toBe(true);
+    await user.keyboard(' ');
+    expect(isOpen(header(group))).toBe(false);
+    await user.keyboard('{Enter}');
+    expect(isOpen(header(group))).toBe(true);
+    expect(header(group).getAttribute('aria-selected')).toBe('true');
+    const start = selectedTitle();
+    await user.keyboard('{ArrowDown}');
+    expect(selectedTitle()).not.toBe(start);
+    // Space now acts on the new selection, not on the chevron that had focus
+    await user.keyboard(' ');
+    expect(isOpen(header(group))).toBe(true);
+    expect(chevron(header(group)).getAttribute('aria-expanded')).toBe('true');
+  });
+
+  it('#164 AC-3: with the context menu open, ArrowDown moves menu focus, not the rail selection', async () => {
+    const user = userEvent.setup();
+    renderView();
+    const h = header(group);
+    await user.click(chevron(h));
+    await user.click(chevron(h));
+    const start = selectedTitle();
+    fireEvent.contextMenu(h);
+    const menu = screen.getByRole('menu');
+    const items = within(menu)
+      .getAllByRole('menuitem')
+      .filter((b) => !(b as HTMLButtonElement).disabled);
+    items[0].focus();
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).toBe(items[1 % items.length]);
+    expect(selectedTitle()).toBe(start);
+  });
+
+  it('#164 AC-3: Alt+Arrow on a focused chevron moves the group, the selection stays on it', async () => {
+    const user = userEvent.setup();
+    renderView();
+    const h = header(group);
+    await user.click(chevron(h));
+    await user.click(chevron(h));
+    const before = headers().map(headerTitle);
+    const at = before.findIndex((t) => group.test(t));
+    await user.keyboard(at === 0 ? '{Alt>}{ArrowDown}{/Alt}' : '{Alt>}{ArrowUp}{/Alt}');
+    const after = headers().map(headerTitle);
+    expect(after.findIndex((t) => group.test(t))).toBe(at === 0 ? 1 : at - 1);
+    expect(header(group).getAttribute('aria-selected')).toBe('true');
   });
 });

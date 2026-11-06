@@ -1415,6 +1415,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         return;
       }
 
+      // A row button (chevron, title) focused by click or Tab must not swallow ↑/↓ (#164).
+      // Focus moves to the rail so Space/Enter then act on the new selection, not the old button.
+      if (
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        !e.altKey &&
+        !ctrl &&
+        !e.metaKey &&
+        target?.closest('[role="listbox"] button:not([aria-haspopup])') &&
+        railRef.current?.contains(target)
+      ) {
+        e.preventDefault();
+        railRef.current.focus();
+        moveSelection(e.key === 'ArrowUp' ? 'up' : 'down');
+        return;
+      }
+
       // Rail, tab strip and popover controls keep their own Enter/Space/arrow behaviour
       if (
         target?.closest('button, a, [role="dialog"], [role="tab"], [role="tablist"], [role="menu"]')
