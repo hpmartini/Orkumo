@@ -85,6 +85,7 @@ import {
   SessionGroup,
   resumableSessionId,
   harnessLabel,
+  sessionHarness,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
 import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
@@ -248,7 +249,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [composerMode, setComposerMode] = useState<'task' | 'agent' | 'chat'>('task');
   const [agentCwd, setAgentCwd] = useState<string | null>(null);
   // Harness of the next agent (#195), preset from the default on every open
-  const [composerHarness, setComposerHarness] = useState<AgentHarness>('claude');
+  // null follows the default harness, also when the settings arrive after the composer opened
+  const [pickedHarness, setComposerHarness] = useState<AgentHarness | null>(null);
+  const composerHarness = pickedHarness ?? settings.dispatch.harness;
   const [harnessInstalled, setHarnessInstalled] = useState<Record<string, boolean | null>>({});
   useEffect(() => {
     fetchHarnesses()
@@ -308,7 +311,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // ---------------------------------------------------------------------
 
   const filter = useMemo(() => parseFilter(input), [input]);
-  const visibleSessions = useMemo(() => applySessionFilter(sessions, filter), [sessions, filter]);
+  // Harness agents (#195) live only in this view's state: list them next to the CLI's sessions
+  const listedSessions = useMemo(
+    () => [...sessions, ...cloudSessions.filter((s) => sessionHarness(s) !== 'claude')],
+    [sessions, cloudSessions]
+  );
+  const visibleSessions = useMemo(
+    () => applySessionFilter(listedSessions, filter),
+    [listedSessions, filter]
+  );
   const railRef = useRef<HTMLDivElement>(null);
   const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
   const contexts = useAgentContexts(true);
@@ -513,15 +524,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     defaultCwd,
   ]);
 
-  const openComposer = useCallback(
-    (mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
-      setComposerMode(mode);
-      if (mode !== 'task') setAgentCwd(cwd);
-      setComposerHarness(settings.dispatch.harness);
-      setComposerOpen(true);
-    },
-    [settings.dispatch.harness]
-  );
+  const openComposer = useCallback((mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
+    setComposerMode(mode);
+    if (mode !== 'task') setAgentCwd(cwd);
+    setComposerHarness(null);
+    setComposerOpen(true);
+  }, []);
   const composerCwd =
     composerMode === 'agent'
       ? agentCwd || homeDir
@@ -757,10 +765,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
   const closeTab = useCallback(
     (tabId: string) => {
-      workspace.tabs
-        .find((t) => t.id === tabId)
-        ?.panes.filter(isChat)
-        .forEach(stopChatSession);
+      const panes = workspace.tabs.find((t) => t.id === tabId)?.panes ?? [];
+      panes.filter(isChat).forEach(stopChatSession);
+      // A harness agent has no session outside its pane: closing the pane ends it, so drop its card
+      setCloudSessions((prev) =>
+        prev.filter((s) => !panes.includes(s.id) || sessionHarness(s) === 'claude')
+      );
       workspaceActions.closeTab(tabId);
     },
     [workspace.tabs, isChat, stopChatSession, workspaceActions]
@@ -944,7 +954,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       if (item.type === 'group') toggleGroup(item.group);
       else if (item.type === 'more') setExpandedCompleted(true);
       else if (openAsChat(item.session)) return;
-      else if (item.session.kind !== 'interactive') attach(item.session.id);
+      else if (item.session.kind !== 'interactive' || sessionHarness(item.session) !== 'claude')
+        attach(item.session.id);
       // Interactive and remote-control sessions keep their transcript locally: continue it here
       else if (item.session.sessionId)
         openInteractiveClaude(item.session.cwd, item.session.name, [
@@ -1569,6 +1580,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     (session: AgentSession): AgentRowAction[] => {
       const bg = session.kind === 'background';
       const alive = session.state === 'working' || session.state === 'blocked';
+      // A harness agent (#195) is its pane: stopping it closes the pane, which ends the process
+      const harnessPane = session.kind === 'interactive' && sessionHarness(session) !== 'claude';
       return [
         { id: 'attach', label: 'Attach in tab', disabled: !bg, onSelect: () => attach(session.id) },
         { id: 'peek', label: 'Peek / reply', onSelect: () => togglePeek(session) },
@@ -1616,11 +1629,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         {
           id: 'stop',
           label: 'Stop',
-          disabled: !bg || !alive,
+          disabled: !harnessPane && (!bg || !alive),
           onSelect: () =>
-            stopAgent(session.id)
-              .then(refresh)
-              .catch((err) => toast.error(err.message)),
+            harnessPane
+              ? closeAnyPane(session.id)
+              : stopAgent(session.id)
+                  .then(refresh)
+                  .catch((err) => toast.error(err.message)),
         },
         {
           id: 'respawn',
@@ -1650,6 +1665,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     },
     [
       attach,
+      closeAnyPane,
       togglePeek,
       handlePin,
       handleRename,

@@ -2387,13 +2387,13 @@ wss.on('connection', (ws, req) => {
 
   // Harness agents (#195): fixed argument shapes, a project directory as cwd, installed binary
   let spawnCommand = command;
+  let harnessArgs = null;
   if (isHarnessCommand(command)) {
     const reject = (message) => {
       console.error(`[PTY] Rejected harness ${command}: ${message}`);
       ws.send(JSON.stringify({ type: 'error', message }));
       ws.close();
     };
-    let harnessArgs;
     try {
       harnessArgs = JSON.parse(url.searchParams.get('args') || '[]');
     } catch {
@@ -2417,9 +2417,10 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  let args = [];
+  let args = harnessArgs ?? [];
   const argsParam = url.searchParams.get('args');
-  if (argsParam) {
+  // harness args are already parsed above; a second decodeURIComponent would mangle a `%` prompt
+  if (argsParam && !harnessArgs) {
     try {
       const parsedArgs = JSON.parse(decodeURIComponent(argsParam));
       // Validate that args is an array of strings
@@ -2458,8 +2459,7 @@ wss.on('connection', (ws, req) => {
       const maxArgLength = 1000; // Prevent extremely long individual arguments
 
       for (const arg of parsedArgs) {
-        // harness prompts are bounded by harnessArgsError (MAX_HARNESS_PROMPT)
-        if (arg.length > maxArgLength && !isHarnessCommand(command)) {
+        if (arg.length > maxArgLength) {
           console.error(`[PTY] Argument exceeds maximum length: ${arg.length} > ${maxArgLength}`);
           ws.send(
             JSON.stringify({
