@@ -233,6 +233,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     prune: pruneMissing,
     ...workspaceActions
   } = useAgentWorkspace(contextId);
+  const { openShell } = workspaceActions;
   const [expandedCompleted, setExpandedCompleted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
@@ -1628,6 +1629,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           },
         },
         {
+          // #207: plain shell in the agent's folder (worktree); a remote agent's folder is on another host
+          id: 'terminal',
+          label: 'Open terminal here',
+          disabled: !!session.host || !agentFolder(session, contexts[session.id]),
+          onSelect: () => {
+            const folder = agentFolder(session, contexts[session.id]);
+            if (folder && !session.host) openShell(folder);
+          },
+        },
+        {
           id: 'board',
           label: 'Show on Board',
           disabled: !contexts[session.id]?.repo?.slug,
@@ -1709,6 +1720,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       issuesByAgent,
       expandedSessions,
       toggleExpandedSession,
+      openShell,
       scopedModes,
     ]
   );
@@ -1735,6 +1747,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               id: 'view-code',
               label: 'View Code',
               onSelect: () => navigate(codeUrl(group.cwd!)),
+            },
+            {
+              id: 'open-terminal',
+              label: 'Open terminal here',
+              onSelect: () => openShell(group.cwd!),
             },
           ]
         : []),
@@ -1788,6 +1805,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       contexts,
       openIssueDialog,
       openComposer,
+      openShell,
       scopedModes,
     ]
   );

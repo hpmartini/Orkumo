@@ -10,6 +10,7 @@ import {
   moveTab,
   openBrowser,
   openSession,
+  openShell,
   pruneMissing,
   setTabLayout,
   splitInto,
@@ -70,6 +71,7 @@ export function useAgentWorkspace(contextId?: string) {
       split: (id: string, targetId: string, zone: Parameters<typeof splitInto>[3]) =>
         apply((ws) => splitInto(ws, id, targetId, zone)),
       openBrowser: (fromId: string, url: string) => apply((ws) => openBrowser(ws, fromId, url)),
+      openShell: (cwd: string) => apply((ws) => openShell(ws, cwd)),
       detach: (id: string) => apply((ws) => detachSession(ws, id)),
       moveTab: (tabId: string, targetId: string, position: 'before' | 'after') =>
         apply((ws) => moveTab(ws, tabId, targetId, position)),

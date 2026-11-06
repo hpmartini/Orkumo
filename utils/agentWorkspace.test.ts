@@ -21,6 +21,8 @@ import {
   migrateWorkspace,
   openBrowser,
   browserUrl,
+  openShell,
+  shellCwd,
   type Workspace,
 } from './agentWorkspace';
 
@@ -314,5 +316,42 @@ describe('openBrowser', () => {
   it('parses only browser pane ids', () => {
     expect(browserUrl('abc123')).toBeNull();
     expect(browserUrl('browser:1:https://a.b/c?d=1:2')).toBe('https://a.b/c?d=1:2');
+  });
+});
+
+describe('openShell (#207)', () => {
+  const cwd = '/Users/me/PROJECTS/app';
+
+  it('opens a shell as its own active tab', () => {
+    const ws = openShell(open('a'), cwd);
+    expect(ws.tabs).toHaveLength(2);
+    expect(activeTab(ws)?.panes).toEqual([`shell:1:${cwd}`]);
+    expect(shellCwd(activeTab(ws)!.panes[0])).toBe(cwd);
+  });
+
+  it('gives several shells in one directory unique ids', () => {
+    const ws = openShell(openShell(EMPTY_WORKSPACE, cwd), cwd);
+    const ids = ws.tabs.flatMap((t) => t.panes);
+    expect(ids).toEqual([`shell:1:${cwd}`, `shell:2:${cwd}`]);
+  });
+
+  it('reuses a freed number and ignores an empty cwd', () => {
+    const ws = openShell(openShell(EMPTY_WORKSPACE, cwd), '/tmp');
+    const freed = closeSession(ws, `shell:1:${cwd}`);
+    expect(activeTab(openShell(freed, cwd))?.panes).toEqual([`shell:1:${cwd}`]);
+    expect(openShell(ws, '')).toBe(ws);
+  });
+
+  it('survives prune and migration', () => {
+    const ws = openShell(open('a'), cwd);
+    expect(pruneMissing(ws, new Set(['a']))).toEqual(ws);
+    expect(migrateWorkspace(JSON.parse(JSON.stringify(ws)))).toEqual(ws);
+  });
+
+  it('parses only shell pane ids, colons in the path included', () => {
+    expect(shellCwd('abc123')).toBeNull();
+    expect(shellCwd('shell:1:')).toBeNull();
+    expect(shellCwd('browser:1:https://a.b')).toBeNull();
+    expect(shellCwd('shell:3:/a/b:c')).toBe('/a/b:c');
   });
 });

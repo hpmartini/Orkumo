@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import { X, Columns2, Rows2, LayoutGrid, Bot, Maximize2 } from 'lucide-react';
+import { X, Columns2, Rows2, LayoutGrid, Bot, Maximize2, SquareTerminal } from 'lucide-react';
 import type { AgentSession } from '../../types';
 import { stateGlyph, resumableSessionId } from '../../utils/agentSessions';
 import {
   AGENT_TAB_MIME,
   browserUrl,
   dropZone,
+  shellCwd,
   insertPosition,
   stepIndices,
   tabTitle,
@@ -98,6 +99,25 @@ function browserSession(id: string): AgentSession | null {
     cwd: url,
     startedAt: 0,
     name: host,
+    state: null,
+    pinned: false,
+    order: null,
+    links: [],
+    displayState: 'idle',
+  };
+}
+
+/** Stand-in session for a shell pane (#207): a plain shell in `cwd`, named after the folder */
+function shellSession(id: string): AgentSession | null {
+  const cwd = shellCwd(id);
+  if (cwd === null) return null;
+  return {
+    id,
+    sessionId: null,
+    kind: 'interactive',
+    cwd,
+    startedAt: 0,
+    name: cwd.split('/').filter(Boolean).pop() ?? cwd,
     state: null,
     pinned: false,
     order: null,
@@ -225,7 +245,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     .map((tab) => ({
       tab,
       sessions: tab.panes
-        .map((id) => byId.get(id) ?? browserSession(id))
+        .map((id) => byId.get(id) ?? browserSession(id) ?? shellSession(id))
         .filter((s): s is AgentSession => !!s),
     }))
     .filter((t) => t.sessions.some((s) => browserUrl(s.id) === null));
@@ -279,7 +299,13 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     };
   }, [drag]);
   useEffect(() => {
-    if (drag && !byId.has(drag.sessionId) && browserUrl(drag.sessionId) === null) finishDrag();
+    if (
+      drag &&
+      !byId.has(drag.sessionId) &&
+      browserUrl(drag.sessionId) === null &&
+      shellCwd(drag.sessionId) === null
+    )
+      finishDrag();
   }, [drag, sessions]);
 
   const dragProps = (state: DragState) => ({
@@ -555,12 +581,20 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
                   }}
                   className={`flex items-center gap-1.5 flex-1 min-w-0 h-full text-left ${focusRing}`}
                 >
-                  <span
-                    className={`${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
-                    aria-hidden="true"
-                  >
-                    {glyph.glyph}
-                  </span>
+                  {shellCwd(lead.id) !== null ? (
+                    <SquareTerminal
+                      size={12}
+                      className="text-gray-400 shrink-0"
+                      aria-hidden="true"
+                    />
+                  ) : (
+                    <span
+                      className={`${glyph.className} ${glyph.animate ? 'animate-pulse motion-reduce:animate-none' : ''}`}
+                      aria-hidden="true"
+                    >
+                      {glyph.glyph}
+                    </span>
+                  )}
                   <span className="truncate flex-1">{title}</span>
                   {panes.length > 1 && (
                     <span
