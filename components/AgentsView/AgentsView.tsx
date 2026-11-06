@@ -1422,7 +1422,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         !e.altKey &&
         !ctrl &&
         !e.metaKey &&
-        target?.closest('[role="listbox"] button') &&
+        target?.closest('[role="listbox"] button:not([aria-haspopup])') &&
         railRef.current?.contains(target)
       ) {
         e.preventDefault();
