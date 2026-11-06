@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Attach sessions in tabs or tiled (columns / rows / grid) via `claude attach`
   - Pin, rename, reorder, stop, delete (with `claude rm` force hints), respawn, supervisor controls
   - Dispatch defaults for every `claude agents` flag, `--cwd` scope, notifications
+  - Directory picker for new sessions: collapse/expand parent directories one by one or all at once; collapsed state is remembered, filtering shows every match
   - New API under `/api/agents/*` and `/api/settings/agent-view`, backed by `server/services/agentService.js`
 - **code-server Integration**: VS Code in browser alongside Monaco Editor
   - Toggle between Monaco (lightweight) and VS Code (full IDE) modes
