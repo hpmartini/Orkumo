@@ -114,9 +114,12 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   useLayoutEffect(pinBottom, [state.messages, showSteps, pinBottom]);
   useEffect(() => {
     const content = contentRef.current;
-    if (!content) return;
+    const list = listRef.current;
+    if (!content || !list) return;
     const observer = new ResizeObserver(pinBottom);
     observer.observe(content);
+    // The list shrinks too when the status line or work panel below it appears late
+    observer.observe(list);
     return () => observer.disconnect();
   }, [pinBottom]);
   // Back on a hidden tab: jump to the newest messages

@@ -310,7 +310,8 @@ export function startChat(opts, context = {}) {
   const spawn = context.spawn ?? nodeSpawn;
   const proc = spawn(bin, buildChatArgs(safe), {
     cwd: safe.cwd,
-    env: process.env,
+    // -p leaves out TaskCreate/TaskUpdate; the chat's plan card needs them like the TUI has them
+    env: { ...process.env, CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
     stdio: ['pipe', 'pipe', 'pipe'],
   });
   const s = {

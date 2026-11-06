@@ -880,7 +880,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           await stopAgent(session.id);
         } catch (err) {
           // A finished or stopped job may already be gone; only a live one must stop first
-          if (session.displayState === 'idle') {
+          if (session.displayState === 'idle' || session.displayState === 'needs-input') {
             showHint(err instanceof Error ? err.message : 'Stop failed', 'error', 6000);
             return;
           }
@@ -909,7 +909,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         attach(running.id);
         return true;
       }
-      if (!CHAT_OPENABLE.has(session.displayState)) return false;
+      // needs-input with a waiting process is an open question or permission prompt: keep the terminal
+      const finishedTurn = session.displayState === 'needs-input' && session.status !== 'waiting';
+      if (!CHAT_OPENABLE.has(session.displayState) && !finishedTurn) return false;
       void openAgentInChat(session, sessionId);
       return true;
     },
