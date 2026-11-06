@@ -35,6 +35,18 @@ const OPTIONS: BoardStatusOption[] = [
 ];
 
 let seq = 0;
+const wf = (sessionIds: string[]) => ({
+  state: {
+    stage: 'todo',
+    waitingOn: null,
+    reason: '',
+    since: null,
+    go: null,
+    error: null,
+  },
+  sessionIds,
+});
+
 function item(partial: Partial<BoardItem> = {}): BoardItem {
   seq++;
   return {
@@ -54,8 +66,7 @@ function item(partial: Partial<BoardItem> = {}): BoardItem {
     parent: null,
     subIssues: { total: 0, completed: 0 },
     pullRequests: [],
-    mwBoardSessions: [],
-    mwMarkers: [],
+    workflow: null,
     updatedAt: '2026-10-20T00:00:00Z',
     closedAt: null,
     ...partial,
@@ -415,7 +426,7 @@ describe('buildLanes', () => {
 
 describe('deriveAgentLinks', () => {
   const uuid = '6259550d-1555-4cd2-85d1-d37082bb80f4';
-  const issue44 = item({ repo: 'hpmartini/Orkumo', number: 44, mwBoardSessions: [uuid] });
+  const issue44 = item({ repo: 'hpmartini/Orkumo', number: 44, workflow: wf([uuid]) });
   const prUrl = 'https://github.com/hpmartini/Orkumo/pull/50';
   const issue45 = item({
     repo: 'hpmartini/Orkumo',
@@ -438,15 +449,15 @@ describe('deriveAgentLinks', () => {
     url: prUrl,
   });
 
-  it('links mw-board sessions to job id = first 8 chars of the uuid', () => {
+  it('links workflow sessions to job id = first 8 chars of the uuid', () => {
     expect(deriveAgentLinks([issue44], [{ id: '6259550d', sessionId: uuid, links: [] }])).toEqual([
-      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'mw-board' },
+      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'workflow' },
     ]);
   });
 
-  it('keeps the mw-board link without a live session', () => {
+  it('keeps the workflow link without a live session', () => {
     expect(deriveAgentLinks([issue44], [])).toEqual([
-      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'mw-board' },
+      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'workflow' },
     ]);
   });
 
@@ -476,11 +487,11 @@ describe('deriveAgentLinks', () => {
     ).toEqual([]);
   });
 
-  it('dedups per (job, issue) and prefers mw-board', () => {
+  it('dedups per (job, issue) and prefers workflow', () => {
     const both = item({
       repo: 'hpmartini/Orkumo',
       number: 44,
-      mwBoardSessions: [uuid, uuid],
+      workflow: wf([uuid, uuid]),
       pullRequests: [
         {
           repo: 'hpmartini/Orkumo',
@@ -503,14 +514,14 @@ describe('deriveAgentLinks', () => {
       ]
     );
     expect(links).toEqual([
-      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'mw-board' },
+      { jobId: '6259550d', issueKey: 'hpmartini/Orkumo#44', via: 'workflow' },
     ]);
   });
 
   it('groups links by issue and by agent', () => {
     const links = [
       { jobId: 'j1', issueKey: 'r#1', via: 'pr' as const },
-      { jobId: 'j2', issueKey: 'r#1', via: 'mw-board' as const },
+      { jobId: 'j2', issueKey: 'r#1', via: 'workflow' as const },
       { jobId: 'j1', issueKey: 'r#2', via: 'pr' as const },
     ];
     expect(linksByIssue(links)).toEqual(

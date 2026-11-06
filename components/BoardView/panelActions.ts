@@ -5,7 +5,7 @@ import { fetchRepoPath } from '../../services/boardApi';
 import { fetchAgentContexts } from '../../services/agentsApi';
 import { codeUrl, linkedAgentFolder } from '../../utils/codeTarget';
 
-/** Links carry the job id or the first 8 chars of the session UUID (mw-board) */
+/** Links carry the job id or the first 8 chars of the session UUID (workflow) */
 export const sessionsByLinkId = (sessions: AgentSession[]) =>
   new Map<string, AgentSession>(
     sessions.flatMap((s) => [

@@ -13,9 +13,8 @@ import {
 } from 'lucide-react';
 import type { AgentSession, BoardIssueDetails, BoardItem, BoardStatusOption } from '../../types';
 import toast from 'react-hot-toast';
-import { fetchIssueDetails, sendPollGo } from '../../services/boardApi';
-import { deriveWorkflowState, isWorkflowItem } from '../../utils/workflowStage.js';
-import { GoButton, goDoneText, goLabel } from './GoButton';
+import { fetchIssueDetails, sendGo } from '../../services/boardApi';
+import { GoButton, goDoneText } from './GoButton';
 import { issueKey, itemKey, type AgentIssueLink } from '../../utils/board';
 import { AgentGlyph, CheckIcon, ItemIcon, LabelChip } from './BoardCard';
 import {
@@ -38,7 +37,7 @@ import { FlowControls } from './FlowControls';
 import { IssueComments } from './IssueComments';
 
 const VIA: Record<AgentIssueLink['via'], string> = {
-  'mw-board': 'mw-board-Kommentar',
+  workflow: 'Workflow-Kommentar',
   pr: 'verlinkten PR',
 };
 
@@ -118,11 +117,9 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
   const none = <Muted>keine</Muted>;
   const subs = items.filter((i) => i.parent && issueKey(i.parent.repo, i.parent.number) === key);
   const statusName = (id: string | null) => options.find((o) => o.id === id)?.name ?? '–';
-  // waiting on the mw-board poll: start it now (#145); other GOs stay in the workflow view
-  const go = isWorkflowItem(item)
-    ? deriveWorkflowState(item, options.find((o) => o.id === item.statusOptionId)?.name ?? null).go
-    : null;
-  const pollGo = go?.kind === 'poll' ? go : null;
+  // only GOs the provider marks `panel` are offered here; the others stay in the workflow view
+  const go = item.workflow?.state.go;
+  const panelGo = go?.panel ? go : null;
   const parentKey = item.parent ? issueKey(item.parent.repo, item.parent.number) : null;
   const parentOnBoard = !!parentKey && items.some((i) => itemKey(i) === parentKey);
   const parentView = item.parent ? (
@@ -325,13 +322,13 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           />
         )}
 
-        {editable && pollGo && (
+        {editable && panelGo && (
           <GoButton
-            label={goLabel(pollGo)}
+            label={panelGo.text}
             onGo={() =>
-              sendPollGo(item.itemId).then(
-                (res) => void toast.success(goDoneText(key, pollGo, res.start)),
-                (e) => void toast.error(e instanceof Error ? e.message : 'Poll nicht gestartet')
+              sendGo(item.itemId, panelGo.kind).then(
+                (res) => void toast.success(goDoneText(key, res.start, res.note)),
+                (e) => void toast.error(e instanceof Error ? e.message : 'GO nicht gesendet')
               )
             }
           />

@@ -45,13 +45,8 @@ import { usageRouter, getUsage } from './services/usageService.js';
 import { getAgentContexts, getKnownServerPids } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
 import * as imageUpload from './services/imageUpload.js';
-import { applyGo, startNow, workflowStartSchema } from './services/workflowGo.js';
-import {
-  deriveWorkflowState,
-  isWorkflowItem,
-  WORKFLOW_STAGES,
-  sameGo,
-} from '../utils/workflowStage.js';
+import * as workflowProvider from './services/workflowProvider.js';
+import { ISSUE_URL_RE } from '../utils/issueUrl.js';
 import * as codeService from './services/codeService.js';
 import { createModuleHost, getModulesDir } from './services/moduleLoader.js';
 import {
@@ -163,13 +158,13 @@ const moduleHost = createModuleHost({
     getBoardSettings: () => settingsService.getBoardSettings(),
     findRepoInKnownDirs,
     getAgentContexts,
+    // docs/WORKFLOW_PROVIDER.md: modules see the provider only through the contract
     workflow: {
-      deriveWorkflowState,
-      isWorkflowItem,
-      WORKFLOW_STAGES,
-      sameGo,
+      provider: () => workflowProvider.providerInfo(),
       context: workflowContext,
-      applyGo: (ctx, go) => applyGo(ctx, go, { updateIssue: boardService.updateIssue }),
+      start: (url) => workflowProvider.startIssue(url),
+      applyGo: (ctx, go) =>
+        workflowProvider.applyGo(ctx, go, { updateIssue: boardService.updateIssue }),
     },
     get agentLimiter() {
       return agentLimiter;
@@ -1758,7 +1753,7 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// mw workflow context (#87, mw 7 #136); the Workflows mode itself is a module (#165)
+// Workflow provider (docs/WORKFLOW_PROVIDER.md); no provider: plain board
 // ---------------------------------------------------------------------------
 
 async function findRepoInKnownDirs(slug) {
@@ -1773,7 +1768,7 @@ async function findRepoInKnownDirs(slug) {
   return boardService.findRepoPath(slug, [...roots, ...exact]);
 }
 
-/** Board item, its MACC column and derived workflow state */
+/** Board item with its `workflow` (null without provider or outside the workflow) */
 async function workflowContext(itemId, { refresh = false } = {}) {
   const { source } = settingsService.getBoardSettings();
   const board = await boardService.getBoard(source);
@@ -1783,32 +1778,45 @@ async function workflowContext(itemId, { refresh = false } = {}) {
   if (!item?.repo || !item.number) {
     throw Object.assign(new Error('Issue not on the board'), { status: 404 });
   }
-  const status = board.statusField.options.find((o) => o.id === item.statusOptionId)?.name ?? null;
-  return { source, item, state: deriveWorkflowState(item, status) };
+  return { source, item, state: item.workflow?.state ?? null };
 }
 
-// Umsetzen in the issue dialog: start the issue now (mw board go), the label is already set
-app.post('/api/board/start', agentLimiter, validate(workflowStartSchema), async (req, res) => {
-  try {
-    res.json(await startNow(req.body.url));
-  } catch (error) {
-    sendAgentError(res, error);
-  }
+app.get('/api/workflow', (_req, res) => {
+  res.json({ provider: workflowProvider.providerInfo() });
 });
 
-// Start the mw-board poll now; refused unless the fresh state offers exactly this GO
+// Start the issue now through the provider; the client sends only an issue URL (trust boundary)
 app.post(
-  '/api/board/poll',
+  '/api/workflow/start',
   agentLimiter,
-  validate(z.object({ itemId: boardItemIdSchema }).strict()),
+  validate(z.object({ url: z.string().regex(ISSUE_URL_RE) }).strict()),
+  async (req, res) => {
+    try {
+      res.json(await workflowProvider.startIssue(req.body.url));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+// Apply a GO; refused unless the fresh state offers exactly this kind
+app.post(
+  '/api/workflow/go',
+  agentLimiter,
+  validate(
+    z
+      .object({
+        itemId: boardItemIdSchema,
+        go: z.object({ kind: z.string().regex(/^[a-z0-9_-]{1,40}$/) }).strict(),
+      })
+      .strict()
+  ),
   async (req, res) => {
     try {
       const ctx = await workflowContext(req.body.itemId, { refresh: true });
-      const { status, body } = await applyGo(
-        ctx,
-        { kind: 'poll' },
-        { updateIssue: boardService.updateIssue }
-      );
+      const { status, body } = await workflowProvider.applyGo(ctx, req.body.go, {
+        updateIssue: boardService.updateIssue,
+      });
       res.status(status).json(body);
     } catch (error) {
       sendAgentError(res, error);

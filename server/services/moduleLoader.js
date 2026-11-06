@@ -3,7 +3,8 @@
  *
  * Loads optional modules from a directory at server start. One subdirectory per
  * module, each with an index.js whose default export is
- * { id, name, register(ctx), ui?, mode? }. See docs/MODULES.md for the contract.
+ * { id, name, register(ctx), ui?, mode?, workflow? }. See docs/MODULES.md for the contract,
+ * docs/WORKFLOW_PROVIDER.md for `workflow`.
  *
  * A module that fails to load is logged and skipped; load() never throws.
  */
@@ -13,6 +14,7 @@ import fs from 'fs';
 import path from 'path';
 import { pathToFileURL } from 'url';
 import { getDataPath } from './dataPath.js';
+import { getProvider, setProvider, validateProvider } from './workflowProvider.js';
 
 // Same pattern as ideIdSchema in server/index.js; the id becomes a URL segment.
 const MODULE_ID = /^[a-z0-9-]+$/;
@@ -29,8 +31,8 @@ const RESERVED_IDS = new Set([
 ]);
 
 /**
- * Directory modules are loaded from: DEVHUB_PREMIUM_DIR, else <dataPath>/modules.
- * Not cwd-relative: the packaged Electron app starts with cwd '/'.
+ * Directories modules are loaded from: DEVHUB_PREMIUM_DIR (a path list, `:`-separated like PATH),
+ * else <dataPath>/modules. Not cwd-relative: the packaged Electron app starts with cwd '/'.
  */
 export function getModulesDir() {
   return process.env.DEVHUB_PREMIUM_DIR || path.join(getDataPath(), 'modules');
@@ -90,6 +92,11 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
     if (typeof mod.name !== 'string' || !mod.name) throw new Error('name must be a string');
     if (typeof mod.register !== 'function') throw new Error('register must be a function');
     const mode = parseMode(mod);
+    if (mod.workflow !== undefined) {
+      if (getProvider())
+        throw new Error(`a workflow provider is already loaded (${getProvider().name})`);
+      validateProvider(mod.workflow);
+    }
 
     const moduleRouter = express.Router();
     let uiFile = null;
@@ -116,18 +123,25 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
 
     // Mount only after register succeeded: a failing module leaves no route behind.
     router.use(`/${mod.id}`, moduleRouter);
+    if (mod.workflow !== undefined) setProvider(mod.workflow);
     loaded.push({ id: mod.id, name: mod.name, ui: uiFile, mode });
   }
 
-  async function load(dir) {
-    if (!fs.existsSync(dir)) return [];
+  /** Loads every module of `dirs` (one directory or a path list), in list order */
+  async function load(dirs) {
+    for (const dir of String(dirs).split(path.delimiter).filter(Boolean)) await loadDir(dir);
+    return loaded.map(({ id, name }) => ({ id, name }));
+  }
+
+  async function loadDir(dir) {
+    if (!fs.existsSync(dir)) return;
 
     let entries = [];
     try {
       entries = fs.readdirSync(dir).sort();
     } catch (error) {
       logger.error(`Cannot read ${dir}:`, error);
-      return [];
+      return;
     }
 
     for (const entry of entries) {
@@ -139,7 +153,6 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
         logger.error(`Skipping module in ${entry}:`, error);
       }
     }
-    return loaded.map(({ id, name }) => ({ id, name }));
   }
 
   return { router, load };

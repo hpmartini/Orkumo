@@ -93,7 +93,7 @@ interface AgentListProps {
   cardDensity?: AgentCardDensity;
   /** Which card slot each detail element sits in (#159) */
   cardFields?: AgentCardFields;
-  /** mw board links, to tell workflow agents from hand-started ones */
+  /** workflow links, to tell workflow agents from hand-started ones */
   lookup?: SessionLookup;
   /** Repo / issue / sub-agent data per session id (may be empty while loading) */
   contexts: Record<string, AgentContext | undefined>;
@@ -766,7 +766,8 @@ export const AgentList: React.FC<AgentListProps> = ({
                   const sessionServers = (servers.get(session.id) || []).filter((s) => s.running);
                   const issueKeys = (onOpenIssue && issuesByAgent?.get(session.id)) || [];
                   const workflow = workflowIssue(session, lookup, issueKeys);
-                  const displayName = parseWorkflowName(session.name)?.title || session.name;
+                  const displayName =
+                    parseWorkflowName(session.name, lookup?.workflowName)?.title || session.name;
                   // Project groups already name the repo in their header
                   const showProject =
                     grouping !== 'project' || (item.group.key as string) === FAVORITES_GROUP_KEY;

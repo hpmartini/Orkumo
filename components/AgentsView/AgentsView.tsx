@@ -28,6 +28,7 @@ import { buildSshAttachArgs } from '../../utils/meshHosts';
 import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
 import { useChatSessions } from '../../hooks/useChatSessions';
 import { useAgentContexts } from '../../hooks/useAgentContexts';
+import { useWorkflowProvider } from '../../hooks/useWorkflowProvider';
 import {
   useRailPreferences,
   groupNeighbour,
@@ -347,13 +348,21 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const workflowIssues = useMemo(
     () =>
       new Map(
-        (issueLinks || []).filter((l) => l.via === 'mw-board').map((l) => [l.jobId, l.issueKey])
+        (issueLinks || []).filter((l) => l.via === 'workflow').map((l) => [l.jobId, l.issueKey])
       ),
     [issueLinks]
   );
+  const provider = useWorkflowProvider();
+  const workflowName = useMemo(() => {
+    try {
+      return provider?.sessionName ? new RegExp(provider.sessionName) : null;
+    } catch {
+      return null;
+    }
+  }, [provider]);
   const lookup = useMemo(
-    () => ({ contexts, servers, workflowIssues, now }),
-    [contexts, servers, workflowIssues, now]
+    () => ({ contexts, servers, workflowIssues, workflowName, now }),
+    [contexts, servers, workflowIssues, workflowName, now]
   );
   const [panel, setPanel] = useState<'prs' | 'servers' | null>(null);
   useEffect(() => {
