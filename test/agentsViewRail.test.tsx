@@ -93,9 +93,14 @@ const MODES: { grouping: AgentGrouping; group: RegExp }[] = [
   { grouping: 'directory', group: /alpha$/ },
 ];
 
+// #200: hot locators skip role/name resolution; it runs jsdom getComputedStyle on every element and
+// ancestor and made these tests ~10x slower under CPU load, past the 5 s timeout
 const headers = () =>
-  screen.getAllByRole('option').filter((el) => el.getAttribute('draggable') === 'true');
-const chevron = (h: HTMLElement) => within(h).getByRole('button', { name: /^(Expand|Collapse) / });
+  screen
+    .getAllByRole('option', { hidden: true })
+    .filter((el) => el.getAttribute('draggable') === 'true');
+const chevron = (h: HTMLElement) =>
+  h.querySelector<HTMLElement>('button[aria-label^="Expand "], button[aria-label^="Collapse "]')!;
 const headerTitle = (h: HTMLElement) =>
   chevron(h)
     .getAttribute('aria-label')!
