@@ -1,25 +1,9 @@
 /**
- * Issue modal (#104): mw-board control labels as buttons and comment quote/reply text.
+ * Issue modal (#104): the workflow provider's control labels as buttons, and comment quote/reply text.
  */
-import type { IssueComment } from '../types';
-import {
-  BUILD_LABEL,
-  FOLLOWUP_LABEL,
-  GO_LABEL,
-  IMAGE_LABEL,
-  NEED_INPUT_LABEL,
-  UPDATE_LABEL,
-} from './workflowStage.js';
+import type { IssueComment, StartResult, WorkflowControls } from '../types';
 
-export { BUILD_LABEL, FOLLOWUP_LABEL, GO_LABEL, NEED_INPUT_LABEL, UPDATE_LABEL };
-export const DYNAMIC_LABEL = 'mw:dynamic';
-export const DELEGATE_LABEL = 'mw:delegate';
-export const REVIEW_LABEL = 'mw:review';
-/** Mode labels are exclusive; none of them = default mode */
-export const MODE_LABELS = { image: IMAGE_LABEL } as const;
-/** mw 6 modes, a control error since mw 7 (#136): a mode change drops them */
-const LEGACY_MODE_LABELS = ['mw:orchestrate', 'mw:pipeline'];
-export type FlowMode = 'default' | keyof typeof MODE_LABELS;
+type Modes = NonNullable<WorkflowControls['modes']>;
 
 /** Label names with `label` added or removed; the rest of the set stays as it is */
 export function toggleLabel(names: string[], label: string, on: boolean): string[] {
@@ -27,34 +11,32 @@ export function toggleLabel(names: string[], label: string, on: boolean): string
   return on ? [...rest, label] : rest;
 }
 
-/** What `mw board go` did, as the server passes it on; `poll`: old mw, the poll was kicked instead */
-export type WorkflowStart = { action: string; reason: string };
-
-/** Dialog/toast text for a start: started, waiting for a free slot, fallback, or mw's reason */
-export function startText(s: WorkflowStart): string {
+/** Dialog/toast text for a start: started, queued, waiting for a free slot, or the provider's reason */
+export function startText(s: StartResult): string {
   if (s.action === 'start' || s.action === 'resume') return 'gestartet';
-  if (s.action === 'poll') return 'startet mit dem nächsten Poll';
-  const full = /kein Platz frei \(\d+\/\d+\)/.exec(s.reason);
-  return full ? `${full[0]}, startet, sobald einer frei wird` : s.reason || 'nicht gestartet';
+  if (s.action === 'queued') return s.reason || 'startet später';
+  if (s.full) return `${s.reason}, startet, sobald einer frei wird`;
+  return s.reason || 'nicht gestartet';
 }
 
-export function currentMode(names: string[]): FlowMode {
-  const hit = (Object.keys(MODE_LABELS) as (keyof typeof MODE_LABELS)[]).find((m) =>
-    names.includes(MODE_LABELS[m])
-  );
-  return hit ?? 'default';
+/** Label of the active mode (null: default, no mode label set) */
+export function currentMode(names: string[], modes: Modes): string | null {
+  return modes.options.find((o) => o.label && names.includes(o.label))?.label ?? null;
 }
 
-/** Label names with exactly the mode label of `mode` (none for default), legacy modes dropped */
-export function setMode(names: string[], mode: FlowMode): string[] {
-  const modeLabels: string[] = [...Object.values(MODE_LABELS), ...LEGACY_MODE_LABELS];
+/** Label names with exactly the mode label `mode` (none for null), dropped labels removed */
+export function setMode(names: string[], modes: Modes, mode: string | null): string[] {
+  const modeLabels = [
+    ...modes.options.flatMap((o) => (o.label ? [o.label] : [])),
+    ...(modes.drop ?? []),
+  ];
   const rest = names.filter((n) => !modeLabels.includes(n));
-  return mode === 'default' ? rest : [...rest, MODE_LABELS[mode]];
+  return mode ? [...rest, mode] : rest;
 }
 
 /** Markdown quote of a comment, attributed, followed by an empty line for the answer */
 export function quoteComment(c: Pick<IssueComment, 'author' | 'body' | 'url'>): string {
-  // HTML comments (mw-board markers) are invisible on GitHub; quoting them would duplicate markers
+  // HTML comments (workflow markers) are invisible on GitHub; quoting them would duplicate markers
   const quoted = c.body
     .replace(/<!--[\s\S]*?-->/g, '')
     .trimEnd()

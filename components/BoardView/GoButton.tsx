@@ -1,16 +1,11 @@
 import React, { useRef, useState } from 'react';
 import { Rocket } from 'lucide-react';
-import type { WorkflowGo } from '../../utils/workflowStage.js';
-import { startText, type WorkflowStart } from '../../utils/issueControls';
+import type { StartResult } from '../../types';
+import { startText } from '../../utils/issueControls';
 
-export const goLabel = (go: WorkflowGo) =>
-  go.kind === 'build' ? 'GO: Umsetzung' : 'Jetzt starten';
-
-/** Toast text after a sent GO; `start`: what `mw board go` (or its poll fallback) did */
-export const goDoneText = (key: string, go: WorkflowGo, start?: WorkflowStart) => {
-  const how = start ? startText(start) : 'gesendet';
-  return go.kind === 'poll' ? `${key}: ${how}` : `GO für ${key}: mw:build gesetzt, ${how}`;
-};
+/** Toast text after a sent GO; `note`: what the provider did besides starting, `start`: the start */
+export const goDoneText = (key: string, start?: StartResult, note?: string) =>
+  `${key}: ${note ? `${note}, ` : ''}${start ? startText(start) : 'gesendet'}`;
 
 /** Two-step GO: the first click arms, the second sends; arming expires after 4 s */
 export const GoButton: React.FC<{ label: string; onGo: () => Promise<void> }> = ({

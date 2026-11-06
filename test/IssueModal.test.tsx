@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import type { BoardData, BoardItem, IssueComment } from '../types';
+import type {
+  BoardData,
+  BoardItem,
+  BoardWorkflow,
+  IssueComment,
+  WorkflowProviderInfo,
+} from '../types';
 
 const api = vi.hoisted(() => ({
   fetchBoard: vi.fn(),
@@ -16,7 +22,8 @@ const api = vi.hoisted(() => ({
   fetchIssueSummary: vi.fn(),
   setIssueLabels: vi.fn(),
   fetchRepoPath: vi.fn(),
-  sendPollGo: vi.fn(),
+  sendGo: vi.fn(),
+  getWorkflowProvider: vi.fn(),
   startWorkflow: vi.fn(),
   errorDetails: () => ({}),
 }));
@@ -26,6 +33,51 @@ vi.mock('react-hot-toast', () => ({
 }));
 
 import { IssueModal } from '../components/BoardView/IssueModal';
+import { resetWorkflowProvider } from '../hooks/useWorkflowProvider';
+
+// neutral fake provider: labels wf:*
+const PROVIDER: WorkflowProviderInfo = {
+  name: 'Fake',
+  apiVersion: 1,
+  stages: [{ id: 'todo', label: 'Todo' }],
+  sessionName: null,
+  controls: {
+    toggles: [
+      { label: 'wf:go', text: 'Freigeben', hint: 'Issue freigeben' },
+      { label: 'wf:dynamic', text: 'Dynamic', hint: 'Dynamic' },
+      { label: 'wf:delegate', text: 'Delegate', hint: 'Delegieren' },
+      { label: 'wf:review', text: 'Review', hint: 'Review' },
+    ],
+    start: {
+      label: 'wf:build',
+      text: 'Umsetzen',
+      hint: 'Briefing freigeben, Umsetzung sofort starten',
+    },
+    feedback: [
+      { label: 'wf:update', text: 'Überarbeiten', hint: 'Vertrag überarbeiten' },
+      { label: 'wf:followup', text: 'Nacharbeiten', hint: 'PR nacharbeiten' },
+    ],
+    modes: {
+      options: [
+        { text: 'Default', label: null },
+        { text: 'Image', label: 'wf:image' },
+      ],
+      drop: ['wf:legacy'],
+    },
+    waiting: { label: 'need-input', text: 'wartet auf Antwort' },
+  },
+};
+const pollWorkflow: BoardWorkflow = {
+  state: {
+    stage: 'todo',
+    waitingOn: 'poll',
+    reason: '',
+    since: null,
+    go: { kind: 'poll', text: 'Jetzt starten', panel: true },
+    error: null,
+  },
+  sessionIds: [],
+};
 
 const item: BoardItem = {
   itemId: 'PVTI_1',
@@ -40,15 +92,14 @@ const item: BoardItem = {
   statusOptionId: 'A',
   labels: [
     { name: 'bug', color: 'ff0000' },
-    { name: 'mw:go', color: '5319e7' },
+    { name: 'wf:go', color: '5319e7' },
   ],
   milestone: null,
   assignees: [],
   parent: null,
   subIssues: { total: 0, completed: 0 },
   pullRequests: [],
-  mwBoardSessions: [],
-  mwMarkers: [],
+  workflow: pollWorkflow,
   updatedAt: '2026-10-01T00:00:00Z',
   closedAt: null,
 };
@@ -108,13 +159,13 @@ beforeEach(() => {
     repositoryId: 'R',
     labels: [
       'bug',
-      'mw:go',
-      'mw:build',
-      'mw:dynamic',
-      'mw:delegate',
-      'mw:image',
-      'mw:update',
-      'mw:followup',
+      'wf:go',
+      'wf:build',
+      'wf:dynamic',
+      'wf:delegate',
+      'wf:image',
+      'wf:update',
+      'wf:followup',
     ].map((name, i) => ({
       id: `L${i}`,
       name,
@@ -123,6 +174,8 @@ beforeEach(() => {
     assignees: [],
     milestones: [],
   });
+  resetWorkflowProvider();
+  api.getWorkflowProvider.mockResolvedValue(PROVIDER);
   api.startWorkflow.mockResolvedValue({ action: 'start', reason: '' });
   api.updateBoardIssue.mockImplementation(async (_id, patch) => ({
     ...item,
@@ -177,24 +230,24 @@ describe('IssueModal (#104)', () => {
     fireEvent.click(build);
     await waitFor(() =>
       expect(api.updateBoardIssue).toHaveBeenCalledWith('PVTI_1', {
-        labels: ['bug', 'mw:go', 'mw:build'],
+        labels: ['bug', 'wf:go', 'wf:build'],
       })
     );
     fireEvent.click(screen.getByRole('radio', { name: 'Image' }));
     await waitFor(() =>
       expect(api.updateBoardIssue).toHaveBeenLastCalledWith('PVTI_1', {
-        labels: ['bug', 'mw:go', 'mw:build', 'mw:image'],
+        labels: ['bug', 'wf:go', 'wf:build', 'wf:image'],
       })
     );
     fireEvent.click(screen.getByRole('button', { name: 'Delegate' }));
     await waitFor(() =>
       expect(api.updateBoardIssue).toHaveBeenLastCalledWith('PVTI_1', {
-        labels: ['bug', 'mw:go', 'mw:build', 'mw:image', 'mw:delegate'],
+        labels: ['bug', 'wf:go', 'wf:build', 'wf:image', 'wf:delegate'],
       })
     );
     // #136 AC-6: modes Default and Image only, switches dynamic/delegate/review
     expect(
-      within(screen.getByRole('radiogroup', { name: 'mw-Modus' }))
+      within(screen.getByRole('radiogroup', { name: 'Modus' }))
         .getAllByRole('radio')
         .map((b) => b.textContent)
     ).toEqual(['Default', 'Image']);
@@ -205,8 +258,8 @@ describe('IssueModal (#104)', () => {
     );
   });
 
-  it('AC-1: Umsetzen with mw:build set leaves the label, twice; without it sets it once', async () => {
-    const built = { ...item, labels: [...item.labels, { name: 'mw:build', color: '000000' }] };
+  it('AC-1: Umsetzen with wf:build set leaves the label, twice; without it sets it once', async () => {
+    const built = { ...item, labels: [...item.labels, { name: 'wf:build', color: '000000' }] };
     api.fetchBoard.mockResolvedValue({ ...board, items: [built] });
     renderModal();
     const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
@@ -221,7 +274,7 @@ describe('IssueModal (#104)', () => {
     expect(build.getAttribute('aria-pressed')).toBe('true');
   });
 
-  it('AC-1: Umsetzen without mw:build sets it (no duplicate), then starts', async () => {
+  it('AC-1: Umsetzen without wf:build sets it (no duplicate), then starts', async () => {
     renderModal();
     const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
     await waitFor(() => expect(build.disabled).toBe(false));
@@ -230,7 +283,7 @@ describe('IssueModal (#104)', () => {
     await waitFor(() => expect(api.startWorkflow).toHaveBeenCalledTimes(1));
     expect(api.updateBoardIssue).toHaveBeenCalledTimes(1);
     expect(api.updateBoardIssue).toHaveBeenCalledWith('PVTI_1', {
-      labels: ['bug', 'mw:go', 'mw:build'],
+      labels: ['bug', 'wf:go', 'wf:build'],
     });
     expect(api.updateBoardIssue.mock.invocationCallOrder[0]).toBeLessThan(
       api.startWorkflow.mock.invocationCallOrder[0]
@@ -251,13 +304,13 @@ describe('IssueModal (#104)', () => {
 
   it.each([
     [{ action: 'start', reason: 'Todo' }, 'Umsetzung: gestartet'],
-    [{ action: 'resume', reason: 'mw:build' }, 'Umsetzung: gestartet'],
+    [{ action: 'resume', reason: 'wf:build' }, 'Umsetzung: gestartet'],
     [
-      { action: 'none', reason: 'kein Platz frei (4/4)' },
+      { action: 'none', reason: 'kein Platz frei (4/4)', full: true },
       'Umsetzung: kein Platz frei (4/4), startet, sobald einer frei wird',
     ],
     [
-      { action: 'poll', reason: 'startet mit dem nächsten Poll' },
+      { action: 'queued', reason: 'startet mit dem nächsten Poll' },
       'Umsetzung: startet mit dem nächsten Poll',
     ],
     [{ action: 'none', reason: 'Issue nicht auf MACC' }, 'Umsetzung: Issue nicht auf MACC'],
@@ -271,12 +324,12 @@ describe('IssueModal (#104)', () => {
   });
 
   it('AC-4: a failed start is reported, the label stays', async () => {
-    api.startWorkflow.mockRejectedValue(new Error('mw board go: boom'));
+    api.startWorkflow.mockRejectedValue(new Error('wf start: boom'));
     renderModal();
     const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
     await waitFor(() => expect(build.disabled).toBe(false));
     fireEvent.click(build);
-    expect(await screen.findByText('Umsetzung: Nicht gestartet: mw board go: boom')).toBeTruthy();
+    expect(await screen.findByText('Umsetzung: Nicht gestartet: wf start: boom')).toBeTruthy();
     expect(build.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -309,7 +362,7 @@ describe('IssueModal (#104)', () => {
     await waitFor(() => expect(build.disabled).toBe(false));
     fireEvent.click(build);
     await waitFor(() =>
-      expect(api.setIssueLabels).toHaveBeenCalledWith('I_9', ['bug', 'mw:build'])
+      expect(api.setIssueLabels).toHaveBeenCalledWith('I_9', ['bug', 'wf:build'])
     );
     await waitFor(() => expect(build.getAttribute('aria-pressed')).toBe('true'));
     await waitFor(() =>
@@ -323,22 +376,34 @@ describe('IssueModal (#104)', () => {
   });
 
   it('released issue waiting on the poll: "Jetzt starten" starts it after confirming (#145)', async () => {
-    api.sendPollGo.mockResolvedValue({ ok: true });
+    api.sendGo.mockResolvedValue({ ok: true });
     renderModal();
     const start = await screen.findByRole('button', { name: /Jetzt starten/ });
     fireEvent.click(start);
-    expect(api.sendPollGo).not.toHaveBeenCalled();
+    expect(api.sendGo).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: /Wirklich/ }));
-    await waitFor(() => expect(api.sendPollGo).toHaveBeenCalledWith('PVTI_1'));
+    await waitFor(() => expect(api.sendGo).toHaveBeenCalledWith('PVTI_1', 'poll'));
   });
 
   it('picked-up issue (session started): no "Jetzt starten"', async () => {
     api.fetchBoard.mockResolvedValue({
       ...board,
-      items: [{ ...item, mwMarkers: [{ kind: 'start', attrs: { session: 's' }, at: '' }] }],
+      items: [
+        { ...item, workflow: { ...pollWorkflow, state: { ...pollWorkflow.state, go: null } } },
+      ],
     });
     renderModal();
     await screen.findByText('Rückfrage?');
+    expect(screen.queryByRole('button', { name: /Jetzt starten/ })).toBeNull();
+  });
+
+  it('without provider: no control flow section, no GO button', async () => {
+    api.getWorkflowProvider.mockResolvedValue(null);
+    api.fetchBoard.mockResolvedValue({ ...board, items: [{ ...item, workflow: null }] });
+    renderModal();
+    await screen.findByText('Rückfrage?');
+    expect(screen.queryByRole('region', { name: 'Kontrollfluss' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Umsetzen' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Jetzt starten/ })).toBeNull();
   });
 
@@ -352,8 +417,8 @@ describe('IssueModal (#104)', () => {
 
 // briefing 2026-11-05: feedback on the contract (Briefed) and on the PR (to Review)
 describe.each([
-  ['AC-3', 'Überarbeiten', 'mw:update'],
-  ['AC-4', 'Nacharbeiten', 'mw:followup'],
+  ['AC-3', 'Überarbeiten', 'wf:update'],
+  ['AC-4', 'Nacharbeiten', 'wf:followup'],
 ])('%s: %s', (_, name, label) => {
   const button = async () => {
     const b = (await screen.findByRole('button', { name })) as HTMLButtonElement;
@@ -385,7 +450,7 @@ describe.each([
     await waitFor(() => expect(api.startWorkflow).toHaveBeenCalledTimes(1));
     expect(api.addIssueComment).toHaveBeenCalledWith('I_1', 'Bitte Abschnitt 2 kürzen');
     expect(api.updateBoardIssue).toHaveBeenCalledWith('PVTI_1', {
-      labels: ['bug', 'mw:go', label],
+      labels: ['bug', 'wf:go', label],
     });
     expect(api.startWorkflow).toHaveBeenCalledWith('https://github.com/o/r/issues/7');
     const order = [api.addIssueComment, api.updateBoardIssue, api.startWorkflow].map(
@@ -411,7 +476,7 @@ describe.each([
   it(`is disabled when ${label} is missing in the repo`, async () => {
     api.fetchRepoOptions.mockResolvedValue({
       repositoryId: 'R',
-      labels: [{ id: 'L0', name: 'mw:build', color: '000000' }],
+      labels: [{ id: 'L0', name: 'wf:build', color: '000000' }],
       assignees: [],
       milestones: [],
     });

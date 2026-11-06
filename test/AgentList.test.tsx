@@ -89,9 +89,10 @@ function renderList(
       grouping={opts.grouping ?? 'state'}
       cardDetails={opts.cardDetails ?? 'always'}
       cardFields={opts.cardFields}
-      lookup={
-        opts.workflowIssue ? { workflowIssues: new Map([[s.id, opts.workflowIssue]]) } : undefined
-      }
+      lookup={{
+        workflowName: /^WF (\S+)#(\d+)(?: +(.*))?$/,
+        workflowIssues: opts.workflowIssue ? new Map([[s.id, opts.workflowIssue]]) : undefined,
+      }}
       contexts={{ [s.id]: ctx }}
       servers={new Map()}
       rowActions={() => []}
@@ -133,7 +134,7 @@ describe('AgentList workflow card (#159, AC-3)', () => {
   it('shows the title without prefix and issue + PR pills under the glyph', () => {
     const onOpenIssue = vi.fn();
     const s = session({
-      name: 'MACC Orkumo#159 Darstellung Agent-Panel',
+      name: 'WF Orkumo#159 Darstellung Agent-Panel',
       links: [pr(160)],
     });
     renderList(s, {
@@ -142,7 +143,7 @@ describe('AgentList workflow card (#159, AC-3)', () => {
       onOpenIssue,
     });
     expect(within(card()).getByText('Darstellung Agent-Panel')).toBeTruthy();
-    expect(within(card()).queryByText(/MACC/)).toBeNull();
+    expect(within(card()).queryByText(/WF /)).toBeNull();
 
     const buttons = within(leftColumn()).getAllByRole('button');
     expect(buttons).toHaveLength(2);
@@ -164,7 +165,7 @@ describe('AgentList workflow card (#159, AC-3)', () => {
 });
 
 describe('AgentList project pill (#159, AC-4)', () => {
-  const s = session({ name: 'MACC Orkumo#159 x' });
+  const s = session({ name: 'WF Orkumo#159 x' });
   const projectPill = () => within(card()).queryByTitle('hpmartini/Orkumo');
 
   for (const grouping of ['state', 'directory', 'none'] as const) {
@@ -197,7 +198,7 @@ describe('AgentList local agent links (#159, AC-5)', () => {
 });
 
 describe('AgentList card fields (#159, AC-7)', () => {
-  const s = session({ name: 'MACC Orkumo#159 x', links: [pr(160)] });
+  const s = session({ name: 'WF Orkumo#159 x', links: [pr(160)] });
   const opts = { issues: ['hpmartini/Orkumo#159'], workflowIssue: 'hpmartini/Orkumo#159' };
 
   it('hidden elements disappear', () => {

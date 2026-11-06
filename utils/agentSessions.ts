@@ -298,14 +298,13 @@ export interface ServerApp {
 export interface SessionLookup {
   contexts?: Record<string, AgentContext | undefined>;
   servers?: Map<string, AgentServer[]>;
-  /** Session id -> board issue key ("owner/repo#12") of agents mw board started (#159) */
+  /** Session id -> board issue key ("owner/repo#12") of agents the workflow provider started (#159) */
   workflowIssues?: Map<string, string>;
+  /** Session-name pattern of the workflow provider; none: no name matching */
+  workflowName?: RegExp | null;
   /** Clock for time-dependent filters (cache expiry); defaults to Date.now() */
   now?: number;
 }
-
-/** Name prefix mw board gives the sessions it starts: "MACC <repo>#<number> <title>" */
-const WORKFLOW_NAME = /^MACC (\S+)#(\d+)(?: +(.*))?$/;
 
 export interface WorkflowName {
   repo: string;
@@ -314,24 +313,30 @@ export interface WorkflowName {
   title: string;
 }
 
-/** Splits an mw board session name; null for every other name */
-export function parseWorkflowName(name: string | null | undefined): WorkflowName | null {
-  const match = WORKFLOW_NAME.exec((name || '').trim());
+/** Splits a workflow session name by the provider's pattern (repo, number, title); null otherwise */
+export function parseWorkflowName(
+  name: string | null | undefined,
+  re: RegExp | null | undefined
+): WorkflowName | null {
+  const match = re?.exec((name || '').trim());
   if (!match) return null;
   const title = (match[3] || '').trim();
   return { repo: match[1], number: Number(match[2]), title: title || match[0].trim() };
 }
 
-/** Started by the mw board workflow for a GitHub issue, not by hand */
+/** Started by the workflow provider for a GitHub issue, not by hand */
 export function isWorkflowSession(
   session: Pick<AgentSession, 'id' | 'name'>,
   lookup?: SessionLookup
 ): boolean {
-  return !!parseWorkflowName(session.name) || !!lookup?.workflowIssues?.has(session.id);
+  return (
+    !!parseWorkflowName(session.name, lookup?.workflowName) ||
+    !!lookup?.workflowIssues?.has(session.id)
+  );
 }
 
 /**
- * Board issue a workflow agent works on: the mw-board link, else the name prefix resolved
+ * Board issue a workflow agent works on: the workflow link, else the name prefix resolved
  * against the agent's linked issues or its repo slug (key null if neither matches).
  * null for hand-started agents.
  */
@@ -342,7 +347,7 @@ export function workflowIssue(
 ): { key: string | null; number: number } | null {
   const linked = lookup?.workflowIssues?.get(session.id);
   if (linked) return { key: linked, number: Number(linked.slice(linked.lastIndexOf('#') + 1)) };
-  const parsed = parseWorkflowName(session.name);
+  const parsed = parseWorkflowName(session.name, lookup?.workflowName);
   if (!parsed) return null;
   const suffix = `/${parsed.repo}#${parsed.number}`.toLowerCase();
   const fromLinks = issueKeys.find((k) => k.toLowerCase().endsWith(suffix));
@@ -535,7 +540,11 @@ export const QUICK_FILTERS: { key: AgentQuickFilter; label: string; title: strin
   { key: 'server', label: 'Server', title: 'Agents with a running dev server in their directory' },
   { key: 'subagents', label: 'Sub-agents', title: 'Agents with running sub-agents' },
   { key: 'local', label: 'Local', title: 'Agents you started yourself' },
-  { key: 'workflow', label: 'Workflow', title: 'Agents mw board started for a GitHub issue' },
+  {
+    key: 'workflow',
+    label: 'Workflow',
+    title: 'Agents a workflow tool started for a GitHub issue',
+  },
   {
     key: 'cache-expiring',
     label: 'Cache expiring',

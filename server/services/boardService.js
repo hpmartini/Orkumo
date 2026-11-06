@@ -5,12 +5,11 @@
 import { execFile } from 'child_process';
 import { parseGithubSlug } from './agentContextService.js';
 import { keepWrite, mergeRecentWrites } from '../../utils/boardWrites.js';
-import { parseMwMarkers } from '../../utils/workflowStage.js';
+import { annotateItem } from './workflowProvider.js';
 
 const CACHE_TTL_MS = 60_000;
 const PAGE_SIZE = 100; // measured on MACC: cost 4 per page with comments(last:20)
 const MIN_PAGE_SIZE = 25;
-const MW_BOARD_RE = /<!--\s*mw-board:start\s+session=([0-9a-f-]{36})/g;
 
 const PR_FIELDS = 'number url title state repository{nameWithOwner} statusCheckRollup{state}';
 // One ProjectV2Item node with its content; shared by the board query and single-item refetches
@@ -119,13 +118,20 @@ export function mapCheckState(state) {
   return null;
 }
 
-/** Unique session UUIDs from mw-board start markers in comment bodies. */
-export function parseMwBoardSessions(bodies) {
-  const ids = new Set();
-  for (const body of bodies || []) {
-    for (const m of String(body || '').matchAll(MW_BOARD_RE)) ids.add(m[1]);
-  }
-  return [...ids];
+/** Trusted comments per item id: input of the workflow provider, never sent to the client */
+const commentsById = new Map();
+
+/** Comments of `trustedAuthors` only (the board owner); anyone else can comment a marker-like text */
+export function trustedComments(nodes, trustedAuthors) {
+  return (nodes || [])
+    .filter((c) => c && trustedAuthors.includes(c.author?.login ?? ''))
+    .map((c) => ({ body: String(c.body ?? ''), createdAt: c.createdAt ?? '' }));
+}
+
+/** `item` with `workflow` from the provider, for the column of `statusOptionId` in `options` */
+export function withWorkflow(item, options = []) {
+  const status = options.find((o) => o.id === item.statusOptionId)?.name ?? null;
+  return { ...item, workflow: annotateItem(item, commentsById.get(item.itemId) ?? [], status) };
 }
 
 function mapPullRequest(pr) {
@@ -140,11 +146,12 @@ function mapPullRequest(pr) {
 }
 
 /**
- * ProjectV2Item node -> BoardItem. `trustedAuthors`: logins whose mw-board markers count (the board
- * owner, as mw's approvers); anyone else can comment a marker-like text.
+ * ProjectV2Item node -> BoardItem (without `workflow`, see withWorkflow). Remembers the comments of
+ * `trustedAuthors` for the workflow provider.
  */
 export function mapItem(node, trustedAuthors = []) {
   const c = node?.content || {};
+  commentsById.set(node.id, trustedComments(c.comments?.nodes, trustedAuthors));
   const type =
     c.__typename === 'PullRequest' || c.__typename === 'DraftIssue' ? c.__typename : 'Issue';
   const isDraft = type === 'DraftIssue';
@@ -180,8 +187,6 @@ export function mapItem(node, trustedAuthors = []) {
       completed: c.subIssuesSummary?.completed ?? 0,
     },
     pullRequests,
-    mwBoardSessions: parseMwBoardSessions((c.comments?.nodes || []).map((n) => n?.body)),
-    mwMarkers: parseMwMarkers(c.comments?.nodes || [], trustedAuthors),
     updatedAt: c.updatedAt ?? '',
     closedAt: c.closedAt ?? null,
   };
@@ -227,6 +232,7 @@ async function loadBoard(source) {
       502
     );
   }
+  const options = project.field.options;
   console.log(
     `[board] fetched ${items.length} items, GraphQL cost ${cost}, remaining ${remaining}`
   );
@@ -235,7 +241,7 @@ async function loadBoard(source) {
     projectId: project.id,
     title: project.title,
     statusField: { id: project.field.id, options: project.field.options },
-    items,
+    items: items.map((item) => withWorkflow(item, options)),
     fetchedAt: Date.now(),
   };
 }
@@ -289,8 +295,10 @@ export function clearCache() {
 }
 
 /** Puts a written item into the cache and keeps it over fetches that predate the write. */
-function rememberItem(source, item, created = false) {
+function rememberItem(source, raw, created = false) {
   const key = cacheKey(source);
+  const meta = cache?.key === key ? cache.data : projectMeta?.key === key ? projectMeta.data : null;
+  const item = withWorkflow(raw, meta?.statusField.options);
   const before = recentWrites.get(item.itemId);
   recentWrites.set(item.itemId, {
     key,
@@ -298,11 +306,12 @@ function rememberItem(source, item, created = false) {
     item,
     created: created || (before?.key === key && before.created),
   });
-  if (cache?.key !== key) return;
+  if (cache?.key !== key) return item;
   const items = cache.data.items;
   const i = items.findIndex((x) => x.itemId === item.itemId);
   if (i >= 0) items[i] = item;
   else items.push(item);
+  return item;
 }
 
 // Project id and Status field only: issue creation needs them, not all items (cold cache ~10 s)
@@ -497,9 +506,7 @@ function splitVars(vars) {
 export async function refetchItem(source, itemId, created = false) {
   const node = (await ghGraphql(ITEM_QUERY, { id: itemId }))?.node;
   if (!node?.id) throw httpError('Item not found after write', 502);
-  const item = mapItem(node, [source.owner]);
-  rememberItem(source, item, created);
-  return item;
+  return rememberItem(source, mapItem(node, [source.owner]), created);
 }
 
 export async function issueNodeId(repo, number) {

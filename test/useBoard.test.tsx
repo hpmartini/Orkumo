@@ -51,8 +51,7 @@ function board(statusOptionId: string): BoardData {
     parent: null,
     subIssues: { total: 0, completed: 0 },
     pullRequests: [],
-    mwBoardSessions: [],
-    mwMarkers: [],
+    workflow: null,
     updatedAt: '2026-10-01T00:00:00Z',
     closedAt: null,
   };

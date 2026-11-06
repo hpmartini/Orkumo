@@ -563,14 +563,51 @@ export interface BoardIssueRef {
   title: string;
 }
 
-/** One mw-board marker comment (start, ask, briefed, goal, review, …) */
-export interface MwMarker {
-  kind: string;
-  attrs: Record<string, string>;
-  /** comment createdAt (ISO) */
-  at: string;
-  /** error markers (invalid, noclone, fail, …): the reason mw wrote into the comment */
-  note?: string;
+/** Workflow state of an issue, as the workflow provider's `annotate` returns it (docs/WORKFLOW_PROVIDER.md) */
+export interface BoardWorkflow {
+  state: {
+    stage: string;
+    waitingOn: 'owner' | 'agent' | 'poll' | null;
+    reason: string;
+    since: string | null;
+    /** GO the owner can give now; `panel`: also offered in the issue panel */
+    go: { kind: string; text: string; panel?: boolean } | null;
+    error: { label: string; note: string; at: string | null } | null;
+    [extra: string]: unknown;
+  };
+  /** Agent session UUIDs working on the issue */
+  sessionIds: string[];
+}
+
+export interface WorkflowControlButton {
+  label: string;
+  text: string;
+  hint: string;
+}
+
+export interface WorkflowControls {
+  toggles?: WorkflowControlButton[];
+  start?: WorkflowControlButton;
+  feedback?: WorkflowControlButton[];
+  modes?: { options: { text: string; label: string | null }[]; drop?: string[] };
+  waiting?: { label: string; text: string };
+}
+
+/** `GET /api/workflow` -> `provider` */
+export interface WorkflowProviderInfo {
+  name: string;
+  apiVersion: number;
+  stages: { id: string; label: string; hint?: string }[];
+  controls: WorkflowControls | null;
+  /** Regex source for agent session names (groups: repo, number, title) */
+  sessionName: string | null;
+}
+
+/** What starting an issue did */
+export interface StartResult {
+  action: 'start' | 'resume' | 'queued' | 'none';
+  reason: string;
+  full?: boolean;
 }
 
 export interface BoardItem {
@@ -597,10 +634,8 @@ export interface BoardItem {
   subIssues: { total: number; completed: number };
   /** Linked PRs (closing references for issues; the PR itself for PR items) */
   pullRequests: BoardPullRequest[];
-  /** Full session UUIDs from `<!-- mw-board:start session=<uuid> -->` comments */
-  mwBoardSessions: string[];
-  /** All `<!-- mw-board:<kind> k=v -->` markers of the last 20 comments, in comment order */
-  mwMarkers: MwMarker[];
+  /** Workflow state from the provider; null without provider or outside the workflow */
+  workflow: BoardWorkflow | null;
   updatedAt: string;
   closedAt: string | null;
 }

@@ -57,7 +57,7 @@ cat <<EOF
 
 Sichtprüfung (kein Login):
   mit Modul:   http://localhost:$VITE_PORT/workflows   (Toggle in der Titelleiste, Cmd+P "Open Workflows")
-  Board-GO:    http://localhost:$VITE_PORT/board       (Issue mit mw:go öffnen, "Jetzt starten")
+  Board-GO:    http://localhost:$VITE_PORT/board       (Issue mit offenem Workflow-GO öffnen)
   ohne Modul:  Skript mit DEVHUB_PREMIUM_DIR=/nonexistent im Server-Aufruf, /workflows -> /dashboard
 Logs: $TMP/server.log, $TMP/vite.log. Ctrl+C beendet alles.
 EOF

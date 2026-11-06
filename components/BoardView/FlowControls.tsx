@@ -1,29 +1,10 @@
 import React, { useState } from 'react';
 import type { BoardLabel, BoardRepoOptions } from '../../types';
-import {
-  BUILD_LABEL,
-  DELEGATE_LABEL,
-  DYNAMIC_LABEL,
-  FOLLOWUP_LABEL,
-  GO_LABEL,
-  MODE_LABELS,
-  NEED_INPUT_LABEL,
-  REVIEW_LABEL,
-  currentMode,
-  setMode,
-  startText,
-  toggleLabel,
-  UPDATE_LABEL,
-  type FlowMode,
-} from '../../utils/issueControls';
+import { currentMode, setMode, startText, toggleLabel } from '../../utils/issueControls';
 import { addIssueComment, startWorkflow } from '../../services/boardApi';
+import { useWorkflowProvider } from '../../hooks/useWorkflowProvider';
 import { labelsFor } from './IssueFields';
 import type { IssueSave } from './IssueEditors';
-
-const MODES: { mode: FlowMode; label: string }[] = [
-  { mode: 'default', label: 'Default' },
-  { mode: 'image', label: 'Image' },
-];
 
 const BTN =
   'px-2 py-1 rounded border text-xs transition-colors disabled:opacity-40 disabled:pointer-events-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
@@ -33,10 +14,10 @@ const btnState = (on: boolean) =>
     : 'border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800';
 
 /**
- * mw-board control labels as buttons; a label missing in the repo disables its button.
- * Umsetzen only ever sets mw:build (taking the approval back is done on GitHub) and starts the
- * issue right away via `mw board go`. Überarbeiten (Briefed) and Nacharbeiten (to Review) post
- * the feedback as comment, set mw:update / mw:followup and start the same way.
+ * The workflow provider's control labels as buttons (docs/WORKFLOW_PROVIDER.md); a label missing
+ * in the repo disables its button. Nothing without a provider or `controls`.
+ * The start button only ever sets its label (taking it back is done on GitHub) and starts the
+ * issue right away. Feedback buttons post the feedback as comment, set their label and start the same way.
  */
 export const FlowControls: React.FC<{
   labels: BoardLabel[];
@@ -47,6 +28,7 @@ export const FlowControls: React.FC<{
   /** GitHub node id of the issue; without it no feedback can be posted */
   issueId?: string | null;
 }> = ({ labels, repoOptions, onSave, issueUrl, issueId }) => {
+  const controls = useWorkflowProvider()?.controls;
   const [startMsg, setStartMsg] = useState<string | null>(null);
   const [startWhat, setStartWhat] = useState('Umsetzung');
   const [feedback, setFeedback] = useState('');
@@ -70,9 +52,10 @@ export const FlowControls: React.FC<{
       </button>
     );
   };
-  const building = names.includes(BUILD_LABEL);
+  const startLabel = controls?.start?.label ?? '';
+  const building = names.includes(startLabel);
   const busy = startMsg === 'startet…';
-  /** `prepare` writes comment/label; only when it succeeds the issue starts now (`mw board go`) */
+  /** `prepare` writes comment/label; only when it succeeds the issue starts now */
   const startAfter = async (what: string, prepare: () => Promise<boolean>) => {
     setStartWhat(what);
     setStartMsg('startet…');
@@ -84,7 +67,7 @@ export const FlowControls: React.FC<{
     }
   };
   const build = () =>
-    startAfter('Umsetzung', async () => building || apply(toggleLabel(names, BUILD_LABEL, true)));
+    startAfter('Umsetzung', async () => building || apply(toggleLabel(names, startLabel, true)));
   const text = feedback.trim();
   const sendFeedback = (label: string) =>
     startAfter('Rückmeldung', async () => {
@@ -110,35 +93,37 @@ export const FlowControls: React.FC<{
       {name}
     </button>
   );
-  const mode = currentMode(names);
+  if (!controls) return null;
+  const { toggles = [], start, feedback: feedbackControls = [], modes, waiting } = controls;
+  const mode = modes ? currentMode(names, modes) : null;
 
   return (
     <section aria-label="Kontrollfluss">
       <h3 className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-2">
         Kontrollfluss
-        {names.includes(NEED_INPUT_LABEL) && (
+        {waiting && names.includes(waiting.label) && (
           <span className="px-1.5 rounded bg-amber-500/20 text-amber-300 font-normal">
-            wartet auf Antwort
+            {waiting.text}
           </span>
         )}
       </h3>
       <div className="flex flex-wrap gap-1.5">
-        {toggle(GO_LABEL, 'Freigeben', 'Issue für mw board freigeben')}
-        <button
-          onClick={build}
-          disabled={!exists(BUILD_LABEL) || busy}
-          aria-pressed={building}
-          title={
-            missing(BUILD_LABEL) ??
-            `Briefing freigeben, Umsetzung sofort starten (${BUILD_LABEL} ${building ? 'bleibt gesetzt' : 'setzen'})`
-          }
-          className={`${BTN} ${btnState(building)}`}
-        >
-          Umsetzen
-        </button>
-        {toggle(DYNAMIC_LABEL, 'Dynamic', 'Dynamic Workflows')}
-        {toggle(DELEGATE_LABEL, 'Delegate', 'Teilaufgaben an Codex/MiniMax abgeben')}
-        {toggle(REVIEW_LABEL, 'Review', 'Unabhängiges Review vor dem PR')}
+        {toggles.slice(0, 1).map((t) => toggle(t.label, t.text, t.hint))}
+        {start && (
+          <button
+            onClick={build}
+            disabled={!exists(start.label) || busy}
+            aria-pressed={building}
+            title={
+              missing(start.label) ??
+              `${start.hint} (${start.label} ${building ? 'bleibt gesetzt' : 'setzen'})`
+            }
+            className={`${BTN} ${btnState(building)}`}
+          >
+            {start.text}
+          </button>
+        )}
+        {toggles.slice(1).map((t) => toggle(t.label, t.text, t.hint))}
       </div>
       <div className="mt-2">
         <textarea
@@ -150,31 +135,29 @@ export const FlowControls: React.FC<{
           className="w-full bg-gray-850 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-100 resize-y focus:outline-none focus:border-gray-500"
         />
         <div className="mt-1 flex flex-wrap gap-1.5">
-          {feedbackButton(UPDATE_LABEL, 'Überarbeiten', 'Ziel-Vertrag überarbeiten (Briefed)')}
-          {feedbackButton(FOLLOWUP_LABEL, 'Nacharbeiten', 'PR nacharbeiten (to Review)')}
+          {feedbackControls.map((f) => feedbackButton(f.label, f.text, f.hint))}
         </div>
       </div>
       <p role="status" className="mt-1.5 text-xs text-gray-400 empty:hidden">
         {startMsg && `${startWhat}: ${startMsg}`}
       </p>
-      <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="mw-Modus">
-        {MODES.map(({ mode: m, label }) => {
-          const label_ = m === 'default' ? null : MODE_LABELS[m];
-          return (
+      {modes && (
+        <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Modus">
+          {modes.options.map(({ text, label }) => (
             <button
-              key={m}
+              key={label ?? 'default'}
               role="radio"
-              aria-checked={mode === m}
-              onClick={() => mode !== m && apply(setMode(names, m))}
-              disabled={!!label_ && !exists(label_)}
-              title={label_ ? (missing(label_) ?? label_) : 'Kein Modus-Label'}
-              className={`${BTN} ${btnState(mode === m)}`}
+              aria-checked={mode === label}
+              onClick={() => mode !== label && apply(setMode(names, modes, label))}
+              disabled={!!label && !exists(label)}
+              title={label ? (missing(label) ?? label) : 'Kein Modus-Label'}
+              className={`${BTN} ${btnState(mode === label)}`}
             >
-              {label}
+              {text}
             </button>
-          );
-        })}
-      </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 };

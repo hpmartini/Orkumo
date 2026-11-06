@@ -1,35 +1,59 @@
-/** Which commands the HTTP /exec endpoint runs on the host for the API container (a trust boundary). */
+/**
+ * Which commands the HTTP /exec endpoint runs on the host for the API container (a trust boundary).
+ * `claude` with any arguments; everything else only as an argv list from the owner-written rules
+ * file (docs/WORKFLOW_PROVIDER.md, "pty-host allowlist").
+ */
+import fs from 'fs';
+import os from 'os';
+import path from 'path';
 
-/** launchd job of `mw board install` (mirrors MW_BOARD_JOB in server/services/workflowGo.js) */
-const MW_BOARD_JOB = 'de.martini-labs.mw-board';
-/** mirrors ISSUE_URL_RE in utils/workflowStage.js */
+/** mirrors ISSUE_URL_RE in utils/issueUrl.js (pty-host ships without the app's utils) */
 const ISSUE_URL_RE = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+$/;
 
+export const rulesPath = () =>
+  process.env.PTY_HOST_EXEC_RULES ||
+  path.join(os.homedir(), '.config', 'orkumo', 'exec-rules.json');
+
 /**
- * `claude` with any arguments; `launchctl` only to start the mw-board poll of this host user (#145);
- * `mw` only as `mw board go <issue-url> --json`.
+ * `[{ command, args }]` from the rules file; missing or broken file: no rules. Read per call, so an
+ * edited file applies without a restart (/exec is rare).
+ */
+export function loadRules(file = rulesPath()) {
+  let rules;
+  try {
+    rules = JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch (error) {
+    if (error.code !== 'ENOENT') console.warn(`[exec] ignoring ${file}:`, error.message);
+    return [];
+  }
+  const valid = (r) =>
+    r &&
+    typeof r.command === 'string' &&
+    r.command &&
+    Array.isArray(r.args) &&
+    r.args.every((a) => typeof a === 'string');
+  return Array.isArray(rules) ? rules.filter(valid) : [];
+}
+
+/** One argument against its template: `{issue}` an issue URL, `{uid}` the host uid, else exact */
+function argMatches(template, arg, uid) {
+  if (template === '{issue}') return ISSUE_URL_RE.test(arg);
+  return template.replaceAll('{uid}', String(uid)) === arg;
+}
+
+/**
  * @param {unknown} command
  * @param {unknown} args
  * @param {number} [uid] the host user pty-host runs as
+ * @param {{ command: string, args: string[] }[]} [rules]
  */
-export function isAllowedExec(command, args, uid = process.getuid()) {
+export function isAllowedExec(command, args, uid = process.getuid(), rules = loadRules()) {
   if (command === 'claude') return true;
-  if (command === 'mw') {
-    return (
-      Array.isArray(args) &&
-      args.length === 4 &&
-      args[0] === 'board' &&
-      args[1] === 'go' &&
-      typeof args[2] === 'string' &&
-      ISSUE_URL_RE.test(args[2]) &&
-      args[3] === '--json'
-    );
-  }
-  return (
-    command === 'launchctl' &&
-    Array.isArray(args) &&
-    args.length === 2 &&
-    args[0] === 'kickstart' &&
-    args[1] === `gui/${uid}/${MW_BOARD_JOB}`
+  if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) return false;
+  return rules.some(
+    (r) =>
+      r.command === command &&
+      r.args.length === args.length &&
+      r.args.every((t, i) => argMatches(t, args[i], uid))
   );
 }

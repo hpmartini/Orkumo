@@ -8,7 +8,7 @@ vi.mock('child_process', () => {
 
 const {
   mapItem,
-  parseMwBoardSessions,
+  trustedComments,
   mapCheckState,
   getBoard,
   setItemStatus,
@@ -41,24 +41,23 @@ describe('boardService - mapCheckState', () => {
   });
 });
 
-describe('boardService - parseMwBoardSessions', () => {
-  it('extracts all session uuids, dedups, ignores other comments', () => {
-    const bodies = [
-      `<!-- mw-board:start session=${UUID} mode=default dynamic=on -->\nstarted`,
-      'plain comment',
-      `<!--mw-board:start   session=${UUID} -->`,
-      '<!-- mw-board:start session=11111111-2222-3333-4444-555555555555 -->',
+describe('boardService - trustedComments', () => {
+  it('keeps only comments of trusted authors, as { body, createdAt }', () => {
+    const nodes = [
+      { body: 'own', createdAt: 't1', author: { login: 'hpmartini' } },
+      { body: 'foreign', createdAt: 't2', author: { login: 'stranger' } },
+      { body: 'ghost', createdAt: 't3', author: null },
       null,
     ];
-    expect(parseMwBoardSessions(bodies)).toEqual([UUID, '11111111-2222-3333-4444-555555555555']);
+    expect(trustedComments(nodes, ['hpmartini'])).toEqual([{ body: 'own', createdAt: 't1' }]);
   });
-  it('returns [] without bodies', () => {
-    expect(parseMwBoardSessions(undefined)).toEqual([]);
+  it('returns [] without comments', () => {
+    expect(trustedComments(undefined, ['hpmartini'])).toEqual([]);
   });
 });
 
 describe('boardService - mapItem', () => {
-  it('maps an issue with closing PRs, parent, labels and mw-board sessions', () => {
+  it('maps an issue with closing PRs, parent and labels; comments stay server-side', () => {
     const item = mapItem(
       {
         id: 'PVTI_abc',
@@ -96,9 +95,7 @@ describe('boardService - mapItem', () => {
             ],
           },
           comments: {
-            nodes: [
-              { body: `<!-- mw-board:start session=${UUID} -->`, author: { login: 'hpmartini' } },
-            ],
+            nodes: [{ body: `<!-- start session=${UUID} -->`, author: { login: 'hpmartini' } }],
           },
         },
       },
@@ -130,8 +127,6 @@ describe('boardService - mapItem', () => {
           checks: 'failure',
         },
       ],
-      mwBoardSessions: [UUID],
-      mwMarkers: [{ kind: 'start', attrs: { session: UUID }, at: '' }],
       updatedAt: '2026-10-23T10:00:00Z',
       closedAt: null,
     });
@@ -186,7 +181,6 @@ describe('boardService - mapItem', () => {
       labels: [],
       assignees: [],
       pullRequests: [],
-      mwBoardSessions: [],
       closedAt: null,
     });
   });
@@ -269,13 +263,13 @@ describe('boardService - resolveIssueRefs', () => {
   const options = {
     labels: [
       { id: 'LA_1', name: 'bug' },
-      { id: 'LA_2', name: 'mw:go' },
+      { id: 'LA_2', name: 'wf:go' },
     ],
     assignees: [{ id: 'MDQ6VXNlcjUwNDcxMTg=', login: 'hpmartini' }],
     milestones: [{ id: 'MI_1', title: 'M1' }],
   };
   it('maps names case-insensitively, only for given keys', () => {
-    expect(resolveIssueRefs(options, { labels: ['MW:GO'], assignees: ['hpmartini'] })).toEqual({
+    expect(resolveIssueRefs(options, { labels: ['WF:GO'], assignees: ['hpmartini'] })).toEqual({
       labelIds: ['LA_2'],
       assigneeIds: ['MDQ6VXNlcjUwNDcxMTg='],
     });
@@ -709,7 +703,7 @@ describe('boardService - issue comments (#104)', () => {
               labels: {
                 nodes: [
                   { id: 'LA_b', name: 'bug', color: 'f00' },
-                  { id: 'LA_m', name: 'mw:build', color: '0f0' },
+                  { id: 'LA_m', name: 'wf:build', color: '0f0' },
                 ],
               },
               assignableUsers: { nodes: [] },
@@ -721,18 +715,18 @@ describe('boardService - issue comments (#104)', () => {
       [
         'updateIssue',
         () => {
-          labels = [...labels, { name: 'mw:build', color: '0f0' }];
+          labels = [...labels, { name: 'wf:build', color: '0f0' }];
           return '{"data":{"updateIssue":{"issue":{"id":"I_5"}}}}';
         },
       ],
     ]);
     expect(await getIssueSummary('I_5')).toMatchObject({ repo: 'o/offboard', body: '', number: 5 });
-    const after = await setIssueLabels('I_5', ['bug', 'mw:build']);
+    const after = await setIssueLabels('I_5', ['bug', 'wf:build']);
     const update = calls.find((a) => String(a[3]).includes('updateIssue'));
     expect(update).toContain('labelIds[]=LA_b');
     expect(update).toContain('labelIds[]=LA_m');
     expect(calls.some((a) => a.includes('owner=o') && a.includes('name=offboard'))).toBe(true);
-    expect(after.labels.map((l) => l.name)).toEqual(['bug', 'mw:build']);
+    expect(after.labels.map((l) => l.name)).toEqual(['bug', 'wf:build']);
   });
 
   it('off-board summary 404s for an unknown node', async () => {

@@ -305,7 +305,7 @@ export function buildLanes(
 export interface AgentIssueLink {
   jobId: string;
   issueKey: string;
-  via: 'mw-board' | 'pr';
+  via: 'workflow' | 'pr';
 }
 
 const normUrl = (url: string) => url.replace(/\/+$/, '');
@@ -320,13 +320,13 @@ export function deriveAgentLinks(
     if (!links.has(k)) links.set(k, link);
   };
 
-  // mw-board first so it wins the dedup
+  // workflow first so it wins the dedup
   for (const item of items) {
-    for (const uuid of item.mwBoardSessions) {
+    for (const uuid of item.workflow?.sessionIds ?? []) {
       const short = uuid.slice(0, 8);
       const live =
         sessions.find((s) => s.sessionId === uuid) ?? sessions.find((s) => s.id === short);
-      add({ jobId: live?.id ?? short, issueKey: itemKey(item), via: 'mw-board' });
+      add({ jobId: live?.id ?? short, issueKey: itemKey(item), via: 'workflow' });
     }
   }
 

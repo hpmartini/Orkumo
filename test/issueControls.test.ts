@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  DELEGATE_LABEL,
-  REVIEW_LABEL,
   currentMode,
   insertIntoDraft,
   quoteComment,
@@ -15,38 +13,42 @@ const comment = { author: 'hpmartini', body: 'Zeile 1\n\nZeile 3\n', url: 'https
 
 describe('toggleLabel', () => {
   it('adds without touching the other labels', () => {
-    expect(toggleLabel(['bug', 'mw:go'], 'mw:build', true)).toEqual(['bug', 'mw:go', 'mw:build']);
+    expect(toggleLabel(['bug', 'wf:go'], 'wf:build', true)).toEqual(['bug', 'wf:go', 'wf:build']);
   });
   it('removes only the label', () => {
-    expect(toggleLabel(['bug', 'mw:build', 'x'], 'mw:build', false)).toEqual(['bug', 'x']);
+    expect(toggleLabel(['bug', 'wf:build', 'x'], 'wf:build', false)).toEqual(['bug', 'x']);
   });
   it('does not duplicate', () => {
-    expect(toggleLabel(['mw:go'], 'mw:go', true)).toEqual(['mw:go']);
+    expect(toggleLabel(['wf:go'], 'wf:go', true)).toEqual(['wf:go']);
   });
 });
 
+const modes = {
+  options: [
+    { text: 'Default', label: null },
+    { text: 'Image', label: 'wf:image' },
+  ],
+  drop: ['wf:old-a', 'wf:old-b'],
+};
+
 describe('mode labels', () => {
   it('reads default without mode label', () => {
-    expect(currentMode(['bug', 'mw:go'])).toBe('default');
-    expect(currentMode(['mw:image'])).toBe('image');
-    // mw 6 labels are no mode any more (#136)
-    expect(currentMode(['mw:pipeline'])).toBe('default');
+    expect(currentMode(['bug', 'wf:go'], modes)).toBeNull();
+    expect(currentMode(['wf:image'], modes)).toBe('wf:image');
+    // dropped labels are no mode
+    expect(currentMode(['wf:old-b'], modes)).toBeNull();
   });
   it('sets exactly one mode label and keeps the rest', () => {
-    expect(setMode(['bug', 'mw:orchestrate', 'mw:dynamic'], 'image')).toEqual([
+    expect(setMode(['bug', 'wf:old-a', 'wf:dynamic'], modes, 'wf:image')).toEqual([
       'bug',
-      'mw:dynamic',
-      'mw:image',
+      'wf:dynamic',
+      'wf:image',
     ]);
-    expect(setMode(['bug', 'mw:image'], 'default')).toEqual(['bug']);
+    expect(setMode(['bug', 'wf:image'], modes, null)).toEqual(['bug']);
   });
-  it('drops legacy mw 6 mode labels on any mode change', () => {
-    expect(setMode(['mw:pipeline', 'mw:orchestrate', 'x'], 'default')).toEqual(['x']);
-    expect(setMode(['mw:pipeline'], 'image')).toEqual(['mw:image']);
-  });
-  it('toggles the delegate and review switches', () => {
-    expect(toggleLabel(['mw:go'], DELEGATE_LABEL, true)).toEqual(['mw:go', 'mw:delegate']);
-    expect(toggleLabel(['mw:review', 'x'], REVIEW_LABEL, false)).toEqual(['x']);
+  it('drops the listed labels on any mode change', () => {
+    expect(setMode(['wf:old-b', 'wf:old-a', 'x'], modes, null)).toEqual(['x']);
+    expect(setMode(['wf:old-b'], modes, 'wf:image')).toEqual(['wf:image']);
   });
 });
 
@@ -56,8 +58,8 @@ describe('comment quoting', () => {
       '> **@hpmartini** [schrieb](https://x/c1):\n>\n> Zeile 1\n>\n> Zeile 3\n\n'
     );
   });
-  it('drops mw-board markers (HTML comments) from the quote', () => {
-    const q = quoteComment({ ...comment, body: 'Text\n\n<!-- mw-board:start session=x -->' });
+  it('drops workflow markers (HTML comments) from the quote', () => {
+    const q = quoteComment({ ...comment, body: 'Text\n\n<!-- wf:start session=x -->' });
     expect(q).toBe('> **@hpmartini** [schrieb](https://x/c1):\n>\n> Text\n\n');
   });
   it('reply quotes and mentions the author', () => {
@@ -72,13 +74,16 @@ describe('comment quoting', () => {
 });
 
 describe('startText (AC-4)', () => {
-  it('started, no slot, fallback, other reason', () => {
+  it('started, queued, no slot, other reason', () => {
     expect(startText({ action: 'start', reason: 'x' })).toBe('gestartet');
     expect(startText({ action: 'resume', reason: 'x' })).toBe('gestartet');
-    expect(startText({ action: 'none', reason: 'kein Platz frei (2/4)' })).toBe(
+    expect(startText({ action: 'queued', reason: 'mit dem nächsten Poll' })).toBe(
+      'mit dem nächsten Poll'
+    );
+    expect(startText({ action: 'queued', reason: '' })).toBe('startet später');
+    expect(startText({ action: 'none', reason: 'kein Platz frei (2/4)', full: true })).toBe(
       'kein Platz frei (2/4), startet, sobald einer frei wird'
     );
-    expect(startText({ action: 'poll', reason: '' })).toBe('startet mit dem nächsten Poll');
     expect(startText({ action: 'none', reason: 'nichts freigegeben' })).toBe('nichts freigegeben');
     expect(startText({ action: 'none', reason: '' })).toBe('nicht gestartet');
   });
