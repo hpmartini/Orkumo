@@ -151,6 +151,13 @@ interface AgentsViewProps {
 
 const noop = () => {};
 /** Agents between turns: these can move into the Chat pane without cutting off work */
+/** Mid-turn agents and live jobs open as a live view of the running process, not a resume */
+const opensAsLiveView = (session: AgentSession) =>
+  session.displayState === 'working' ||
+  session.displayState === 'waiting' ||
+  (session.kind === 'background' &&
+    (session.displayState === 'idle' || session.displayState === 'needs-input'));
+
 const CHAT_OPENABLE = new Set<AgentSession['displayState']>([
   'idle',
   'completed',
@@ -929,11 +936,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
    */
   const openAgentInChat = useCallback(
     async (session: AgentSession, sessionId: string) => {
-      const working = session.displayState === 'working' || session.displayState === 'waiting';
-      const liveJob =
-        session.kind === 'background' &&
-        (session.displayState === 'idle' || session.displayState === 'needs-input');
-      if (working || liveJob) {
+      if (opensAsLiveView(session)) {
         try {
           // A background pane only detaches; a local terminal stays open, it is the agent
           if (session.kind === 'background') closeAnyPane(session.id);
@@ -984,19 +987,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         attach(running.id);
         return true;
       }
-      // A prompt is not in the transcript; the live view shows it from `claude logs`, which only
-      // background jobs have, so a prompting local terminal stays a terminal
+      // A prompt is not in the transcript and `claude logs` only exists for jobs: keep the terminal
       const prompting =
         session.displayState === 'waiting' ||
         (session.displayState === 'needs-input' && session.status === 'waiting');
-      if (prompting && session.kind !== 'background') return false;
-      // Mid-turn the chat is a live view of the running agent
-      const viewable =
-        session.displayState === 'working' || session.displayState === 'needs-input' || prompting;
+      if (prompting) return false;
+      const viewable = session.displayState === 'working' || session.displayState === 'needs-input';
       if (!CHAT_OPENABLE.has(session.displayState) && !viewable) return false;
       // A live view starts no process; a resume on a held transcript does (#236)
-      const live = session.displayState === 'working';
-      guardCopy(!live && resumeMakesCopy(session) ? session : null, () => {
+      guardCopy(!opensAsLiveView(session) && resumeMakesCopy(session) ? session : null, () => {
         void openAgentInChat(session, sessionId);
       });
       return true;
@@ -2503,10 +2502,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                       live
                         ? (s, sid) =>
                             guardCopy(
-                              resumeMakesCopy(s) ? s : null,
-                              () => void openAgentInChat(s, sid),
-                              // openAgentInChat stops a job first; a foreign terminal keeps running
-                              s.kind === 'background'
+                              // a live view starts no process, so it makes no copy (#236)
+                              !opensAsLiveView(s) && resumeMakesCopy(s) ? s : null,
+                              () => void openAgentInChat(s, sid)
                             )
                         : undefined
                     }
