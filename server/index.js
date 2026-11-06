@@ -1746,6 +1746,13 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
 // ---------------------------------------------------------------------------
 
 async function findRepoInKnownDirs(slug) {
+  // Configured directories first: listing agent sessions in knownDirs() takes seconds
+  const configured = [
+    ...scanAllDirectories().map((a) => a.path),
+    ...(getConfig().directories || []),
+  ];
+  const fast = await boardService.findRepoPath(slug, configured);
+  if (fast) return fast;
   const { roots, exact } = await knownDirs();
   return boardService.findRepoPath(slug, [...roots, ...exact]);
 }
@@ -1833,6 +1840,16 @@ const updateIssueSchema = z
   .strict();
 const issueNodeIdSchema = z.string().regex(/^I_[A-Za-z0-9_-]+$/);
 
+// Board writes reach only repos Orkumo knows (#88); the gh token can write many more, and the
+// server is reachable remotely
+async function assertWritableRepo(repo) {
+  const { source } = settingsService.getBoardSettings();
+  await boardService.assertRepoWritable(source, repo, findRepoInKnownDirs);
+}
+async function assertWritableIssue(issueId) {
+  await assertWritableRepo((await boardService.getIssueSummary(issueId)).repo);
+}
+
 app.get('/api/board/repo-options', agentLimiter, async (req, res) => {
   const slug = boardRepoSlugSchema.safeParse(req.query.repo);
   if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
@@ -1863,6 +1880,7 @@ app.post('/api/board/images', agentLimiter, imageBody, async (req, res) => {
   const slug = boardRepoSlugSchema.safeParse(req.query.repo);
   if (!slug.success) return res.status(400).json({ error: 'Invalid repo' });
   try {
+    await assertWritableRepo(slug.data);
     res.status(201).json(await imageUpload.uploadIssueImage(slug.data, req.body));
   } catch (error) {
     sendAgentError(res, error);
@@ -1890,6 +1908,7 @@ app.post(
   validate(commentSchema),
   async (req, res) => {
     try {
+      await assertWritableIssue(req.params.issueId);
       res.json({
         comments: await boardService.addIssueComment(req.params.issueId, req.body.body),
       });
@@ -1916,6 +1935,7 @@ app.put(
   validate(z.object({ labels: issueNames }).strict()),
   async (req, res) => {
     try {
+      await assertWritableIssue(req.params.issueId);
       res.json(await boardService.setIssueLabels(req.params.issueId, req.body.labels));
     } catch (error) {
       sendAgentError(res, error);
@@ -1926,7 +1946,12 @@ app.put(
 app.post('/api/board/issues', agentLimiter, validate(createIssueSchema), async (req, res) => {
   try {
     const { source } = settingsService.getBoardSettings();
-    res.status(201).json(await boardService.createIssue(source, req.body));
+    // A resumed create (issueId) puts that issue on the board, so its own repo is checked too
+    const allowed = Promise.all([
+      assertWritableRepo(req.body.repo),
+      req.body.issueId && assertWritableIssue(req.body.issueId),
+    ]);
+    res.status(201).json(await boardService.createIssue(source, req.body, { allowed }));
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -1940,6 +1965,10 @@ app.patch(
   async (req, res) => {
     try {
       const { source } = settingsService.getBoardSettings();
+      // The edited issue is on the board; a parent or sub-issue may live elsewhere
+      for (const ref of [req.body.parent, req.body.addSubIssue]) {
+        if (ref) await assertWritableRepo(ref.repo);
+      }
       res.json(await boardService.updateIssue(source, req.params.itemId, req.body));
     } catch (error) {
       sendAgentError(res, error);
@@ -1962,8 +1991,11 @@ app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
     if (
       req.body.source &&
       (req.body.source.owner !== source.owner || req.body.source.number !== source.number)
-    )
+    ) {
+      // The board decides which repos the write routes accept, so only this machine may switch it
+      if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
       boardService.clearCache();
+    }
     res.json(settingsService.updateBoardSettings(req.body));
   } catch (error) {
     sendAgentError(res, error);

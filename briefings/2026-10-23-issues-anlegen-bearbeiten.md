@@ -9,6 +9,8 @@ In DevOrbit lassen sich GitHub-Issues direkt anlegen und vollständig bearbeiten
 - **Bearbeiten** im Seitenpanel `components/BoardView/BoardItemPanel.tsx`: alle Felder, die GitHub am Issue editierbar anbietet — Titel, Beschreibung (Markdown mit Vorschau), Zustand (schließen als completed/not planned, wieder öffnen), Labels, Assignees, Milestone, Issue-Type, Parent und Sub-Issues, Status und weitere Felder des Board-Projects. Erreichbar ist das Panel auch aus `/agents` über die bestehenden Issue-Chips.
 - Formular für Anlegen und Bearbeiten ist dieselbe Komponente.
 
+> **Stand nach PR #82 (nachgetragen in #88):** Markdown-Vorschau der Beschreibung, Issue-Type und weitere Felder des Board-Projects (außer Status) sind **nicht in #82 geliefert, Folgearbeit**. #82 liefert Titel, Beschreibung (Textarea), Zustand, Labels, Assignees, Milestone, Parent/Sub-Issues und Status.
+
 ## Why
 
 Hape steuert seine Arbeit über GitHub-Issues, die Agents per `mw board` abarbeiten (Leitbild `docs/VISION.md`: Kontext Issue ↔ Agent ↔ Branch ↔ PR in einer Umgebung). Heute muss er für jedes neue oder zu korrigierende Issue zu github.com wechseln; das bricht den Fluss. Ziel dahinter: Aufgabe in DevOrbit formulieren, auf Todo ziehen, Agent arbeitet los — alles an einem Ort.

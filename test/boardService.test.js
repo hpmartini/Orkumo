@@ -455,6 +455,13 @@ describe('boardService - writes vs. board fetches (#72)', () => {
   const created = JSON.stringify({
     data: { createIssue: { issue: { id: 'I_new', number: 99, url: 'u' } } },
   });
+  const projectMeta = JSON.stringify({
+    data: {
+      repositoryOwner: {
+        projectV2: { id: 'PVT_1', field: { id: 'F', options: [{ id: 'todo', name: 'Backlog' }] } },
+      },
+    },
+  });
   const added = JSON.stringify({ data: { addProjectV2ItemById: { item: { id: 'PVTI_new' } } } });
   const refetched = (n) => JSON.stringify({ data: { node: n } });
   const ids = (board) => board.items.map((i) => i.itemId);
@@ -519,6 +526,7 @@ describe('boardService - writes vs. board fetches (#72)', () => {
     let addFails = true;
     const calls = routeGh([
       ['items(first', boardPage([node('PVTI_a')])],
+      ['fragment M on ProjectV2', projectMeta],
       ['labels(first:100', repoOptions],
       ['createIssue(input', created],
       ['addProjectV2ItemById', () => (addFails ? new Error('boom') : added)],

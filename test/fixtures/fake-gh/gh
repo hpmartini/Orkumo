@@ -1,0 +1,60 @@
+#!/usr/bin/env node
+// Stand-in for the GitHub CLI in route tests (#88): answers `gh api graphql` like GitHub for a
+// board project o/1 with one issue in o/onboard, a repo with two pages of labels, assignees and
+// milestones, and an off-board issue I_foreign in o/foreign. Appends every call to $FAKE_GH_LOG.
+import fs from 'fs';
+
+const args = process.argv.slice(2);
+const vars = {};
+for (let i = 0; i < args.length; i++) {
+  if (args[i] === '-f' || args[i] === '-F') {
+    const [k, ...v] = args[++i].split('=');
+    vars[k] = v.join('=');
+  }
+}
+const q = vars.query || '';
+if (process.env.FAKE_GH_LOG) fs.appendFileSync(process.env.FAKE_GH_LOG, JSON.stringify(args) + '\n');
+
+const page = (nodes, endCursor = null) => ({ pageInfo: { hasNextPage: !!endCursor, endCursor }, nodes });
+const range = (n, f) => Array.from({ length: n }, (_, i) => f(i));
+const issue = (over = {}, nodeId = 'PVTI_on') => ({
+  id: nodeId,
+  fieldValueByName: { optionId: 'bl' },
+  content: {
+    __typename: 'Issue', id: 'I_on', number: 1, title: 'on board', url: 'https://github.com/o/onboard/issues/1',
+    state: 'OPEN', repository: { nameWithOwner: 'o/onboard' }, labels: { nodes: [] }, ...over,
+  },
+});
+const status = { id: 'F', options: [{ id: 'bl', name: 'Backlog', color: 'GRAY' }] };
+
+let data = {};
+if (q.includes('items(first')) {
+  data = { rateLimit: { cost: 1, remaining: 1 }, repositoryOwner: { projectV2: { id: 'PVT_1', title: 'B', field: status, items: page([issue()]) } } };
+} else if (q.includes('fragment M on ProjectV2')) {
+  data = { repositoryOwner: { projectV2: { id: 'PVT_1', field: status } } };
+} else if (q.includes('id labels(first:100')) {
+  data = { repository: {
+    id: 'R_1',
+    labels: page(range(100, (i) => ({ id: `LA_${i}`, name: `l${i}`, color: 'fff' })), 'L1'),
+    assignableUsers: page(range(100, (i) => ({ id: `U_${i}`, login: `u${i}` })), 'A1'),
+    milestones: page(range(50, (i) => ({ id: `M_${i}`, title: `m${i}` })), 'M1'),
+  } };
+} else if (q.includes('{labels(first:100,after:$after')) {
+  data = { repository: { labels: page([{ id: 'LA_deep', name: 'deep-label', color: '000' }]) } };
+} else if (q.includes('{assignableUsers(first:100,after:$after')) {
+  data = { repository: { assignableUsers: page([{ id: 'U_deep', login: 'deep-user' }]) } };
+} else if (q.includes('{milestones(first:100,after:$after')) {
+  data = { repository: { milestones: page([{ id: 'M_deep', title: 'deep-ms' }]) } };
+} else if (q.includes('createIssue(input')) {
+  data = { createIssue: { issue: { id: 'I_new', number: 2, url: 'https://github.com/o/onboard/issues/2' } } };
+} else if (q.includes('addProjectV2ItemById')) {
+  data = { addProjectV2ItemById: { item: { id: 'PVTI_new' } } };
+} else if (q.includes('node(id:$id){... on ProjectV2Item')) {
+  data = { node: vars.id === 'PVTI_new' ? issue({ id: 'I_new', number: 2, title: 'new' }, 'PVTI_new') : issue() };
+} else if (q.includes('comments(first:100')) {
+  data = { node: { comments: page([]) } };
+} else if (q.includes('labels(first:50)')) {
+  data = { node: { id: vars.id, number: 9, title: 'x', body: '', url: 'u', state: 'OPEN', labels: { nodes: [] },
+    repository: { nameWithOwner: vars.id === 'I_foreign' ? 'o/foreign' : 'o/onboard' } } };
+}
+process.stdout.write(JSON.stringify({ data }));

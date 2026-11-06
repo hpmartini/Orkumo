@@ -63,6 +63,8 @@ function httpError(message, status) {
 /**
  * Runs `gh api graphql` with an argument array (no shell); -f = string, -F = typed var.
  * Array string vars become `-f k[]=v` per element (`-F k[]` = empty list).
+ * `typedVars` is only for numbers and `null`: `-F k=@path` makes gh read a local file, so a
+ * user-supplied string must never go there (splitVars keeps every string in `stringVars`).
  */
 function ghGraphql(query, stringVars = {}, typedVars = {}) {
   const args = ['api', 'graphql', '-f', `query=${query}`];
@@ -187,8 +189,12 @@ export function mapItem(node, trustedAuthors = []) {
 
 async function fetchPage(source, after, first) {
   try {
-    const typed = { owner: source.owner, number: source.number, first };
-    return await ghGraphql(ITEMS_QUERY, after ? { after } : {}, typed);
+    const typed = { number: source.number, first };
+    return await ghGraphql(
+      ITEMS_QUERY,
+      { owner: source.owner, ...(after ? { after } : {}) },
+      typed
+    );
   } catch (error) {
     // Node-limit / cost errors: retry the same page smaller.
     if (first > MIN_PAGE_SIZE && /node|cost|limit|exceed/i.test(error.message)) {
@@ -278,6 +284,7 @@ export async function setItemStatus(source, itemId, optionId) {
 
 export function clearCache() {
   cache = null;
+  projectMeta = null;
   recentWrites.clear();
 }
 
@@ -298,21 +305,102 @@ function rememberItem(source, item, created = false) {
   else items.push(item);
 }
 
+// Project id and Status field only: issue creation needs them, not all items (cold cache ~10 s)
+const PROJECT_META_QUERY = `query($owner:String!,$number:Int!){
+  repositoryOwner(login:$owner){
+    ... on User{projectV2(number:$number){...M}}
+    ... on Organization{projectV2(number:$number){...M}}
+  }
+}
+fragment M on ProjectV2{id field(name:"Status"){... on ProjectV2SingleSelectField{id options{id name color}}}}`;
+let projectMeta = null; // { key, at, data: { projectId, statusField } }
+
+/** projectId and Status field of the board project: from a fresh board cache, else one small query */
+async function getProjectMeta(source) {
+  const key = cacheKey(source);
+  const fresh = (c) => c?.key === key && Date.now() - c.at < CACHE_TTL_MS;
+  if (fresh(cache)) return { projectId: cache.data.projectId, statusField: cache.data.statusField };
+  if (fresh(projectMeta)) return projectMeta.data;
+  const typed = { number: source.number };
+  const project = (await ghGraphql(PROJECT_META_QUERY, { owner: source.owner }, typed))
+    ?.repositoryOwner?.projectV2;
+  if (!project) {
+    throw httpError(`Project ${source.owner}/${source.number} not found or not accessible`, 404);
+  }
+  if (!project.field?.id) {
+    throw httpError(
+      `Project ${source.owner}/${source.number} has no "Status" single-select field`,
+      502
+    );
+  }
+  const data = {
+    projectId: project.id,
+    statusField: { id: project.field.id, options: project.field.options },
+  };
+  projectMeta = { key, at: Date.now(), data };
+  return data;
+}
+
+/**
+ * 403 unless `slug` is a repo this server may write to: one with a local checkout Orkumo knows
+ * (`findLocal(slug)` -> path|null) or one with items on the board project. The gh token can
+ * write far more repos; remote access must not reach them.
+ */
+export async function assertRepoWritable(source, slug, findLocal) {
+  const want = String(slug).toLowerCase();
+  const onBoard = (data) => data.items.some((i) => i.repo?.toLowerCase() === want);
+  // Cheapest first: a stale cache still proves the repo was on the board; the local lookup
+  // lists agent sessions (~1 s); only a miss on both pays for a full board load
+  if (cache?.key === cacheKey(source) && onBoard(cache.data)) return;
+  if (await findLocal(slug)) return;
+  if (onBoard(await getBoard(source))) return;
+  throw httpError(`Repository ${slug} is not on the board and has no local checkout`, 403);
+}
+
 // ---------------------------------------------------------------------------
 // Create and edit issues (#72)
 // ---------------------------------------------------------------------------
 
+// Hard stop for cursor paging (20 x 100 = 2000 nodes per connection) against a looping cursor
+export const MAX_PAGES = 20;
+const PAGE_INFO = 'pageInfo{hasNextPage endCursor}';
+
+/**
+ * All nodes of a connection whose first page is `first`; `nextPage(cursor)` fetches the next
+ * connection page. Throws instead of silently truncating after MAX_PAGES.
+ */
+async function allNodes(first, nextPage) {
+  const nodes = [...(first?.nodes || [])];
+  let page = first;
+  for (let n = 1; page?.pageInfo?.hasNextPage; n++) {
+    if (n >= MAX_PAGES) throw httpError(`GitHub list longer than ${MAX_PAGES} pages`, 502);
+    page = await nextPage(page.pageInfo.endCursor);
+    nodes.push(...(page?.nodes || []));
+  }
+  return nodes.filter(Boolean);
+}
+
 const OPTIONS_TTL_MS = 5 * 60_000;
+const REPO_CONNECTIONS = {
+  labels: { args: 'orderBy:{field:NAME,direction:ASC}', fields: 'id name color' },
+  assignableUsers: { args: '', fields: 'id login' },
+  milestones: { args: 'states:OPEN,orderBy:{field:DUE_DATE,direction:ASC}', fields: 'id title' },
+};
+const connection = (name, after = '') => {
+  const { args, fields } = REPO_CONNECTIONS[name];
+  return `${name}(first:100${after}${args && `,${args}`}){${PAGE_INFO} nodes{${fields}}}`;
+};
 const REPO_OPTIONS_QUERY = `query($owner:String!,$name:String!){repository(owner:$owner,name:$name){
-  id
-  labels(first:100,orderBy:{field:NAME,direction:ASC}){nodes{id name color}}
-  assignableUsers(first:100){nodes{id login}}
-  milestones(first:50,states:OPEN,orderBy:{field:DUE_DATE,direction:ASC}){nodes{id title}}
+  id ${Object.keys(REPO_CONNECTIONS)
+    .map((n) => connection(n))
+    .join(' ')}
 }}`;
+const repoConnectionQuery = (name) =>
+  `query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){${connection(name, ',after:$after')}}}`;
 const ISSUE_ID_QUERY = `query($owner:String!,$name:String!,$number:Int!){repository(owner:$owner,name:$name){issue(number:$number){id}}}`;
-const ISSUE_DETAILS_QUERY = `query($id:ID!){node(id:$id){... on Issue{
+const ISSUE_DETAILS_QUERY = `query($id:ID!,$after:String){node(id:$id){... on Issue{
   body
-  subIssues(first:50){nodes{id number title state repository{nameWithOwner}}}
+  subIssues(first:100,after:$after){${PAGE_INFO} nodes{id number title state repository{nameWithOwner}}}
 }}}`;
 const CREATE_ISSUE_MUTATION = `mutation($repositoryId:ID!,$title:String!,$body:String,$labelIds:[ID!],$assigneeIds:[ID!],$milestoneId:ID){
   createIssue(input:{repositoryId:$repositoryId,title:$title,body:$body,labelIds:$labelIds,assigneeIds:$assigneeIds,milestoneId:$milestoneId}){issue{id number url}}
@@ -340,11 +428,17 @@ export async function getRepoOptions(slug, { refresh = false } = {}) {
   const [owner, name] = slug.split('/');
   const repo = (await ghGraphql(REPO_OPTIONS_QUERY, { owner, name }))?.repository;
   if (!repo) throw httpError(`Repository ${slug} not found or not accessible`, 404);
+  const all = (conn) =>
+    allNodes(repo[conn], async (after) => {
+      const next = await ghGraphql(repoConnectionQuery(conn), { owner, name, after });
+      return next?.repository?.[conn];
+    });
+  const [labels, assignees, milestones] = await Promise.all(Object.keys(REPO_CONNECTIONS).map(all));
   const data = {
     repositoryId: repo.id,
-    labels: repo.labels.nodes.map((l) => ({ id: l.id, name: l.name, color: l.color })),
-    assignees: repo.assignableUsers.nodes.map((u) => ({ id: u.id, login: u.login })),
-    milestones: repo.milestones.nodes.map((m) => ({ id: m.id, title: m.title })),
+    labels: labels.map((l) => ({ id: l.id, name: l.name, color: l.color })),
+    assignees: assignees.map((u) => ({ id: u.id, login: u.login })),
+    milestones: milestones.map((m) => ({ id: m.id, title: m.title })),
   };
   repoOptionsCache.set(slug, { at: Date.now(), data });
   return data;
@@ -384,7 +478,10 @@ export function pickNewItemStatus(options, requestedId) {
   return (options.find((o) => o.name.toLowerCase() === 'backlog') ?? options[0])?.id ?? null;
 }
 
-/** typed (-F) vars: ids may be null (= clear), everything else is passed as a string */
+/**
+ * Splits vars for ghGraphql: `null` (= clear an id) goes to the typed (-F) vars, every other
+ * value stays a -f string. Never route strings to -F: `-F k=@path` reads a local file.
+ */
 function splitVars(vars) {
   const str = {};
   const typed = {};
@@ -445,9 +542,13 @@ export async function setIssueLabels(issueId, labels) {
 export async function getIssueDetails(issueId) {
   const node = (await ghGraphql(ISSUE_DETAILS_QUERY, { id: issueId }))?.node;
   if (!node) throw httpError('Issue not found', 404);
+  const subIssues = await allNodes(
+    node.subIssues,
+    async (after) => (await ghGraphql(ISSUE_DETAILS_QUERY, { id: issueId, after }))?.node?.subIssues
+  );
   return {
     body: node.body ?? '',
-    subIssues: (node.subIssues?.nodes || []).filter(Boolean).map((n) => ({
+    subIssues: subIssues.map((n) => ({
       id: n.id,
       repo: n.repository?.nameWithOwner ?? '',
       number: n.number,
@@ -504,13 +605,19 @@ function detailedError(message, status, details) {
  * Not atomic on GitHub: if adding to the project fails after the issue exists, the 502 carries
  * `issue` ({id, number, url}); sending `issueId` then resumes with the project step instead of
  * creating a duplicate (addProjectV2ItemById is idempotent).
+ * `allowed`: the caller's write check as a promise; it runs beside the reads, no mutation before it passes.
  */
-export async function createIssue(source, input) {
-  const board = await getBoard(source);
+export async function createIssue(source, input, { allowed } = {}) {
+  const reads = Promise.all([
+    getProjectMeta(source),
+    input.issueId ? null : getRepoOptions(input.repo),
+  ]);
+  reads.catch(() => {}); // rejection is rethrown below; a failed write check reports first
+  await allowed;
+  const [board, options] = await reads;
   const statusOptionId = pickNewItemStatus(board.statusField.options, input.statusOptionId);
   let issue = input.issueId ? { id: input.issueId, number: null, url: null } : null;
   if (!issue) {
-    const options = await getRepoOptions(input.repo);
     const refs = resolveIssueRefs(options, input);
     const [str, typed] = splitVars({
       repositoryId: options.repositoryId,
@@ -567,6 +674,24 @@ export async function updateIssue(source, itemId, patch) {
   return refetchItem(source, itemId);
 }
 
+// GraphQL type of each updateIssue input field this server sets
+const UPDATE_ISSUE_FIELD_TYPES = {
+  title: 'String',
+  body: 'String',
+  labelIds: '[ID!]',
+  assigneeIds: '[ID!]',
+  milestoneId: 'ID',
+};
+
+/** updateIssue mutation setting exactly `keys`; a key without a known type throws */
+export function updateIssueMutation(keys) {
+  const unknown = keys.filter((k) => !Object.hasOwn(UPDATE_ISSUE_FIELD_TYPES, k));
+  if (unknown.length) throw new Error(`updateIssue: no GraphQL type for ${unknown.join(', ')}`);
+  const decl = keys.map((k) => `$${k}:${UPDATE_ISSUE_FIELD_TYPES[k]}`).join(',');
+  const assign = keys.map((k) => `${k}:$${k}`).join(',');
+  return `mutation($id:ID!,${decl}){updateIssue(input:{id:$id,${assign}}){issue{id}}}`;
+}
+
 async function applyIssuePatch(item, patch) {
   const id = item.issueId;
   const fields = {};
@@ -576,18 +701,8 @@ async function applyIssuePatch(item, patch) {
     Object.assign(fields, resolveIssueRefs(await getRepoOptions(item.repo), patch));
   }
   if (Object.keys(fields).length) {
-    const decl = Object.keys(fields)
-      .map((k) => `$${k}:${k.endsWith('Ids') ? '[ID!]' : k === 'milestoneId' ? 'ID' : 'String'}`)
-      .join(',');
-    const assign = Object.keys(fields)
-      .map((k) => `${k}:$${k}`)
-      .join(',');
     const [str, typed] = splitVars({ id, ...fields });
-    await ghGraphql(
-      `mutation($id:ID!,${decl}){updateIssue(input:{id:$id,${assign}}){issue{id}}}`,
-      str,
-      typed
-    );
+    await ghGraphql(updateIssueMutation(Object.keys(fields)), str, typed);
   }
 
   const live =
