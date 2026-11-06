@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
-import { Check, Copy, ExternalLink, Server, X } from 'lucide-react';
-import type { AgentServerStats } from '../../types';
+import React, { useEffect, useState } from 'react';
+import { Check, Copy, ExternalLink, Server, Square, X } from 'lucide-react';
+import type { AgentOrphanServer, AgentServerStats } from '../../types';
+import { fetchOrphanServers, stopOrphanServer } from '../../services/agentsApi';
 import type { AgentServer } from '../../utils/agentSessions';
 import {
   MAX_STALE_FAILURES,
@@ -45,11 +46,34 @@ export function serverLoad(
 export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent, onClose }) => {
   const ref = usePopover(onClose);
   const [copied, setCopied] = useState<number | null>(null);
+  const [orphans, setOrphans] = useState<AgentOrphanServer[]>([]);
+  const [confirmPid, setConfirmPid] = useState<number | null>(null);
+  const [stopError, setStopError] = useState<string | null>(null);
+  const loadOrphans = () =>
+    fetchOrphanServers()
+      .then(setOrphans)
+      .catch(() => {});
+  useEffect(() => {
+    loadOrphans();
+  }, []);
   // The panel is only mounted while open, so polling stops when it closes
   const stats = useServerStats(
-    rows.flatMap(({ server }) => (server.pid ? [server.pid] : [])),
+    [
+      ...rows.flatMap(({ server }) => (server.pid ? [server.pid] : [])),
+      ...orphans.map((o) => o.pid),
+    ],
     true
   );
+  const stop = (pid: number) => {
+    setStopError(null);
+    stopOrphanServer(pid)
+      .then(() => setOrphans((list) => list.filter((o) => o.pid !== pid)))
+      .catch((error: Error) => setStopError(error.message))
+      .finally(() => {
+        setConfirmPid(null);
+        loadOrphans();
+      });
+  };
 
   const copy = (port: number) => {
     navigator.clipboard
@@ -149,6 +173,72 @@ export const ServersPanel: React.FC<ServersPanelProps> = ({ rows, onSelectAgent,
               );
             })}
           </ul>
+        )}
+        {orphans.length > 0 && (
+          <section aria-label="Orphaned servers" className="border-t border-gray-700">
+            <h3 className="px-3 pt-2 pb-1 text-xs font-medium text-amber-300">
+              Verwaist <span className="text-gray-500 tabular-nums">{orphans.length}</span>
+              <span className="ml-2 font-normal text-gray-500">
+                no running session owns these (finished worktree or job)
+              </span>
+            </h3>
+            {stopError && <p className="px-3 pb-1 text-xs text-red-400">{stopError}</p>}
+            <ul className="divide-y divide-gray-800">
+              {orphans.map((orphan) => {
+                const load = serverLoad(stats, orphan.pid);
+                return (
+                  <li
+                    key={orphan.pid + ':' + orphan.port}
+                    className="flex items-center gap-3 px-3 py-1.5 text-xs"
+                  >
+                    <span className="font-mono text-amber-400 w-14 shrink-0">:{orphan.port}</span>
+                    <span className="min-w-0 flex-1">
+                      <span
+                        className="block font-mono text-gray-300 truncate"
+                        title={`pid ${orphan.pid}`}
+                      >
+                        {orphan.command}
+                      </span>
+                      <span className="block font-mono text-gray-500 truncate" title={orphan.cwd}>
+                        {orphan.cwd}
+                      </span>
+                    </span>
+                    <span className="w-12 shrink-0 text-right tabular-nums text-gray-300">
+                      {formatCpu(load.stats)}
+                    </span>
+                    <span className="w-16 shrink-0 text-right tabular-nums text-gray-300">
+                      {formatMem(load.stats)}
+                    </span>
+                    {confirmPid === orphan.pid ? (
+                      <span className="flex items-center gap-1 shrink-0">
+                        <button
+                          onClick={() => stop(orphan.pid)}
+                          className="px-2 py-1 rounded bg-red-600 hover:bg-red-500 text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                        >
+                          Stop pid {orphan.pid}
+                        </button>
+                        <button
+                          onClick={() => setConfirmPid(null)}
+                          className="px-2 py-1 rounded text-gray-300 hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        onClick={() => setConfirmPid(orphan.pid)}
+                        className="p-2 rounded text-gray-400 hover:text-red-300 hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                        aria-label={`Stop orphaned server on port ${orphan.port}`}
+                        title="Stop (SIGTERM)"
+                      >
+                        <Square size={12} />
+                      </button>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         )}
       </div>
     </div>

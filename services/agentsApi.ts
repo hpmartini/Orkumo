@@ -18,6 +18,7 @@ import type {
   AgentNotification,
   AgentContext,
   RemoteAgentsResponse,
+  AgentOrphanServer,
   AgentServerStats,
   AgentCacheInfo,
 } from '../types';
@@ -78,6 +79,14 @@ export async function fetchAgentsRawJson(
 export async function fetchAgentContexts(): Promise<Record<string, AgentContext>> {
   const { contexts } = await request<{ contexts: Record<string, AgentContext> }>('/agents/context');
   return contexts;
+}
+
+export async function fetchOrphanServers(): Promise<AgentOrphanServer[]> {
+  return (await request<{ servers: AgentOrphanServer[] }>('/agents/servers/orphans')).servers;
+}
+
+export function stopOrphanServer(pid: number): Promise<{ stopped: number }> {
+  return request(`/agents/servers/${pid}/stop`, { method: 'POST' });
 }
 
 /** CPU/memory per server pid; pids that vanished are missing from the result. */
