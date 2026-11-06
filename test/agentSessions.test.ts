@@ -13,6 +13,7 @@ import {
   sortSessionsBy,
   applyQuickFilters,
   applyLinkFilter,
+  applyTextQuery,
   collectLinkEntries,
   matchesQuickFilter,
   matchServers,
@@ -574,5 +575,66 @@ describe('PR / issue filter', () => {
     expect(
       ids(applyLinkFilter(all, new Set([`pr:${openPr.href}`, 'issue:o/r#7']), issuesByAgent))
     ).toBe('pi');
+  });
+});
+
+describe('applyTextQuery (#198)', () => {
+  const pr = { ...openPr, number: 42, title: 'Fix Login Flow' };
+  const alpha = session({ id: 'a', name: 'Refactor rail', cwd: '/p/repo', agent: 'reviewer' });
+  const beta = session({ id: 'b', name: 'Other', cwd: '/p/other/web', links: [pr] });
+  const gamma = session({ id: 'c', name: 'Docs', cwd: '/p/repo', state: 'working' });
+  const all = [alpha, beta, gamma];
+  const lookup = {
+    contexts: { c: { repo: { branch: 'feat/198-search' } } as unknown as AgentContext },
+  };
+  const issuesByAgent = new Map([['a', ['o/r#7']]]);
+  const titles = new Map([['o/r#7', 'Board Spalte Briefed']]);
+  const ids = (list: AgentSession[]) => list.map((s) => s.id).join('');
+  const q = (text: string) => ids(applyTextQuery(all, text, issuesByAgent, lookup, titles));
+
+  it('keeps everything for an empty or blank query', () => {
+    expect(q('')).toBe('abc');
+    expect(q('   ')).toBe('abc');
+  });
+
+  it('matches name, directory, agent, branch, PR and issue case-insensitively', () => {
+    expect(q('RAIL')).toBe('a');
+    expect(q('other/web')).toBe('b');
+    expect(q('reviewer')).toBe('a');
+    expect(q('198-search')).toBe('c');
+    expect(q('#42')).toBe('b');
+    expect(q('login')).toBe('b');
+    expect(q('o/r#7')).toBe('a');
+    expect(q('briefed')).toBe('a');
+  });
+
+  it('requires every word (AND)', () => {
+    expect(q('repo docs')).toBe('c');
+    expect(q('repo nothing')).toBe('');
+  });
+
+  it('only narrows the shown view: context and chip filters still apply', () => {
+    const apps = [
+      { id: 'repo', name: 'repo', path: '/p/repo' },
+      { id: 'other', name: 'other', path: '/p/other' },
+    ];
+    // Same chain as the rail: context -> link filter -> chips -> text
+    const shown = (ctx: string[] | null, chips: Set<'working'>, text: string) =>
+      ids(
+        applyTextQuery(
+          applyQuickFilters(
+            applyLinkFilter(sessionsInContext(all, apps, ctx), new Set(), issuesByAgent),
+            chips
+          ),
+          text,
+          issuesByAgent,
+          lookup,
+          titles
+        )
+      );
+    expect(shown(null, new Set(), 'p/')).toBe('abc');
+    expect(shown(['repo'], new Set(), 'p/')).toBe('ac');
+    expect(shown(['repo'], new Set(), 'login')).toBe('');
+    expect(shown(['repo'], new Set(['working']), 'p/')).toBe('c');
   });
 });

@@ -8,6 +8,7 @@ import {
   CircleDot,
   GitPullRequest,
   ListFilter,
+  Search,
   X,
 } from 'lucide-react';
 import type { AgentDaemonStatus } from '../../types';
@@ -148,6 +149,9 @@ interface AgentFilterBarProps {
   onClear: () => void;
   /** Open PRs and linked issues of the agents in the current context */
   linkEntries: LinkFilterEntry[];
+  /** Rail text search (#198), narrows the shown list */
+  query: string;
+  onQuery: (query: string) => void;
   linkSelected: ReadonlySet<string>;
   onToggleLink: (key: string) => void;
 }
@@ -240,6 +244,8 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
   linkEntries,
   linkSelected,
   onToggleLink,
+  query,
+  onQuery,
 }) => {
   const [open, setOpen] = useState(false);
   const [chipsOpen, setChipsOpenState] = useState(() => {
@@ -364,7 +370,23 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
             />
           )}
         </div>
-        <div className="flex-1" />
+        <label className="flex-1 min-w-0 flex items-center gap-1 px-1.5 py-1 rounded border border-gray-800 text-gray-500 focus-within:border-blue-500/60 focus-within:text-gray-300">
+          <Search size={12} aria-hidden className="shrink-0" />
+          <input
+            type="search"
+            value={query}
+            onChange={(e) => onQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape') {
+                onQuery('');
+                e.currentTarget.blur();
+              }
+            }}
+            placeholder="Suche"
+            aria-label="Search agents"
+            className="w-full min-w-0 bg-transparent text-gray-200 placeholder:text-gray-500 outline-none"
+          />
+        </label>
         <span className="text-gray-500 tabular-nums" aria-live="polite">
           {filtered ? `${shown} of ${total}` : `${total} ${total === 1 ? 'agent' : 'agents'}`}
         </span>
