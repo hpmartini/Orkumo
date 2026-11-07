@@ -334,10 +334,6 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           />
         )}
 
-        {editable && <IssueBody body={details?.body ?? null} error={detailsError} onSave={save} />}
-
-        {issueId && <IssueComments issueId={issueId} />}
-
         <section>
           <h3 className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
             <Bot size={14} />
@@ -483,6 +479,10 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
             {editable && <AddSubIssue repo={item.repo} onSave={save} />}
           </section>
         )}
+
+        {editable && <IssueBody body={details?.body ?? null} error={detailsError} onSave={save} />}
+
+        {issueId && <IssueComments issueId={issueId} />}
       </div>
     </aside>
   );
