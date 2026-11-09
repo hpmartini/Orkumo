@@ -17,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Switched package manager to bun (`bun install` / `bun run`; node remains the runtime for server, electron and pty scripts)
 - `pty-host` uses `bun.lock`; Docker images install with `--ignore-scripts` and build node-pty with the pinned node-gyp (bun's fallback to `node-gyp@latest` broke on Node 20)
 
+### Fixed
+
+- Desktop app: terminals failed with "WebSocket connection error" since #220; the PTY upgrade check refused the packaged renderer's `Origin: file://` (it only accepted `null`, what fetch sends). `file://` now passes inside Electron like `null`
+
 ### Added
 
 - Agents servers panel: section "Verwaist" lists listening servers of finished worktrees and jobs (`GET /api/agents/servers/orphans`) with a confirmed Stop (`POST /api/agents/servers/:pid/stop`, orphan pids only); a server now belongs to a session only via its process ancestry or the session's own dir without nested `.claude/worktrees/*` and `.claude/jobs/*` (#243)
