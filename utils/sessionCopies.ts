@@ -103,7 +103,7 @@ export function openPlan(
 
 /** Session id shown on a workspace tab: the job id for background jobs, else the transcript id */
 export function tabSessionLabel(session: AgentSession): string | null {
-  if (session.kind === 'background' && !session.ptyArgs && !session.host) return session.id;
+  if (session.kind === 'background' && !session.ptyArgs) return session.id;
   const id = resumableSessionId(session) ?? (session.chat ? session.sessionId : null);
   return id ? id.slice(0, 8) : null;
 }

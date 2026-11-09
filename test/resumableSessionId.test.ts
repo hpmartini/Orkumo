@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import { pinTarget } from '../utils/agentTarget';
 import { resumableSessionId } from '../utils/agentSessions';
 import type { AgentSession } from '../types';
 
@@ -17,8 +18,9 @@ describe('resumableSessionId', () => {
   it('is null when nothing identifies the session or it runs elsewhere', () => {
     expect(resumableSessionId(s({ ptyArgs: [] }))).toBeNull();
     expect(resumableSessionId(s({ ptyArgs: ['--cloud', 'x', '--resume', ID] }))).toBeNull();
-    expect(resumableSessionId(s({ sessionId: ID, host: 'mac' }))).toBeNull();
-    expect(resumableSessionId(s({ ptyCommand: 'ssh', ptyArgs: ['--resume', ID] }))).toBeNull();
+    // #220: a pane of another instance than the picked one hands over nothing (the chat would start here)
+    pinTarget('peer-job', '/modules/mesh/peer/darkbook');
+    expect(resumableSessionId(s({ id: 'peer-job', sessionId: ID }))).toBeNull();
     expect(resumableSessionId(s({ chat: true, sessionId: ID }))).toBeNull();
   });
 });

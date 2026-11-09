@@ -100,7 +100,6 @@ describe('sessionHarness / resumableSessionId (#195)', () => {
 
   it('derives the harness from the PTY command', () => {
     expect(sessionHarness(base)).toBe('claude');
-    expect(sessionHarness({ ...base, ptyCommand: 'ssh' })).toBe('claude');
     expect(sessionHarness({ ...base, ptyCommand: 'pi' })).toBe('pi');
   });
 

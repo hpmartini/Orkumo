@@ -36,9 +36,8 @@ import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
 import * as chatService from './services/chatService.js';
 import * as chatStatus from './services/chatStatus.js';
-import * as meshService from './services/meshService.js';
+import { getSelfDnsName } from './services/tailscale.js';
 import * as remoteAccess from './services/remoteAccess.js';
-import { isSessionId } from './services/meshHosts.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import fileOpenRoutes from './services/fileOpenRoutes.js';
 import { usageRouter, getUsage } from './services/usageService.js';
@@ -1443,14 +1442,11 @@ app.post(
   }
 );
 
-/**
- * GET /api/agents/remote - sessions of the other Tailscale devices (`ssh <host> claude agents --json`)
- */
 // Pairing data for the iOS app; only shown on this machine, never to a remote client.
 app.get('/api/remote/pairing', async (req, res) => {
   if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
   if (!remoteAccess.isRemoteEnabled()) return res.json({ enabled: false });
-  const dnsName = await meshService.getSelfDnsName();
+  const dnsName = await getSelfDnsName();
   const url = process.env.DEVORBIT_REMOTE_URL || (dnsName ? `https://${dnsName}` : null);
   res.json({
     enabled: true,
@@ -1458,31 +1454,6 @@ app.get('/api/remote/pairing', async (req, res) => {
     token: remoteAccess.getToken(),
     link: url ? remoteAccess.pairingLink(url) : null,
   });
-});
-
-app.get('/api/agents/remote', agentLimiter, async (req, res) => {
-  try {
-    res.json(await meshService.listRemote());
-  } catch (error) {
-    sendAgentError(res, error);
-  }
-});
-
-/**
- * GET /api/agents/remote/:host/:id/logs - `ssh <host> claude logs <id>`
- */
-app.get('/api/agents/remote/:host/:id/logs', agentLimiter, async (req, res) => {
-  const { host, id } = req.params;
-  try {
-    await meshService.ensureDevices();
-    // Same id check as the ssh arg builders, so a mismatch is a 400 and never a 500
-    if (!meshService.isKnownRemoteHost(host) || !isSessionId(id)) {
-      return res.status(400).json({ error: 'Invalid host or session id' });
-    }
-    res.json(await meshService.getRemoteLogs(host, id));
-  } catch (error) {
-    sendAgentError(res, error);
-  }
 });
 
 app.post('/api/agents/respawn-all', agentLimiter, async (req, res) => {
@@ -2215,10 +2186,46 @@ app.use((req, res) => {
 const server = createServer(app);
 
 // WebSocket server for PTY communication
-const wss = new WebSocketServer({
-  server,
-  path: '/api/pty',
-  verifyClient: ({ req }) => remoteAccess.isAuthorized(req),
+// noServer: ws attached to `server` answers every other upgrade path with 400, so one dispatcher
+// routes /api/pty here and /api/modules/<id>/... to the module's ctx.onUpgrade (docs/MODULES.md).
+const wss = new WebSocketServer({ noServer: true });
+
+const refuseUpgrade = (socket, status) => {
+  socket.write(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+  socket.destroy();
+};
+
+// Browsers do not apply CORS to WebSockets: a foreign page could open a PTY on localhost. Same-origin
+// pages (the app served through `tailscale serve`) and the CORS origins pass. Same host only in
+// remote mode: without it a DNS-rebound name would pass, with it a non-loopback Host still needs
+// the token or an authorizer (isAuthorized).
+const isAllowedUpgradeOrigin = (req) => {
+  const origin = req.headers.origin;
+  if (!origin || isAllowedOrigin(origin)) return true;
+  if (!remoteAccess.isRemoteEnabled()) return false;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+};
+
+server.on('upgrade', (req, socket, head) => {
+  if (!isAllowedUpgradeOrigin(req)) return refuseUpgrade(socket, '403 Forbidden');
+  if (!remoteAccess.isAuthorized(req)) return refuseUpgrade(socket, '401 Unauthorized');
+  const { pathname } = new URL(req.url, 'http://x');
+  if (pathname === '/api/pty') {
+    return wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  }
+  const moduleId = /^\/api\/modules\/([a-z0-9-]+)\//.exec(pathname)?.[1];
+  const handler = moduleId && moduleHost.upgradeHandler(moduleId);
+  if (!handler) return refuseUpgrade(socket, '404 Not Found');
+  try {
+    handler(req, socket, head);
+  } catch (error) {
+    console.error(`[Modules] upgrade handler of "${moduleId}" failed:`, error);
+    refuseUpgrade(socket, '500 Internal Server Error');
+  }
 });
 
 // Store WebSocket -> sessionId mapping (for local PTY mode)
@@ -2444,8 +2451,8 @@ wss.on('connection', (ws, req) => {
   // Parse and validate optional custom command parameters
   const command = url.searchParams.get('command') || null;
 
-  // Validate command against whitelist; `ssh` only for remote attach (args checked below)
-  if (command && command !== 'ssh' && !ALLOWED_COMMANDS.includes(command)) {
+  // Validate command against whitelist
+  if (command && !ALLOWED_COMMANDS.includes(command)) {
     console.error(`[PTY] Rejected command not in whitelist: ${command}`);
     ws.send(JSON.stringify({ type: 'error', message: 'Invalid command' }));
     ws.close();
@@ -2578,34 +2585,7 @@ wss.on('connection', (ws, req) => {
     }
   };
 
-  if (command !== 'ssh') {
-    startPty();
-    return;
-  }
-
-  // The Docker PTY proxy ignores command/args and the container has no ssh keys
-  if (isRunningInDocker) {
-    ws.send(
-      JSON.stringify({ type: 'error', message: 'Remote attach is not available in Docker mode' })
-    );
-    ws.close();
-    return;
-  }
-
-  // After a server restart the host allowlist is empty until Tailscale was asked once
-  meshService
-    .ensureDevices()
-    .catch(() => {})
-    .then(() => {
-      if (ws.readyState !== ws.OPEN) return;
-      if (!meshService.isRemoteAttachArgs(args)) {
-        console.error(`[PTY] Rejected ssh args: ${JSON.stringify(args)}`);
-        ws.send(JSON.stringify({ type: 'error', message: 'Invalid remote attach target' }));
-        ws.close();
-        return;
-      }
-      startPty();
-    });
+  startPty();
 });
 
 // Forward PTY data to corresponding WebSocket clients (local mode only)

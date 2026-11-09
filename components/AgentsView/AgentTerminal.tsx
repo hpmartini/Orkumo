@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { API_BASE_URL, getWsUrl } from '../../utils/apiConfig';
+import { agentWsUrl, targetOf } from '../../utils/agentTarget';
 import {
   DEFAULT_TERMINAL_OPTIONS,
   useGhosttyTheme,
@@ -58,7 +59,7 @@ interface AgentTerminalProps {
 }
 
 /**
- * Build the PTY WebSocket URL for `claude attach <id>` (or `ssh -t <host> claude attach <id>`).
+ * Build the PTY WebSocket URL for `claude attach <id>`, on the instance the session runs on (#220).
  */
 export function buildAttachUrl(
   sessionId: string,
@@ -70,7 +71,7 @@ export function buildAttachUrl(
 ): string {
   const ptySession = `agent-${sessionId}-${Date.now()}`;
   const args = encodeURIComponent(JSON.stringify(cliArgs));
-  return `${getWsUrl('/api/pty')}?sessionId=${ptySession}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}&command=${command}&args=${args}`;
+  return `${agentWsUrl(sessionId)}?sessionId=${ptySession}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}&command=${command}&args=${args}`;
 }
 
 /** PTY WebSocket URL for a plain shell in `cwd` (#207): no command, so the server starts its default shell */
@@ -412,9 +413,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           run: reconnect,
           showLabel: true,
         },
-    // Ghostty attaches locally only: a remote (ssh) pane has no local session to open
+    // Ghostty attaches locally only: a pane of another instance (#220) has no local session to open
     // …and only Claude Code sessions: other harnesses (#195) have no `claude attach` counterpart
-    ...(session.ptyCommand && session.ptyCommand !== 'claude'
+    ...((session.ptyCommand && session.ptyCommand !== 'claude') || targetOf(session.id) !== ''
       ? []
       : [
           {

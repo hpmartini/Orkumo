@@ -52,6 +52,11 @@ function AppContent() {
     () => modules.flatMap((m) => (m.ui && m.mode ? [{ id: m.id, ...m.mode }] : [])),
     [modules]
   );
+  // Module UIs at the "Agents" label (docs/MODULES.md, "Slots"), e.g. the mesh instance picker
+  const railSlots = useMemo(
+    () => modules.filter((m) => m.ui && m.slot === 'agents-rail').map((m) => m.id),
+    [modules]
+  );
   const segment = location.pathname.slice(1);
   const knownRoute = HOST_TABS.includes(segment) || modes.some((m) => m.id === segment);
   // Unknown paths are redirected below once modules are known; until then show the agents view
@@ -296,6 +301,7 @@ function AppContent() {
                   onOpenDashboard: handleSelectDashboard,
                   onOpenContextDashboard: handleSelectContextDashboard,
                   modes,
+                  railSlots,
                   onOpenSettings: () => setAdminPanelOpen(true),
                   onOpenProject: handleSelectApp,
                 }}

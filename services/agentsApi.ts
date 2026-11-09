@@ -2,6 +2,7 @@
  * API client for the Claude Code agent view (`/api/agents/*`).
  */
 import { API_BASE_URL } from '../utils/apiConfig';
+import { agentApiUrl, getAgentTarget, pinTarget, targetOf } from '../utils/agentTarget';
 import type {
   AgentsResponse,
   AgentDispatchRequest,
@@ -17,7 +18,6 @@ import type {
   AgentSession,
   AgentNotification,
   AgentContext,
-  RemoteAgentsResponse,
   AgentOrphanServer,
   AgentServerStats,
   AgentCacheInfo,
@@ -26,8 +26,19 @@ import type { UsageLimits } from '../components/UsageView/types';
 
 const API_BASE = API_BASE_URL;
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, {
+/** `/agents...` goes to the session's instance (#220, utils/agentTarget); everything else stays local */
+const apiUrl = (path: string, id?: string) =>
+  path.startsWith('/agents') ? agentApiUrl(path, id) : `${API_BASE}${path}`;
+
+/** Remembers the instance of every listed id, so its tab keeps talking there after a switch */
+const pinAll = <T extends { id: string }>(items: T[], target: string): T[] => {
+  items.forEach((item) => pinTarget(item.id, target));
+  return items;
+};
+
+/** `id`: session the call is about when the path has none (it then goes to that session's instance) */
+async function request<T>(path: string, init?: RequestInit, id?: string): Promise<T> {
+  const response = await fetch(apiUrl(path, id), {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
@@ -63,14 +74,20 @@ function query(params: Record<string, string | boolean | number | null | undefin
 export function fetchAgents(
   options: { cwd?: string | null; all?: boolean } = {}
 ): Promise<AgentsResponse> {
-  return request<AgentsResponse>(`/agents${query({ cwd: options.cwd, all: options.all })}`);
+  const target = getAgentTarget();
+  return request<AgentsResponse>(`/agents${query({ cwd: options.cwd, all: options.all })}`).then(
+    (data) => {
+      pinAll(data.sessions ?? [], target);
+      return data;
+    }
+  );
 }
 
 export async function fetchAgentsRawJson(
   options: { cwd?: string | null; all?: boolean } = {}
 ): Promise<string> {
   const response = await fetch(
-    `${API_BASE}/agents/json${query({ cwd: options.cwd, all: options.all })}`
+    `${agentApiUrl('/agents/json')}${query({ cwd: options.cwd, all: options.all })}`
   );
   if (!response.ok) throw new Error('Failed to fetch agents JSON');
   return response.text();
@@ -102,10 +119,11 @@ export async function fetchServerStats(
 }
 
 export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatchResult> {
+  const target = getAgentTarget();
   return request<AgentDispatchResult>('/agents/dispatch', {
     method: 'POST',
     body: JSON.stringify(body),
-  });
+  }).then((result) => pinAll([result], target)[0]);
 }
 
 /** Stores an image on the server for a prompt; returns its local path (#105) */
@@ -127,16 +145,6 @@ export function openCloudSession(target?: string): Promise<{ args: string[] }> {
 
 export function fetchAgentLogs(id: string, lines = 40): Promise<AgentLogs> {
   return request<AgentLogs>(`/agents/${encodeURIComponent(id)}/logs${query({ lines })}`);
-}
-
-export function fetchRemoteAgents(): Promise<RemoteAgentsResponse> {
-  return request<RemoteAgentsResponse>('/agents/remote');
-}
-
-export function fetchRemoteAgentLogs(host: string, id: string): Promise<AgentLogs> {
-  return request<AgentLogs>(
-    `/agents/remote/${encodeURIComponent(host)}/${encodeURIComponent(id)}/logs`
-  );
 }
 
 export function replyToAgent(
@@ -166,7 +174,7 @@ export async function removeAgent(
   id: string,
   options: { discardUnpushed?: string | null; forceRemoveWorktree?: string | null } = {}
 ): Promise<AgentRemoveResult> {
-  const response = await fetch(`${API_BASE}/agents/${encodeURIComponent(id)}`, {
+  const response = await fetch(apiUrl(`/agents/${encodeURIComponent(id)}`), {
     method: 'DELETE',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options),
@@ -278,14 +286,15 @@ export function subscribeToAgents(handlers: {
 
   const connect = () => {
     if (closing) return;
-    eventSource = new EventSource(`${API_BASE}/agents/stream`);
+    const target = getAgentTarget();
+    eventSource = new EventSource(apiUrl('/agents/stream'));
     eventSource.addEventListener('connected', () => {
       attempts = 0;
       handlers.onConnectionChange?.(true);
     });
     eventSource.addEventListener('sessions', (event) => {
       try {
-        handlers.onSessions(JSON.parse((event as MessageEvent).data));
+        handlers.onSessions(pinAll(JSON.parse((event as MessageEvent).data), target));
       } catch (err) {
         console.error('Failed to parse agents sessions event', err);
       }
@@ -351,15 +360,28 @@ export interface ChatStartRequest {
   name?: string;
 }
 
-export const fetchChats = () =>
-  request<{ chats: ChatSummary[] }>('/agents/chat').then((d) => d.chats);
+export const fetchChats = () => {
+  const target = getAgentTarget();
+  return request<{ chats: ChatSummary[] }>('/agents/chat').then((d) => pinAll(d.chats, target));
+};
 
 /** Live chat view of a running agent: no second process, works mid-turn */
-export const viewAgentAsChat = (agentId: string) =>
-  request<ChatSummary>('/agents/chat/view', { method: 'POST', body: JSON.stringify({ agentId }) });
+export const viewAgentAsChat = (agentId: string) => {
+  // The live view runs on the agent's instance; its chat id belongs there too
+  const target = targetOf(agentId);
+  return request<ChatSummary>(
+    '/agents/chat/view',
+    { method: 'POST', body: JSON.stringify({ agentId }) },
+    agentId
+  ).then((chat) => pinAll([chat], target)[0]);
+};
 
-export const startChat = (body: ChatStartRequest) =>
-  request<ChatSummary>('/agents/chat', { method: 'POST', body: JSON.stringify(body) });
+export const startChat = (body: ChatStartRequest) => {
+  const target = getAgentTarget();
+  return request<ChatSummary>('/agents/chat', { method: 'POST', body: JSON.stringify(body) }).then(
+    (chat) => pinAll([chat], target)[0]
+  );
+};
 
 const chatPath = (id: string, action = '') =>
   `/agents/chat/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
@@ -414,7 +436,7 @@ export const fetchChatShell = (id: string, shellId: string) =>
 export function agentImageUrl(path: string): string | null {
   const name = path.split('/').pop() ?? '';
   return /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/.test(name) && path.includes('/agent-images/')
-    ? `${API_BASE}/agents/images/${name}`
+    ? agentApiUrl(`/agents/images/${name}`)
     : null;
 }
 
@@ -426,7 +448,7 @@ export function subscribeToChat(
   id: string,
   handlers: { onOpen: () => void; onEvent: (event: unknown) => void; onGone: () => void }
 ): () => void {
-  const source = new EventSource(`${API_BASE}${chatPath(id, 'stream')}`);
+  const source = new EventSource(apiUrl(chatPath(id, 'stream')));
   source.onopen = handlers.onOpen;
   source.onmessage = (e) => {
     try {

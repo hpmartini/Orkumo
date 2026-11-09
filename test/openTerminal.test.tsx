@@ -49,9 +49,6 @@ vi.mock('../hooks/useAgentSessions', () => ({
     refresh: () => {},
   }),
 }));
-vi.mock('../hooks/useRemoteAgents', () => ({
-  useRemoteAgents: () => ({ hosts: [], sessions: [], refresh: () => {} }),
-}));
 vi.mock('../hooks/useAgentContexts', () => ({ useAgentContexts: () => ({}) }));
 vi.mock('../components/CommandPalette', async (orig) => ({
   ...(await orig<object>()),

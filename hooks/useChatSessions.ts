@@ -9,6 +9,7 @@ import {
   type ChatStartRequest,
   type ChatSummary,
 } from '../services/agentsApi';
+import { targetOf, useAgentTarget } from '../utils/agentTarget';
 
 /** Chat summary → pane session (the Chat pane reads id, name, cwd) */
 const toSession = (c: ChatSummary): AgentSession => ({
@@ -34,11 +35,21 @@ const toSession = (c: ChatSummary): AgentSession => ({
 export function useChatSessions() {
   const [chats, setChats] = useState<AgentSession[]>([]);
   const [loaded, setLoaded] = useState(false);
+  // #220: reloaded per picked instance; chats of other instances stay (their tabs are open)
+  const target = useAgentTarget();
 
   useEffect(() => {
     let cancelled = false;
+    setLoaded(false);
     fetchChats()
-      .then((list) => !cancelled && setChats(list.map(toSession)))
+      .then(
+        (list) =>
+          !cancelled &&
+          setChats((prev) => [
+            ...prev.filter((c) => targetOf(c.id) !== target),
+            ...list.map(toSession),
+          ])
+      )
       .catch(() => {
         /* server without chat support: no chats */
       })
@@ -46,7 +57,7 @@ export function useChatSessions() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [target]);
 
   /** Starts a chat and sends `firstMessage` once the process is up; returns the pane id */
   const open = useCallback(async (body: ChatStartRequest, firstMessage?: string) => {

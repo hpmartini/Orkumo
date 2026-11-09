@@ -15,6 +15,7 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { getDataPath } from './dataPath.js';
 import { getProvider, setProvider, validateProvider } from './workflowProvider.js';
+import { addAuthorizer } from './remoteAccess.js';
 
 // Same pattern as ideIdSchema in server/index.js; the id becomes a URL segment.
 const MODULE_ID = /^[a-z0-9-]+$/;
@@ -55,6 +56,17 @@ function parseMode({ mode, ui }) {
   return { label, icon, keywords, scoped };
 }
 
+// Places in the host UI a module without `mode` may render into (docs/MODULES.md, Slots).
+const SLOTS = new Set(['agents-rail']);
+
+function parseSlot({ slot, ui, mode }) {
+  if (slot === undefined) return undefined;
+  if (!SLOTS.has(slot)) throw new Error(`slot must be one of ${[...SLOTS].join(', ')}`);
+  if (ui === undefined) throw new Error('slot needs ui');
+  if (mode !== undefined) throw new Error('slot and mode exclude each other');
+  return slot;
+}
+
 function createLogger(prefix) {
   return {
     info: (...args) => console.log(prefix, ...args),
@@ -72,10 +84,17 @@ function createLogger(prefix) {
 export function createModuleHost({ services, logger = createLogger('[Modules]') }) {
   const router = express.Router();
   const loaded = [];
+  const upgradeHandlers = new Map();
 
   router.get('/', (_req, res) => {
     res.json(
-      loaded.map(({ id, name, ui, mode }) => ({ id, name, ui: Boolean(ui), ...(mode && { mode }) }))
+      loaded.map(({ id, name, ui, mode, slot }) => ({
+        id,
+        name,
+        ui: Boolean(ui),
+        ...(mode && { mode }),
+        ...(slot && { slot }),
+      }))
     );
   });
 
@@ -92,6 +111,7 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
     if (typeof mod.name !== 'string' || !mod.name) throw new Error('name must be a string');
     if (typeof mod.register !== 'function') throw new Error('register must be a function');
     const mode = parseMode(mod);
+    const slot = parseSlot(mod);
     if (mod.workflow !== undefined) {
       if (getProvider())
         throw new Error(`a workflow provider is already loaded (${getProvider().name})`);
@@ -113,18 +133,31 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
       moduleRouter.get('/ui.js', (_req, res) => res.sendFile(uiRel, { root: realDir }));
     }
 
+    let onUpgrade = null;
+    const authorizers = [];
     await mod.register({
       id: mod.id,
       dir: moduleDir,
+      dataDir: path.join(getDataPath(), 'module-data', mod.id),
       router: moduleRouter,
       services,
       logger: createLogger(`[module:${mod.id}]`),
+      onUpgrade(handler) {
+        if (typeof handler !== 'function') throw new Error('onUpgrade needs a function');
+        onUpgrade = handler;
+      },
+      addAuthorizer(fn) {
+        if (typeof fn !== 'function') throw new Error('addAuthorizer needs a function');
+        authorizers.push(fn);
+      },
     });
 
-    // Mount only after register succeeded: a failing module leaves no route behind.
+    // Mount only after register succeeded: a failing module leaves no route or hook behind.
     router.use(`/${mod.id}`, moduleRouter);
+    if (onUpgrade) upgradeHandlers.set(mod.id, onUpgrade);
+    authorizers.forEach(addAuthorizer);
     if (mod.workflow !== undefined) setProvider(mod.workflow);
-    loaded.push({ id: mod.id, name: mod.name, ui: uiFile, mode });
+    loaded.push({ id: mod.id, name: mod.name, ui: uiFile, mode, slot });
   }
 
   /** Loads every module of `dirs` (one directory or a path list), in list order */
@@ -155,5 +188,8 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
     }
   }
 
-  return { router, load };
+  /** WebSocket upgrade handler of module `id` (ctx.onUpgrade), or undefined */
+  const upgradeHandler = (id) => upgradeHandlers.get(id);
+
+  return { router, load, upgradeHandler };
 }

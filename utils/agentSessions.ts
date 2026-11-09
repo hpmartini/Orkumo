@@ -1,6 +1,7 @@
 /**
  * Grouping, sorting and formatting helpers for the agent view session list.
  */
+import { getAgentTarget, targetOf } from './agentTarget';
 import type {
   AgentSession,
   AgentHarness,
@@ -974,7 +975,7 @@ export const harnessLabel = (id: AgentHarness): string =>
 /** Which CLI a session runs with: a harness PTY names it, everything else is Claude Code */
 export function sessionHarness(session: AgentSession): AgentHarness {
   const cmd = session.ptyCommand;
-  return cmd && cmd !== 'ssh' ? cmd : 'claude';
+  return cmd ?? 'claude';
 }
 
 export const CARD_SLOTS: { key: AgentCardSlot; label: string }[] = [
@@ -1078,11 +1079,12 @@ export function shortenPath(cwd: string, max = 40): string {
 
 /**
  * CLI session UUID a terminal pane can hand over to a Chat pane (`claude --resume`), or null.
- * Remote (ssh) and cloud panes run elsewhere; chats already are chats.
+ * Cloud panes run elsewhere; chats already are chats.
  */
 export function resumableSessionId(session: AgentSession): string | null {
-  if (session.chat || session.host || sessionHarness(session) !== 'claude') return null;
-  if (session.ptyCommand === 'ssh') return null;
+  if (session.chat || sessionHarness(session) !== 'claude') return null;
+  // #220: the chat would start on the picked instance, not on the one this pane runs on
+  if (targetOf(session.id) !== getAgentTarget()) return null;
   if (session.sessionId) return session.sessionId;
   const args = session.ptyArgs ?? [];
   if (args.includes('--cloud')) return null;

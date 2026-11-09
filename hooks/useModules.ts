@@ -18,6 +18,8 @@ export interface LoadedModule {
   name: string;
   ui: boolean;
   mode?: ModuleModeInfo;
+  /** Host place the UI renders into instead of the shell slot (docs/MODULES.md, "Slots") */
+  slot?: 'agents-rail';
 }
 
 /**

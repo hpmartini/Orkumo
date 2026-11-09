@@ -1,4 +1,3 @@
-/* global document */
 // #207 e2e: real app, real rail menus, real /api/pty shell. Right-click a project group and a
 // session row, type into the opened shell, check `pwd -P`, close the pane and check the shell died.
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/207-e2e.cjs <baseUrl> <outDir> <projectDir> <worktreeDir>

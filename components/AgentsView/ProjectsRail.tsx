@@ -22,6 +22,8 @@ export interface RailNavProps {
   onOpenContextDashboard: () => void;
   /** Modes of loaded modules: one rail button each, and per-agent/repo entries for scoped ones */
   modes?: ModeEntry[];
+  /** Ids of module UIs rendered next to the mode switcher (slot `agents-rail`) */
+  railSlots?: string[];
   onOpenSettings: () => void;
   onOpenProject: (appId: string) => void;
 }

@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { boardUrl, codeUrl } from '../utils/codeTarget';
+import { setAgentTarget, useAgentTarget } from '../utils/agentTarget';
 
 /** What the shell hands a module UI on mount and on every update (docs/MODULES.md, "Frontend") */
 export interface ModuleHost {
@@ -17,6 +18,10 @@ export interface ModuleHost {
     board: (repo: string, agentId?: string) => string;
     agent: (jobId: string) => string;
   };
+  /** Instance the AgentsView talks to: '' (this machine) or a module API prefix (#220) */
+  agentTarget: string;
+  /** Switches it; only '' or `/modules/<id>/...` is accepted. Open tabs keep their instance. */
+  setAgentTarget: (target: string) => void;
 }
 
 interface MountHandle {
@@ -34,11 +39,12 @@ const hostToast: ModuleHost['toast'] = {
   error: (msg) => void toast.error(msg),
 };
 
-/** Host object for a module UI; a new one whenever `active` or the query string changes */
+/** Host object for a module UI; a new one whenever `active`, the query string or the agent target changes */
 export function useModuleHost(active: boolean): ModuleHost {
   const navigate = useNavigate();
   const { search } = useLocation();
   const [, setSearchParams] = useSearchParams();
+  const agentTarget = useAgentTarget();
   // Both change identity on every route change; refs keep updates to active/search changes
   const router = useRef({ navigate, setSearchParams });
   useEffect(() => {
@@ -53,8 +59,10 @@ export function useModuleHost(active: boolean): ModuleHost {
       apiBase: API_BASE_URL,
       toast: hostToast,
       urls,
+      agentTarget,
+      setAgentTarget,
     }),
-    [active, search]
+    [active, search, agentTarget]
   );
 }
 
