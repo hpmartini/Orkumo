@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { spawn } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -9,6 +10,7 @@ import {
   listOmpSessions,
   findOmpSessionFile,
   readOmpTranscriptTail,
+  stopOmpSession,
 } from '../server/services/ompSessions.js';
 
 // Fixtures in omp's own session format (title line, session header, messages)
@@ -159,5 +161,29 @@ describe('omp transcript', () => {
       ['user', 'hallo'],
       ['assistant', 'Hallo zurück'],
     ]);
+  });
+});
+
+describe('stopOmpSession (taking over a session from another terminal)', () => {
+  it('ends only the process holding the session and reports a session nobody runs', async () => {
+    const holder = spawn('sleep', ['30'], { stdio: 'ignore' });
+    const bystander = spawn('sleep', ['30'], { stdio: 'ignore' });
+    const exited = new Promise((resolve) => holder.on('exit', (_code, signal) => resolve(signal)));
+    try {
+      const running = new Map([[files[ELSEWHERE], holder.pid]]);
+      const result = await stopOmpSession(ELSEWHERE, { sessionsDir: dir, running });
+      expect(result).toEqual({ stopped: holder.pid });
+      expect(await exited).toBe('SIGTERM');
+      expect(bystander.exitCode).toBeNull();
+      expect(await stopOmpSession(FINISHED, { sessionsDir: dir, running })).toEqual({
+        stopped: null,
+      });
+      await expect(
+        stopOmpSession(OLD.replace('0000', 'ffff'), { sessionsDir: dir })
+      ).rejects.toThrow('not found');
+    } finally {
+      holder.kill('SIGKILL');
+      bystander.kill('SIGKILL');
+    }
   });
 });

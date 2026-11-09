@@ -1,5 +1,5 @@
-// PTY WebSocket upgrades through the real server: the packaged app loads from file:// and its
-// renderer sends `Origin: file://` on the upgrade (fetch sends "null"), cross-site pages never pass
+// The packaged app's renderer (file://) through the real server: it sends `Origin: file://` on the
+// PTY upgrade and no Origin (but Sec-Fetch-Site: cross-site) on a POST; cross-site pages never pass
 import { describe, it, expect, afterEach } from 'vitest';
 import { spawn } from 'child_process';
 import fs from 'fs';
@@ -67,21 +67,30 @@ const upgrade = (base, origin) =>
     ws.on('error', () => resolve('error'));
   });
 
+// The stop route ends processes (an omp in another terminal): a bodyless POST has no preflight
+const STOP = '/api/agents/omp-01a1c018-5c63-776e-b0c3-b78121b577b3/stop';
+const stop = (base, headers) =>
+  fetch(`http://${base}${STOP}`, { method: 'POST', headers }).then((r) => r.status);
+
 afterEach(() => {
   child?.kill();
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
 
-describe('PTY WebSocket upgrade origin', { timeout: 60_000 }, () => {
-  it('lets the Electron renderer (file://) open terminals, refuses cross-site pages', async () => {
+describe('Electron renderer origin', { timeout: 60_000 }, () => {
+  it('lets the packaged renderer open terminals and stop sessions, refuses cross-site pages', async () => {
     const base = await startServer({ ELECTRON_MODE: 'true' });
     expect(await upgrade(base, 'file://')).toBe('open');
     expect(await upgrade(base, 'http://localhost:3000')).toBe('open');
     expect(await upgrade(base, 'https://evil.example')).toBe(403);
+    // file:// fetches carry no Origin but are marked cross-site; the unknown session is a 404-ish miss
+    expect(await stop(base, { 'Sec-Fetch-Site': 'cross-site' })).not.toBe(403);
+    expect(await stop(base, { Origin: 'https://evil.example' })).toBe(403);
   });
 
-  it('refuses file:// outside Electron', async () => {
+  it('refuses file:// and origin-less cross-site requests outside Electron', async () => {
     const base = await startServer({});
     expect(await upgrade(base, 'file://')).toBe(403);
+    expect(await stop(base, { 'Sec-Fetch-Site': 'cross-site' })).toBe(403);
   });
 });

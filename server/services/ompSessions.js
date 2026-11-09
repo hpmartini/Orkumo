@@ -246,6 +246,31 @@ export async function findOmpSessionFile(sessionId, sessionsDir = ompSessionsDir
   return null;
 }
 
+/**
+ * Ends the omp process that runs a session so it can be resumed elsewhere (omp has no attach):
+ * SIGTERM, on which omp restores its terminal and exits. Only the process holding the session's
+ * file is signalled. `stopped` is null when no process runs it.
+ */
+export async function stopOmpSession(
+  sessionId,
+  { sessionsDir = ompSessionsDir(), running, timeoutMs = 5000 } = {}
+) {
+  const file = await findOmpSessionFile(sessionId, sessionsDir);
+  if (!file) throw new Error('Oh My Pi session not found');
+  const pid = (running ?? (await runningSessionFiles(sessionsDir))).get(file);
+  if (!pid) return { stopped: null };
+  process.kill(pid, 'SIGTERM');
+  for (const end = Date.now() + timeoutMs; Date.now() < end; ) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    try {
+      process.kill(pid, 0);
+    } catch (error) {
+      if (error.code === 'ESRCH') return { stopped: pid };
+    }
+  }
+  throw new Error(`omp (PID ${pid}) did not exit`);
+}
+
 /** Last user/assistant messages of an omp session file (peek panel) */
 export async function readOmpTranscriptTail(file, limit = 40) {
   const stat = await fsp.stat(file);
