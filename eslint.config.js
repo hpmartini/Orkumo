@@ -147,6 +147,7 @@ export default [
         Set: 'readonly',
         Promise: 'readonly',
         Error: 'readonly',
+        structuredClone: 'readonly',
       },
     },
   },

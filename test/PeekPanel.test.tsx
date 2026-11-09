@@ -8,7 +8,6 @@ import type { AgentSession } from '../types';
 const fetchAgentLogs = vi.fn();
 vi.mock('../services/agentsApi', () => ({
   fetchAgentLogs: (...args: unknown[]) => fetchAgentLogs(...args),
-  fetchRemoteAgentLogs: vi.fn(),
 }));
 
 window.Element.prototype.scrollTo ??= () => {}; // jsdom has no layout

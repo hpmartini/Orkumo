@@ -259,10 +259,8 @@ export interface AgentSession {
   chat?: boolean;
   /** Chat pane that is a live view of this agent id (no own process) */
   viewOf?: string | null;
-  /** PTY command for ptyArgs (default `claude`; `ssh` for remote attach; another harness, #195) */
-  ptyCommand?: AgentHarness | 'ssh';
-  /** Tailscale device the session runs on (remote sessions only) */
-  host?: string;
+  /** PTY command for ptyArgs (default `claude`; another harness, #195) */
+  ptyCommand?: AgentHarness;
   cwd: string;
   startedAt: number;
   updatedAt?: number | null;
@@ -318,24 +316,6 @@ export interface AgentsResponse {
   userSettings: ClaudeUserSettings | null;
   cli: { installed: boolean; path: string | null };
   capabilities?: AgentCapabilities;
-}
-
-export type RemoteDeviceState = 'ok' | 'offline' | 'ssh-denied' | 'claude-missing' | 'error';
-
-export interface RemoteDevice {
-  host: string;
-  name: string;
-  os: 'macOS' | 'linux';
-  state: RemoteDeviceState;
-  reason?: string;
-  sessions: AgentSession[];
-}
-
-export interface RemoteAgentsResponse {
-  /** false: neither `tailscale` in PATH nor the macOS app binary */
-  tailscale: boolean;
-  error?: string;
-  devices: RemoteDevice[];
 }
 
 export interface AgentCapabilities {

@@ -100,10 +100,30 @@ function tokenFrom(req) {
   return url.searchParams.get('token') ?? undefined;
 }
 
+const authorizers = [];
+
+/**
+ * Extra sync check a module adds (docs/MODULES.md, ctx.addAuthorizer): `fn(req) === true` lets a
+ * non-local request in without the pairing token. A throwing authorizer counts as a no.
+ */
+export function addAuthorizer(fn) {
+  if (typeof fn !== 'function') throw new Error('authorizer must be a function');
+  authorizers.push(fn);
+}
+
+const passesAuthorizer = (req) =>
+  authorizers.some((fn) => {
+    try {
+      return fn(req) === true;
+    } catch {
+      return false;
+    }
+  });
+
 /** True when the request may proceed. Used for HTTP requests and WebSocket upgrades alike. */
 export function isAuthorized(req) {
   if (!isRemoteEnabled() || isLocalRequest(req)) return true;
-  return isValidToken(tokenFrom(req));
+  return isValidToken(tokenFrom(req)) || passesAuthorizer(req);
 }
 
 export function requireRemoteToken(req, res, next) {

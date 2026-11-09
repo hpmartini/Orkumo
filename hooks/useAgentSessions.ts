@@ -24,6 +24,7 @@ import {
   updateAgentViewSettings,
 } from '../services/agentsApi';
 import { summarizeSessions } from '../utils/agentSessions';
+import { getAgentTarget, useAgentTarget } from '../utils/agentTarget';
 
 interface UseAgentSessionsOptions {
   /** When false, no SSE subscription is opened (view not visible) */
@@ -47,22 +48,38 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
   const [lastCompleted, setLastCompleted] = useState<{ count: number; at: number } | null>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  // #220: the list belongs to the instance picked in the agents rail (utils/agentTarget)
+  const target = useAgentTarget();
+  // Target the current `sessions` came from; null while a switch waits for the new list
+  const [listTarget, setListTarget] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
+    const asked = getAgentTarget();
     try {
       const data = await fetchAgents({ cwd: settingsRef.current.scopeCwd });
+      // An answer from the instance picked before a switch is not this list
+      if (asked !== getAgentTarget()) return;
       setSessions(data.sessions);
+      setListTarget(asked);
       setDaemon(data.daemon);
       setUserSettings(data.userSettings);
       setCliInstalled(data.cli.installed);
       setCapabilities(data.capabilities ?? null);
       setError(null);
     } catch (err) {
+      if (asked !== getAgentTarget()) return;
       setError(err instanceof Error ? err.message : 'Failed to load agents');
-    } finally {
-      setLoading(false);
     }
+    setLoading(false);
   }, []);
+
+  // A switch empties the list until the picked instance answers: no rows of the previous one
+  useEffect(() => {
+    setSessions([]);
+    setListTarget(null);
+    setError(null);
+    setLoading(true);
+  }, [target]);
 
   // Load settings once
   useEffect(() => {
@@ -101,7 +118,7 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
   useEffect(() => {
     if (!active) return;
     refresh();
-  }, [active, refresh, settings.scopeCwd]);
+  }, [active, refresh, settings.scopeCwd, target]);
 
   // Poll daemon status together with a periodic refresh (SSE only carries sessions)
   useEffect(() => {
@@ -155,6 +172,7 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
 
     const unsubscribe = subscribeToAgents({
       onSessions: (next) => {
+        if (getAgentTarget() !== target) return;
         const scope = settingsRef.current.scopeCwd;
         setSessions(
           scope ? next.filter((s) => s.cwd === scope || s.cwd.startsWith(`${scope}/`)) : next
@@ -166,12 +184,13 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
       onConnectionChange: setConnected,
     });
     return unsubscribe;
-  }, [active]);
+  }, [active, target]);
 
   const counts = summarizeSessions(sessions);
 
   return {
     sessions,
+    listTarget,
     daemon,
     userSettings,
     cliInstalled,
