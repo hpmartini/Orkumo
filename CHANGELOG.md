@@ -76,6 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Terminals stay in color when Orkumo was started from an agent or CI shell: the PTY no longer inherits `NO_COLOR`, `FORCE_COLOR` or `CI` from the server's launcher
 - Agents panel: a `hover` card-details setting saved before #181 (the old default) migrates once to `click`; "Keep details open" only shows in hover mode (#242)
 - Path mapping now correctly handles nested `Projects` folders
 - iframe error detection with timeout fallback (onError doesn't reliably fire)
