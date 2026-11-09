@@ -52,6 +52,9 @@ import {
   uploadAgentImage,
   fetchHarnesses,
 } from '../../services/agentsApi';
+import { useStoredToggle } from '../../hooks/useStoredToggle';
+import { openInSystemBrowser } from '../../utils/links';
+import { RailSwitch } from './RailSwitch';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
 import { agentFolder, boardUrl, codeUrl, modeUrl, pullsUrl } from '../../utils/codeTarget';
@@ -166,6 +169,10 @@ const CHAT_OPENABLE = new Set<AgentSession['displayState']>([
 
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
+const INTERACTIVE_STORAGE_KEY = 'devOrbitAgentInteractive';
+/** Terminal session started outside Orkumo: hidden in the rail unless switched on */
+const isHiddenInteractive = (s: AgentSession) =>
+  s.kind === 'interactive' && sessionHarness(s) === 'claude';
 
 function loadSort(): AgentSort {
   try {
@@ -299,6 +306,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     localStorage.getItem(DISPATCH_CWD_STORAGE_KEY)
   );
   const [now, setNow] = useState(Date.now());
+  // Terminal sessions started outside Orkumo crowd the rail: hidden until switched on
+  const [showInteractive, toggleInteractive] = useStoredToggle(INTERACTIVE_STORAGE_KEY);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const ctrlCRef = useRef<number>(0);
   const hintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -308,11 +317,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // ---------------------------------------------------------------------
 
   const filter = useMemo(() => parseFilter(input), [input]);
-  // Harness agents (#195) live only in this view's state: list them next to the CLI's sessions
-  const listedSessions = useMemo(
-    () => [...sessions, ...cloudSessions.filter((s) => sessionHarness(s) !== 'claude')],
-    [sessions, cloudSessions]
-  );
+  // Harness agents (#195) started here are listed from this view's state until the server lists
+  // their session (omp: from its session store, matched to the pane that runs it)
+  const listedSessions = useMemo(() => {
+    const claimed = new Set(sessions.map((s) => s.paneId).filter(Boolean));
+    return [
+      ...sessions,
+      ...cloudSessions.filter((s) => sessionHarness(s) !== 'claude' && !claimed.has(s.id)),
+    ];
+  }, [sessions, cloudSessions]);
   const visibleSessions = useMemo(
     () => applySessionFilter(listedSessions, filter),
     [listedSessions, filter]
@@ -417,11 +430,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     () => collectLinkEntries(contextSessions, issuesByAgent, lookup, issueTitles),
     [contextSessions, issuesByAgent, lookup, issueTitles]
   );
+  // One row per agent; interactive terminals only when switched on (harness agents #195 are Orkumo's own)
+  const agentRows = useMemo(() => collapseCopies(contextSessions), [contextSessions]);
+  const railSessions = useMemo(
+    () => (showInteractive ? agentRows : agentRows.filter((s) => !isHiddenInteractive(s))),
+    [agentRows, showInteractive]
+  );
+  const interactiveCount = useMemo(() => agentRows.filter(isHiddenInteractive).length, [agentRows]);
   const shownSessions = useMemo(
     () =>
       applyTextQuery(
         applyQuickFilters(
-          applyLinkFilter(collapseCopies(contextSessions), linkFilter, issuesByAgent, lookup),
+          applyLinkFilter(railSessions, linkFilter, issuesByAgent, lookup),
           quickFilters,
           lookup
         ),
@@ -430,7 +450,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         lookup,
         issueTitles
       ),
-    [contextSessions, linkFilter, issuesByAgent, quickFilters, lookup, textQuery, issueTitles]
+    [railSessions, linkFilter, issuesByAgent, quickFilters, lookup, textQuery, issueTitles]
   );
   const chipCounts = useMemo(() => {
     const result = {} as Record<AgentQuickFilter, number>;
@@ -471,7 +491,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Session of the active workspace tab: marked and revealed in the rail
   const activeSessionId = useMemo(() => {
     const id = workspace.tabs.find((t) => t.id === workspace.activeTabId)?.activeSessionId;
-    return id && sessions.some((s) => s.id === id) ? id : null;
+    // A harness pane started here is represented by the server row that claimed it (#195)
+    return (id && sessions.find((s) => s.id === id || s.paneId === id)?.id) || null;
   }, [workspace.tabs, workspace.activeTabId, sessions]);
   const appsById = useMemo(() => new Map(apps.map((a) => [a.id, a])), [apps]);
   const items = useMemo(
@@ -712,7 +733,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
   useEffect(() => {
     if (!attachParam || loading) return;
-    if (sessions.some((s) => s.id === attachParam)) attach(attachParam);
+    const target = sessions.find((s) => s.id === attachParam);
+    if (target?.app) openInSystemBrowser(target.app.url);
+    else if (target) attach(attachParam);
     else showHint(`Agent ${attachParam} not found`, 'error');
     navigate('/agents', { replace: true });
   }, [attachParam, loading, sessions, attach, showHint, navigate]);
@@ -982,14 +1005,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [sessions, cloudSessions, chats.chats, foreignPanes]
   );
 
-  const activateItem = useCallback(
-    (item: NavItem | null) => {
-      if (!item) return;
-      if (item.type === 'group') return toggleGroup(item.group);
-      if (item.type === 'more') return setExpandedCompleted(true);
-      const session = item.session;
+  /** Opens a rail session the way its kind needs (rail Enter / double-click, peek's open button) */
+  const openSession = useCallback(
+    (session: AgentSession) => {
       const plan = openPlan(session, allPanes, openIdSet);
-      if (plan.type === 'attach') return attach(session.id);
+      // A Claude app session runs on claude.ai: a resume here would fork it (#236)
+      if (plan.type === 'app') return plan.url ? openInSystemBrowser(plan.url) : undefined;
+      if (plan.type === 'attach') {
+        // A harness session running in another terminal: a second process on it writes in parallel
+        const elsewhere = session.ptyArgs && session.pid != null && !session.paneId;
+        return guardCopy(elsewhere ? session : null, () => attach(session.id));
+      }
       if (plan.type === 'focus') return focusOpen(plan.paneId);
       if (openAsChat(session)) return;
       // Interactive and remote-control sessions keep their transcript locally: continue it here
@@ -1000,17 +1026,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         );
       else showHint('Interactive sessions run in their own terminal', 'info');
     },
-    [
-      toggleGroup,
-      attach,
-      showHint,
-      openInteractiveClaude,
-      openAsChat,
-      allPanes,
-      openIdSet,
-      focusOpen,
-      guardCopy,
-    ]
+    [attach, showHint, openInteractiveClaude, openAsChat, allPanes, openIdSet, focusOpen, guardCopy]
+  );
+
+  const activateItem = useCallback(
+    (item: NavItem | null) => {
+      if (!item) return;
+      if (item.type === 'group') return toggleGroup(item.group);
+      if (item.type === 'more') return setExpandedCompleted(true);
+      openSession(item.session);
+    },
+    [toggleGroup, openSession]
   );
 
   const doDispatch = useCallback(
@@ -1643,8 +1669,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       const alive = session.state === 'working' || session.state === 'blocked';
       // A harness agent (#195) is its pane: stopping it closes the pane, which ends the process
       const harnessPane = session.kind === 'interactive' && sessionHarness(session) !== 'claude';
+      const appUrl = session.app?.url;
       return [
         { id: 'attach', label: 'Attach in tab', disabled: !bg, onSelect: () => attach(session.id) },
+        ...(appUrl
+          ? [
+              {
+                id: 'claude-app',
+                label: 'Open on claude.ai',
+                onSelect: () => openInSystemBrowser(appUrl),
+              },
+            ]
+          : []),
         { id: 'peek', label: 'Peek / reply', onSelect: () => togglePeek(session) },
         {
           id: 'code',
@@ -1973,6 +2009,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         shortcut: '?',
       }),
       cmd('refresh', 'Refresh agent list', 'Agents', refresh),
+      cmd(
+        'interactive',
+        showInteractive ? 'Hide interactive sessions' : 'Show interactive sessions',
+        'Agents',
+        toggleInteractive
+      ),
       cmd('copy-json', 'Copy claude agents --json', 'Agents', copyJson),
       cmd('exit', 'Leave agents view', 'Agents', onExit)
     );
@@ -2012,6 +2054,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     sessions,
     attach,
     navigate,
+    showInteractive,
+    toggleInteractive,
   ]);
   useRegisterCommands('agents', paletteCommands);
 
@@ -2360,6 +2404,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               </button>
             </div>
           )}
+          <RailSwitch
+            id="interactive-sessions-label"
+            label="Interactive sessions"
+            hint={
+              interactiveCount > 0
+                ? `${interactiveCount} ${showInteractive ? 'shown' : 'hidden'}`
+                : 'terminals outside Orkumo'
+            }
+            checked={showInteractive}
+            onToggle={toggleInteractive}
+          />
           <CloudSessionBar onOpen={openCloud} />
           {/* Feedback for actions started outside the composer (the composer shows its own) */}
           <div role="status" aria-live="polite">
@@ -2469,7 +2524,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               <PeekPanel
                 session={peekSession}
                 onClose={() => setPeekId(null)}
-                onAttach={() => attach(peekSession.id)}
+                onAttach={() => openSession(peekSession)}
                 onReply={(text) => handleReply(peekSession, text)}
               />
             </div>
@@ -2483,7 +2538,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           <PeekPanel
             session={peekSession}
             onClose={() => setPeekId(null)}
-            onAttach={() => attach(peekSession.id)}
+            onAttach={() => openSession(peekSession)}
             onReply={(text) => handleReply(peekSession, text)}
           />
         </div>

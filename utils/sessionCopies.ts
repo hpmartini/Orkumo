@@ -81,11 +81,13 @@ export function resumeMakesCopy(session: AgentSession): boolean {
 
 /**
  * What opening a rail row does: a background job or other harness attaches (never a resume), a
- * session a pane already runs focuses that pane, anything else resumes its transcript.
+ * session a pane already runs focuses that pane, a Claude app session opens its claude.ai page
+ * (a resume would fork it), anything else resumes its transcript.
  */
 export type OpenPlan =
   | { type: 'attach' }
   | { type: 'focus'; paneId: string }
+  | { type: 'app'; url: string | null }
   | { type: 'resume'; sessionId: string | null };
 
 export function openPlan(
@@ -93,6 +95,10 @@ export function openPlan(
   panes: AgentSession[],
   openIds: Set<string>
 ): OpenPlan {
+  if (session.kind === 'app') return { type: 'app', url: session.app?.url ?? null };
+  // A harness session (#195) the server matched to an open pane: that pane runs it
+  if (session.paneId && openIds.has(session.paneId))
+    return { type: 'focus', paneId: session.paneId };
   if (session.kind !== 'interactive' || sessionHarness(session) !== 'claude') {
     return { type: 'attach' };
   }

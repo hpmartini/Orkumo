@@ -78,6 +78,38 @@ describe('opening a background job (#236)', () => {
     });
     expect(openPlan(resumed, [pane], new Set())).toEqual({ type: 'resume', sessionId: RESPAWN });
   });
+
+  it('a Claude app session opens its claude.ai page, never a resume that would fork it', () => {
+    const url = 'https://claude.ai/code/session_01D4z4TC53UyrwHVYaCd5x3m';
+    const app: AgentSession = {
+      ...job,
+      id: 'interactive-221',
+      kind: 'app',
+      pid: 221,
+      sessionId: ORIG,
+      app: { url, origin: 'ios', statusCategory: null },
+    };
+    expect(openPlan(app, [], new Set())).toEqual({ type: 'app', url });
+  });
+
+  it('an omp session opens the pane that runs it, else resumes with `omp -r <id>`', () => {
+    const id = '01a1c095-7edd-72eb-9c97-4afdcd01f56e';
+    const omp: AgentSession = {
+      ...job,
+      id: `omp-${id}`,
+      kind: 'interactive',
+      sessionId: id,
+      ptyCommand: 'omp',
+      ptyArgs: ['-r', id],
+      paneId: 'interactive-1794214000000',
+    };
+    expect(openPlan(omp, [], new Set(['interactive-1794214000000']))).toEqual({
+      type: 'focus',
+      paneId: 'interactive-1794214000000',
+    });
+    // pane closed (its process ended with it): the row attaches, i.e. runs its ptyArgs
+    expect(openPlan(omp, [], new Set())).toEqual({ type: 'attach' });
+  });
 });
 
 describe('CopyWarningDialog (#236 AC-3)', () => {

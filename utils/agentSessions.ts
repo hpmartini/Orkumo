@@ -24,6 +24,7 @@ export type GroupKey =
   | 'needs-input'
   | 'working'
   | 'completed'
+  | 'app'
   | 'interactive'
   | 'all'
   | `dir:${string}`
@@ -53,6 +54,7 @@ export const STATE_GROUP_ORDER: GroupKey[] = [
   'review',
   'needs-input',
   'working',
+  'app',
   'completed',
   'interactive',
 ];
@@ -63,6 +65,7 @@ const GROUP_TITLES: Record<string, string> = {
   'needs-input': 'Needs input',
   working: 'Working',
   completed: 'Completed',
+  app: 'Claude App',
   interactive: 'Interactive',
 };
 
@@ -96,7 +99,9 @@ export function sortSessions(sessions: AgentSession[]): AgentSession[] {
 }
 
 function stateGroupOf(session: AgentSession): GroupKey {
-  if (session.kind === 'interactive') return 'interactive';
+  // A finished harness session (#195, e.g. omp) is resumable history, not a live terminal
+  if (session.kind === 'interactive') return isFinished(session) ? 'completed' : 'interactive';
+  if (session.kind === 'app') return 'app';
   if (session.pinned) return 'pinned';
   if (hasOpenPr(session)) return 'review';
   if (session.state === 'blocked') return 'needs-input';
@@ -847,7 +852,7 @@ export function flattenGroups(
   return items;
 }
 
-/** Rail rows for a grouping: empty project/directory groups and an empty Interactive group are left out */
+/** Rail rows for a grouping: empty project/directory groups and an empty Claude App / Interactive group are left out */
 export function railItems(
   groups: SessionGroup[],
   collapsed: Set<string>,
@@ -861,7 +866,7 @@ export function railItems(
     (item) =>
       !(
         item.type === 'group' &&
-        item.group.key === 'interactive' &&
+        (item.group.key === 'app' || item.group.key === 'interactive') &&
         item.group.sessions.length === 0
       )
   );
@@ -976,6 +981,14 @@ export const harnessLabel = (id: AgentHarness): string =>
 export function sessionHarness(session: AgentSession): AgentHarness {
   const cmd = session.ptyCommand;
   return cmd ?? 'claude';
+}
+
+const APP_ORIGINS: Record<string, string> = { ios: 'iOS', android: 'Android', web: 'Web' };
+
+/** Where a Claude app session was started ("iOS", "Android", "Web"); null for other sessions */
+export function appOriginLabel(session: AgentSession): string | null {
+  if (!session.app) return null;
+  return (session.app.origin && APP_ORIGINS[session.app.origin]) || 'Claude App';
 }
 
 export const CARD_SLOTS: { key: AgentCardSlot; label: string }[] = [

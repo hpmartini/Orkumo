@@ -48,6 +48,7 @@ import {
   stopOrphanServer,
 } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
+import * as issueListService from './services/issueListService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowProvider from './services/workflowProvider.js';
 import { ISSUE_URL_RE } from '../utils/issueUrl.js';
@@ -1776,6 +1777,34 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
   try {
     const { roots, exact } = await knownDirs();
     res.json({ path: await boardService.findRepoPath(slug.data, [...roots, ...exact]) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Issues mode: issues of the context's repos, also those that are not on the board
+const issueListQuerySchema = z.object({
+  context: z.string().min(1).max(100).optional(),
+  state: z.enum(['open', 'closed']).default('open'),
+  refresh: z.literal('1').optional(),
+});
+
+app.get('/api/issues', agentLimiter, async (req, res) => {
+  const query = issueListQuerySchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Invalid issue list query' });
+  try {
+    const { contexts, activeContextId } = settingsService.getContexts();
+    const context = contexts.find((c) => c.id === (query.data.context ?? activeContextId));
+    if (!context) return res.status(404).json({ error: 'Unknown context' });
+    const repos = await issueListService.contextRepos(context, scanAllDirectories());
+    const { source } = settingsService.getBoardSettings();
+    res.json(
+      await issueListService.listIssues(repos, {
+        state: query.data.state,
+        source,
+        refresh: query.data.refresh === '1',
+      })
+    );
   } catch (error) {
     sendAgentError(res, error);
   }

@@ -65,7 +65,7 @@ function httpError(message, status) {
  * `typedVars` is only for numbers and `null`: `-F k=@path` makes gh read a local file, so a
  * user-supplied string must never go there (splitVars keeps every string in `stringVars`).
  */
-function ghGraphql(query, stringVars = {}, typedVars = {}) {
+export function ghGraphql(query, stringVars = {}, typedVars = {}) {
   const args = ['api', 'graphql', '-f', `query=${query}`];
   for (const [k, v] of Object.entries(stringVars)) {
     if (!Array.isArray(v)) args.push('-f', `${k}=${v}`);
@@ -752,7 +752,8 @@ const REPO_INDEX_TTL_MS = 5 * 60_000;
 const GIT_SAFE = ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null'];
 let repoIndex = null; // { at, entries: [{ path, slug }] }
 
-function originSlug(dir) {
+/** "owner/name" of the GitHub `origin` remote of `dir`, null without one */
+export function originSlug(dir) {
   return new Promise((resolve) => {
     execFile(
       'git',

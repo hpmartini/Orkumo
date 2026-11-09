@@ -10,7 +10,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Orkumo is a React-based workspace for agentic development. It scans the directories configured in the admin panel as a project registry (projects open in Code mode, `/code?path=`); it no longer starts, stops or analyzes apps (issue #143).
 
-Mode bar (#184, `components/ModeSwitcher.tsx`) in the AgentsView header next to the robot: Agents · modes of loaded modules (e.g. Workflows, #165) · Board · Code; the route is the state. The robot opens the context dashboard (`/dashboard?scope=context`), the rocket in the title bar the global one (`/dashboard`).
+Mode bar (#184, `components/ModeSwitcher.tsx`) in the AgentsView header next to the robot: Agents · modes of loaded modules (e.g. Workflows, #165) · Board · Issues · Pull Requests · Code; the route is the state. The robot opens the context dashboard (`/dashboard?scope=context`), the rocket in the title bar the global one (`/dashboard`).
+
+Issues mode (`/issues`, `components/IssuesView/`, `server/services/issueListService.js`, route `GET /api/issues?context=&state=open|closed&refresh=1`): issues of the active context's repos (origin remotes of its apps, `appIds: null` = all, plus `repo:` board slices), read per repo via `gh api graphql`, so issues off the board are listed too (`onBoard` flag). Filters, grouping and sorting in the URL (`utils/issueQuery.ts`); a row opens the issue modal.
 
 The dashboard (`/dashboard`, context variant filtered to the active context's project paths via `utils/projectScope.ts`) shows:
 
@@ -33,6 +35,9 @@ Further modes:
   - `components/AgentsView/` - list, dispatch input, peek panel, attached sessions in tabs / tiled panes
   - `server/services/agentService.js` - wraps the `claude` CLI (`--bg`, `agents --json`, `logs`, `stop`, `respawn`, `rm`, `daemon`) and `~/.claude/jobs` state; routes under `/api/agents/*`
   - `utils/agentInput.ts` (dispatch syntax) and `utils/agentSessions.ts` (grouping) are pure and unit-tested
+  - Interactive terminal sessions are hidden in the rail unless the footer switch "Interactive sessions" is on (localStorage `devOrbitAgentInteractive`)
+  - Claude app sessions (`kind: 'app'`, `server/services/appSessions.js`): interactive sessions whose `~/.claude/sessions/<pid>.json` has a `bridgeSessionId`; title, origin and status come from `api.anthropic.com/v1/sessions/<id>` with the subscription login (server-side, cached 60 s), they open on claude.ai
+  - Oh My Pi sessions (`server/services/ompSessions.js`, harness #195): rows `omp-<uuid>` from `~/.omp/agent/sessions/*/*.jsonl` (running ones plus those written in the last 7 days), running = an `omp` process holds the file (lsof) or its terminal's `~/.omp/agent/terminal-sessions/<tty>` names it; `paneId` links a row to the Orkumo pane whose PTY runs it; opening resumes with `omp -r <uuid>` (only argument shape besides `-- <prompt>` that `config/harnesses.js` allows)
 - Code mode (`/code`): terminals, Web-IDE (VS Code), browser preview
 
 ## Commands
