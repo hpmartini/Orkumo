@@ -143,8 +143,14 @@ export function createPtySession(
       .filter(Boolean)
       .join(':');
 
+    // The server inherits its launcher's env: started from an agent or CI shell it carries NO_COLOR,
+    // FORCE_COLOR=0 or CI, and every terminal opened here would render monochrome. A PTY is an
+    // interactive color terminal (TERM/COLORTERM below), so those stay out; options.env may still set them.
+    const inheritedEnv = { ...process.env };
+    for (const key of ['NO_COLOR', 'FORCE_COLOR', 'CI']) delete inheritedEnv[key];
+
     const ptyEnv = {
-      ...process.env,
+      ...inheritedEnv,
       ...options.env,
       PATH: enhancedPath,
       TERM: 'xterm-256color',
