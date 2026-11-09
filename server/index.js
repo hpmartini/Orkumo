@@ -125,7 +125,8 @@ const limiter = rateLimit({
 });
 
 // Browser origins allowed to call the API: loopback on any port (dashboard, Vite, Electron dev),
-// extra origins via CORS_ORIGINS (comma-separated), and file:// ("null") only inside Electron.
+// extra origins via CORS_ORIGINS (comma-separated), and file:// only inside Electron: its
+// renderer sends "null" on fetch and "file://" on the PTY WebSocket upgrade.
 // Requests without an Origin header (curl, server-to-server) are not browser-driven and pass.
 const extraCorsOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
@@ -133,7 +134,7 @@ const extraCorsOrigins = (process.env.CORS_ORIGINS || '')
   .filter(Boolean);
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
-  if (origin === 'null') return process.env.ELECTRON_MODE === 'true';
+  if (origin === 'null' || origin === 'file://') return process.env.ELECTRON_MODE === 'true';
   if (extraCorsOrigins.includes(origin)) return true;
   if (origin === remoteAccess.CAPACITOR_ORIGIN) return remoteAccess.isRemoteEnabled();
   try {
