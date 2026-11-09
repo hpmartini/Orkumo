@@ -935,13 +935,23 @@ export const AgentList: React.FC<AgentListProps> = ({
                       onMouseLeave={() => hoverCard(null)}
                       className={`group relative flex items-start gap-2 px-3 ${comfortable ? 'py-2.5' : 'py-1.5'} text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
                         overlay ? 'z-20' : ''
+                      } text-gray-300 hover:bg-gray-800 ${
+                        // #210: shown in the workspace = strong, attached in a tab = medium (left bar), a click alone = nothing
+                        isActive
+                          ? 'outline outline-2 -outline-offset-2 outline-blue-400 bg-blue-400/15 text-white'
+                          : isOpen
+                            ? 'bg-blue-400/10 shadow-[inset_3px_0_0_0_#60a5fa]'
+                            : ''
                       } ${
-                        // Outline, not ring: stays visible on top of the selection ring
-                        isActive ? 'outline outline-2 -outline-offset-2 outline-blue-400' : ''
-                      } ${
-                        selected
-                          ? selectedClass(railFocused)
-                          : `text-gray-300 hover:bg-gray-800 ${isActive ? 'bg-blue-400/15' : ''} ${isPeeking ? 'ring-1 ring-inset ring-blue-300/50' : cacheWarning ? 'ring-1 ring-inset ring-amber-400/70 bg-amber-400/5' : ''}`
+                        // Only a keyboard-moved selection needs a cursor, else arrow-key navigation is blind
+                        selected && railFocused && clickedId !== session.id
+                          ? // the open card's 2px outline covers the ring's outer 2px
+                            `ring-inset ring-cursor ${isActive ? 'ring-[3px]' : 'ring-1'}`
+                          : isPeeking
+                            ? 'ring-1 ring-inset ring-blue-300/50'
+                            : cacheWarning
+                              ? 'ring-1 ring-inset ring-amber-400/70 bg-amber-400/5'
+                              : ''
                       }`}
                       title={`${session.name}\n${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
                     >
