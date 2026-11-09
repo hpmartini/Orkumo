@@ -36,11 +36,12 @@ import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
 import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
+import { ConnectedIssuesPage } from './components/IssuesView';
 import { CodeView } from './components/CodeView';
 import { ShellBrowser } from './components/ShellBrowser';
 import { installAnchorInterception, openLink, setLinkTarget } from './utils/links';
 
-const HOST_TABS = ['dashboard', 'usage', 'agents', 'board', 'code', 'pulls'];
+const HOST_TABS = ['dashboard', 'usage', 'agents', 'board', 'issues', 'code', 'pulls'];
 
 function AppContent() {
   const navigate = useNavigate();
@@ -198,6 +199,13 @@ function AppContent() {
       'Navigate',
       () => navigate('/board'),
       'issues kanban github project'
+    ),
+    command(
+      'issues',
+      'Open issues',
+      'Navigate',
+      () => navigate('/issues'),
+      'github issues list repos'
     ),
     command('code', 'Open code mode', 'Navigate', () => navigate('/code'), 'ide vscode editor'),
     ...modeCommands(modes, navigate),
@@ -393,6 +401,22 @@ function AppContent() {
                     <ModuleMode id={m.id} active={activeTab === m.id} />
                   </div>
                 ))}
+
+                {/* Issues of the context's repos, also off the board - kept mounted, polls only while active */}
+                <div
+                  className={
+                    activeTab === 'issues'
+                      ? 'absolute inset-0 z-10 flex flex-col min-h-0'
+                      : 'hidden'
+                  }
+                  aria-hidden={activeTab !== 'issues'}
+                >
+                  <ConnectedIssuesPage
+                    key={contexts.active?.id}
+                    active={activeTab === 'issues'}
+                    contextId={contexts.active?.id}
+                  />
+                </div>
 
                 {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
                 {activeTab === 'pulls' && (

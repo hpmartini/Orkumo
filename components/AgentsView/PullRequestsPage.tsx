@@ -38,17 +38,18 @@ export const ConnectedPullRequestsPage: React.FC = () => {
 
 const noop = () => {};
 
-const SELECT_CLS =
+export const SELECT_CLS =
   'bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs max-w-[12rem] focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
-const ICON_BTN =
+export const ICON_BTN =
   'flex items-center gap-1 px-1.5 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
 
 type Options = Record<string, string>;
-const asOptions = (values: string[]): Options => Object.fromEntries(values.map((v) => [v, v]));
+export const asOptions = (values: string[]): Options =>
+  Object.fromEntries(values.map((v) => [v, v]));
 const YES_NO: Options = { yes: 'Yes', no: 'No' };
 
-/** One select filter; the empty option means "any" */
-const Filter: React.FC<{
+/** One select filter; the empty option means "any" (also used by the Issues mode) */
+export const Filter: React.FC<{
   label: string;
   value: string | null;
   options: Options;

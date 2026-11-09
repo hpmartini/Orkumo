@@ -25,6 +25,7 @@ const RESERVED_IDS = new Set([
   'usage',
   'agents',
   'board',
+  'issues',
   'code',
   'pulls',
   'api',

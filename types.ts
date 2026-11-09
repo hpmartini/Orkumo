@@ -252,9 +252,14 @@ export interface AgentSession {
   sessionIds?: string[];
   /** Rail: other sessions on the same transcript, shown as copies of this one (#236) */
   copies?: AgentSession[];
-  kind: 'background' | 'interactive';
-  /** Client-side cloud/remote session: PTY args instead of `attach <id>` */
+  /** `app`: started in the Claude app (iOS, Android, web), runs here via Remote Control */
+  kind: 'background' | 'interactive' | 'app';
+  /** Claude app session: its claude.ai page, origin ("ios", "android", "web") and last turn status */
+  app?: { url: string; origin: string | null; statusCategory: string | null };
+  /** Client-side cloud/remote session or a harness session (#195): PTY args instead of `attach <id>` */
   ptyArgs?: string[];
+  /** Harness session listed by the server: id of the Orkumo pane whose process runs it */
+  paneId?: string | null;
   /** Chat session (#189): rendered by the Chat pane, id is the server chat id */
   chat?: boolean;
   /** Chat pane that is a live view of this agent id (no own process) */
@@ -667,6 +672,37 @@ export interface IssueSummary {
   url: string;
   state: 'OPEN' | 'CLOSED';
   labels: BoardLabel[];
+}
+
+export type RepoIssueState = 'open' | 'closed';
+
+/** An issue of a context repo, on the board or not (Issues mode, GET /api/issues) */
+export interface RepoIssue {
+  id: string;
+  /** "owner/name" */
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  state: RepoIssueState;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  author: string | null;
+  labels: BoardLabel[];
+  assignees: string[];
+  milestone: string | null;
+  comments: number;
+  /** Item of the configured board project (settings board source) */
+  onBoard: boolean;
+}
+
+export interface IssueListResponse {
+  /** Repos of the context that were queried */
+  repos: string[];
+  issues: RepoIssue[];
+  /** Repos whose listing failed; the others are still listed */
+  errors: { repo: string; message: string }[];
 }
 
 /** Lazily loaded issue parts (GET /api/board/issues/:issueId) */

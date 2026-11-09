@@ -3,9 +3,10 @@
  * with which arguments. Shared by the API (`/api/pty`) and pty-host (Docker proxy), so both
  * sides enforce the same trust boundary.
  *
- * v1 starts each harness interactively without options; the only argument is the task prompt,
- * passed after `--` as the first message. `opencode` (installed 0.0.55, the Go version) has no
- * interactive prompt parameter, so it takes no arguments at all.
+ * Each harness starts interactively without options; the only arguments are the task prompt,
+ * passed after `--` as the first message, or for `omp` `-r <session id>` to resume a session.
+ * `opencode` (installed 0.0.55, the Go version) has no interactive prompt parameter, so it takes
+ * no arguments at all.
  */
 import fs from 'fs';
 import os from 'os';
@@ -25,13 +26,18 @@ export const HARNESS_COMMANDS = Object.freeze(Object.keys(HARNESS_PROMPT_SUPPORT
 // below Node's 16 KB header limit, so a too-long prompt gets this error instead of a 431
 export const MAX_HARNESS_PROMPT = 1500;
 
+/** id → flag that resumes a session by id (omp `-r <id>` searches every project folder) */
+const HARNESS_RESUME_FLAG = Object.freeze({ omp: '-r' });
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function isHarnessCommand(command) {
   return Object.hasOwn(HARNESS_PROMPT_SUPPORT, command);
 }
 
 /**
- * Allowed argument shapes: `[]` or `['--', prompt]` (prompt only where supported).
- * Anything else, including any flag, is rejected: a flag like `--config` or `--api-key`
+ * Allowed argument shapes: `[]`, `['--', prompt]` (prompt only where supported) or
+ * `[resumeFlag, sessionId]` (a session UUID only, where the harness can resume).
+ * Anything else, including any other flag, is rejected: a flag like `--config` or `--api-key`
  * would let a client reconfigure the harness.
  * @returns {string|null} error message, null when allowed
  */
@@ -41,6 +47,10 @@ export function harnessArgsError(command, args) {
     return 'Invalid args format';
   }
   if (args.length === 0) return null;
+  const resumeFlag = HARNESS_RESUME_FLAG[command];
+  if (resumeFlag && args[0] === resumeFlag) {
+    return args.length === 2 && SESSION_ID_RE.test(args[1]) ? null : 'Invalid session id';
+  }
   if (!HARNESS_PROMPT_SUPPORT[command]) return `${command} takes no arguments`;
   if (args.length !== 2 || args[0] !== '--') return 'Only a prompt after -- is allowed';
   const prompt = args[1];

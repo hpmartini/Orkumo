@@ -46,6 +46,24 @@ describe('harness policy (#195)', () => {
     expect(harnessArgsError('bash', [])).toBe('Unknown harness');
   });
 
+  it('lets only omp resume, and only a session UUID', () => {
+    const id = '01a1c095-7edd-72eb-9c97-4afdcd01f56e';
+    expect(harnessArgsError('omp', ['-r', id])).toBeNull();
+    for (const args of [
+      ['-r'],
+      ['-r', '01a1c095'],
+      ['-r', '../../etc/passwd'],
+      ['-r', `${id}`, '--api-key'],
+      ['-r', '--config=x.yml'],
+      ['--resume', id],
+    ]) {
+      expect(harnessArgsError('omp', args)).not.toBeNull();
+    }
+    for (const other of ['codex', 'pi', 'opencode']) {
+      expect(harnessArgsError(other, ['-r', id])).not.toBeNull();
+    }
+  });
+
   it('resolves only executables named after the harness, null when missing', () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'harness-'));
     const bin = path.join(dir, 'pi');
