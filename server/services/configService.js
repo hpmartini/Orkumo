@@ -20,11 +20,10 @@ const FORBIDDEN_PATHS = [
   '/sys',
   '/proc',
   '/dev',
-  '/.ssh',
-  '/.gnupg',
-  '/.aws',
-  '/.config',
 ];
+
+// Below $HOME; forbidden even where Claude's config dir exempts a hidden dir (#217)
+const FORBIDDEN_HOME_DIRS = ['.ssh', '.gnupg', '.aws', '.config'];
 
 /** Claude's config dir ($CLAUDE_CONFIG_DIR, else ~/.claude): the one hidden home dir allowed (#190) */
 function claudeConfigDir() {
@@ -57,12 +56,7 @@ function validatePath(dirPath) {
 
   // Check against forbidden paths
   for (const forbidden of FORBIDDEN_PATHS) {
-    const forbiddenAbs = path.resolve(process.env.HOME || '/', forbidden);
-    if (normalizedPath.startsWith(forbiddenAbs) || normalizedPath === forbiddenAbs) {
-      throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
-    }
-    // Also check absolute forbidden paths
-    if (normalizedPath.startsWith(forbidden) || normalizedPath === forbidden) {
+    if (isInside(normalizedPath, forbidden)) {
       throw new Error(`Access to '${forbidden}' is not allowed for security reasons`);
     }
   }
@@ -80,6 +74,12 @@ function validatePath(dirPath) {
     const relativePath = realDir.slice(realHome.length);
     if (relativePath.match(/^\/\.[^/]+/)) {
       throw new Error('Scanning hidden directories in home is not allowed');
+    }
+  }
+  // Applies to the exempt config dir too, so CLAUDE_CONFIG_DIR=~/.ssh opens nothing
+  for (const dir of homeDir ? FORBIDDEN_HOME_DIRS : []) {
+    if (isInside(realDir, canonicalDir(path.join(realHome, dir)))) {
+      throw new Error(`Access to '~/${dir}' is not allowed for security reasons`);
     }
   }
 
@@ -100,7 +100,7 @@ function validatePath(dirPath) {
   if (realPath !== normalizedPath) {
     // Re-validate the real path
     for (const forbidden of FORBIDDEN_PATHS) {
-      if (realPath.startsWith(forbidden)) {
+      if (isInside(realPath, forbidden)) {
         throw new Error(`Symlink points to forbidden location`);
       }
     }

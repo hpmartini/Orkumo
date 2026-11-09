@@ -190,3 +190,56 @@ describe('scan of the Claude config dir (#190)', () => {
     }
   });
 });
+
+// #217: the home entries of FORBIDDEN_PATHS hold even where $CLAUDE_CONFIG_DIR exempts a hidden dir
+describe('forbidden home dirs (#217)', () => {
+  const forbidden = ['.ssh', '.gnupg', '.aws', '.config'];
+  const exempted = {};
+
+  beforeAll(async () => {
+    fs.mkdirSync(path.join(home, '.ssh', 'sub'));
+    fs.mkdirSync(path.join(home, 'bin'));
+    fs.mkdirSync(path.join(home, 'var'));
+    fs.symlinkSync(path.join(home, '.aws'), path.join(home, 'PROJECTS', 'aws-link'));
+    forbidden.forEach((dir, i) => {
+      exempted[dir] = startServer(3295 + i, { CLAUDE_CONFIG_DIR: path.join(home, dir) });
+    });
+    await Promise.all(Object.values(exempted).map((s) => waitUp(s.base)));
+  }, 30000);
+
+  const expectRejected = async (server, dir) => {
+    const res = await addDir(server.base, dir);
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/is not allowed for security reasons/);
+    const config = path.join(server.dataDir, 'config.json');
+    const stored = fs.existsSync(config) ? JSON.parse(fs.readFileSync(config, 'utf-8')).directories : [];
+    expect(stored ?? []).not.toContain(dir);
+  };
+
+  it('AC-1: rejects ~/.ssh with CLAUDE_CONFIG_DIR=~/.ssh', async () => {
+    await expectRejected(exempted['.ssh'], path.join(home, '.ssh'));
+  });
+
+  it.each(forbidden)('AC-2: rejects ~/%s with CLAUDE_CONFIG_DIR pointing to it', async (dir) => {
+    await expectRejected(exempted[dir], path.join(home, dir));
+  });
+
+  it('AC-2: rejects ~/.ssh/sub with CLAUDE_CONFIG_DIR=~/.ssh', async () => {
+    await expectRejected(exempted['.ssh'], path.join(home, '.ssh', 'sub'));
+  });
+
+  it('AC-3: rejects a symlink PROJECTS/aws-link -> ~/.aws with CLAUDE_CONFIG_DIR=~/.aws', async () => {
+    await expectRejected(exempted['.aws'], path.join(home, 'PROJECTS', 'aws-link'));
+  });
+
+  it.runIf(process.platform === 'darwin')(
+    'AC-3: rejects ~/.SSH spelled in other case with CLAUDE_CONFIG_DIR=~/.ssh',
+    async () => {
+      await expectRejected(exempted['.ssh'], path.join(home, '.SSH'));
+    }
+  );
+
+  it.each(['bin', 'var'])('AC-4: still accepts ~/%s', async (dir) => {
+    expect((await addDir(main.base, path.join(home, dir))).status).toBe(200);
+  });
+});
