@@ -39,5 +39,11 @@ export default defineConfig(({ mode }) => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      // Below es2021 esbuild lowers `r ||= {}` in xterm 6's pre-minified requestMode and drops the
+      // `let r` (evanw/esbuild#4508): the first DECRQM query of a TUI (omp, opencode, vim) throws and
+      // the terminal never renders again. Production-only, dev does not minify (xtermjs/xterm.js#5800).
+      target: 'es2021',
+    },
   };
 });
