@@ -325,3 +325,121 @@ describe('AgentList card details trigger (#181)', () => {
     expect(openCards()).toEqual(['c']);
   });
 });
+
+describe('AgentList card highlights (#210)', () => {
+  // a = shown in the workspace, b = attached in a tab, c = neither
+  const sessions = ['a', 'b', 'c'].map((id) => session({ id, name: `agent ${id}` }));
+  const group = { key: 'g', title: 'Group', sessions, hidden: 0 } as unknown as SessionGroup;
+  const items = sessions.map((s) => ({ type: 'session', session: s, group }) as NavItem);
+
+  function List({
+    railFocused = true,
+    initial = -1,
+    peekId = null,
+    cacheWarnId,
+  }: {
+    railFocused?: boolean;
+    initial?: number;
+    peekId?: string | null;
+    /** Card whose prompt cache expires within the warning window */
+    cacheWarnId?: string;
+  }) {
+    const [selected, setSelected] = React.useState(initial);
+    return (
+      <>
+        <button onClick={() => setSelected((i) => i + 1)}>arrow-down</button>
+        <AgentList
+          items={items}
+          selectedIndex={selected}
+          onSelectIndex={setSelected}
+          onActivate={() => {}}
+          onTogglePeek={() => {}}
+          peekId={peekId}
+          openIds={new Set(['a', 'b'])}
+          activeSessionId="a"
+          railFocused={railFocused}
+          now={2000}
+          grouping="state"
+          cardDetails="click"
+          contexts={Object.fromEntries(
+            sessions.map((s) => [
+              s.id,
+              s.id === cacheWarnId
+                ? ({ ...ctx, cache: { lastActivityAt: 2000, ttlMs: 5 * 60_000 } } as unknown as AgentContext)
+                : ctx,
+            ])
+          )}
+          servers={new Map()}
+          rowActions={() => []}
+          groupActions={() => []}
+          collapsedKeys={new Set()}
+          onOpenPrs={() => {}}
+        />
+      </>
+    );
+  }
+
+  const cardOf = (id: string) => document.querySelector(`[data-session-id="${id}"]`) as HTMLElement;
+  const HIGHLIGHT = /^(bg-sel|ring-|-?outline|shadow-\[|bg-blue-)/;
+  const highlights = (id: string) =>
+    cardOf(id)
+      .className.split(/\s+/)
+      .filter((c) => HIGHLIGHT.test(c))
+      .sort();
+  const STRONG = ['-outline-offset-2', 'bg-blue-400/15', 'outline', 'outline-2', 'outline-blue-400'];
+  const MEDIUM = ['bg-blue-400/10', 'shadow-[inset_3px_0_0_0_#60a5fa]'];
+
+  beforeEach(() => {
+    window.Element.prototype.scrollIntoView = () => {};
+    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q }) as MediaQueryList);
+  });
+  afterEach(() => vi.unstubAllGlobals());
+
+  it('open card carries the strong level (AC-1)', () => {
+    render(<List />);
+    expect(highlights('a')).toEqual(STRONG);
+  });
+
+  it('attached card carries the medium level, unlike open, peek and cache rings (AC-2)', () => {
+    render(<List peekId="c" />);
+    expect(highlights('b')).toEqual(MEDIUM);
+    expect(highlights('c')).toEqual(['ring-1', 'ring-blue-300/50', 'ring-inset']);
+  });
+
+  it('cache warning ring stays and differs from the attached level (AC-2)', () => {
+    render(<List cacheWarnId="c" />);
+    expect(highlights('c')).toEqual(['ring-1', 'ring-amber-400/70', 'ring-inset']);
+    expect(cardOf('c').className).toContain('bg-amber-400/5');
+  });
+
+  it.each([true, false])(
+    'clicked card that is neither open nor attached shows no highlight, rail focused %s (AC-3)',
+    (railFocused) => {
+      render(<List railFocused={railFocused} />);
+      fireEvent.click(cardOf('c'));
+      expect(cardOf('c').getAttribute('aria-selected')).toBe('true');
+      expect(highlights('c')).toEqual([]);
+    }
+  );
+
+  it('keyboard-moved selection shows a focus cursor (AC-4)', () => {
+    render(<List initial={1} />);
+    fireEvent.click(screen.getByText('arrow-down'));
+    expect(cardOf('c').getAttribute('aria-selected')).toBe('true');
+    expect(highlights('c')).toEqual(['ring-1', 'ring-cursor', 'ring-inset']);
+  });
+
+  it('keyboard cursor on the open card stays visible inside its 2px outline (AC-4)', () => {
+    render(<List initial={-1} />);
+    fireEvent.click(screen.getByText('arrow-down'));
+    expect(highlights('a')).toEqual([...STRONG, 'ring-[3px]', 'ring-cursor', 'ring-inset'].sort());
+  });
+
+  it('clicking an open or attached card keeps its level unchanged (AC-5)', () => {
+    render(<List />);
+    fireEvent.click(cardOf('a'));
+    expect(highlights('a')).toEqual(STRONG);
+    fireEvent.click(cardOf('b'));
+    expect(highlights('b')).toEqual(MEDIUM);
+  });
+});
