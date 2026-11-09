@@ -1539,13 +1539,20 @@ app.get('/api/agents/servers/orphans', agentLimiter, async (req, res) => {
   }
 });
 
-// Only pids currently listed as orphans may be stopped: no killing of arbitrary processes.
-app.post('/api/agents/servers/:pid/stop', agentLimiter, async (req, res) => {
-  // A bodyless POST needs no CORS preflight: refuse cross-site pages before killing anything
+// A bodyless POST needs no CORS preflight: routes that end processes refuse cross-site pages.
+// Browsers send Origin on a cross-origin POST; the packaged Electron renderer (file://) sends none
+// but marks it cross-site, so without an Origin that marker only counts outside Electron.
+const sameSiteOnly = (req, res, next) => {
   const origin = req.get('origin');
-  if ((origin && !isAllowedOrigin(origin)) || req.get('sec-fetch-site') === 'cross-site') {
-    return res.status(403).json({ error: 'Cross-origin request refused' });
-  }
+  const crossSite = origin
+    ? !isAllowedOrigin(origin)
+    : req.get('sec-fetch-site') === 'cross-site' && process.env.ELECTRON_MODE !== 'true';
+  if (crossSite) return res.status(403).json({ error: 'Cross-origin request refused' });
+  next();
+};
+
+// Only pids currently listed as orphans may be stopped: no killing of arbitrary processes.
+app.post('/api/agents/servers/:pid/stop', agentLimiter, sameSiteOnly, async (req, res) => {
   const pid = Number(req.params.pid);
   if (!/^\d{1,9}$/.test(req.params.pid) || pid <= 1) {
     return res.status(400).json({ error: 'pid must be a positive integer' });
@@ -1633,13 +1640,20 @@ app.post(
   }
 );
 
-app.post('/api/agents/:id/stop', agentLimiter, validateParams(agentIdSchema), async (req, res) => {
-  try {
-    res.json(await agentService.stopSession(req.params.id));
-  } catch (error) {
-    sendAgentError(res, error);
+// Also ends the omp process running an Oh My Pi session, e.g. in another terminal (#195)
+app.post(
+  '/api/agents/:id/stop',
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(agentIdSchema),
+  async (req, res) => {
+    try {
+      res.json(await agentService.stopSession(req.params.id));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
   }
-});
+);
 
 app.post(
   '/api/agents/:id/respawn',

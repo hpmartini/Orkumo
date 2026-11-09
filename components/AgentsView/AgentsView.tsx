@@ -1012,9 +1012,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       // A Claude app session runs on claude.ai: a resume here would fork it (#236)
       if (plan.type === 'app') return plan.url ? openInSystemBrowser(plan.url) : undefined;
       if (plan.type === 'attach') {
-        // A harness session running in another terminal: a second process on it writes in parallel
+        // A harness session running in another terminal: omp has no attach, so taking it over
+        // ends that process and resumes the session here (a second process would write in parallel)
         const elsewhere = session.ptyArgs && session.pid != null && !session.paneId;
-        return guardCopy(elsewhere ? session : null, () => attach(session.id));
+        if (!elsewhere) return attach(session.id);
+        return guardCopy(
+          session,
+          () =>
+            void stopAgent(session.id).then(
+              () => attach(session.id),
+              (err) => showHint(`Takeover failed: ${err.message}`, 'error', 6000)
+            ),
+          true
+        );
       }
       if (plan.type === 'focus') return focusOpen(plan.paneId);
       if (openAsChat(session)) return;

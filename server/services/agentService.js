@@ -26,6 +26,7 @@ import {
   listOmpSessions,
   findOmpSessionFile,
   readOmpTranscriptTail,
+  stopOmpSession,
   OMP_SESSION_ID_RE,
 } from './ompSessions.js';
 import { getAllPtySessions } from './ptyService.js';
@@ -990,6 +991,11 @@ async function readTranscriptTail(file, limit) {
 
 export async function stopSession(id) {
   jobDir(id);
+  if (id.startsWith('omp-') && OMP_SESSION_ID_RE.test(id.slice(4))) {
+    const { stopped } = await stopOmpSession(id.slice(4));
+    triggerRefresh();
+    return { output: stopped ? `omp (PID ${stopped}) stopped` : 'Not running' };
+  }
   const result = await runClaude(['stop', id], { timeout: 20000 });
   if (result.code !== 0)
     throw new Error(result.stderr.trim() || result.stdout.trim() || 'Stop failed');
