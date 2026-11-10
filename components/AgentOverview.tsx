@@ -16,7 +16,7 @@ import { useAgentSessions } from '../hooks/useAgentSessions';
 import { useAgentContexts } from '../hooks/useAgentContexts';
 import { ALIVE, summarizeAgents } from '../utils/agentOverview';
 import { formatCountdown } from '../utils/agentCache';
-import { formatAge, shortenPath } from '../utils/agentSessions';
+import { formatAge, isOmpStoreSession, shortenPath } from '../utils/agentSessions';
 import { inProjectScope } from '../utils/projectScope';
 import {
   BUCKETS,
@@ -219,6 +219,8 @@ export const AgentOverview: React.FC<{ active: boolean; projectPaths?: string[] 
               )}
               {group.rows.map(({ session, project, lastActivity, cacheMs, fill }) => {
                 const bg = session.kind === 'background';
+                // the server stops and deletes omp sessions wherever they run (#195)
+                const omp = isOmpStoreSession(session);
                 return (
                   <tr key={session.id} className="border-b border-gray-700/60 hover:bg-gray-750">
                     <td className="py-1.5 pr-3 max-w-[16rem]">
@@ -262,7 +264,9 @@ export const AgentOverview: React.FC<{ active: boolean; projectPaths?: string[] 
                       </RowAction>
                       <RowAction
                         label={`Stop ${session.name}`}
-                        disabled={!bg || !ALIVE.has(session.displayState)}
+                        disabled={
+                          omp ? session.pid == null : !bg || !ALIVE.has(session.displayState)
+                        }
                         onClick={() => setPending({ kind: 'stop', session })}
                       >
                         <Square size={14} />
@@ -278,7 +282,7 @@ export const AgentOverview: React.FC<{ active: boolean; projectPaths?: string[] 
                       </RowAction>
                       <RowAction
                         label={`Delete ${session.name}`}
-                        disabled={!bg}
+                        disabled={!bg && !omp}
                         danger
                         onClick={() => setPending({ kind: 'delete', session })}
                       >

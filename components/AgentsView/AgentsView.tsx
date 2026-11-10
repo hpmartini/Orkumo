@@ -90,6 +90,7 @@ import {
   resumableSessionId,
   harnessLabel,
   sessionHarness,
+  isOmpStoreSession,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
 import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
@@ -1370,7 +1371,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           return;
         }
         toast.success(`Deleted ${session.name}`);
-        closePane(session.id);
+        closePane(session.paneId ?? session.id);
         if (peekId === session.id) setPeekId(null);
         refresh();
       } catch (err) {
@@ -1390,14 +1391,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       if (!item) return;
       if (item.type === 'group') {
         const list = [...item.group.sessions, ...item.group.hidden].filter(
-          (s) => s.kind === 'background'
+          (s) => s.kind === 'background' || isOmpStoreSession(s)
         );
         if (list.length === 0) return;
         if (!window.confirm(`Delete all ${list.length} sessions in "${item.group.title}"?`)) return;
         for (const session of list) await removeSession(session);
         return;
       }
-      if (item.type !== 'session' || item.session.kind !== 'background') return;
+      if (item.type !== 'session') return;
+      if (item.session.kind !== 'background' && !isOmpStoreSession(item.session)) return;
       await deleteSession(item.session);
     },
     [deleteSession, removeSession]
@@ -1677,8 +1679,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     (session: AgentSession): AgentRowAction[] => {
       const bg = session.kind === 'background';
       const alive = session.state === 'working' || session.state === 'blocked';
-      // A harness agent (#195) is its pane: stopping it closes the pane, which ends the process
-      const harnessPane = session.kind === 'interactive' && sessionHarness(session) !== 'claude';
+      // An omp session from omp's store (#195) runs wherever its pid is, maybe in another terminal:
+      // the server ends that process, then the pane that ran it here (its id is `paneId`) closes
+      const omp = isOmpStoreSession(session);
+      // Any other harness agent is its pane: stopping it closes the pane, which ends the process
+      const harnessPane =
+        !omp && session.kind === 'interactive' && sessionHarness(session) !== 'claude';
       const appUrl = session.app?.url;
       return [
         { id: 'attach', label: 'Attach in tab', disabled: !bg, onSelect: () => attach(session.id) },
@@ -1751,13 +1757,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         {
           id: 'stop',
           label: 'Stop',
-          disabled: !harnessPane && (!bg || !alive),
-          onSelect: () =>
-            harnessPane
-              ? closeAnyPane(session.id)
-              : stopAgent(session.id)
-                  .then(refresh)
-                  .catch((err) => toast.error(err.message)),
+          disabled: omp ? session.pid == null : !harnessPane && (!bg || !alive),
+          onSelect: () => {
+            if (harnessPane) return closeAnyPane(session.id);
+            stopAgent(session.id)
+              .then(() => {
+                if (omp && session.paneId) closeAnyPane(session.paneId);
+                refresh();
+              })
+              .catch((err) => toast.error(err.message));
+          },
         },
         {
           id: 'respawn',
@@ -1780,7 +1789,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           id: 'delete',
           label: 'Delete',
           danger: true,
-          disabled: !bg,
+          disabled: !bg && !omp,
           onSelect: () => deleteSession(session),
         },
       ];

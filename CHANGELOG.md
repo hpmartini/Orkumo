@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Agents panel and dashboard: Oh My Pi sessions can be stopped and deleted. Stop only closed a pane with the row's id, which never matched a session started via New task (`interactive-…` pane) or running in another terminal; it now ends the omp process on the server and closes the pane that ran it. Delete (was disabled) removes the session file, its artifacts folder and `.bak` copies like omp's own picker, after ending a running process
 - Desktop app: terminals failed with "WebSocket connection error" since #220; the PTY upgrade check refused the packaged renderer's `Origin: file://` (it only accepted `null`, what fetch sends). `file://` now passes inside Electron like `null`
 - Desktop app: Oh My Pi (and other TUIs that query terminal modes: opencode, vim) showed only the `# omp …` header line and never rendered. esbuild's minifier (target below es2021) broke xterm 6's pre-minified `requestMode`, the first DECRQM query threw and stopped the terminal's parser for good (xtermjs/xterm.js#5800, evanw/esbuild#4508). The frontend now builds with `target: 'es2021'`; the dev server was never affected
 - Agents view: splitting a tab or undoing a split restarted every terminal in it, which ended Oh My Pi and shell panes (their process lives only in the PTY) and restarted `claude attach`. A pane's terminal and PTY connection now survive the remount; closing a pane still ends them
