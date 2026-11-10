@@ -16,7 +16,7 @@ export const ModuleSlot: React.FC<{ modules: LoadedModule[] }> = ({ modules }) =
   );
 };
 
-/** Module UIs at the "Agents" label of the agents header (slot `agents-rail`, docs/MODULES.md) */
+/** Module UIs in the agents header after the New task button (slot `agents-rail`, docs/MODULES.md) */
 export const AgentsRailSlot: React.FC<{ ids?: string[] }> = ({ ids }) => {
   const host = useModuleHost(true);
   if (!ids?.length) return null;

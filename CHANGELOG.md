@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Switched package manager to bun (`bun install` / `bun run`; node remains the runtime for server, electron and pty scripts)
 - `pty-host` uses `bun.lock`; Docker images install with `--ignore-scripts` and build node-pty with the pinned node-gyp (bun's fallback to `node-gyp@latest` broke on Node 20)
+- Agents view layout: the modes moved from the header into a vertical activity bar at the left edge (VS Code style) with the settings gear at its bottom; "New task", "Agent", "Chat" and "Issue" became one split button [New task | ⌄] next to the robot; the command palette button sits at the right edge of the title bar; grouping, sort, filters and search share one row above the agent list, the grouping shows only the current choice and lists the others on hover (with collapse / expand all); text search and the PR / issue filter are one search button that opens its field on click or Cmd/Ctrl+K
 
 ### Fixed
 
