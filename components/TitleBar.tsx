@@ -1,14 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket } from 'lucide-react';
+import { Rocket, Search } from 'lucide-react';
 import { ContextTabs } from './ContextTabs';
 import { isElectron } from '../utils/apiConfig';
+import { PALETTE_SHORTCUT } from './CommandPalette/CommandPaletteProvider';
 
 type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
   /** The rocket opens the global dashboard (all contexts) */
   onOpenDashboard: () => void;
+  /** Search button at the right edge */
+  onOpenPalette: () => void;
 };
 
-export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, ...tabs }) => {
+export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, onOpenPalette, ...tabs }) => {
   // Track fullscreen state to hide traffic light spacer when in fullscreen
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -79,8 +82,17 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, ...tabs }) 
       </div>
       <div className="flex-1 h-full" />
 
-      {/* Window controls spacer for Windows (if needed in future) */}
-      {/* <div className="w-[140px] shrink-0" /> */}
+      <button
+        onClick={onOpenPalette}
+        className="mr-2 flex items-center gap-2 shrink-0 px-2 py-1 rounded border border-gray-700 bg-gray-950 text-xs text-gray-400 hover:text-white hover:border-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        title="Command palette"
+        aria-label={`Command palette (${PALETTE_SHORTCUT})`}
+      >
+        <Search size={13} aria-hidden />
+        <span className="hidden sm:inline">Search</span>
+        <kbd className="font-mono text-[11px] text-gray-500">{PALETTE_SHORTCUT}</kbd>
+      </button>
     </div>
   );
 };
