@@ -225,7 +225,9 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         placeholder={
           isAgent
             ? variant === 'chat'
-              ? 'First message (optional) - /resume or /continue picks up an earlier session'
+              ? otherHarness
+                ? 'First message (optional) - /resume <id> picks up an earlier session'
+                : 'First message (optional) - /resume or /continue picks up an earlier session'
               : 'Optional first prompt - leave empty to start an idle session'
             : 'Describe the task for a new session'
         }
@@ -262,7 +264,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
               onChange={(e) => onHarnessChange?.(e.target.value as AgentHarness)}
               disabled={disabled}
               className="bg-gray-900 border border-gray-600 rounded-md px-1.5 py-1 text-xs text-gray-50 focus-visible:outline-2 focus-visible:outline-blue-400"
-              title="CLI the new agent runs with"
+              title="CLI the new agent or chat runs with"
             >
               {HARNESSES.map((h) => (
                 <option key={h.id} value={h.id} disabled={harnessInstalled[h.id] === false}>

@@ -1,0 +1,36 @@
+{"type":"extension_ui_request","id":"214ddba3-2eff-4847-b875-9a0eb774eba7","method":"setStatus","statusKey":"bgrun"}
+{"type":"extension_ui_request","id":"74243b21-2f62-4e1e-9b81-1f2886d6ac10","method":"setWidget","widgetKey":"bgrun"}
+{"id":"s1","type":"response","command":"get_state","success":true,"data":{"model":{"id":"MiniMax-M2.7","name":"MiniMax-M2.7","provider":"minimax"},"isStreaming":false,"sessionFile":"/home/user/.pi/agent/sessions/--private-tmp-pi-probe--/2026-11-10T22-15-03-314Z_01a1c787-6b92-7123-b7a5-30104776fe7d.jsonl","sessionId":"01a1c787-6b92-7123-b7a5-30104776fe7d","messageCount":0}}
+{"id":"p1","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"system","content":""}}
+{"type":"message_end","message":{"role":"system","content":""}}
+{"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"Run `ls` with your bash tool, then reply with one short sentence."}]}}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"Run `ls` with your bash tool, then reply with one short sentence."}]}}
+{"type":"message_start","message":{"role":"assistant","content":[],"model":"MiniMax-M2.7","stopReason":"pending"}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_start","contentIndex":0,"id":"call_ba76f0adae67eff001863e80","toolName":"bash"}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_delta","contentIndex":0,"delta":""}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_delta","contentIndex":0,"delta":"{\"command\": \"ls\"}"}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_end","contentIndex":0,"toolCall":{"type":"toolCall","id":"call_ba76f0adae67eff001863e80","name":"bash","arguments":{"command":"ls"}}}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"toolCall","id":"call_ba76f0adae67eff001863e80","name":"bash","arguments":{"command":"ls"}}],"model":"MiniMax-M2.7","stopReason":"toolUse"}}
+{"type":"tool_execution_start","toolCallId":"call_ba76f0adae67eff001863e80","toolName":"bash","args":{"command":"ls"}}
+{"type":"tool_execution_update","toolCallId":"call_ba76f0adae67eff001863e80","toolName":"bash","args":{"command":"ls"},"partialResult":{"content":[]}}
+{"type":"tool_execution_update","toolCallId":"call_ba76f0adae67eff001863e80","toolName":"bash","args":{"command":"ls"},"partialResult":{"content":[{"type":"text","text":"dummy.txt\n"}]}}
+{"type":"tool_execution_end","toolCallId":"call_ba76f0adae67eff001863e80","toolName":"bash","result":{"content":[{"type":"text","text":"dummy.txt\n"}]},"isError":false}
+{"type":"message_start","message":{"role":"toolResult","toolCallId":"call_ba76f0adae67eff001863e80","toolName":"bash","content":[{"type":"text","text":"dummy.txt\n"}],"isError":false}}
+{"type":"message_end","message":{"role":"toolResult","toolCallId":"call_ba76f0adae67eff001863e80","toolName":"bash","content":[{"type":"text","text":"dummy.txt\n"}],"isError":false}}
+{"type":"turn_end","toolResults":[]}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"assistant","content":[],"model":"MiniMax-M2.7","stopReason":"pending"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_start","contentIndex":0}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"The directory contain"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"s one fi"}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"le, `dummy.txt`."}}
+{"type":"message_update","assistantMessageEvent":{"type":"text_end","contentIndex":0,"content":"The directory contains one file, `dummy.txt`."}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"The directory contains one file, `dummy.txt`."}],"model":"MiniMax-M2.7","stopReason":"stop"}}
+{"type":"turn_end","toolResults":[]}
+{"type":"agent_end","messages":[],"willRetry":false}
+{"type":"agent_settled"}
+{"id":"s2","type":"response","command":"get_state","success":true,"data":{"model":{"id":"MiniMax-M2.7","name":"MiniMax-M2.7","provider":"minimax"},"isStreaming":false,"sessionFile":"/home/user/.pi/agent/sessions/--private-tmp-pi-probe--/2026-11-10T22-15-03-314Z_01a1c787-6b92-7123-b7a5-30104776fe7d.jsonl","sessionId":"01a1c787-6b92-7123-b7a5-30104776fe7d","messageCount":5}}
+{"id":"m1","type":"response","command":"get_messages","success":true,"data":{"messages":[{"role":"system","content":""},{"role":"user","content":[{"type":"text","text":"Run `ls` with your bash tool, then reply with one short sentence."}]},{"role":"assistant","content":[{"type":"toolCall","id":"call_ba76f0adae67eff001863e80","name":"bash","arguments":{"command":"ls"}}],"model":"MiniMax-M2.7","stopReason":"toolUse"},{"role":"toolResult","toolCallId":"call_ba76f0adae67eff001863e80","toolName":"bash","content":[{"type":"text","text":"dummy.txt\n"}],"isError":false},{"role":"assistant","content":[{"type":"text","text":"The directory contains one file, `dummy.txt`."}],"model":"MiniMax-M2.7","stopReason":"stop"}]}}

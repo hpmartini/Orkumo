@@ -144,6 +144,24 @@ describe('listOmpSessions', () => {
     expect(finished).toMatchObject({ pid: null, state: 'done', displayState: 'completed' });
   });
 
+  it('points a session a Chat pane runs at that chat, not at "another terminal"', async () => {
+    const rows = await listOmpSessions({
+      sessionsDir: dir,
+      now,
+      running: new Map([[files[ELSEWHERE], 17119]]),
+      chats: new Map([
+        [ELSEWHERE, 'chat-1'],
+        [FINISHED, 'chat-2'],
+      ]),
+    });
+    expect(rows.find((r) => r.sessionId === ELSEWHERE)).toMatchObject({
+      paneId: 'chat-1',
+      detail: 'running in Orkumo',
+    });
+    // a chat id alone does not make a finished session running
+    expect(rows.find((r) => r.sessionId === FINISHED)).toMatchObject({ pid: null, paneId: null });
+  });
+
   it('is empty without an omp install', async () => {
     expect(
       await listOmpSessions({ sessionsDir: path.join(dir, 'missing'), running: new Map() })
