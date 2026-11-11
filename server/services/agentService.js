@@ -8,6 +8,7 @@
  *   ~/.claude/jobs/<id>/order        manual sort position (Shift+Up/Down in the TUI)
  *   ~/.claude/jobs/pins.json         array of pinned session ids (Ctrl+T in the TUI)
  *   ~/.claude/projects/<slug>/*.jsonl transcripts (used for peek fallback and /resume picker)
+ *   ~/.claude/sessions/<pid>.json    registry of running sessions (Claude app sessions, see appSessions.js)
  *
  * All CLI calls use execFile/spawn with argument arrays - never a shell - so prompts and
  * session ids are passed verbatim without any injection surface.
@@ -20,6 +21,16 @@ import path from 'path';
 import { EventEmitter } from 'events';
 import * as nodePty from 'node-pty';
 import { getConfig } from './configService.js';
+import { readBridgeEntry, appSessionUrl, fetchAppSessionInfo } from './appSessions.js';
+import {
+  listOmpSessions,
+  findOmpSessionFile,
+  readOmpTranscriptTail,
+  stopOmpSession,
+  removeOmpSession,
+  OMP_SESSION_ID_RE,
+} from './ompSessions.js';
+import { getAllPtySessions } from './ptyService.js';
 
 /**
  * When the API runs inside Docker the `claude` binary on the host cannot be
@@ -120,6 +131,7 @@ const JOBS_DIR = path.join(CLAUDE_HOME, 'jobs');
 const PINS_FILE = path.join(JOBS_DIR, 'pins.json');
 const PROJECTS_DIR = path.join(CLAUDE_HOME, 'projects');
 const USER_SETTINGS_FILE = path.join(CLAUDE_HOME, 'settings.json');
+const SESSIONS_DIR = path.join(CLAUDE_HOME, 'sessions');
 
 /** Short session id as printed by `claude --bg` (also used for route validation). */
 export const SHORT_ID_RE = /^[a-z0-9][a-z0-9-]{0,63}$/i;
@@ -376,6 +388,13 @@ function isTurnActive(session, jobState) {
 export function deriveDisplayState(session, jobState = null) {
   if (!session) return 'idle';
   if (session.kind === 'interactive') return 'interactive';
+  // A Claude app session: the local process knows busy/idle, claude.ai whether it waits for an answer
+  if (session.kind === 'app') {
+    if (session.status === 'busy') return 'working';
+    return session.waitingFor || session.app?.statusCategory === 'need_input'
+      ? 'needs-input'
+      : 'idle';
+  }
   if (session.loop && session.state === 'working' && session.tempo === 'idle') return 'loop';
   switch (session.state) {
     case 'working':
@@ -618,7 +637,100 @@ export function sanitizeDispatchOptions(opts, context) {
 // ---------------------------------------------------------------------------
 
 /**
- * List sessions via `claude agents --json` and enrich background sessions with state.json data.
+ * First typed prompt of a transcript head as a one-line title: skips meta records, compaction
+ * summaries, tool results and notifications; a slash command keeps its name and arguments.
+ */
+export function firstPromptTitle(head) {
+  for (const line of head.split('\n')) {
+    let record;
+    try {
+      record = JSON.parse(line);
+    } catch {
+      continue;
+    }
+    if (record?.type !== 'user' || record.isMeta || record.isCompactSummary || !record.message)
+      continue;
+    const content = record.message.content;
+    if (Array.isArray(content) && !content.some((block) => block?.type === 'text')) continue;
+    let text = contentToText(content);
+    const command = text.match(/<command-name>([^<]*)<\/command-name>/);
+    if (command) {
+      const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1] ?? '';
+      text = `${command[1]} ${args}`;
+    }
+    if (/^\s*<(task-notification|local-command)/.test(text)) continue;
+    text = text.replace(/\s+/g, ' ').trim();
+    if (text) return text.length > 120 ? `${text.slice(0, 119)}…` : text;
+  }
+  return null;
+}
+
+// The first prompt never changes: read each transcript head once
+const promptTitles = new Map();
+
+async function transcriptTitle(cwd, sessionId) {
+  if (!cwd || !sessionId) return null;
+  if (promptTitles.has(sessionId)) return promptTitles.get(sessionId);
+  const file = path.join(PROJECTS_DIR, projectSlug(cwd), `${sessionId}.jsonl`);
+  const title = await readHead(file, 256 * 1024)
+    .then(firstPromptTitle)
+    .catch(() => null);
+  if (title) promptTitles.set(sessionId, title);
+  return title;
+}
+
+/**
+ * A session started in the Claude app (iOS, Android, web) and running here via Remote Control:
+ * claude.ai's title, origin and turn status instead of the CLI's `claude-<xx>` name. null for
+ * every other interactive session.
+ */
+async function toAppSession(entry) {
+  const bridge = await readBridgeEntry(SESSIONS_DIR, entry.pid);
+  if (!bridge) return null;
+  const info = await fetchAppSessionInfo(bridge.bridgeSessionId, { claudeDir: CLAUDE_HOME });
+  const sessionId = entry.sessionId || bridge.sessionId;
+  const cwd = entry.cwd || bridge.cwd || '';
+  const session = {
+    id: `interactive-${entry.pid}`,
+    sessionId,
+    kind: 'app',
+    cwd,
+    startedAt: entry.startedAt,
+    name: info?.title || (await transcriptTitle(cwd, sessionId)) || entry.name || 'Claude App',
+    status: entry.status || null,
+    pid: entry.pid,
+    state: null,
+    waitingFor: entry.waitingFor || null,
+    detail: info?.statusDetail || 'started in the Claude app',
+    pinned: false,
+    order: null,
+    links: [],
+    app: {
+      url: appSessionUrl(bridge.bridgeSessionId),
+      origin: info?.origin || null,
+      statusCategory: info?.statusCategory || null,
+    },
+  };
+  session.displayState = deriveDisplayState(session);
+  return session;
+}
+
+/**
+ * pid → client pane id of the agent panes this server runs (PTY ids are `agent-<pane>-<ts>`),
+ * so a harness session started here is matched to the pane that runs it
+ */
+function agentPanes() {
+  const panes = new Map();
+  for (const { id, pid } of getAllPtySessions()) {
+    const match = /^agent-(.+)-\d+$/.exec(id);
+    if (match && pid) panes.set(pid, match[1]);
+  }
+  return panes;
+}
+
+/**
+ * List sessions via `claude agents --json` and enrich background sessions with state.json data,
+ * plus Oh My Pi sessions from omp's session store (#195).
  * @param {{cwd?: string, all?: boolean}} options
  * @returns {Promise<object[]>}
  */
@@ -644,6 +756,8 @@ export async function listSessions(options = {}) {
   const sessions = await Promise.all(
     raw.map(async (entry) => {
       if (entry.kind !== 'background' || !entry.id) {
+        const appSession = await toAppSession(entry);
+        if (appSession) return appSession;
         return {
           id: `interactive-${entry.pid || entry.sessionId || Math.random().toString(36).slice(2)}`,
           sessionId: entry.sessionId || null,
@@ -713,7 +827,15 @@ export async function listSessions(options = {}) {
       return session;
     })
   );
-  return sessions;
+  // Dynamic import: chatService imports this module; a Chat pane holds its omp session like a pane
+  const { listChats } = await import('./chatService.js');
+  const chats = new Map(listChats().flatMap((c) => (c.sessionId ? [[c.sessionId, c.id]] : [])));
+  const omp = await listOmpSessions({ panes: agentPanes(), chats }).catch(() => []);
+  const scope = options.cwd ? path.resolve(options.cwd) : null;
+  return [
+    ...sessions,
+    ...omp.filter((s) => !scope || s.cwd === scope || s.cwd.startsWith(scope + path.sep)),
+  ];
 }
 
 /**
@@ -784,6 +906,24 @@ export async function dispatch(opts = {}, context = {}) {
  */
 export async function getLogs(id, options = {}) {
   jobDir(id);
+  // An Oh My Pi session (#195): its own session file
+  if (id.startsWith('omp-') && OMP_SESSION_ID_RE.test(id.slice(4))) {
+    const file = await findOmpSessionFile(id.slice(4));
+    if (!file) throw new Error('Oh My Pi session not found');
+    const entries = await readOmpTranscriptTail(file, options.lines || 40);
+    return { source: 'transcript', text: transcriptText(entries), entries, note: null };
+  }
+  // `claude logs` only knows jobs; a Claude app session's transcript is local
+  const appPid = /^interactive-(\d+)$/.exec(id)?.[1];
+  if (appPid) {
+    const bridge = await readBridgeEntry(SESSIONS_DIR, Number(appPid));
+    if (!bridge?.sessionId || !bridge.cwd) throw new Error('Not a Claude app session');
+    const file = path.join(PROJECTS_DIR, projectSlug(bridge.cwd), `${bridge.sessionId}.jsonl`);
+    const { entries } = fs.existsSync(file)
+      ? await readTranscriptTail(file, options.lines || 40)
+      : { entries: [] };
+    return { source: 'transcript', text: transcriptText(entries), entries, note: null };
+  }
   const result = await runClaude(['logs', id], { timeout: 15000 });
   const failed =
     result.code !== 0 ||
@@ -794,11 +934,14 @@ export async function getLogs(id, options = {}) {
   const transcript = await getTranscriptTail(id, options.lines || 40);
   return {
     source: 'transcript',
-    text: transcript.entries.map((e) => `${e.role === 'user' ? '❯' : '●'} ${e.text}`).join('\n\n'),
+    text: transcriptText(transcript.entries),
     entries: transcript.entries,
     note: (result.stdout + result.stderr).trim() || null,
   };
 }
+
+const transcriptText = (entries) =>
+  entries.map((e) => `${e.role === 'user' ? '❯' : '●'} ${e.text}`).join('\n\n');
 
 /**
  * Last N user/assistant messages from a session transcript.
@@ -813,6 +956,10 @@ export async function getTranscriptTail(id, limit = 40) {
     }
   }
   if (!file) return { entries: [] };
+  return readTranscriptTail(file, limit);
+}
+
+async function readTranscriptTail(file, limit) {
   const stat = await fsp.stat(file);
   const readSize = Math.min(stat.size, 512 * 1024);
   const handle = await fsp.open(file, 'r');
@@ -848,6 +995,11 @@ export async function getTranscriptTail(id, limit = 40) {
 
 export async function stopSession(id) {
   jobDir(id);
+  if (id.startsWith('omp-') && OMP_SESSION_ID_RE.test(id.slice(4))) {
+    const { stopped } = await stopOmpSession(id.slice(4));
+    triggerRefresh();
+    return { output: stopped ? `omp (PID ${stopped}) stopped` : 'Not running' };
+  }
   const result = await runClaude(['stop', id], { timeout: 20000 });
   if (result.code !== 0)
     throw new Error(result.stderr.trim() || result.stdout.trim() || 'Stop failed');
@@ -867,9 +1019,18 @@ export async function respawnSession(id) {
 
 /**
  * Delete a session (`claude rm`). Returns hints when the CLI refuses (unpushed commits etc.).
+ * An Oh My Pi session (#195) is deleted from omp's session store, its process ended first.
  */
 export async function removeSession(id, options = {}) {
   jobDir(id);
+  if (id.startsWith('omp-') && OMP_SESSION_ID_RE.test(id.slice(4))) {
+    const { stopped } = await removeOmpSession(id.slice(4));
+    triggerRefresh();
+    return {
+      removed: true,
+      message: stopped ? `omp (PID ${stopped}) stopped, deleted` : 'Deleted',
+    };
+  }
   const args = ['rm', id];
   if (options.discardUnpushed) args.push('--discard-unpushed', String(options.discardUnpushed));
   if (options.forceRemoveWorktree)

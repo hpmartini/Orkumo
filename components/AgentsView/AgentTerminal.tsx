@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { Terminal as XTerm } from '@xterm/xterm';
+import React, { useEffect, useRef, useState, useCallback, useReducer } from 'react';
+import { Terminal as XTerm, type ITerminalOptions } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ImageAddon } from '@xterm/addon-image';
 import { openLink } from '../../utils/links';
 import { createFileLinkProvider, type FilePathMatch } from '../../utils/fileLinks';
 import '@xterm/xterm/css/xterm.css';
@@ -96,6 +97,92 @@ async function openFile(match: FilePathMatch, cwd: string) {
 }
 
 /**
+ * A pane's terminal and PTY connection outlive its component: splitting or unsplitting a tab
+ * remounts the pane, and a new PTY would end the process behind it (an omp or shell pane has
+ * nothing to reattach to, #195). An unmounted pane is released only if no mount takes it back.
+ */
+interface PaneTerminal {
+  terminal: XTerm;
+  fit: FitAddon;
+  ws: WebSocket | null;
+  connected: boolean;
+  exited: boolean;
+  /** re-renders the mounted pane after `connected` / `exited` changed */
+  rerender: (() => void) | null;
+  /** pending release of an unmounted pane */
+  release?: number;
+  // latest props, read by the handlers bound once at creation
+  onClose: () => void;
+  onOpenLink?: (url: string) => void;
+  cwd: string;
+}
+const paneTerminals = new Map<string, PaneTerminal>();
+const RELEASE_MS = 2000;
+
+const sendTo = (pane: PaneTerminal | undefined, message: object) => {
+  if (pane?.ws?.readyState === WebSocket.OPEN) pane.ws.send(JSON.stringify(message));
+};
+
+function createPaneTerminal(
+  container: HTMLElement,
+  options: ITerminalOptions,
+  props: Pick<PaneTerminal, 'onClose' | 'onOpenLink' | 'cwd'>
+): PaneTerminal {
+  // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140). Shared by
+  // plain-text URLs (WebLinksAddon) and OSC 8 hyperlinks, which xterm otherwise opens through
+  // its own confirm() + window.open, a dead end in the desktop app
+  const activateLink = (event: MouseEvent, uri: string) => {
+    if (!(event.metaKey || event.ctrlKey)) return;
+    const open = pane.onOpenLink;
+    // after xterm's own mouseup handling: opening the split remounts this pane
+    setTimeout(() => openLink(uri, open));
+  };
+  const terminal = new XTerm({
+    ...options,
+    scrollback: 5000,
+    allowProposedApi: true,
+    linkHandler: { activate: activateLink },
+  });
+  const fit = new FitAddon();
+  const pane: PaneTerminal = {
+    terminal,
+    fit,
+    ws: null,
+    connected: false,
+    exited: false,
+    rerender: null,
+    ...props,
+  };
+  terminal.loadAddon(fit);
+  terminal.loadAddon(new WebLinksAddon(activateLink));
+  // Inline images (SIXEL, iTerm2 protocol); DA1 / XTSMGRAPHICS answers let TUIs detect SIXEL
+  terminal.loadAddon(new ImageAddon());
+  terminal.registerLinkProvider(
+    createFileLinkProvider(terminal, (event, match) => {
+      if (!(event.metaKey || event.ctrlKey)) return;
+      void openFile(match, pane.cwd);
+    })
+  );
+  terminal.open(container);
+  try {
+    fit.fit();
+  } catch {
+    // container not laid out yet
+  }
+  const input = (data: string) => sendTo(pane, { type: 'input', data });
+  terminal.onData(input);
+  terminal.onResize(({ cols, rows }) => sendTo(pane, { type: 'resize', cols, rows }));
+  attachTerminalKeys(
+    terminal,
+    input,
+    () => pane.onClose(),
+    // F6 moves focus back to the rail (handled at document level)
+    (event) => event.key !== 'F6'
+  );
+  return pane;
+}
+
+/**
  * A terminal pane attached to a background Claude Code session (`claude attach <id>`).
  * The xterm instance lives for the whole lifetime of the pane; the WebSocket/PTY can be
  * re-established with "Reattach" after the CLI detached (Ctrl+Z / ← / session end).
@@ -116,119 +203,87 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   onOpenAsChat,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
-  const terminalRef = useRef<XTerm | null>(null);
-  const fitRef = useRef<FitAddon | null>(null);
-  const wsRef = useRef<WebSocket | null>(null);
-  const [connected, setConnected] = useState(false);
-  const [exited, setExited] = useState(false);
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
+  const pane = paneTerminals.get(session.id);
+  const connected = pane?.connected ?? false;
+  const exited = pane?.exited ?? false;
+  if (pane) {
+    // Cmd+W, links and file paths are bound once at creation: they act through the latest props
+    pane.onClose = onClose;
+    pane.onOpenLink = onOpenLink;
+    pane.cwd = session.cwd;
+  }
   const [narrow, setNarrow] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [generation, setGeneration] = useState(0);
-  // Cmd+W is bound once at terminal creation; close through the latest prop
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  const onOpenLinkRef = useRef(onOpenLink);
-  onOpenLinkRef.current = onOpenLink;
-  // the provider is registered once; cwd is stable per pane but read through a ref like the other props
-  const cwdRef = useRef(session.cwd);
-  cwdRef.current = session.cwd;
   const shell = shellCwd(session.id) !== null;
   const ghostty = useGhosttyTheme();
   const options = withGhostty(DEFAULT_TERMINAL_OPTIONS, ghostty);
   const optionsRef = useRef(options);
   optionsRef.current = options;
 
-  const sendInput = useCallback((data: string) => {
-    const ws = wsRef.current;
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'input', data }));
-    }
-  }, []);
+  const sendInput = useCallback(
+    (data: string) => sendTo(paneTerminals.get(session.id), { type: 'input', data }),
+    [session.id]
+  );
 
   // Fit, then tell the PTY the real size even if xterm saw no change: the pty is opened
   // with the size from before layout, and a TUI only redraws after a resize.
   const syncSize = useCallback(() => {
-    const terminal = terminalRef.current;
+    const current = paneTerminals.get(session.id);
+    if (!current) return;
     try {
-      fitRef.current?.fit();
+      current.fit.fit();
     } catch {
       return;
     }
-    const ws = wsRef.current;
-    if (terminal && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: 'resize', cols: terminal.cols, rows: terminal.rows }));
-    }
-  }, []);
+    const { cols, rows } = current.terminal;
+    sendTo(current, { type: 'resize', cols, rows });
+  }, [session.id]);
 
-  // Create the xterm instance once
+  // Create the pane's terminal, or take back the one a remount left behind
   useEffect(() => {
     const container = containerRef.current;
-    if (!container || terminalRef.current) return;
-    const terminal = new XTerm({
-      ...optionsRef.current,
-      scrollback: 5000,
-      allowProposedApi: true,
-    });
-    const fitAddon = new FitAddon();
-    terminal.loadAddon(fitAddon);
-    terminal.loadAddon(
-      new WebLinksAddon((event, uri) => {
-        // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140)
-        if (!(event.metaKey || event.ctrlKey)) return;
-        const open = onOpenLinkRef.current;
-        // after xterm's own mouseup handling: opening the split remounts this terminal
-        setTimeout(() => openLink(uri, open));
-      })
-    );
-    terminal.registerLinkProvider(
-      createFileLinkProvider(terminal, (event, match) => {
-        if (!(event.metaKey || event.ctrlKey)) return;
-        void openFile(match, cwdRef.current);
-      })
-    );
-    terminal.open(container);
-    try {
-      fitAddon.fit();
-    } catch {
-      // container not laid out yet
+    if (!container) return;
+    let current = paneTerminals.get(session.id);
+    if (current?.terminal.element) {
+      window.clearTimeout(current.release);
+      container.appendChild(current.terminal.element);
+    } else {
+      current = createPaneTerminal(container, optionsRef.current, {
+        onClose,
+        onOpenLink,
+        cwd: session.cwd,
+      });
+      paneTerminals.set(session.id, current);
     }
-    terminal.onData((data) => sendInput(data));
-    terminal.onResize(({ cols, rows }) => {
-      const ws = wsRef.current;
-      if (ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: 'resize', cols, rows }));
-      }
-    });
-    attachTerminalKeys(
-      terminal,
-      sendInput,
-      () => onCloseRef.current(),
-      // F6 moves focus back to the rail (handled at document level)
-      (event) => event.key !== 'F6'
-    );
-    terminalRef.current = terminal;
-    fitRef.current = fitAddon;
-
+    current.rerender = rerender;
+    rerender();
+    const id = session.id;
+    const held = current;
     return () => {
-      wsRef.current?.close();
-      wsRef.current = null;
-      terminal.dispose();
-      terminalRef.current = null;
-      fitRef.current = null;
+      held.rerender = null;
+      held.release = window.setTimeout(() => {
+        held.ws?.close();
+        held.terminal.dispose();
+        if (paneTerminals.get(id) === held) paneTerminals.delete(id);
+      }, RELEASE_MS);
     };
-  }, [sendInput]);
+    // created once per pane; the props it reads are refreshed on every render above
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
 
   // The Ghostty config may arrive after the terminal was created
   useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal || !ghostty) return;
-    Object.assign(terminal.options, optionsRef.current);
+    const current = paneTerminals.get(session.id);
+    if (!current || !ghostty) return;
+    Object.assign(current.terminal.options, optionsRef.current);
     try {
-      fitRef.current?.fit();
+      current.fit.fit();
     } catch {
       // ignore
     }
-  }, [ghostty]);
+  }, [ghostty, session.id]);
 
   const openInGhostty = useCallback(async () => {
     try {
@@ -245,13 +300,19 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
 
   // (Re)connect the PTY whenever generation changes
   useEffect(() => {
-    const terminal = terminalRef.current;
-    if (!terminal) return;
-    wsRef.current?.close();
-    setExited(false);
-    setConnected(false);
+    const current = paneTerminals.get(session.id);
+    if (!current) return;
+    // A remounted pane (split, unsplit) keeps its connection and the process behind it
+    if (generation === 0 && current.ws) return;
+    const { terminal } = current;
+    const update = (state: Partial<Pick<PaneTerminal, 'connected' | 'exited'>>) => {
+      Object.assign(current, state);
+      current.rerender?.();
+    };
+    current.ws?.close();
+    update({ connected: false, exited: false });
     try {
-      fitRef.current?.fit();
+      current.fit.fit();
     } catch {
       // ignore
     }
@@ -266,11 +327,11 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           session.ptyCommand
         );
     const ws = new WebSocket(url);
-    wsRef.current = ws;
+    current.ws = ws;
     if (generation > 0) terminal.reset();
 
     ws.onopen = () => {
-      setConnected(true);
+      update({ connected: true });
       syncSize();
     };
     ws.onmessage = (event) => {
@@ -300,12 +361,11 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
             terminal.write(
               `\r\n\x1b[2m# ${shell ? 'shell exited' : 'detached'} (exit code ${data.exitCode})\x1b[0m\r\n`
             );
-            setExited(true);
-            setConnected(false);
+            update({ connected: false, exited: true });
             break;
           case 'error':
             terminal.write(`\x1b[31m${data.message}\x1b[0m\r\n`);
-            setExited(true);
+            update({ exited: true });
             break;
         }
       } catch {
@@ -313,16 +373,12 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
       }
     };
     ws.onclose = () => {
-      // a superseded socket (StrictMode remount, Reattach) must not flag the live one as detached
-      if (wsRef.current !== ws) return;
-      setConnected(false);
-      setExited(true);
+      // a superseded socket (Reattach) must not flag the live one as detached
+      if (current.ws !== ws) return;
+      update({ connected: false, exited: true });
     };
     ws.onerror = () => terminal.write('\x1b[31mWebSocket connection error\x1b[0m\r\n');
-
-    return () => {
-      ws.close();
-    };
+    // no cleanup: the socket belongs to the pane terminal, released with it
     // session.id / cwd are stable for the pane lifetime
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [generation, session.id]);
@@ -351,11 +407,12 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     if (visible) {
       const id = requestAnimationFrame(() => {
         syncSize();
-        if (active && !document.querySelector('[aria-modal="true"]')) terminalRef.current?.focus();
+        if (active && !document.querySelector('[aria-modal="true"]'))
+          paneTerminals.get(session.id)?.terminal.focus();
       });
       return () => cancelAnimationFrame(id);
     }
-  }, [visible, active, syncSize]);
+  }, [visible, active, syncSize, session.id]);
 
   const glyph = stateGlyph(session.displayState);
   const reconnect = () => setGeneration((g) => g + 1);

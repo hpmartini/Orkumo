@@ -11,6 +11,7 @@ import {
   Kanban,
   MoreHorizontal,
   Pin,
+  Smartphone,
   SquareTerminal,
   Star,
   Timer,
@@ -44,6 +45,7 @@ import {
   workflowIssue,
   sessionHarness,
   harnessLabel,
+  appOriginLabel,
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
@@ -128,6 +130,8 @@ interface AgentListProps {
   favoriteSessionIds?: Set<string>;
   /** Rows whose details (PRs, issues, servers) are open */
   expandedSessionIds?: Set<string>;
+  /** The card's details button: opens / closes its details (they stay open until closed) */
+  onToggleDetails?: (id: string) => void;
   onToggleFavoriteGroup?: (key: string) => void;
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
@@ -229,6 +233,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   favoriteGroupKeys,
   favoriteSessionIds,
   expandedSessionIds,
+  onToggleDetails,
   onToggleFavoriteGroup,
   onToggleFavoriteSession,
   onMoveGroup,
@@ -776,12 +781,22 @@ export const AgentList: React.FC<AgentListProps> = ({
                   const extra =
                     session.state === 'blocked' && session.waitingFor
                       ? `waiting: ${session.waitingFor}`
-                      : session.state === 'working'
+                      : session.state === 'working' || session.kind === 'app'
                         ? session.detail
                         : null;
                   const harness = sessionHarness(session);
+                  const appOrigin = appOriginLabel(session);
                   const nodes: Record<AgentCardElement, React.ReactNode> = {
-                    harness: (
+                    harness: appOrigin ? (
+                      <span
+                        className="shrink-0 flex items-center gap-0.5 leading-4 px-1 rounded border text-[10px] font-medium border-violet-400/60 text-violet-200"
+                        title={`Started in the Claude app (${appOrigin}), runs on this machine. Opens on claude.ai`}
+                        aria-label={`Claude app session from ${appOrigin}`}
+                      >
+                        <Smartphone size={9} aria-hidden />
+                        {appOrigin}
+                      </span>
+                    ) : (
                       <span
                         className={`shrink-0 leading-4 px-1 rounded border text-[10px] font-medium ${HARNESS_BADGE[harness]}`}
                         title={`Runs with ${harnessLabel(harness)}`}
@@ -1076,6 +1091,28 @@ export const AgentList: React.FC<AgentListProps> = ({
                             );
                           })}
                         </div>
+                        {hasDetails && cardDetails !== 'always' && onToggleDetails && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleDetails(session.id);
+                            }}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            aria-expanded={expanded}
+                            aria-label={pinned ? 'Hide details' : 'Show details'}
+                            title={pinned ? 'Hide details' : 'Show details (PRs, issues, servers)'}
+                            className={`p-1 rounded hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
+                              pinned ? 'text-blue-300' : 'text-gray-500'
+                            }`}
+                          >
+                            <ChevronDown
+                              size={13}
+                              aria-hidden
+                              className={`transition-transform motion-reduce:transition-none ${pinned ? 'rotate-180' : ''}`}
+                            />
+                          </button>
+                        )}
                         {onToggleFavoriteSession && (
                           <FavoriteButton
                             active={isFav}

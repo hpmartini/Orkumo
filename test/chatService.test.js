@@ -8,8 +8,6 @@ vi.mock('node-pty', () => ({ spawn: vi.fn() }));
 
 const {
   sanitizeChatOptions,
-  buildChatArgs,
-  parseLine,
   startChat,
   sendMessage,
   answerPermission,
@@ -17,10 +15,10 @@ const {
   stopChat,
   watchChat,
   listChats,
-  historyEvents,
-  loadHistory,
   viewAgent,
 } = await import('../server/services/chatService.js');
+const { buildChatArgs, parseLine, historyEvents, loadHistory } =
+  await import('../server/services/chatDrivers/claude.js');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-test-'));
 const project = path.join(root, 'project');
@@ -59,9 +57,20 @@ const status = (fn) => {
 describe('chatService - start validation (AC-3)', () => {
   it('accepts a project directory and returns the real path', () => {
     expect(sanitizeChatOptions({ cwd: project, permissionMode: 'manual' }, ctx)).toEqual({
+      harness: 'claude',
       cwd: fs.realpathSync(project),
       permissionMode: 'manual',
     });
+  });
+
+  it('validates the resume id with the harness’s own id format', () => {
+    const omp = '01a1c780-3d66-7712-a6ff-eddf7a45c408';
+    expect(sanitizeChatOptions({ harness: 'omp', cwd: project, resume: omp }, ctx).resume).toBe(
+      omp
+    );
+    expect(
+      status(() => sanitizeChatOptions({ harness: 'omp', cwd: project, resume: '-r' }, ctx))
+    ).toBe(400);
   });
 
   it.each([
@@ -84,6 +93,13 @@ describe('chatService - start validation (AC-3)', () => {
       },
     ],
     ['newline in name', { cwd: project, name: 'a\nb' }],
+    ['unknown harness', { cwd: project, harness: 'bash' }],
+    ['a Claude model for another harness', { cwd: project, harness: 'omp', model: 'opus' }],
+    [
+      'a permission mode for another harness',
+      { cwd: project, harness: 'pi', permissionMode: 'plan' },
+    ],
+    ['continue for another harness', { cwd: project, harness: 'codex', continue: true }],
   ])('rejects %s with 400 and spawns nothing', (_label, opts) => {
     const { spawn } = fakeSpawn();
     expect(status(() => startChat(opts, { ...ctx, spawn, bin: '/bin/claude' }))).toBe(400);
@@ -100,6 +116,25 @@ describe('chatService - start validation (AC-3)', () => {
       sanitizeChatOptions({ cwd: project, skipPermissions: true }, { ...ctx, unsafeAllowed: true })
         .skipPermissions
     ).toBe(true);
+  });
+});
+
+describe('claude driver - attached images', () => {
+  it('sends them as base64 image blocks after the text, like a pasted image', async () => {
+    const { startDriver } = await import('../server/services/chatDrivers/claude.js');
+    const { spawn, calls } = fakeSpawn();
+    const driver = startDriver(
+      { cwd: project },
+      { bin: '/bin/claude', spawn, emit() {}, exit() {} }
+    );
+    driver.send('what is this?', [{ path: '/d/a.png', mimeType: 'image/png', data: 'iVBO' }]);
+    expect(calls[0].proc.written.at(-1).message.content).toEqual([
+      { type: 'text', text: 'what is this?' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBO' } },
+    ]);
+    driver.send('plain');
+    expect(calls[0].proc.written.at(-1).message.content).toBe('plain');
+    driver.stop();
   });
 });
 
@@ -310,6 +345,21 @@ describe('history of a resumed chat', () => {
     expect(historyEvents(lines)[0]).toMatchObject({ text: 'fix the bug', history: true });
   });
 
+  it('shows a prompt typed while the agent worked (queued command), not task notifications', () => {
+    const queued = (prompt, commandMode) => ({
+      type: 'attachment',
+      attachment: { type: 'queued_command', prompt, commandMode },
+    });
+    expect(
+      historyEvents(
+        [
+          queued('danach Releases bereitstellen', 'prompt'),
+          queued('<task-notification>done</task-notification>', 'task-notification'),
+        ].map((r) => JSON.stringify(r))
+      )
+    ).toEqual([{ type: 'devorbit_user', text: 'danach Releases bereitstellen', history: true }]);
+  });
+
   it('finds the transcript in the cwd project folder or any other one', () => {
     const projects = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-projects-'));
     fs.mkdirSync(path.join(projects, '-elsewhere'));
@@ -386,7 +436,7 @@ describe('chatService - built-ins before the first answer', () => {
     emit(proc, {
       type: 'control_response',
       response: {
-        request_id: `init-${first.id}`,
+        request_id: proc.written[0].request_id,
         response: { commands: [{ name: 'context', builtin: true }, { name: 'my-skill' }] },
       },
     });

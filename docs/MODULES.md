@@ -121,9 +121,9 @@ Modules with `ui` but without `mode` or `slot` render in the shell's module slot
 
 ### Slots
 
-| `slot`        | Place                                                                                               |
-| :------------ | :-------------------------------------------------------------------------------------------------- |
-| `agents-rail` | agents header, right after the mode switcher (the "Agents" label); inline, keep it one control high |
+| `slot`        | Place                                                                                   |
+| :------------ | :-------------------------------------------------------------------------------------- |
+| `agents-rail` | agents header, right after the [New task \| ⌄] button; inline, keep it one control high |
 
 A slot UI gets the same `mount(el, host)` contract with `active: true`. Without a module with that slot nothing renders there.
 

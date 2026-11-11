@@ -3,6 +3,7 @@
  */
 import { API_BASE_URL } from '../utils/apiConfig';
 import { agentApiUrl, getAgentTarget, pinTarget, targetOf } from '../utils/agentTarget';
+import { fitImage } from '../utils/imageFit';
 import type {
   AgentsResponse,
   AgentDispatchRequest,
@@ -21,6 +22,7 @@ import type {
   AgentOrphanServer,
   AgentServerStats,
   AgentCacheInfo,
+  AgentHarness,
 } from '../types';
 import type { UsageLimits } from '../components/UsageView/types';
 
@@ -126,12 +128,13 @@ export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatch
   }).then((result) => pinAll([result], target)[0]);
 }
 
-/** Stores an image on the server for a prompt; returns its local path (#105) */
+/** Stores an image for a prompt and returns its server path; large images are scaled down first */
 export async function uploadAgentImage(file: Blob): Promise<string> {
+  const image = await fitImage(file);
   const data = await request<{ path: string }>('/agents/images', {
     method: 'POST',
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
-    body: file,
+    headers: { 'Content-Type': image.type || 'application/octet-stream' },
+    body: image,
   });
   return data.path;
 }
@@ -333,11 +336,12 @@ export function subscribeToAgents(handlers: {
 }
 
 // ---------------------------------------------------------------------------
-// Chat sessions (#189): `claude -p` in stream-json mode behind the Chat pane
+// Chat sessions (#189): a harness CLI behind the Chat pane (server: chatService.js, chatDrivers/)
 // ---------------------------------------------------------------------------
 
 export interface ChatSummary {
   id: string;
+  harness: AgentHarness;
   cwd: string;
   name: string;
   sessionId: string | null;
@@ -350,7 +354,9 @@ export interface ChatSummary {
   view?: string | null;
 }
 
+/** model, permissionMode, continue and skipPermissions are Claude Code options */
 export interface ChatStartRequest {
+  harness?: AgentHarness;
   cwd: string;
   model?: string | null;
   permissionMode?: string | null;
@@ -416,7 +422,10 @@ export interface ChatStatus {
     ahead: number;
     behind: number;
   } | null;
+  /** Claude Code only: prompt cache (expiry badge) */
   cache: AgentCacheInfo | null;
+  /** Tokens in the context window, for every harness that reports them */
+  context: { tokens: number; window: number } | null;
   limits: UsageLimits | null;
 }
 

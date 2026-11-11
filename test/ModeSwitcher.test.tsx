@@ -25,12 +25,13 @@ const pressed = () =>
   LABELS.filter((label) => button(label).getAttribute('aria-pressed') === 'true');
 
 describe('ModeSwitcher (#184)', () => {
-  it('offers the modes in order: Agents, module modes (Workflows), Board, Pull Requests, Code', () => {
+  it('offers the modes in order: Agents, module modes (Workflows), Board, Issues, Pull Requests, Code', () => {
     renderAt('/agents');
     expect(screen.getAllByRole('button').map((b) => b.getAttribute('title'))).toEqual([
       'Agents',
       'Workflows',
       'Board',
+      'Issues',
       'Pull Requests',
       'Code',
     ]);
@@ -56,6 +57,7 @@ describe('ModeSwitcher (#184)', () => {
     expect(screen.getAllByRole('button').map((b) => b.getAttribute('title'))).toEqual([
       'Agents',
       'Board',
+      'Issues',
       'Pull Requests',
       'Code',
     ]);
@@ -99,6 +101,7 @@ describe('TitleBar (#184)', () => {
       <MemoryRouter>
         <TitleBar
           onOpenDashboard={() => {}}
+          onOpenPalette={() => {}}
           contexts={[]}
           activeId={null}
           onSelect={() => {}}

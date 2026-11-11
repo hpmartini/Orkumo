@@ -2,7 +2,12 @@ import { describe, it, expect } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { imageExt, saveAgentImage, MAX_IMAGE_BYTES } from '../server/services/imageUpload.js';
+import {
+  imageExt,
+  saveAgentImage,
+  promptImages,
+  MAX_IMAGE_BYTES,
+} from '../server/services/imageUpload.js';
 
 const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -44,5 +49,25 @@ describe('imageUpload - saveAgentImage', () => {
     const big = Buffer.concat([PNG, Buffer.alloc(MAX_IMAGE_BYTES)]);
     await expect(saveAgentImage(big, dir)).rejects.toMatchObject({ status: 413 });
     expect(fs.readdirSync(dir)).toHaveLength(1);
+  });
+});
+
+describe('imageUpload - promptImages', () => {
+  it('turns stored images into content and leaves any other [Image:] line as text', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-img-'));
+    const stored = await saveAgentImage(PNG, dir);
+    const outside = path.join(os.tmpdir(), 'secret.png');
+    const { text, images } = promptImages(
+      `look at this\n[Image: ${stored}]\n[Image: ${outside}]\n[Image: ${dir}/../etc.png]`,
+      dir
+    );
+    expect(images).toEqual([{ path: stored, mimeType: 'image/png', data: PNG.toString('base64') }]);
+    expect(text).toBe(`look at this\n[Image: ${outside}]\n[Image: ${dir}/../etc.png]`);
+  });
+
+  it('keeps the line of a stored image that is gone', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'prompt-img-'));
+    const gone = path.join(dir, '0b6f2c1e-1111-4222-8333-944455556666.png');
+    expect(promptImages(`[Image: ${gone}]`, dir)).toEqual({ text: `[Image: ${gone}]`, images: [] });
   });
 });

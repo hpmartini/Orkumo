@@ -1,0 +1,30 @@
+# Ersetzt GitHub Actions (Account-weite Budget-Sperre, hpmartini/TexBase#357): nur Lint + Typecheck, nur beim PR.
+when:
+  - event: pull_request
+    branch: main
+
+# Der macOS-Agent (local backend, release-mac.yml) kann keine Container: nur Docker-Agents.
+labels:
+  backend: docker
+
+steps:
+  - name: install
+    image: node:20-bookworm
+    commands:
+      - npm install -g bun@1.2.18
+      - bun install --frozen-lockfile
+
+  - name: lint
+    image: node:20-bookworm
+    commands:
+      - npm install -g bun@1.2.18
+      - bun run lint
+
+  - name: typecheck
+    image: node:20-bookworm
+    # Auch nach rotem Lint laufen, damit beide Ergebnisse sichtbar sind.
+    when:
+      - status: [success, failure]
+    commands:
+      - npm install -g bun@1.2.18
+      - bunx tsc --noEmit

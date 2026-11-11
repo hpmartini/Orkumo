@@ -24,6 +24,8 @@ import {
   formatModelName,
   groupRepoSlug,
   sessionsInContext,
+  railItems,
+  appOriginLabel,
   type SessionLookup,
 } from '../utils/agentSessions';
 import type { AgentContext, AgentSession } from '../types';
@@ -63,6 +65,7 @@ describe('groupSessions (state)', () => {
       session({ id: 'working', state: 'working' }),
       session({ id: 'done', state: 'done' }),
       session({ id: 'tty', kind: 'interactive', state: null }),
+      session({ id: 'phone', kind: 'app', state: null, displayState: 'idle' }),
     ];
     const groups = groupSessions(sessions, 'state');
     const byKey = Object.fromEntries(groups.map((g) => [g.key, g.sessions.map((s) => s.id)]));
@@ -72,6 +75,39 @@ describe('groupSessions (state)', () => {
     expect(byKey.working).toEqual(['working']);
     expect(byKey.completed).toEqual(['done']);
     expect(byKey.interactive).toEqual(['tty']);
+    expect(byKey.app).toEqual(['phone']);
+    expect(groups.find((g) => g.key === 'app')?.title).toBe('Claude App');
+  });
+
+  it('leaves out the Claude App and Interactive groups while they are empty', () => {
+    const keys = (sessions: AgentSession[]) =>
+      railItems(groupSessions(sessions, 'state'), new Set(), 'state')
+        .filter((item) => item.type === 'group')
+        .map((item) => (item.type === 'group' ? item.group.key : ''));
+    expect(keys([session({ id: 'w', state: 'working' })])).not.toContain('app');
+    expect(keys([session({ id: 'w', state: 'working' })])).not.toContain('interactive');
+    expect(keys([session({ id: 'p', kind: 'app', state: null })])).toContain('app');
+  });
+
+  it('labels a Claude app session by where it was started', () => {
+    const app = (origin: string | null) =>
+      session({
+        kind: 'app',
+        app: { url: 'https://claude.ai/code/session_x', origin, statusCategory: null },
+      });
+    expect(appOriginLabel(app('ios'))).toBe('iOS');
+    expect(appOriginLabel(app('android'))).toBe('Android');
+    expect(appOriginLabel(app(null))).toBe('Claude App');
+    expect(appOriginLabel(session({ kind: 'interactive' }))).toBeNull();
+  });
+
+  it('puts a finished harness session into Completed, a running one into Interactive', () => {
+    const omp = (id: string, state: AgentSession['state']) =>
+      session({ id, kind: 'interactive', ptyCommand: 'omp', ptyArgs: ['-r', id], state });
+    const groups = groupSessions([omp('done', 'done'), omp('live', null)], 'state');
+    const byKey = Object.fromEntries(groups.map((g) => [g.key, g.sessions.map((s) => s.id)]));
+    expect(byKey.completed).toEqual(['done']);
+    expect(byKey.interactive).toEqual(['live']);
   });
 
   it('folds completed sessions but keeps failures and open PRs visible', () => {

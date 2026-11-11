@@ -1,0 +1,1 @@
+{"id":"c1","type":"response","command":"get_commands","success":true,"data":{"commands":[{"name":"bgstatus","description":"Background jobs: status (/bgstatus [id] [done])","source":"extension"},{"name":"bgtail","description":"Background jobs: tail a log (/bgtail <id> [lines])","source":"extension"}]}}

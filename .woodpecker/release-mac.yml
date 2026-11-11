@@ -1,0 +1,37 @@
+# macOS-Installer (dmg, zip) für arm64 und x64. Läuft auf einem Woodpecker-Agent mit local backend auf einem Mac
+# (Einrichtung: DESKTOP.md, "Releases"); ohne diesen Agent bleibt der Workflow in der Warteschlange und der Draft
+# unveröffentlicht. Ohne Developer-ID-Zertifikat ad-hoc signiert: die App meldet Updates nur (electron/updater.js).
+when:
+  - event: push
+    branch: main
+
+labels:
+  backend: local
+  platform: darwin/arm64
+
+depends_on:
+  - release-prepare
+
+steps:
+  - name: build
+    # local backend: image ist die Shell, Werkzeuge (node, bun, gh) kommen vom Mac
+    image: bash
+    environment:
+      GH_REPO: hpmartini/Orkumo
+      GH_TOKEN:
+        from_secret: github_token
+      # keine Signatur mit einem zufällig im Schlüsselbund liegenden Zertifikat
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    commands:
+      - TAG=$$(scripts/release/release-tag.sh "$CI_COMMIT_SHA")
+      - npm pkg set version="$${TAG#v}"
+      - bun install --frozen-lockfile
+      - bun run build && bun run bundle:server
+      # getrennt gebaut, damit jede Architektur ihr eigenes *-mac.yml schreibt; merge-mac-yml führt sie zusammen
+      - bunx electron-builder --mac --arm64 --publish never -c.directories.output=dist-electron/arm64
+      - bunx electron-builder --mac --x64 --publish never -c.directories.output=dist-electron/x64
+      - scripts/release/upload-assets.sh "$$TAG" dist-electron/arm64 --no-mac-yml
+      - scripts/release/upload-assets.sh "$$TAG" dist-electron/x64 --no-mac-yml
+      - mkdir -p dist-electron/merged
+      - for f in dist-electron/arm64/*-mac.yml; do n=$${f##*/}; node scripts/release/merge-mac-yml.mjs "dist-electron/merged/$$n" "$$f" "dist-electron/x64/$$n"; done
+      - scripts/release/upload-assets.sh "$$TAG" dist-electron/merged

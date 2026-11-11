@@ -7,7 +7,8 @@ import { fetchAgentLogs } from '../../services/agentsApi';
 import { extractNumberedChoices } from '../../utils/agentInput';
 import { renderTerminalScreen } from '../../utils/terminalScreen';
 import { useDialogA11y } from '../CommandPalette/useDialogA11y';
-import { stateGlyph } from '../../utils/agentSessions';
+import { appOriginLabel, sessionHarness, stateGlyph } from '../../utils/agentSessions';
+import { openInSystemBrowser } from '../../utils/links';
 
 interface PeekPanelProps {
   session: AgentSession;
@@ -35,13 +36,18 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
   const [screen, setScreen] = useState('');
   const trapTab = useDialogA11y(expanded, dialogRef, () => replyRef.current);
 
+  // A harness session the server lists (#195, omp) has a transcript; one only started here not yet
+  const harness = sessionHarness(session) !== 'claude';
+  const harnessTranscript = harness && !!session.sessionId;
   const load = useCallback(async () => {
-    if (session.kind === 'interactive') {
+    if (session.kind === 'interactive' && !harnessTranscript) {
       setLogs({
         source: 'logs',
         text: '',
         entries: [],
-        note: 'Interactive sessions run in their own terminal. Background them with /bg or ← to manage them here.',
+        note: harness
+          ? 'The session shows up here once its first message is written.'
+          : 'Interactive sessions run in their own terminal. Background them with /bg or ← to manage them here.',
       });
       setLoading(false);
       return;
@@ -59,7 +65,7 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
     } finally {
       setLoading(false);
     }
-  }, [session.id, session.kind]);
+  }, [session.id, session.kind, harness, harnessTranscript]);
 
   useEffect(() => {
     setLoading(true);
@@ -133,6 +139,7 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
   };
 
   const glyph = stateGlyph(session.displayState);
+  const appUrl = session.app?.url;
   const outputLines = screen
     .split('\n')
     .filter((line, idx, arr) => line.trim() || (idx > 0 && arr[idx - 1].trim()));
@@ -180,13 +187,27 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
         >
           {expanded ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
         </button>
-        <button
-          onClick={onAttach}
-          className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300 hover:bg-blue-600/40"
-          title="Attach (Enter / →)"
-        >
-          <ArrowRight size={12} /> Attach
-        </button>
+        {appUrl ? (
+          <button
+            onClick={() => openInSystemBrowser(appUrl)}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300 hover:bg-blue-600/40"
+            title="Open this session on claude.ai (Enter)"
+          >
+            <ExternalLink size={12} /> claude.ai
+          </button>
+        ) : (
+          <button
+            onClick={onAttach}
+            className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-blue-600/20 text-blue-300 hover:bg-blue-600/40"
+            title={
+              harness
+                ? 'Open in a terminal pane, resuming the session (Enter / →)'
+                : 'Attach (Enter / →)'
+            }
+          >
+            <ArrowRight size={12} /> {harness ? 'Open' : 'Attach'}
+          </button>
+        )}
         <button
           onClick={onClose}
           className="p-1 rounded text-gray-500 hover:text-white hover:bg-gray-800"
@@ -201,6 +222,12 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
         <div className="text-gray-400">
           <span className="text-gray-500">state </span>
           {glyph.label.toLowerCase()}
+          {session.app && (
+            <span className="text-violet-300">
+              {' '}
+              · started in the Claude app ({appOriginLabel(session)})
+            </span>
+          )}
           {session.waitingFor && (
             <span className="text-yellow-400"> · waiting for {session.waitingFor}</span>
           )}
@@ -306,11 +333,15 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
             value={reply}
             onChange={(e) => setReply(e.target.value)}
             onKeyDown={handleKeyDown}
-            disabled={sending}
+            disabled={sending || !!session.app || harness}
             placeholder={
-              session.kind === 'interactive'
-                ? 'Interactive sessions cannot be replied to here'
-                : 'reply · ! for a shell command · 1-9 to pick a choice'
+              session.app
+                ? 'Reply in the Claude app or on claude.ai'
+                : harness
+                  ? 'Open the session (Enter) to reply in its terminal'
+                  : session.kind === 'interactive'
+                    ? 'Interactive sessions cannot be replied to here'
+                    : 'reply · ! for a shell command · 1-9 to pick a choice'
             }
             className="flex-1 bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none font-mono"
             aria-label="Reply to session"

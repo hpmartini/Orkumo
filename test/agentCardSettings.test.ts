@@ -33,10 +33,10 @@ describe('cardDetailsVisible (#135, #181)', () => {
     expect(cardDetailsVisible('hover', { ...base, selectedBy: 'click' })).toBe(false);
   });
 
-  it('click mode: the selected card, hover never', () => {
+  it('click mode: only the details button (pinned) opens them; selecting or hovering never', () => {
     expect(cardDetailsVisible('click', { ...base, hovered: true, anyHovered: true })).toBe(false);
-    expect(cardDetailsVisible('click', { ...base, selectedBy: 'click' })).toBe(true);
-    expect(cardDetailsVisible('click', { ...base, selectedBy: 'keyboard' })).toBe(true);
+    expect(cardDetailsVisible('click', { ...base, selectedBy: 'click' })).toBe(false);
+    expect(cardDetailsVisible('click', { ...base, selectedBy: 'keyboard' })).toBe(false);
     expect(cardDetailsVisible('click', { ...base, pinned: true })).toBe(true);
   });
 

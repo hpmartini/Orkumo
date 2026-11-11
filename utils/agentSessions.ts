@@ -24,6 +24,7 @@ export type GroupKey =
   | 'needs-input'
   | 'working'
   | 'completed'
+  | 'app'
   | 'interactive'
   | 'all'
   | `dir:${string}`
@@ -53,6 +54,7 @@ export const STATE_GROUP_ORDER: GroupKey[] = [
   'review',
   'needs-input',
   'working',
+  'app',
   'completed',
   'interactive',
 ];
@@ -63,6 +65,7 @@ const GROUP_TITLES: Record<string, string> = {
   'needs-input': 'Needs input',
   working: 'Working',
   completed: 'Completed',
+  app: 'Claude App',
   interactive: 'Interactive',
 };
 
@@ -96,7 +99,9 @@ export function sortSessions(sessions: AgentSession[]): AgentSession[] {
 }
 
 function stateGroupOf(session: AgentSession): GroupKey {
-  if (session.kind === 'interactive') return 'interactive';
+  // A finished harness session (#195, e.g. omp) is resumable history, not a live terminal
+  if (session.kind === 'interactive') return isFinished(session) ? 'completed' : 'interactive';
+  if (session.kind === 'app') return 'app';
   if (session.pinned) return 'pinned';
   if (hasOpenPr(session)) return 'review';
   if (session.state === 'blocked') return 'needs-input';
@@ -800,6 +805,48 @@ export function collectPullRequests(
   );
 }
 
+/**
+ * The session with PR links for every harness: Claude Code jobs report theirs (`links`), any
+ * other session (omp, chats, interactive terminals) gets the open PRs of its current branch,
+ * matched like the PR panel does (`collectPullRequests`). Unchanged sessions are returned as is.
+ */
+export function withBranchPullRequests(
+  session: AgentSession,
+  ctx: AgentContext | undefined
+): AgentSession {
+  const branch = ctx?.repo?.branch;
+  if (session.links.length > 0 || !branch) return session;
+  const links = (ctx.pulls?.items || [])
+    .filter((pr) => pr.headRef === branch)
+    .map(
+      (pr): AgentPrLink => ({
+        id: `${pr.repoSlug}#${pr.number}`,
+        href: pr.url,
+        title: pr.title,
+        number: pr.number,
+        provider: 'github',
+        // as the label colours read it (`prClass`)
+        state: pr.isDraft
+          ? 'draft'
+          : pr.mergeReady
+            ? 'ready'
+            : pr.ci === 'failure'
+              ? 'failing'
+              : 'open',
+      })
+    );
+  return links.length > 0 ? { ...session, links } : session;
+}
+
+/** `withBranchPullRequests` over a list; the same array when no session changed (stable deps) */
+export function sessionsWithBranchPullRequests(
+  sessions: AgentSession[],
+  contexts: Record<string, AgentContext | undefined>
+): AgentSession[] {
+  const next = sessions.map((s) => withBranchPullRequests(s, contexts[s.id]));
+  return next.every((s, i) => s === sessions[i]) ? sessions : next;
+}
+
 /** Totals across all sessions for the summary bar. */
 export function summarizeContext(
   sessions: AgentSession[],
@@ -847,7 +894,7 @@ export function flattenGroups(
   return items;
 }
 
-/** Rail rows for a grouping: empty project/directory groups and an empty Interactive group are left out */
+/** Rail rows for a grouping: empty project/directory groups and an empty Claude App / Interactive group are left out */
 export function railItems(
   groups: SessionGroup[],
   collapsed: Set<string>,
@@ -861,7 +908,7 @@ export function railItems(
     (item) =>
       !(
         item.type === 'group' &&
-        item.group.key === 'interactive' &&
+        (item.group.key === 'app' || item.group.key === 'interactive') &&
         item.group.sessions.length === 0
       )
   );
@@ -972,10 +1019,39 @@ export const HARNESSES: { id: AgentHarness; label: string }[] = [
 export const harnessLabel = (id: AgentHarness): string =>
   HARNESSES.find((h) => h.id === id)?.label ?? id;
 
-/** Which CLI a session runs with: a harness PTY names it, everything else is Claude Code */
+/** Which CLI a session runs with: a harness PTY or chat names it, everything else is Claude Code */
 export function sessionHarness(session: AgentSession): AgentHarness {
-  const cmd = session.ptyCommand;
-  return cmd ?? 'claude';
+  return session.ptyCommand ?? session.harness ?? 'claude';
+}
+
+/** How each harness's terminal UI resumes a session (server allowlist: config/harnesses.js) */
+const RESUME_FLAG: Record<AgentHarness, string> = {
+  claude: '--resume',
+  omp: '-r',
+  pi: '--session',
+  opencode: '--session',
+  codex: 'resume',
+};
+
+/** PTY arguments that continue `sessionId` in the harness's terminal UI */
+export const terminalResumeArgs = (harness: AgentHarness, sessionId: string): string[] => [
+  RESUME_FLAG[harness],
+  sessionId,
+];
+
+/**
+ * An Oh My Pi session listed from omp's session store (#195), wherever its process runs: the
+ * server stops and deletes it. A harness pane started here gets such a row once omp writes.
+ */
+export const isOmpStoreSession = (session: AgentSession): boolean =>
+  session.id.startsWith('omp-') && sessionHarness(session) === 'omp';
+
+const APP_ORIGINS: Record<string, string> = { ios: 'iOS', android: 'Android', web: 'Web' };
+
+/** Where a Claude app session was started ("iOS", "Android", "Web"); null for other sessions */
+export function appOriginLabel(session: AgentSession): string | null {
+  if (!session.app) return null;
+  return (session.app.origin && APP_ORIGINS[session.app.origin]) || 'Claude App';
 }
 
 export const CARD_SLOTS: { key: AgentCardSlot; label: string }[] = [
@@ -1012,8 +1088,9 @@ export function cardSlots<T, U = T>(
 
 /**
  * Whether a session card shows its details (#181: one trigger per mode, so at most one card opens transiently).
- * "Keep details open" pins them in every mode. `selectedBy` is how the card got selected while the rail has focus.
- * `click`: the selected card. `hover`: the hovered card; a keyboard selection only while no card is hovered.
+ * Opened with the card's details button (or "Show details" in its menu), they stay open in every mode.
+ * `selectedBy` is how the card got selected while the rail has focus.
+ * `click`: only the details button. `hover`: the hovered card; a keyboard selection only while no card is hovered.
  */
 export function cardDetailsVisible(
   mode: AgentCardDetails,
@@ -1027,7 +1104,7 @@ export function cardDetailsVisible(
 ): boolean {
   if (!state.hasDetails) return false;
   if (mode === 'always' || state.pinned) return true;
-  if (mode === 'click') return state.selectedBy !== null;
+  if (mode === 'click') return false;
   return state.hovered || (state.selectedBy === 'keyboard' && !state.anyHovered);
 }
 
@@ -1078,14 +1155,16 @@ export function shortenPath(cwd: string, max = 40): string {
 }
 
 /**
- * CLI session UUID a terminal pane can hand over to a Chat pane (`claude --resume`), or null.
- * Cloud panes run elsewhere; chats already are chats.
+ * Session id a terminal pane can hand over to a Chat pane and back, or null: Claude Code's
+ * UUID (`claude --resume`), or the id the server lists for another harness's session (omp).
+ * Harness panes without a listed session, cloud panes and chats have none.
  */
 export function resumableSessionId(session: AgentSession): string | null {
-  if (session.chat || sessionHarness(session) !== 'claude') return null;
+  if (session.chat) return null;
   // #220: the chat would start on the picked instance, not on the one this pane runs on
   if (targetOf(session.id) !== getAgentTarget()) return null;
   if (session.sessionId) return session.sessionId;
+  if (sessionHarness(session) !== 'claude') return null;
   const args = session.ptyArgs ?? [];
   if (args.includes('--cloud')) return null;
   const at = args.findIndex((a) => a === '--resume' || a === '--session-id');

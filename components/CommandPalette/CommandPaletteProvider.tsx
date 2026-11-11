@@ -20,8 +20,10 @@ interface PaletteApi {
 
 const PaletteContext = createContext<PaletteApi | null>(null);
 
-const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
+export const isMac = typeof navigator !== 'undefined' && /mac/i.test(navigator.platform);
 export const PALETTE_SHORTCUT = isMac ? '⌘P' : 'Ctrl+P';
+/** Rail search (agents, PRs, issues); handled by the agent filter bar */
+export const SEARCH_SHORTCUT = isMac ? '⌘K' : 'Ctrl+K';
 
 export function useCommandPalette(): PaletteApi {
   const api = useContext(PaletteContext);

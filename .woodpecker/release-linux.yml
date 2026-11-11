@@ -1,0 +1,28 @@
+# Linux-Installer (AppImage, deb, rpm) samt Update-Metadaten an den Draft von release-prepare.
+when:
+  - event: push
+    branch: main
+
+labels:
+  backend: docker
+
+depends_on:
+  - release-prepare
+
+steps:
+  - name: build
+    image: node:20-bookworm
+    environment:
+      GH_REPO: hpmartini/Orkumo
+      GH_TOKEN:
+        from_secret: github_token
+    commands:
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends gh rpm
+      - npm install -g bun@1.2.18
+      - TAG=$$(scripts/release/release-tag.sh "$CI_COMMIT_SHA")
+      # Version aus dem Tag, damit jedes Release eigene Installer-Namen und Update-Metadaten hat
+      - npm pkg set version="$${TAG#v}"
+      - bun install --frozen-lockfile
+      - bun run build && bun run bundle:server
+      - bunx electron-builder --linux --x64 --publish never
+      - scripts/release/upload-assets.sh "$$TAG" dist-electron
