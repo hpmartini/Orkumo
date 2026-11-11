@@ -250,7 +250,8 @@ export function startDriver(opts, io) {
     error.status = 400;
     throw error;
   }
-  const proc = io.spawn(io.bin, [...args], {
+  // extraArgs: server-chosen options (omp: the skills overlay), never client input
+  const proc = io.spawn(io.bin, [...args, ...(io.extraArgs ?? [])], {
     cwd: opts.cwd,
     env: process.env,
     stdio: ['pipe', 'pipe', 'pipe'],

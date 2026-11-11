@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Oh My Pi chats (and omp terminal panes) started in Orkumo showed only omp's built-in commands, none of the user's skills: omp loads Claude's user skills and plugins only on opt-in. Orkumo now starts omp with a `--config` overlay that opts in `~/.claude/skills` and the enabled Claude plugins (125 skills here, `/skill:<name>`), and the chat's `/` picker no longer cuts the list at 50 entries
 - Agents view: "Open as chat" on an Oh My Pi terminal pane asked to take over the session ("Übernimmt Session") although the pane itself runs it; switching the view now goes straight to the chat. The dialog stays for an omp process running in a terminal outside Orkumo
 - Agents panel and dashboard: Oh My Pi sessions can be stopped and deleted. Stop only closed a pane with the row's id, which never matched a session started via New task (`interactive-…` pane) or running in another terminal; it now ends the omp process on the server and closes the pane that ran it. Delete (was disabled) removes the session file, its artifacts folder and `.bak` copies like omp's own picker, after ending a running process
 - Desktop app: terminals failed with "WebSocket connection error" since #220; the PTY upgrade check refused the packaged renderer's `Origin: file://` (it only accepted `null`, what fetch sends). `file://` now passes inside Electron like `null`
