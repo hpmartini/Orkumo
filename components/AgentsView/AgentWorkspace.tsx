@@ -349,7 +349,11 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   ) => {
     const multi = panes.length > 1;
     const url = browserUrl(session.id);
-    const resumable = resumableSessionId(session);
+    // A harness pane started here (#195): the server row that claimed it knows its session id
+    const holder = resumableSessionId(session)
+      ? session
+      : sessions.find((s) => s.paneId === session.id);
+    const resumable = holder ? resumableSessionId(holder) : null;
     return (
       <div className="relative h-full min-h-0">
         {session.chat ? (
@@ -365,6 +369,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             onClose={() => onClosePane(session.id)}
             onMaximize={multi ? () => onDetach(session.id) : undefined}
             onOpenInTerminal={(sid) => onOpenChatInTerminal?.(session.id, sid)}
+            meta={renderPaneMeta?.(session)}
             headerProps={
               multi
                 ? {
@@ -404,7 +409,9 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             meta={renderPaneMeta?.(session)}
             onOpenLink={onOpenLink && ((link) => onOpenLink(session.id, link))}
             onOpenAsChat={
-              onOpenAsChat && resumable ? () => onOpenAsChat(session, resumable) : undefined
+              onOpenAsChat && holder && resumable
+                ? () => onOpenAsChat(holder, resumable)
+                : undefined
             }
             headerProps={
               multi

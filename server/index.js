@@ -36,6 +36,7 @@ import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
 import * as chatService from './services/chatService.js';
 import * as chatStatus from './services/chatStatus.js';
+import { ompSkillsArgs } from './services/ompSkills.js';
 import { getSelfDnsName } from './services/tailscale.js';
 import * as remoteAccess from './services/remoteAccess.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
@@ -48,6 +49,7 @@ import {
   stopOrphanServer,
 } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
+import * as issueListService from './services/issueListService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowProvider from './services/workflowProvider.js';
 import { ISSUE_URL_RE } from '../utils/issueUrl.js';
@@ -124,8 +126,8 @@ const limiter = rateLimit({
 });
 
 // Browser origins allowed to call the API: loopback on any port (dashboard, Vite, Electron dev),
-// extra origins via CORS_ORIGINS (comma-separated), and the packaged renderer's file:// page only
-// inside Electron: its fetches send "null", its WebSocket upgrades send "file://".
+// extra origins via CORS_ORIGINS (comma-separated), and file:// only inside Electron: its
+// renderer sends "null" on fetch and "file://" on the PTY WebSocket upgrade.
 // Requests without an Origin header (curl, server-to-server) are not browser-driven and pass.
 const extraCorsOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
@@ -1274,10 +1276,11 @@ app.get('/api/agents/images/:name', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Chat sessions (#189): `claude -p` with stream-json, rendered by the Chat pane
+// Chat sessions (#189): an agent harness rendered by the Chat pane (chatService.js, chatDrivers/)
 // ---------------------------------------------------------------------------
 const chatIdSchema = z.string().uuid();
 const chatStartSchema = z.object({
+  harness: z.enum(chatService.CHAT_HARNESSES).optional(),
   cwd: pathSchema,
   model: z.string().max(80).optional().nullable(),
   permissionMode: z.string().max(40).optional().nullable(),
@@ -1385,10 +1388,16 @@ app.post(
   chatAction((req) => chatService.interruptChat(req.params.chatId))
 );
 
-/** Status line of a chat: git (branch, untracked, changed), prompt cache, plan limits */
+/** Status line of a chat: git (branch, untracked, changed), context fill, plan limits */
 app.get('/api/agents/chat/:chatId/status', validateParams(chatIdSchema), async (req, res) => {
   try {
-    res.json(await chatStatus.chatStatus(chatService.chatSummary(req.params.chatId)));
+    const { chatId } = req.params;
+    res.json(
+      await chatStatus.chatStatus({
+        ...chatService.chatSummary(chatId),
+        usage: chatService.chatUsage(chatId),
+      })
+    );
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -1538,13 +1547,20 @@ app.get('/api/agents/servers/orphans', agentLimiter, async (req, res) => {
   }
 });
 
-// Only pids currently listed as orphans may be stopped: no killing of arbitrary processes.
-app.post('/api/agents/servers/:pid/stop', agentLimiter, async (req, res) => {
-  // A bodyless POST needs no CORS preflight: refuse cross-site pages before killing anything
+// A bodyless POST needs no CORS preflight: routes that end processes refuse cross-site pages.
+// Browsers send Origin on a cross-origin POST; the packaged Electron renderer (file://) sends none
+// but marks it cross-site, so without an Origin that marker only counts outside Electron.
+const sameSiteOnly = (req, res, next) => {
   const origin = req.get('origin');
-  if ((origin && !isAllowedOrigin(origin)) || req.get('sec-fetch-site') === 'cross-site') {
-    return res.status(403).json({ error: 'Cross-origin request refused' });
-  }
+  const crossSite = origin
+    ? !isAllowedOrigin(origin)
+    : req.get('sec-fetch-site') === 'cross-site' && process.env.ELECTRON_MODE !== 'true';
+  if (crossSite) return res.status(403).json({ error: 'Cross-origin request refused' });
+  next();
+};
+
+// Only pids currently listed as orphans may be stopped: no killing of arbitrary processes.
+app.post('/api/agents/servers/:pid/stop', agentLimiter, sameSiteOnly, async (req, res) => {
   const pid = Number(req.params.pid);
   if (!/^\d{1,9}$/.test(req.params.pid) || pid <= 1) {
     return res.status(400).json({ error: 'pid must be a positive integer' });
@@ -1632,13 +1648,20 @@ app.post(
   }
 );
 
-app.post('/api/agents/:id/stop', agentLimiter, validateParams(agentIdSchema), async (req, res) => {
-  try {
-    res.json(await agentService.stopSession(req.params.id));
-  } catch (error) {
-    sendAgentError(res, error);
+// Also ends the omp process running an Oh My Pi session, e.g. in another terminal (#195)
+app.post(
+  '/api/agents/:id/stop',
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(agentIdSchema),
+  async (req, res) => {
+    try {
+      res.json(await agentService.stopSession(req.params.id));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
   }
-});
+);
 
 app.post(
   '/api/agents/:id/respawn',
@@ -1777,6 +1800,34 @@ app.get('/api/board/repo-path', agentLimiter, async (req, res) => {
   try {
     const { roots, exact } = await knownDirs();
     res.json({ path: await boardService.findRepoPath(slug.data, [...roots, ...exact]) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Issues mode: issues of the context's repos, also those that are not on the board
+const issueListQuerySchema = z.object({
+  context: z.string().min(1).max(100).optional(),
+  state: z.enum(['open', 'closed']).default('open'),
+  refresh: z.literal('1').optional(),
+});
+
+app.get('/api/issues', agentLimiter, async (req, res) => {
+  const query = issueListQuerySchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Invalid issue list query' });
+  try {
+    const { contexts, activeContextId } = settingsService.getContexts();
+    const context = contexts.find((c) => c.id === (query.data.context ?? activeContextId));
+    if (!context) return res.status(404).json({ error: 'Unknown context' });
+    const repos = await issueListService.contextRepos(context, scanAllDirectories());
+    const { source } = settingsService.getBoardSettings();
+    res.json(
+      await issueListService.listIssues(repos, {
+        state: query.data.state,
+        source,
+        refresh: query.data.refresh === '1',
+      })
+    );
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -2492,7 +2543,12 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  let args = harnessArgs ?? [];
+  // omp panes see the user's Claude skills like an omp chat does (ompSkills.js); server-chosen
+  // options go before the validated client args
+  let args =
+    command === 'omp' && harnessArgs && !isRunningInDocker
+      ? [...ompSkillsArgs(spawnCommand, cwd), ...harnessArgs]
+      : (harnessArgs ?? []);
   const argsParam = url.searchParams.get('args');
   // harness args are already parsed above; a second decodeURIComponent would mangle a `%` prompt
   if (argsParam && !harnessArgs) {

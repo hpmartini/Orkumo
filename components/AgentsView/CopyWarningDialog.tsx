@@ -19,7 +19,11 @@ export const CopyWarningDialog: React.FC<{
     ? 'a chat'
     : holder.kind === 'background'
       ? `background job ${holder.id}`
-      : 'a running terminal';
+      : holder.pid
+        ? `a terminal (PID ${holder.pid})`
+        : 'a running terminal';
+  // a handover mid-turn cuts that turn off
+  const interrupts = handover && holder.displayState === 'working';
   return (
     <div
       className="fixed inset-0 z-[90] bg-gray-950/70 flex items-start justify-center px-4 pt-[15vh]"
@@ -48,7 +52,7 @@ export const CopyWarningDialog: React.FC<{
         className="w-full max-w-[440px] bg-gray-800 border border-amber-500/50 rounded-xl shadow-2xl p-4 text-sm"
       >
         <h2 id="copy-warning-title" className="font-semibold text-amber-200 mb-2">
-          Erzeugt Kopie
+          {handover ? 'Übernimmt Session' : 'Erzeugt Kopie'}
         </h2>
         <p id="copy-warning-text" className="text-gray-300 break-words">
           &quot;{holder.name}&quot; runs as {what}.{' '}
@@ -57,6 +61,7 @@ export const CopyWarningDialog: React.FC<{
             : 'Resuming it here starts a second process on the same session'}{' '}
           in <span className="font-mono text-xs">{holder.cwd}</span>
           {handover ? '.' : "; both can overwrite each other's work."}
+          {interrupts && ' It is working right now: its current turn is cut off.'}
         </p>
         <div className="flex justify-end gap-2 mt-4 text-xs">
           <button
@@ -71,7 +76,7 @@ export const CopyWarningDialog: React.FC<{
             type="submit"
             className={`px-3 py-1.5 rounded-md font-medium text-gray-950 bg-amber-400 hover:bg-amber-300 ${FOCUS}`}
           >
-            Create copy
+            {handover ? 'Take over' : 'Create copy'}
           </button>
         </div>
       </form>

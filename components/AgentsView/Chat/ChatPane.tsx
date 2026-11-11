@@ -33,6 +33,7 @@ import { ChatStatusLine } from './ChatStatusLine';
 import { splitAtBuiltin, splitImages } from '../../../utils/chatComposer';
 import { extractNumberedChoices } from '../../../utils/agentInput';
 import { renderTerminalScreen } from '../../../utils/terminalScreen';
+import { harnessLabel, sessionHarness, terminalResumeArgs } from '../../../utils/agentSessions';
 
 /** Rendered screen tail of an agent that waits on a question or permission (not in its transcript) */
 function useAgentPrompt(agentId: string | null): string | null {
@@ -94,9 +95,11 @@ interface ChatPaneProps {
   /** Ends the chat and continues the same CLI session in a terminal tab */
   onOpenInTerminal: (sessionId: string) => void;
   headerProps?: React.HTMLAttributes<HTMLDivElement>;
+  /** Linked PRs, issues and running servers (same items as a terminal pane's header) */
+  meta?: React.ReactNode;
 }
 
-/** Chat UI for a `claude -p` stream-json session (#189) */
+/** Chat UI for a harness session (#189): Claude Code, or another harness through its driver */
 export const ChatPane: React.FC<ChatPaneProps> = ({
   session,
   agent,
@@ -110,6 +113,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   onMaximize,
   onOpenInTerminal,
   headerProps,
+  meta,
 }) => {
   const [state, dispatch] = useReducer(reducer, initialChatState);
   const [gone, setGone] = useState(false);
@@ -244,6 +248,9 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           ? 'live view'
           : 'ready';
   const resumeId = state.sessionId ?? session.sessionId;
+  const harness = sessionHarness(session);
+  const harnessName = harnessLabel(harness);
+  const terminalCommand = [harness, ...terminalResumeArgs(harness, '<id>')].join(' ');
 
   return (
     <div
@@ -266,6 +273,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       >
         <MessageSquare size={13} aria-hidden className="text-blue-300 shrink-0" />
         <span className="font-medium text-gray-200 truncate min-w-0">{session.name}</span>
+        {harness !== 'claude' && (
+          <span className="shrink-0 px-1 rounded border border-gray-700 text-[10px] text-gray-400">
+            {harnessName}
+          </span>
+        )}
         <span className="text-gray-500 font-mono truncate min-w-0 hidden lg:inline">
           {session.cwd}
         </span>
@@ -277,6 +289,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         >
           {status}
         </span>
+        {meta && (
+          <div className="flex items-center gap-x-2 min-w-0 overflow-hidden text-[11px] text-gray-400">
+            {meta}
+          </div>
+        )}
         <span className="flex-1" />
         <button
           type="button"
@@ -312,7 +329,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           title={
             live
               ? "Open the agent's terminal (the live view closes, the agent keeps running)"
-              : 'Open in terminal: ends the chat and resumes the session with claude --resume'
+              : `Open in terminal: ends the chat and resumes the session with ${terminalCommand}`
           }
           aria-label="Open in terminal"
         >
@@ -359,7 +376,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         <div ref={contentRef}>
           {state.messages.length === 0 && !ended && (
             <div className="h-full flex items-center justify-center text-sm text-gray-500">
-              Ask Claude anything. Markdown works; paste or drop images.
+              Ask {harnessName} anything. Markdown works; paste or drop images.
             </div>
           )}
           {state.messages.map((m) => (

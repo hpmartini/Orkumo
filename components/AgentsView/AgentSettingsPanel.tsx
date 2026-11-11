@@ -159,7 +159,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                     onUpdate({ cardDetails: e.target.value as AgentViewSettings['cardDetails'] })
                   }
                 >
-                  <option value="click">On click or keyboard selection</option>
+                  <option value="click">With the card's details button</option>
                   <option value="hover">On hover (keyboard selection while not hovering)</option>
                   <option value="always">Always</option>
                 </select>

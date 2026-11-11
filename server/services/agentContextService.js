@@ -7,6 +7,7 @@ import fsp from 'fs/promises';
 import os from 'os';
 import path from 'path';
 import * as agentService from './agentService.js';
+import { listChats } from './chatService.js';
 
 const GH_TTL_MS = 60_000;
 const CONCURRENCY = 4;
@@ -663,7 +664,17 @@ function isDir(p) {
  * @returns {Promise<{contexts: Record<string, import('../../types').AgentContext>, orphans: object[]}>}
  */
 async function computeAgentContexts() {
-  const sessions = await agentService.listSessions({ all: true });
+  const listed = await agentService.listSessions({ all: true });
+  // Chat panes (#189, every harness) are no list rows, but get repo, PRs and cache like one;
+  // they own no servers (the ownership scan keeps to the listed sessions)
+  const chats = listChats().map((c) => ({
+    id: c.id,
+    sessionId: c.sessionId,
+    cwd: c.cwd,
+    kind: 'interactive',
+    chatModel: c.model,
+  }));
+  const sessions = [...listed, ...chats];
   const dirOf = sessionDir;
   const dirs = [...new Set(sessions.map(dirOf).filter(Boolean))];
   const repos = new Map();
@@ -672,7 +683,7 @@ async function computeAgentContexts() {
   const remotes = new Map();
   await mapLimit(slugs, CONCURRENCY, async (slug) => remotes.set(slug, await ghInfo(slug)));
 
-  const { resolved, owner, orphans } = await scanOwnership(sessions);
+  const { resolved, owner, orphans } = await scanOwnership(listed);
   // eslint-disable-next-line no-unused-vars -- cwd is stripped from the response
   const publicServer = ({ cwd, ...server }) => server;
   const contexts = {};
@@ -680,7 +691,8 @@ async function computeAgentContexts() {
     sessions.map(async (s) => {
       const repo = repos.get(dirOf(s)) || null;
       const remote = repo?.slug ? remotes.get(repo.slug) : null;
-      const model = (await sessionModel(s)) ?? modelFromFlags(s.respawnFlags);
+      const model =
+        (await sessionModel(s)) ?? modelFromFlags(s.respawnFlags) ?? s.chatModel ?? null;
       contexts[s.id] = {
         repo,
         model,

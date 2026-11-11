@@ -1,0 +1,24 @@
+# Veröffentlicht den Draft erst, wenn alle Assets oben sind: electron-updater sieht sonst ein rc ohne *-mac.yml.
+when:
+  - event: push
+    branch: main
+
+labels:
+  backend: docker
+
+depends_on:
+  - release-linux
+  - release-mac
+  - release-docker
+
+steps:
+  - name: publish
+    image: node:20-bookworm
+    environment:
+      GH_REPO: hpmartini/Orkumo
+      GH_TOKEN:
+        from_secret: github_token
+    commands:
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends gh
+      - TAG=$$(scripts/release/release-tag.sh "$CI_COMMIT_SHA")
+      - gh release edit "$$TAG" --draft=false --prerelease

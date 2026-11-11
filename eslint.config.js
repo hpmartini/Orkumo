@@ -53,6 +53,13 @@ export default [
         File: 'readonly',
         FileList: 'readonly',
         Blob: 'readonly',
+        // Canvas (image scaling before upload)
+        createImageBitmap: 'readonly',
+        ImageBitmap: 'readonly',
+        OffscreenCanvas: 'readonly',
+        OffscreenCanvasRenderingContext2D: 'readonly',
+        HTMLCanvasElement: 'readonly',
+        CanvasRenderingContext2D: 'readonly',
         HTMLInputElement: 'readonly',
         HTMLTextAreaElement: 'readonly',
         HTMLButtonElement: 'readonly',

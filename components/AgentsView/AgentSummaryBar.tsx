@@ -20,6 +20,7 @@ import {
   SORT_OPTIONS,
 } from '../../utils/agentSessions';
 import { usePopover } from './PullRequestsPanel';
+import { SEARCH_SHORTCUT, isMac } from '../CommandPalette/CommandPaletteProvider';
 
 interface AgentSummaryBarProps {
   counts: {
@@ -154,20 +155,29 @@ interface AgentFilterBarProps {
   onQuery: (query: string) => void;
   linkSelected: ReadonlySet<string>;
   onToggleLink: (key: string) => void;
+  /** Rendered first in the row (the grouping picker) */
+  leading?: React.ReactNode;
 }
 
 /** Whether the quick-filter chips are expanded (collapsed by default) */
 export const CHIPS_OPEN_KEY = 'devOrbitAgentFilterChipsOpen';
 
-/** Searchable list of PRs and issues; a highlighted entry narrows the agent list to it. */
-const LinkFilterPanel: React.FC<{
+/**
+ * One search for the rail: the text narrows the agent list and the PR / issue list below it;
+ * a highlighted PR or issue narrows the agent list to the agents linked to it.
+ */
+const SearchPanel: React.FC<{
+  query: string;
+  onQuery: (query: string) => void;
   entries: LinkFilterEntry[];
   selected: ReadonlySet<string>;
   onToggle: (key: string) => void;
   onClose: () => void;
-}> = ({ entries, selected, onToggle, onClose }) => {
+}> = ({ query, onQuery, entries, selected, onToggle, onClose }) => {
   const ref = usePopover(onClose);
-  const [query, setQuery] = useState('');
+  const inputRef = useRef<HTMLInputElement>(null);
+  // After usePopover's effect, which focuses the panel itself
+  useEffect(() => inputRef.current?.focus(), []);
   const q = query.trim().toLowerCase();
   const shown = q
     ? entries.filter((e) => `${e.label} ${e.title}`.toLowerCase().includes(q))
@@ -177,20 +187,33 @@ const LinkFilterPanel: React.FC<{
       ref={ref}
       tabIndex={-1}
       role="dialog"
-      aria-label="Filter by pull request or issue"
-      className="absolute left-0 top-full mt-1 z-30 w-72 bg-gray-800 border border-gray-700 rounded-lg shadow-xl outline-none"
+      aria-label="Search agents, PRs and issues"
+      className="absolute left-0 right-0 top-full mt-1 z-30 bg-gray-800 border border-gray-700 rounded-lg shadow-xl outline-none"
     >
       <div className="p-2 border-b border-gray-700">
-        <input
-          autoFocus
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search PRs and issues"
-          aria-label="Search PRs and issues"
-          className="w-full bg-gray-900 px-2 py-1 rounded text-xs text-gray-200 placeholder-gray-500 outline-none focus:ring-1 focus:ring-blue-500"
-        />
+        <label className="flex items-center gap-1.5 bg-gray-900 px-2 py-1 rounded text-gray-500 focus-within:ring-1 focus-within:ring-blue-500">
+          <Search size={12} aria-hidden className="shrink-0" />
+          <input
+            ref={inputRef}
+            type="search"
+            value={query}
+            onChange={(e) => onQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== 'Enter') return;
+              // Focus returns to the trigger: without this the same Enter would click it open again
+              e.preventDefault();
+              onClose();
+            }}
+            placeholder="Search agents, PRs and issues"
+            aria-label="Search agents"
+            className="w-full min-w-0 bg-transparent text-xs text-gray-200 placeholder-gray-500 outline-none"
+          />
+        </label>
       </div>
-      <ul className="max-h-72 overflow-y-auto py-1" aria-label="PRs and issues">
+      <div className="px-3 pt-2 pb-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">
+        Pull requests and issues
+      </div>
+      <ul className="max-h-72 overflow-y-auto pb-1" aria-label="PRs and issues">
         {shown.length === 0 && (
           <li className="px-3 py-2 text-xs text-gray-500">
             {entries.length === 0 ? 'No open PRs or issues here' : 'No match'}
@@ -229,7 +252,7 @@ const LinkFilterPanel: React.FC<{
 };
 
 /**
- * Sort menu, filter chips and the "N of M" count above the list.
+ * One row above the list: grouping (`leading`), sort, filter chips toggle, search and the count.
  */
 export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
   sort,
@@ -246,6 +269,7 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
   onToggleLink,
   query,
   onQuery,
+  leading,
 }) => {
   const [open, setOpen] = useState(false);
   const [chipsOpen, setChipsOpenState] = useState(() => {
@@ -263,9 +287,29 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
       // stays in memory only
     }
   };
-  const [linksOpen, setLinksOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const current = SORT_OPTIONS.find((o) => o.key === sort.key) || SORT_OPTIONS[0];
+
+  // Cmd/Ctrl+K toggles the search; in a terminal off macOS Ctrl+K is readline's kill-line, so
+  // there it takes Ctrl+Shift+K (as the palette does with P)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      const inTerminal = !isMac && !!(e.target as HTMLElement | null)?.closest?.('.xterm');
+      if (!mod || e.altKey || e.key.toLowerCase() !== 'k' || e.shiftKey !== inTerminal) return;
+      // Rail hidden (small screen on another route) or a modal on top: not ours
+      const bar = barRef.current;
+      if (!bar || bar.checkVisibility?.() === false) return;
+      if (document.querySelector('[aria-modal="true"]')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setSearchOpen((v) => !v);
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => document.removeEventListener('keydown', onKey, true);
+  }, []);
 
   useEffect(() => {
     if (!open) return;
@@ -283,19 +327,24 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
     };
   }, [open]);
 
+  const searching = query.trim() !== '' || linkSelected.size > 0;
+
   return (
-    <div className="px-3 py-2 border-b border-gray-800 space-y-1.5 shrink-0">
-      <div className="flex items-center gap-1.5 text-xs">
-        <div className="relative" ref={rootRef}>
+    <div ref={barRef} className="px-3 py-2 border-b border-gray-800 space-y-1.5 shrink-0">
+      {/* relative: the search panel spans the whole row */}
+      <div className="relative flex items-center gap-1 text-xs">
+        {leading}
+        <div className="relative min-w-0" ref={rootRef}>
           <button
             onClick={() => setOpen((v) => !v)}
             aria-haspopup="menu"
             aria-expanded={open}
+            aria-label={`Sort agents: ${current.label}`}
             title="Sort agents"
-            className="flex items-center gap-1.5 px-2 py-1 rounded text-gray-300 hover:bg-gray-800 border border-gray-800"
+            className="w-full flex items-center gap-1 px-1.5 py-1 rounded text-gray-300 hover:bg-gray-800 border border-gray-800"
           >
-            <ArrowUpDown size={12} />
-            {current.label}
+            <ArrowUpDown size={12} className="shrink-0" />
+            <span className="truncate">{current.label}</span>
           </button>
           {open && (
             <div
@@ -329,7 +378,7 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
               : 'This sort has a fixed direction'
           }
           aria-label="Reverse sort direction"
-          className="p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
+          className="shrink-0 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed"
         >
           {sort.dir === 'asc' ? <ArrowUp size={13} /> : <ArrowDown size={13} />}
         </button>
@@ -339,64 +388,57 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
           aria-controls="agent-filter-chips"
           title={chipsOpen ? 'Hide filters' : 'Show filters'}
           aria-label={chipsOpen ? 'Hide filters' : 'Show filters'}
-          className={`flex items-center gap-1 px-1.5 py-1 rounded hover:bg-gray-800 ${
+          className={`shrink-0 flex items-center gap-1 px-1.5 py-1 rounded hover:bg-gray-800 ${
             active.size > 0 ? 'text-blue-300' : 'text-gray-400 hover:text-white'
           }`}
         >
           <ListFilter size={13} />
           {active.size > 0 && <span className="tabular-nums">{active.size}</span>}
         </button>
-        <div className="relative">
+        <div className="min-w-0">
           <button
-            onClick={() => setLinksOpen((v) => !v)}
+            onClick={() => setSearchOpen((v) => !v)}
             data-popover-trigger
             aria-haspopup="dialog"
-            aria-expanded={linksOpen}
-            title="Filter by pull request or issue"
-            aria-label="Filter by pull request or issue"
-            className={`flex items-center gap-1 px-1.5 py-1 rounded hover:bg-gray-800 ${
-              linkSelected.size > 0 ? 'text-blue-300' : 'text-gray-400 hover:text-white'
-            }`}
+            aria-expanded={searchOpen}
+            title={`Search agents, PRs and issues (${SEARCH_SHORTCUT})`}
+            aria-label={`Search agents, PRs and issues (${SEARCH_SHORTCUT})`}
+            className={`max-w-full flex items-center gap-1 px-1.5 py-1 rounded hover:bg-gray-800 ${
+              searching ? 'text-blue-300' : 'text-gray-400 hover:text-white'
+            } ${searchOpen ? 'bg-gray-800' : ''}`}
           >
-            <GitPullRequest size={13} />
-            {linkSelected.size > 0 && <span className="tabular-nums">{linkSelected.size}</span>}
+            <Search size={13} className="shrink-0" />
+            {query.trim() && <span className="truncate">{query.trim()}</span>}
+            {linkSelected.size > 0 && (
+              <span className="shrink-0 flex items-center gap-0.5 tabular-nums">
+                <GitPullRequest size={11} aria-hidden />
+                {linkSelected.size}
+              </span>
+            )}
           </button>
-          {linksOpen && (
-            <LinkFilterPanel
+          {searchOpen && (
+            <SearchPanel
+              query={query}
+              onQuery={onQuery}
               entries={linkEntries}
               selected={linkSelected}
               onToggle={onToggleLink}
-              onClose={() => setLinksOpen(false)}
+              onClose={() => setSearchOpen(false)}
             />
           )}
         </div>
-        <label className="flex-1 min-w-0 flex items-center gap-1 px-1.5 py-1 rounded border border-gray-800 text-gray-500 focus-within:border-blue-500/60 focus-within:text-gray-300">
-          <Search size={12} aria-hidden className="shrink-0" />
-          <input
-            type="search"
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') {
-                onQuery('');
-                e.currentTarget.blur();
-              }
-            }}
-            placeholder="Suche"
-            aria-label="Search agents"
-            className="w-full min-w-0 bg-transparent text-gray-200 placeholder:text-gray-500 outline-none"
-          />
-        </label>
-        <span className="text-gray-500 tabular-nums" aria-live="polite">
+        <span className="flex-1" />
+        <span className="shrink-0 text-gray-500 tabular-nums whitespace-nowrap" aria-live="polite">
           {filtered ? `${shown} of ${total}` : `${total} ${total === 1 ? 'agent' : 'agents'}`}
         </span>
         {filtered && (
           <button
             onClick={onClear}
-            className="flex items-center gap-1 px-1.5 py-0.5 rounded text-blue-300 hover:text-white hover:bg-gray-800"
+            className="shrink-0 p-1 rounded text-blue-300 hover:text-white hover:bg-gray-800"
             title="Clear all filters"
+            aria-label="Clear all filters"
           >
-            <X size={11} /> Clear
+            <X size={12} />
           </button>
         )}
       </div>

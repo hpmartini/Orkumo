@@ -1,0 +1,70 @@
+# Docker-Images (API + Frontend) für amd64/arm64 nach GHCR, getaggt mit der Release-Version (latest nur für finale
+# Releases, die baut diese Pipeline nicht), dazu die Release-Compose-Datei samt DB-Schema am Release.
+# binfmt und buildx laufen privilegiert: das Repo muss in Woodpecker "trusted" (Security) sein.
+when:
+  - event: push
+    branch: main
+
+labels:
+  backend: docker
+
+depends_on:
+  - release-prepare
+
+steps:
+  - name: version
+    image: node:20-bookworm
+    environment:
+      GH_REPO: hpmartini/Orkumo
+      GH_TOKEN:
+        from_secret: github_token
+    commands:
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends gh
+      - TAG=$$(scripts/release/release-tag.sh "$CI_COMMIT_SHA")
+      # .tags liest plugin-docker-buildx (tags_file), .release-tag der Schritt compose
+      - echo "$${TAG#v}" > .tags
+      - echo "$$TAG" > .release-tag
+
+  # QEMU-Handler im Kernel des Agents, damit buildx arm64 (bzw. amd64) emulieren kann
+  - name: binfmt
+    image: docker.io/tonistiigi/binfmt
+    privileged: true
+    entrypoint: [/usr/bin/binfmt, --install, 'arm64,amd64']
+
+  - name: api
+    image: docker.io/woodpeckerci/plugin-docker-buildx:6
+    privileged: true
+    settings:
+      registry: ghcr.io
+      repo: ghcr.io/hpmartini/devhub-api
+      dockerfile: Dockerfile.api
+      platforms: linux/amd64,linux/arm64
+      tags_file: .tags
+      username: hpmartini
+      password:
+        from_secret: github_token
+
+  - name: frontend
+    image: docker.io/woodpeckerci/plugin-docker-buildx:6
+    privileged: true
+    settings:
+      registry: ghcr.io
+      repo: ghcr.io/hpmartini/devhub-frontend
+      dockerfile: Dockerfile.frontend
+      platforms: linux/amd64,linux/arm64
+      tags_file: .tags
+      username: hpmartini
+      password:
+        from_secret: github_token
+
+  - name: compose
+    image: node:20-bookworm
+    environment:
+      GH_REPO: hpmartini/Orkumo
+      GH_TOKEN:
+        from_secret: github_token
+    commands:
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends gh
+      - TAG=$$(cat .release-tag)
+      - scripts/release/compose-assets.sh "$${TAG#v}" release-assets
+      - gh release upload "$$TAG" release-assets/docker-compose.release.yml release-assets/init-db.sql --clobber

@@ -232,6 +232,7 @@ describe('AgentList card details trigger (#181)', () => {
 
   function List({ mode, initial = -1 }: { mode: 'hover' | 'click'; initial?: number }) {
     const [selected, setSelected] = React.useState(initial);
+    const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
     return (
       <>
         <button onClick={() => setSelected((i) => i + 1)}>arrow-down</button>
@@ -254,6 +255,14 @@ describe('AgentList card details trigger (#181)', () => {
           issuesByAgent={new Map(sessions.map((s) => [s.id, [`hpmartini/Orkumo#${s.id}1`]]))}
           onOpenIssue={() => {}}
           onOpenPrs={() => {}}
+          expandedSessionIds={expanded}
+          onToggleDetails={(id) =>
+            setExpanded((prev) => {
+              const next = new Set(prev);
+              if (!next.delete(id)) next.add(id);
+              return next;
+            })
+          }
         />
       </>
     );
@@ -305,23 +314,32 @@ describe('AgentList card details trigger (#181)', () => {
     expect(openCards()).toEqual(['c']);
   });
 
-  it('click mode: hover opens nothing, click and keyboard selection open the selected card (AC-2)', () => {
+  const detailsButton = (id: string) =>
+    cardOf(id).querySelector('button[aria-expanded]') as HTMLButtonElement;
+
+  it('click mode: selecting or hovering opens nothing; the details button opens and closes them', () => {
     render(<List mode="click" />);
     hover('a');
-    expect(openCards()).toEqual([]);
     fireEvent.click(cardOf('a'));
-    expect(openCards()).toEqual(['a']);
-    hover('c');
-    expect(openCards()).toEqual(['a']);
     fireEvent.click(screen.getByText('arrow-down'));
-    expect(openCards()).toEqual(['b']);
+    expect(openCards()).toEqual([]);
+    fireEvent.click(detailsButton('a'));
+    expect(openCards()).toEqual(['a']);
+    expect(detailsButton('a')).toHaveAttribute('aria-expanded', 'true');
+    // they stay open while another card is selected
+    fireEvent.click(cardOf('c'));
+    expect(openCards()).toEqual(['a']);
+    fireEvent.click(detailsButton('a'));
+    expect(openCards()).toEqual([]);
   });
 
-  it('touch device: hover mode falls back to click', () => {
+  it('touch device: hover mode falls back to the details button', () => {
     setHoverDevice(false);
     render(<List mode="hover" />);
     fireEvent.mouseEnter(cardOf('c'));
     fireEvent.click(cardOf('c'));
+    expect(openCards()).toEqual([]);
+    fireEvent.click(detailsButton('c'));
     expect(openCards()).toEqual(['c']);
   });
 });
@@ -365,7 +383,10 @@ describe('AgentList card highlights (#210)', () => {
             sessions.map((s) => [
               s.id,
               s.id === cacheWarnId
-                ? ({ ...ctx, cache: { lastActivityAt: 2000, ttlMs: 5 * 60_000 } } as unknown as AgentContext)
+                ? ({
+                    ...ctx,
+                    cache: { lastActivityAt: 2000, ttlMs: 5 * 60_000 },
+                  } as unknown as AgentContext)
                 : ctx,
             ])
           )}
@@ -386,7 +407,13 @@ describe('AgentList card highlights (#210)', () => {
       .className.split(/\s+/)
       .filter((c) => HIGHLIGHT.test(c))
       .sort();
-  const STRONG = ['-outline-offset-2', 'bg-blue-400/15', 'outline', 'outline-2', 'outline-blue-400'];
+  const STRONG = [
+    '-outline-offset-2',
+    'bg-blue-400/15',
+    'outline',
+    'outline-2',
+    'outline-blue-400',
+  ];
   const MEDIUM = ['bg-blue-400/10', 'shadow-[inset_3px_0_0_0_#60a5fa]'];
 
   beforeEach(() => {

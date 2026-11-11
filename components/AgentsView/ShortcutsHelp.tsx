@@ -13,6 +13,7 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
     rows: [
       ['↑ / ↓', 'Move between rows'],
       ['Cmd/Ctrl+P', 'Command palette: > commands, @ agents, # projects'],
+      ['Cmd/Ctrl+K', 'Search agents, PRs and issues (in a terminal off macOS: Ctrl+Shift+K)'],
       ['N / Alt+N', 'New task (opens the task composer)'],
       ['Enter', 'Attach to the selected session'],
       ['→', 'Attach to the selected session'],
