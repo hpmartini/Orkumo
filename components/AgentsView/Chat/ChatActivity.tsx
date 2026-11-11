@@ -14,6 +14,7 @@ import type { ChatBlock, ChatMessage } from '../../../utils/chatEvents';
 import { toolSummary } from '../../../utils/chatEvents';
 import { chatPlan, chatShells, chatSubagents, turnSteps } from '../../../utils/chatActivity';
 import { fetchChatShell } from '../../../services/agentsApi';
+import { pollWhileVisible } from '../../../utils/visiblePoll';
 import { AssistantBlock } from './ChatMessages';
 
 const chip =
@@ -59,11 +60,10 @@ const ShellView: React.FC<{ chatId: string; shellId: string }> = ({ chatId, shel
           }
         })
         .catch((e: Error) => !cancelled && setError(e.message));
-    load();
-    const timer = setInterval(load, 2000);
+    const stop = pollWhileVisible(load, 2000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
     };
   }, [chatId, shellId]);
   if (error) return <div className="text-xs text-red-300">{error}</div>;

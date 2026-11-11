@@ -24,7 +24,31 @@ const {
   transcriptCandidates,
   accumulateCacheUsage,
   contextWindowFor,
+  sessionSignature,
+  isCacheCurrent,
 } = await import('../server/services/agentContextService.js');
+
+describe('agentContextService - per-repo refresh on session events', () => {
+  const s = { id: 'a', state: 'working', status: 'busy', displayState: 'working', links: [] };
+
+  it('sessionSignature changes with state, turn status and PR links, not with detail', () => {
+    const key = sessionSignature(s);
+    expect(sessionSignature({ ...s, detail: 'Editing x', updatedAt: 2 })).toBe(key);
+    expect(sessionSignature({ ...s, status: 'idle' })).not.toBe(key);
+    expect(sessionSignature({ ...s, state: 'done' })).not.toBe(key);
+    expect(sessionSignature({ ...s, links: [{}] })).not.toBe(key);
+    // a chat pane row has no state, status or links
+    expect(sessionSignature({ id: 'chat-1', kind: 'interactive' })).toBe('chat-1::::0');
+  });
+
+  it('isCacheCurrent: same sessions and younger than the quiet max age', () => {
+    const entry = { key: 'k', at: 1_000 };
+    expect(isCacheCurrent(entry, 'k', 1_000 + 60_000)).toBe(true);
+    expect(isCacheCurrent(entry, 'other', 1_001)).toBe(false);
+    expect(isCacheCurrent(entry, 'k', 1_000 + 5 * 60_000)).toBe(false);
+    expect(isCacheCurrent(undefined, 'k', 0)).toBe(false);
+  });
+});
 
 describe('agentContextService - parseGithubSlug', () => {
   it.each([

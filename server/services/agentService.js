@@ -28,9 +28,12 @@ import {
   readOmpTranscriptTail,
   stopOmpSession,
   removeOmpSession,
+  ompSessionsDir,
+  ACTIVE_WRITE_MS as OMP_ACTIVE_WRITE_MS,
   OMP_SESSION_ID_RE,
 } from './ompSessions.js';
 import { getAllPtySessions } from './ptyService.js';
+import { agentWatchSources, createRefreshScheduler, watchSources } from './agentRefresh.js';
 
 /**
  * When the API runs inside Docker the `claude` binary on the host cannot be
@@ -189,7 +192,12 @@ export function isUnsafeFlagsAllowed() {
 }
 const MIN_PROMPT_LENGTH = 4;
 const CLI_TIMEOUT = 60000;
-const POLL_INTERVAL = 2500;
+/**
+ * Agents list refresh (agentRefresh.js): a store change refreshes after 300 ms, at most every 2.5 s
+ * (the former fixed poll interval, now only while changes keep coming); a reconcile 60 s after the
+ * last refresh catches what no file shows (a process that died without cleaning up).
+ */
+const REFRESH_TIMING = { debounceMs: 300, minGapMs: 2500, reconcileMs: 60_000 };
 // eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
@@ -1493,23 +1501,26 @@ async function readHead(file, bytes) {
 }
 
 // ---------------------------------------------------------------------------
-// Watcher: polls sessions while clients are subscribed and emits diffs
+// Watcher: refreshes sessions on store changes while clients are subscribed and emits diffs
 // ---------------------------------------------------------------------------
 
-let watcherTimer = null;
 let subscriberCount = 0;
 let lastSnapshot = new Map();
-let pollInProgress = false;
+/** The list of the last refresh while the watcher runs: kept current by the store watches */
+let latestSessions = null;
+let scheduler = null;
+let watches = null;
 
 function snapshotKey(session) {
   return `${session.state}|${session.displayState}|${session.status}|${session.detail}|${session.name}|${session.pinned}|${session.order}|${session.links.length}|${session.waitingFor}`;
 }
 
-async function poll() {
-  if (pollInProgress) return;
-  pollInProgress = true;
+async function refreshSessions() {
+  watches?.ensure(); // a store created since (first job, first omp run) gets its watch
   try {
     const sessions = await listSessions({ all: true });
+    if (!scheduler) return; // unsubscribed meanwhile
+    latestSessions = sessions;
     const next = new Map(sessions.map((s) => [s.id, s]));
     const notifications = [];
     for (const session of sessions) {
@@ -1535,29 +1546,54 @@ async function poll() {
     for (const notification of notifications) agentEvents.emit('notify', notification);
   } catch (error) {
     agentEvents.emit('error', { message: error.message });
-  } finally {
-    pollInProgress = false;
   }
 }
 
 export function subscribe() {
   subscriberCount += 1;
-  if (!watcherTimer) {
-    poll();
-    watcherTimer = setInterval(poll, POLL_INTERVAL);
+  if (!scheduler) {
+    const own = (scheduler = createRefreshScheduler({
+      run: refreshSessions,
+      ...REFRESH_TIMING,
+    }));
+    watches = watchSources(
+      agentWatchSources({ claudeHome: CLAUDE_HOME, ompAgentDir: path.dirname(ompSessionsDir()) }),
+      (kind) => {
+        own.notify();
+        // an omp session counts as busy until its file has been quiet for a while: no write ends it
+        if (kind === 'omp') own.notifyAfter(OMP_ACTIVE_WRITE_MS + 1000);
+      }
+    );
+    own.start();
   }
+  // Idempotent: the SSE route calls it on both `close` and `error` of one request; counting a
+  // client twice stopped the watcher while another client still listened
+  let unsubscribed = false;
   return () => {
+    if (unsubscribed) return;
+    unsubscribed = true;
     subscriberCount = Math.max(0, subscriberCount - 1);
-    if (subscriberCount === 0 && watcherTimer) {
-      clearInterval(watcherTimer);
-      watcherTimer = null;
+    if (subscriberCount === 0 && scheduler) {
+      scheduler.stop();
+      watches.close();
+      scheduler = null;
+      watches = null;
+      latestSessions = null;
     }
   };
 }
 
-/** Force a poll soon (after a mutating command). */
+/** Refresh soon (after a mutating command). */
 export function triggerRefresh() {
-  if (watcherTimer) setTimeout(poll, 400);
+  scheduler?.refreshSoon();
+}
+
+/**
+ * All sessions: the watcher's current list while it runs (the store watches keep it fresh),
+ * else a fresh `claude agents --json`.
+ */
+export async function currentSessions() {
+  return latestSessions ?? listSessions({ all: true });
 }
 
 export function getSubscriberCount() {
