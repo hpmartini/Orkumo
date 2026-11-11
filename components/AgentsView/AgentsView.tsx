@@ -496,12 +496,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           lookup,
           apps,
           // A filter asks for agents: empty fixed projects would only be in the way
-          fixedProjects: shownSessions.length === sessions.length ? rail.fixedProjects : [],
+          fixedProjects: filterActive ? [] : rail.fixedProjects,
         })
       ),
     [
       shownSessions,
-      sessions.length,
+      filterActive,
       settings.grouping,
       expandedCompleted,
       quickFilters,

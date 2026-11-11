@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Review #253: unit tests, then the real app on spare ports (throwaway data dir, empty HOME,
-# claude stub) and an e2e run in Chromium: a fixed project without sessions is listed, its
+# claude stub listing one interactive session, which the rail hides) and an e2e run in Chromium: a fixed project without sessions is listed, its
 # menu removes it, the command palette opens the directory picker. Screenshots in $OUT.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -17,7 +17,7 @@ npx tsc --noEmit -p .
 npx vitest run test/fixedProjects.test.tsx
 
 mkdir -p "$TMP/bin" "$TMP/claude-home/jobs" "$TMP/data" "$TMP/home" "$TMP/proj/notes" "$TMP/shots"
-printf '#!/usr/bin/env bash\ncase "$1" in agents) echo "[]" ;; --version) echo "2.1.0 (Claude Code)" ;; *) exit 0 ;; esac\n' >"$TMP/bin/claude"
+printf '#!/usr/bin/env bash\ncase "$1" in agents) echo "[{\\"kind\\":\\"interactive\\",\\"id\\":\\"tty253\\",\\"pid\\":1,\\"cwd\\":\\"/tmp\\",\\"name\\":\\"claude-xx\\",\\"status\\":\\"idle\\",\\"startedAt\\":1}]" ;; --version) echo "2.1.0 (Claude Code)" ;; *) exit 0 ;; esac\n' >"$TMP/bin/claude"
 chmod +x "$TMP/bin/claude"
 
 SERVER_PORT=$(free_port); VITE_PORT=$(free_port)

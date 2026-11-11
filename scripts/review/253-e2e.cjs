@@ -27,6 +27,11 @@ const check = (name, ok, detail) => {
   const group = p.getByRole('option').filter({ hasText: 'notes' }).first();
   await group.waitFor({ timeout: 30000 });
   check('fixed project is listed without any session', true);
+  // a session the rail hides (interactive terminal) must not count as a filter
+  check(
+    'rail has a hidden interactive session in this run',
+    (await p.getByText(/1 hidden/).count()) === 1
+  );
   await p.screenshot({ path: `${out}/253-1-festes-projekt.png` });
 
   await group.click({ button: 'right' });
