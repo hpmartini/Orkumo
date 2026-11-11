@@ -89,6 +89,8 @@ import {
   resumableSessionId,
   harnessLabel,
   sessionHarness,
+  withBranchPullRequests,
+  sessionsWithBranchPullRequests,
   terminalResumeArgs,
   isOmpStoreSession,
 } from '../../utils/agentSessions';
@@ -210,7 +212,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 }) => {
   const palette = useCommandPalette();
   const {
-    sessions,
+    sessions: listed,
     listTarget,
     daemon,
     userSettings,
@@ -225,6 +227,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     lastCompleted,
     refresh,
   } = useAgentSessions({ active: true });
+  const contexts = useAgentContexts(true);
+  // Every harness gets the PRs of its branch, not only Claude jobs that report links
+  const sessions = useMemo(
+    () => sessionsWithBranchPullRequests(listed, contexts),
+    [listed, contexts]
+  );
 
   const [input, setInput] = useState('');
   const [hint, setHint] = useState<{ text: string; tone: 'info' | 'error' | 'success' } | null>(
@@ -329,7 +337,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
   const railRef = useRef<HTMLDivElement>(null);
   const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
-  const contexts = useAgentContexts(true);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
     [sessions, apps, contexts]
@@ -346,9 +353,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     const interval = setInterval(load, BOARD_REFRESH_MS);
     return () => clearInterval(interval);
   }, []);
+  // Chat panes are no list rows, but their branch PRs lead to board issues just the same
+  const chatsWithPrs = useMemo(
+    () => sessionsWithBranchPullRequests(chats.chats, contexts),
+    [chats.chats, contexts]
+  );
   const issueLinks = useMemo(
-    () => (board ? deriveAgentLinks(board.items, sessions) : undefined),
-    [board, sessions]
+    () => (board ? deriveAgentLinks(board.items, [...sessions, ...chatsWithPrs]) : undefined),
+    [board, sessions, chatsWithPrs]
   );
   const issuesByAgent = useMemo(() => issueLinks && linksByAgent(issueLinks), [issueLinks]);
   const workflowIssues = useMemo(
@@ -1776,13 +1788,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             if (slug) navigate(modeUrl(m.id)(slug, session.id));
           },
         })),
-        // Replaces the card chevron (#159); only hover needs it, a click already keeps them open (#242).
-        // A card pinned earlier keeps its "Hide details" so it can still be unpinned.
-        ...(settings.cardDetails === 'hover' || expandedSessions.has(session.id)
+        // Keyboard way to the card's details button; `always` has nothing to toggle, but a card
+        // opened earlier keeps its "Hide details" so it can still be closed
+        ...(settings.cardDetails !== 'always' || expandedSessions.has(session.id)
           ? [
               {
                 id: 'details',
-                label: expandedSessions.has(session.id) ? 'Hide details' : 'Keep details open',
+                label: expandedSessions.has(session.id)
+                  ? 'Hide details'
+                  : settings.cardDetails === 'hover'
+                    ? 'Keep details open'
+                    : 'Show details',
                 onSelect: () => toggleExpandedSession(session.id),
               },
             ]
@@ -2414,6 +2430,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 favoriteGroupKeys={rail.favoriteGroups}
                 favoriteSessionIds={rail.favoriteSessions}
                 expandedSessionIds={rail.expandedSessions}
+                onToggleDetails={toggleExpandedSession}
                 onToggleFavoriteGroup={rail.toggleFavoriteGroup}
                 onToggleFavoriteSession={rail.toggleFavoriteSession}
                 onMoveGroup={rail.moveGroup}
@@ -2554,19 +2571,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                         onSetLayout={live ? workspaceActions.setLayout : noop}
                         onPeek={live ? (sid) => setPeekId(sid) : noop}
                         focusZone={focusZone}
-                        renderPaneMeta={(x) => (
-                          <SessionLinks
-                            session={x}
-                            ctx={contexts[x.id]}
-                            servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
-                            issueKeys={issuesByAgent?.get(x.id) || []}
-                            onOpenIssue={setIssueModalKey}
-                            onOpenPrs={(repo) => {
-                              setPrRepo(repo);
-                              setPanel('prs');
-                            }}
-                          />
-                        )}
+                        renderPaneMeta={(pane) => {
+                          // A harness pane started here is represented by the server row that
+                          // claimed it (#195); a chat by itself (its context comes from the server)
+                          const x = sessions.find((s) => s.paneId === pane.id) ?? pane;
+                          return (
+                            <SessionLinks
+                              session={withBranchPullRequests(x, contexts[x.id])}
+                              ctx={contexts[x.id]}
+                              servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
+                              issueKeys={issuesByAgent?.get(x.id) || []}
+                              onOpenIssue={setIssueModalKey}
+                              onOpenPrs={(repo) => {
+                                setPrRepo(repo);
+                                setPanel('prs');
+                              }}
+                            />
+                          );
+                        }}
                       />
                     </div>
                   );

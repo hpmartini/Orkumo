@@ -130,6 +130,8 @@ interface AgentListProps {
   favoriteSessionIds?: Set<string>;
   /** Rows whose details (PRs, issues, servers) are open */
   expandedSessionIds?: Set<string>;
+  /** The card's details button: opens / closes its details (they stay open until closed) */
+  onToggleDetails?: (id: string) => void;
   onToggleFavoriteGroup?: (key: string) => void;
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
@@ -231,6 +233,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   favoriteGroupKeys,
   favoriteSessionIds,
   expandedSessionIds,
+  onToggleDetails,
   onToggleFavoriteGroup,
   onToggleFavoriteSession,
   onMoveGroup,
@@ -1088,6 +1091,28 @@ export const AgentList: React.FC<AgentListProps> = ({
                             );
                           })}
                         </div>
+                        {hasDetails && cardDetails !== 'always' && onToggleDetails && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              onToggleDetails(session.id);
+                            }}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                            aria-expanded={expanded}
+                            aria-label={pinned ? 'Hide details' : 'Show details'}
+                            title={pinned ? 'Hide details' : 'Show details (PRs, issues, servers)'}
+                            className={`p-1 rounded hover:text-white hover:bg-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
+                              pinned ? 'text-blue-300' : 'text-gray-500'
+                            }`}
+                          >
+                            <ChevronDown
+                              size={13}
+                              aria-hidden
+                              className={`transition-transform motion-reduce:transition-none ${pinned ? 'rotate-180' : ''}`}
+                            />
+                          </button>
+                        )}
                         {onToggleFavoriteSession && (
                           <FavoriteButton
                             active={isFav}

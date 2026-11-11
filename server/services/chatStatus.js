@@ -1,5 +1,5 @@
 /**
- * Chat pane side data (#189 follow-up): status line (git, prompt cache, plan limits),
+ * Chat pane side data (#189 follow-up): status line (git, context fill, plan limits),
  * `@` file completion and background shell output.
  */
 import { execFile } from 'child_process';
@@ -8,15 +8,20 @@ import { gitInfo, sessionCache } from './agentContextService.js';
 import { claudeLimits, defaultSources } from './usageService.js';
 
 /**
- * Status line of a chat: { git, cache, limits }; each part null when unknown. Prompt cache and
- * plan limits are read from Claude Code's own files, so other harnesses only get git.
+ * Status line of a chat: { git, cache, context, limits }; each part null when unknown.
+ * Claude Code: prompt cache and context from its transcript, plan limits from its login.
+ * Other harnesses: context and limits as their driver reported them (`usage`); a Claude model
+ * without own limits (omp, pi on the Claude subscription) shows Claude's plan limits.
  */
-export async function chatStatus({ harness = 'claude', cwd, sessionId, model }) {
+export async function chatStatus({ harness = 'claude', cwd, sessionId, model, usage = null }) {
   const claude = harness === 'claude';
-  const [git, cache, limits] = await Promise.all([
+  const claudeModel = claude || /claude|anthropic/i.test(model || '');
+  const [git, cache, claudePlan] = await Promise.all([
     gitInfo(cwd).catch(() => null),
     claude && sessionId ? sessionCache({ cwd, sessionId }, model).catch(() => null) : null,
-    claude ? claudeLimits(defaultSources()[0], Date.now()).catch(() => null) : null,
+    claudeModel && !usage?.limits
+      ? claudeLimits(defaultSources()[0], Date.now()).catch(() => null)
+      : null,
   ]);
   return {
     git: git && {
@@ -27,7 +32,10 @@ export async function chatStatus({ harness = 'claude', cwd, sessionId, model }) 
       behind: git.behind,
     },
     cache,
-    limits,
+    context: cache
+      ? { tokens: cache.cachedTokens, window: cache.contextWindow }
+      : (usage?.context ?? null),
+    limits: usage?.limits ?? claudePlan,
   };
 }
 
