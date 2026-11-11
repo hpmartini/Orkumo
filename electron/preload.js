@@ -33,6 +33,18 @@ contextBridge.exposeInMainWorld('electronAPI', {
     return () => ipcRenderer.removeListener('open-link', handler);
   },
 
+  // Quick window (#251): its prompt goes to the main window
+  quickSubmit: (text) => ipcRenderer.send('quick-submit', text),
+  quickHide: () => ipcRenderer.send('quick-hide'),
+  onQuickPrompt: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = (event, text) => callback(text);
+    ipcRenderer.on('quick-prompt', handler);
+    return () => ipcRenderer.removeListener('quick-prompt', handler);
+  },
+
   // Native dialogs
   showMessageBox: (options) => ipcRenderer.invoke('show-message-box', options),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Quick window (#251, desktop app): a system-wide shortcut (default `Alt+Shift+Space`, `ORKUMO_QUICK_SHORTCUT` overrides, empty turns it off) toggles a small always-on-top prompt field; Enter opens the chat composer in Orkumo with the text
+
 ### Removed
 
 - Monaco editor and its editor switcher in the Web IDE panel; VS Code (code-server) is the only integrated editor (#139)
