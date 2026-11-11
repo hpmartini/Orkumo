@@ -46,9 +46,14 @@ describe('harness policy (#195)', () => {
     expect(harnessArgsError('bash', [])).toBe('Unknown harness');
   });
 
-  it('lets only omp resume, and only a session UUID', () => {
+  it('resumes only in each harness’s own form, and only with a session id', () => {
     const id = '01a1c095-7edd-72eb-9c97-4afdcd01f56e';
     expect(harnessArgsError('omp', ['-r', id])).toBeNull();
+    expect(harnessArgsError('pi', ['--session', id])).toBeNull();
+    expect(harnessArgsError('codex', ['resume', id])).toBeNull();
+    expect(
+      harnessArgsError('opencode', ['--session', 'ses_e387fa255ffe16nILLAOprRkzX'])
+    ).toBeNull();
     for (const args of [
       ['-r'],
       ['-r', '01a1c095'],
@@ -62,6 +67,9 @@ describe('harness policy (#195)', () => {
     for (const other of ['codex', 'pi', 'opencode']) {
       expect(harnessArgsError(other, ['-r', id])).not.toBeNull();
     }
+    expect(harnessArgsError('codex', ['resume', '--last'])).not.toBeNull();
+    expect(harnessArgsError('opencode', ['--session', id])).not.toBeNull();
+    expect(harnessArgsError('pi', ['--session', '../x.jsonl'])).not.toBeNull();
   });
 
   it('resolves only executables named after the harness, null when missing', () => {

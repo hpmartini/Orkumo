@@ -7,12 +7,16 @@ import fsp from 'fs/promises';
 import { gitInfo, sessionCache } from './agentContextService.js';
 import { claudeLimits, defaultSources } from './usageService.js';
 
-/** Status line of a chat: { git, cache, limits }; each part null when unknown */
-export async function chatStatus({ cwd, sessionId, model }) {
+/**
+ * Status line of a chat: { git, cache, limits }; each part null when unknown. Prompt cache and
+ * plan limits are read from Claude Code's own files, so other harnesses only get git.
+ */
+export async function chatStatus({ harness = 'claude', cwd, sessionId, model }) {
+  const claude = harness === 'claude';
   const [git, cache, limits] = await Promise.all([
     gitInfo(cwd).catch(() => null),
-    sessionId ? sessionCache({ cwd, sessionId }, model).catch(() => null) : null,
-    claudeLimits(defaultSources()[0], Date.now()).catch(() => null),
+    claude && sessionId ? sessionCache({ cwd, sessionId }, model).catch(() => null) : null,
+    claude ? claudeLimits(defaultSources()[0], Date.now()).catch(() => null) : null,
   ]);
   return {
     git: git && {

@@ -977,11 +977,25 @@ export const HARNESSES: { id: AgentHarness; label: string }[] = [
 export const harnessLabel = (id: AgentHarness): string =>
   HARNESSES.find((h) => h.id === id)?.label ?? id;
 
-/** Which CLI a session runs with: a harness PTY names it, everything else is Claude Code */
+/** Which CLI a session runs with: a harness PTY or chat names it, everything else is Claude Code */
 export function sessionHarness(session: AgentSession): AgentHarness {
-  const cmd = session.ptyCommand;
-  return cmd ?? 'claude';
+  return session.ptyCommand ?? session.harness ?? 'claude';
 }
+
+/** How each harness's terminal UI resumes a session (server allowlist: config/harnesses.js) */
+const RESUME_FLAG: Record<AgentHarness, string> = {
+  claude: '--resume',
+  omp: '-r',
+  pi: '--session',
+  opencode: '--session',
+  codex: 'resume',
+};
+
+/** PTY arguments that continue `sessionId` in the harness's terminal UI */
+export const terminalResumeArgs = (harness: AgentHarness, sessionId: string): string[] => [
+  RESUME_FLAG[harness],
+  sessionId,
+];
 
 const APP_ORIGINS: Record<string, string> = { ios: 'iOS', android: 'Android', web: 'Web' };
 
@@ -1091,14 +1105,16 @@ export function shortenPath(cwd: string, max = 40): string {
 }
 
 /**
- * CLI session UUID a terminal pane can hand over to a Chat pane (`claude --resume`), or null.
- * Cloud panes run elsewhere; chats already are chats.
+ * Session id a terminal pane can hand over to a Chat pane and back, or null: Claude Code's
+ * UUID (`claude --resume`), or the id the server lists for another harness's session (omp).
+ * Harness panes without a listed session, cloud panes and chats have none.
  */
 export function resumableSessionId(session: AgentSession): string | null {
-  if (session.chat || sessionHarness(session) !== 'claude') return null;
+  if (session.chat) return null;
   // #220: the chat would start on the picked instance, not on the one this pane runs on
   if (targetOf(session.id) !== getAgentTarget()) return null;
   if (session.sessionId) return session.sessionId;
+  if (sessionHarness(session) !== 'claude') return null;
   const args = session.ptyArgs ?? [];
   if (args.includes('--cloud')) return null;
   const at = args.findIndex((a) => a === '--resume' || a === '--session-id');

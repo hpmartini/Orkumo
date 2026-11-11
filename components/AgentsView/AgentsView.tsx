@@ -89,6 +89,7 @@ import {
   resumableSessionId,
   harnessLabel,
   sessionHarness,
+  terminalResumeArgs,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
 import { GroupingPicker, ProjectsSection, RailNavProps } from './ProjectsRail';
@@ -862,11 +863,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [attach]
   );
 
-  /** Starts a Chat pane session with the dispatch defaults (model, permission mode) */
+  /** Starts a Chat pane session; Claude Code gets the dispatch defaults (model, permission mode) */
   const openChat = useCallback(
     async (
       cwd: string | null,
-      extra: { resume?: string; continue?: boolean; name?: string },
+      extra: { harness?: AgentHarness; resume?: string; continue?: boolean; name?: string },
       message = ''
     ) => {
       if (!cwd) {
@@ -875,13 +876,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }
       setDispatching(true);
       try {
+        const claude = (extra.harness ?? 'claude') === 'claude';
         const id = await chats.open(
           {
             cwd,
-            model: settings.dispatch.model,
-            permissionMode: settings.dispatch.permissionMode,
-            skipPermissions: settings.dispatch.skipPermissions || undefined,
+            ...(claude && {
+              model: settings.dispatch.model,
+              permissionMode: settings.dispatch.permissionMode,
+              skipPermissions: settings.dispatch.skipPermissions || undefined,
+            }),
             ...extra,
+            // Session titles (an omp row is named after its first prompt) can exceed the 80 allowed
+            name: extra.name?.replace(/\s+/g, ' ').trim().slice(0, 80) || undefined,
           },
           message
         );
@@ -898,7 +904,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [chats, settings.dispatch, showHint, attach]
   );
 
-  /** "Open in terminal": the chat process ends first, then `claude --resume` takes the session */
+  /** "Open in terminal": the chat process ends first, then the harness's terminal resumes it */
   const openChatInTerminal = useCallback(
     async (chatId: string, sessionId: string) => {
       const chat = chats.chats.find((c) => c.id === chatId);
@@ -909,12 +915,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         attach(chat.viewOf);
         return;
       }
+      const harness = chat ? sessionHarness(chat) : 'claude';
       // The chat's session lives on the chat's instance, not on the one picked now
       openInteractiveClaude(
         chat?.cwd || homeDir || '',
-        chat?.name || 'claude',
-        ['--resume', sessionId],
-        'claude',
+        chat?.name || harness,
+        terminalResumeArgs(harness, sessionId),
+        harness,
         targetOf(chatId)
       );
     },
@@ -924,10 +931,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   /**
    * "Open as chat": a running background agent, and any agent mid-turn, opens as a live view of
    * its own process (chat is just another view). An idle local terminal or a finished job hands
-   * its session to a chat process instead.
+   * its session to a chat process instead. Another harness's session (omp) has no live view:
+   * its process (pane or other terminal) ends first, then the chat resumes the session.
    */
   const openAgentInChat = useCallback(
     async (session: AgentSession, sessionId: string) => {
+      const harness = sessionHarness(session);
+      if (harness !== 'claude') {
+        if (session.displayState === 'working') {
+          showHint(`${harnessLabel(harness)} is mid-turn: open it as chat once it is idle`, 'info');
+          return;
+        }
+        try {
+          // Waits until the process holding the session is gone; closing the pane alone does not
+          if (session.pid != null) await stopAgent(session.id);
+        } catch (err) {
+          showHint(`Takeover failed: ${err instanceof Error ? err.message : err}`, 'error', 6000);
+          return;
+        }
+        closeAnyPane(session.paneId || session.id);
+        await openChat(session.cwd, {
+          harness,
+          resume: sessionId,
+          name: session.name || undefined,
+        });
+        return;
+      }
       if (opensAsLiveView(session)) {
         try {
           // A background pane only detaches; a local terminal stays open, it is the agent
@@ -979,6 +1008,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         attach(running.id);
         return true;
       }
+      if (sessionHarness(session) !== 'claude') {
+        // No live view for other harnesses: mid-turn it stays in its terminal
+        if (!CHAT_OPENABLE.has(session.displayState)) return false;
+        // Its process in another terminal ends first: a takeover, ask (#236)
+        const elsewhere = session.pid != null && !session.paneId;
+        guardCopy(elsewhere ? session : null, () => void openAgentInChat(session, sessionId), true);
+        return true;
+      }
       // A prompt is not in the transcript and `claude logs` only exists for jobs: keep the terminal
       const prompting =
         session.displayState === 'waiting' ||
@@ -1007,6 +1044,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       // A Claude app session runs on claude.ai: a resume here would fork it (#236)
       if (plan.type === 'app') return plan.url ? openInSystemBrowser(plan.url) : undefined;
       if (plan.type === 'attach') {
+        if (openAsChat(session)) return;
         // A harness session running in another terminal: omp has no attach, so taking it over
         // ends that process and resumes the session here (a second process would write in parallel)
         const elsewhere = session.ptyArgs && session.pid != null && !session.paneId;
@@ -1163,24 +1201,31 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const handleSubmit = useCallback(
     async ({ attach: attachAfter }: { attach: boolean }) => {
       if (composerMode === 'chat') {
+        const harness = composerHarness;
+        if (harnessInstalled[harness] === false) {
+          showHint(`${harnessLabel(harness)} is not installed on this machine`, 'error');
+          return;
+        }
         // `/resume [id]` and `/continue` pick up an earlier session; anything else is the first message
         const resume = input.trim().match(/^\/resume(?:\s+(\S+))?$/);
         if (resume) {
           if (resume[1]) {
             const id = resume[1];
             guardCopy(transcriptHolder(sessions, id), () => {
-              void openChat(composerCwd, { resume: id });
+              void openChat(composerCwd, { harness, resume: id });
             });
-          } else setResumePicker({ open: true, query: '', chat: true });
+          } else if (harness === 'claude') setResumePicker({ open: true, query: '', chat: true });
+          else showHint(`${harnessLabel(harness)}: give the session id, /resume <id>`, 'error');
           return;
         }
         if (input.trim() === '/continue') {
-          await openChat(composerCwd, { continue: true });
+          if (harness === 'claude') await openChat(composerCwd, { continue: true });
+          else showHint('/continue is Claude Code only: use /resume <id>', 'error');
           return;
         }
         const paths = await uploadComposerImages();
         if (!paths) return;
-        await openChat(composerCwd, {}, promptWithImages(input, paths));
+        await openChat(composerCwd, { harness }, promptWithImages(input, paths));
         return;
       }
       if (composerHarness !== 'claude') {
@@ -2475,7 +2520,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                                 guardCopy(
                                   // a live view starts no process, so it makes no copy (#236)
                                   !opensAsLiveView(s) && resumeMakesCopy(s) ? s : null,
-                                  () => void openAgentInChat(s, sid)
+                                  () => void openAgentInChat(s, sid),
+                                  // another harness's process is ended before the chat resumes
+                                  sessionHarness(s) !== 'claude'
                                 )
                             : undefined
                         }
@@ -2588,7 +2635,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onPickDirectory={() => setPickDirOpen(true)}
         targetCwd={composerCwd}
         variant={composerMode}
-        harness={composerMode === 'chat' ? undefined : composerHarness}
+        harness={composerHarness}
         onHarnessChange={setComposerHarness}
         harnessInstalled={harnessInstalled}
         images={composerImages}
