@@ -23,6 +23,7 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { HARNESS_RESUME, resolveHarnessBinary } from '../../config/harnesses.js';
 import { ompSkillsArgs } from './ompSkills.js';
+import { promptImages } from './imageUpload.js';
 import * as claudeDriver from './chatDrivers/claude.js';
 import * as acpDriver from './chatDrivers/acp.js';
 import * as piRpcDriver from './chatDrivers/piRpc.js';
@@ -369,7 +370,11 @@ export function listChats() {
   return [...sessions.values()].filter((s) => s.running).map(summary);
 }
 
-/** Send a user turn. `text` is markdown as typed; image paths are already inlined by the client */
+/**
+ * Send a user turn. `text` is markdown as typed; attached images are `[Image: <path>]` lines
+ * (`promptWithImages`). The harness gets them as image content, like an image pasted into its
+ * terminal; the chat transcript keeps the lines (they render as thumbnails).
+ */
 export function sendMessage(id, text) {
   const s = get(id);
   if (typeof text !== 'string' || !text.trim()) throw badRequest('Message is empty');
@@ -378,7 +383,8 @@ export function sendMessage(id, text) {
     // The agent's transcript brings the message back into the view
     return s.reply(s.view, text, { mode: 'attach' }).then(() => undefined);
   }
-  live(s).send(text);
+  const { text: prompt, images } = promptImages(text);
+  live(s).send(prompt, images);
   s.busy = true;
   record(s, { type: 'devorbit_user', text });
 }
