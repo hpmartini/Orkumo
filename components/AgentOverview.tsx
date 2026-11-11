@@ -52,7 +52,7 @@ export const AgentOverview: React.FC<{ active: boolean; projectPaths?: string[] 
 }) => {
   const navigate = useNavigate();
   const { sessions: allSessions, loading, refresh } = useAgentSessions({ active });
-  const contexts = useAgentContexts(active);
+  const contexts = useAgentContexts(active, allSessions);
   const [now, setNow] = useState(Date.now);
   const [bucket, setBucket] = useState<AgentBucket | null>(null);
   const [query, setQuery] = useState('');
