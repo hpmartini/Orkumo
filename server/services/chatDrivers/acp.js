@@ -494,7 +494,9 @@ export function startDriver(opts, io) {
   }
 
   function flushUser() {
-    if (userMsg?.text.trim()) io.emit({ type: 'devorbit_user', text: userMsg.text, history: true });
+    // omp replays its injected `<system-reminder …>` notes as user messages too: not prompts
+    if (userMsg?.text.trim() && !userMsg.text.trimStart().startsWith('<system-reminder'))
+      io.emit({ type: 'devorbit_user', text: userMsg.text, history: true });
     userMsg = null;
   }
 

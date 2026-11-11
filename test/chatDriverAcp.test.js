@@ -578,6 +578,20 @@ describe('acp driver - omp turns (recorded)', () => {
     ]);
   });
 
+  it('does not replay omp’s injected system reminders as prompts', async () => {
+    const t = start({ resume: '01a1c789-2f96-7253-8ba8-3de9a6630499' });
+    const list = frames('omp-load');
+    const at = list.findIndex((f) => f.params?.update?.sessionUpdate === 'user_message_chunk');
+    const reminder = structuredClone(list[at]);
+    reminder.params.update.messageId = 'reminder-1';
+    reminder.params.update.content.text =
+      '<system-reminder reason="rule_violation">…</system-reminder>';
+    await t.replay([...list.slice(0, at), reminder, ...list.slice(at)]);
+    const prompts = t.events.filter((e) => e.type === 'devorbit_user').map((e) => e.text);
+    expect(prompts).toHaveLength(2);
+    expect(prompts.some((p) => p.includes('system-reminder'))).toBe(false);
+  });
+
   it('turns a failed prompt into an error text and an error result', async () => {
     const t = start();
     t.driver.send('hi');
