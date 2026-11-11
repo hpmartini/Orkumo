@@ -27,6 +27,7 @@ import {
   findOmpSessionFile,
   readOmpTranscriptTail,
   stopOmpSession,
+  removeOmpSession,
   OMP_SESSION_ID_RE,
 } from './ompSessions.js';
 import { getAllPtySessions } from './ptyService.js';
@@ -1015,9 +1016,18 @@ export async function respawnSession(id) {
 
 /**
  * Delete a session (`claude rm`). Returns hints when the CLI refuses (unpushed commits etc.).
+ * An Oh My Pi session (#195) is deleted from omp's session store, its process ended first.
  */
 export async function removeSession(id, options = {}) {
   jobDir(id);
+  if (id.startsWith('omp-') && OMP_SESSION_ID_RE.test(id.slice(4))) {
+    const { stopped } = await removeOmpSession(id.slice(4));
+    triggerRefresh();
+    return {
+      removed: true,
+      message: stopped ? `omp (PID ${stopped}) stopped, deleted` : 'Deleted',
+    };
+  }
   const args = ['rm', id];
   if (options.discardUnpushed) args.push('--discard-unpushed', String(options.discardUnpushed));
   if (options.forceRemoveWorktree)
