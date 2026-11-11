@@ -123,6 +123,18 @@ describe('piRpc driver - spawn and handshake', () => {
 });
 
 describe('piRpc driver - fresh turn with a bash tool call (recorded)', () => {
+  it('sends attached images as ImageContent with the prompt', () => {
+    const { driver, proc } = start();
+    driver.send('what is this?', [
+      { path: '/d/agent-images/a.png', mimeType: 'image/png', data: 'iVBO' },
+    ]);
+    feed(proc, [response(FRESH, 'get_state')]);
+    expect(sent(proc, 'prompt')[0]).toMatchObject({
+      message: 'what is this?',
+      images: [{ type: 'image', mimeType: 'image/png', data: 'iVBO' }],
+    });
+  });
+
   it('queues the message until the handshake is done, then translates the turn', () => {
     const { driver, proc, events } = start();
     driver.send('Run `ls` with your bash tool, then reply with one short sentence.');

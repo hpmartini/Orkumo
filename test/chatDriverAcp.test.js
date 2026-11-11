@@ -133,6 +133,27 @@ describe('acp driver - process and handshake', () => {
     });
   });
 
+  it('sends attached images as image blocks, or as paths to an agent without image support', async () => {
+    const img = { path: '/d/agent-images/a.png', mimeType: 'image/png', data: 'iVBO' };
+    const [init, created] = frames('omp-fresh');
+    const withImages = start();
+    withImages.driver.send('what is this?', [img]);
+    await withImages.replay([init, created]);
+    expect(withImages.proc.written[2].params.prompt).toEqual([
+      { type: 'text', text: 'what is this?' },
+      { type: 'image', mimeType: 'image/png', data: 'iVBO' },
+    ]);
+
+    const textOnly = start();
+    textOnly.driver.send('', [img]);
+    const noImages = structuredClone(init);
+    noImages.result.agentCapabilities.promptCapabilities.image = false;
+    await textOnly.replay([noImages, created]);
+    expect(textOnly.proc.written[2].params.prompt).toEqual([
+      { type: 'text', text: '[Image: /d/agent-images/a.png]' },
+    ]);
+  });
+
   it('skips garbage and joins lines split across chunks', async () => {
     const t = start();
     const [init] = frames('omp-fresh');

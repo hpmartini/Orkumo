@@ -540,10 +540,15 @@ export function startDriver(opts, io) {
   };
   const pump = () => {
     if (!ready || turn || !queue.length || !running) return;
-    const text = queue.shift();
+    const { text, images } = queue.shift();
     turn = { id: null, startedAt: Date.now(), interrupt: false, view: null };
     const mine = turn;
-    call('turn/start', { threadId, input: [{ type: 'text', text, text_elements: [] }] }, (msg) => {
+    // Attached images as local files, the way the codex TUI sends a pasted image
+    const input = [
+      ...(text ? [{ type: 'text', text, text_elements: [] }] : []),
+      ...images.map((i) => ({ type: 'localImage', path: i.path })),
+    ];
+    call('turn/start', { threadId, input }, (msg) => {
       if (turn !== mine) return;
       if (msg.error) return turnError(str(msg.error.message) || 'turn/start failed');
       turn.id ??= str(msg.result?.turn?.id) || null;
@@ -821,9 +826,9 @@ export function startDriver(opts, io) {
   );
 
   return {
-    send(text) {
+    send(text, images = []) {
       if (!running) throw deadError();
-      queue.push(text);
+      queue.push({ text, images });
       pump();
     },
     interrupt() {

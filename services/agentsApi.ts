@@ -3,6 +3,7 @@
  */
 import { API_BASE_URL } from '../utils/apiConfig';
 import { agentApiUrl, getAgentTarget, pinTarget, targetOf } from '../utils/agentTarget';
+import { fitImage } from '../utils/imageFit';
 import type {
   AgentsResponse,
   AgentDispatchRequest,
@@ -127,12 +128,13 @@ export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatch
   }).then((result) => pinAll([result], target)[0]);
 }
 
-/** Stores an image on the server for a prompt; returns its local path (#105) */
+/** Stores an image for a prompt and returns its server path; large images are scaled down first */
 export async function uploadAgentImage(file: Blob): Promise<string> {
+  const image = await fitImage(file);
   const data = await request<{ path: string }>('/agents/images', {
     method: 'POST',
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
-    body: file,
+    headers: { 'Content-Type': image.type || 'application/octet-stream' },
+    body: image,
   });
   return data.path;
 }

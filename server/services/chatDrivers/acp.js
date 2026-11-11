@@ -279,8 +279,10 @@ export function startDriver(opts, io) {
   /** emitted control_request id → { rpcId, options } */
   const permissions = new Map();
   const usedRequestIds = new Set();
-  /** text of user turns waiting for `session/prompt` */
+  /** user turns waiting for `session/prompt`: { text, images } */
   const queue = [];
+  /** the agent takes image content blocks (initialize: promptCapabilities.image) */
+  let acceptsImages = false;
   /** running turn: { rpcId, start } */
   let turn = null;
   /** toolCallId → accumulated tool call state */
@@ -599,7 +601,20 @@ export function startDriver(opts, io) {
 
   function pump() {
     if (!ready || turn || !queue.length || !alive()) return;
-    const text = queue.shift();
+    const { text, images } = queue.shift();
+    // Images as content blocks (like a pasted image); an agent without image support gets the
+    // file paths, which its read tool can open
+    const prompt = acceptsImages
+      ? [
+          ...(text ? [{ type: 'text', text }] : []),
+          ...images.map((i) => ({ type: 'image', mimeType: i.mimeType, data: i.data })),
+        ]
+      : [
+          {
+            type: 'text',
+            text: [text, ...images.map((i) => `[Image: ${i.path}]`)].filter(Boolean).join('\n'),
+          },
+        ];
     const rpcId = ++rpcSeq;
     turn = { rpcId, start: Date.now() };
     calls.set(rpcId, {
@@ -609,7 +624,7 @@ export function startDriver(opts, io) {
     write({
       id: rpcId,
       method: 'session/prompt',
-      params: { sessionId, prompt: [{ type: 'text', text }] },
+      params: { sessionId, prompt },
     });
   }
 
@@ -744,6 +759,7 @@ export function startDriver(opts, io) {
         protocolVersion: PROTOCOL_VERSION,
         clientCapabilities: { fs: { readTextFile: false, writeTextFile: false }, terminal: false },
       });
+      acceptsImages = init?.agentCapabilities?.promptCapabilities?.image === true;
       if (opts.resume) {
         if (!init?.agentCapabilities?.loadSession)
           throw new Error('the agent cannot resume sessions');
@@ -774,9 +790,9 @@ export function startDriver(opts, io) {
   })();
 
   return {
-    send(text) {
+    send(text, images = []) {
       if (!alive()) throw deadError();
-      queue.push(text);
+      queue.push({ text, images });
       pump();
     },
     interrupt() {
