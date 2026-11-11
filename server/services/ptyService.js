@@ -5,6 +5,7 @@ import * as pty from 'node-pty';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import { exec } from 'child_process';
+import { ptyBaseEnv } from '../../config/ptyEnv.js';
 
 // Store active PTY sessions
 const ptySessions = new Map();
@@ -143,14 +144,10 @@ export function createPtySession(
       .filter(Boolean)
       .join(':');
 
-    // The server inherits its launcher's env: started from an agent or CI shell it carries NO_COLOR,
-    // FORCE_COLOR=0 or CI, and every terminal opened here would render monochrome. A PTY is an
-    // interactive color terminal (TERM/COLORTERM below), so those stay out; options.env may still set them.
-    const inheritedEnv = { ...process.env };
-    for (const key of ['NO_COLOR', 'FORCE_COLOR', 'CI']) delete inheritedEnv[key];
-
+    // The launcher's terminal identity and color opt-outs stay out (config/ptyEnv.js); a PTY is
+    // an interactive xterm.js color terminal (TERM/COLORTERM below); options.env may still set them.
     const ptyEnv = {
-      ...inheritedEnv,
+      ...ptyBaseEnv(),
       ...options.env,
       PATH: enhancedPath,
       TERM: 'xterm-256color',
