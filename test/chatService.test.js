@@ -345,6 +345,21 @@ describe('history of a resumed chat', () => {
     expect(historyEvents(lines)[0]).toMatchObject({ text: 'fix the bug', history: true });
   });
 
+  it('shows a prompt typed while the agent worked (queued command), not task notifications', () => {
+    const queued = (prompt, commandMode) => ({
+      type: 'attachment',
+      attachment: { type: 'queued_command', prompt, commandMode },
+    });
+    expect(
+      historyEvents(
+        [
+          queued('danach Releases bereitstellen', 'prompt'),
+          queued('<task-notification>done</task-notification>', 'task-notification'),
+        ].map((r) => JSON.stringify(r))
+      )
+    ).toEqual([{ type: 'devorbit_user', text: 'danach Releases bereitstellen', history: true }]);
+  });
+
   it('finds the transcript in the cwd project folder or any other one', () => {
     const projects = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-projects-'));
     fs.mkdirSync(path.join(projects, '-elsewhere'));
