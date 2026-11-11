@@ -1275,10 +1275,11 @@ app.get('/api/agents/images/:name', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Chat sessions (#189): `claude -p` with stream-json, rendered by the Chat pane
+// Chat sessions (#189): an agent harness rendered by the Chat pane (chatService.js, chatDrivers/)
 // ---------------------------------------------------------------------------
 const chatIdSchema = z.string().uuid();
 const chatStartSchema = z.object({
+  harness: z.enum(chatService.CHAT_HARNESSES).optional(),
   cwd: pathSchema,
   model: z.string().max(80).optional().nullable(),
   permissionMode: z.string().max(40).optional().nullable(),

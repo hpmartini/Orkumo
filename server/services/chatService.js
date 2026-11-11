@@ -1,21 +1,32 @@
 /**
- * Chat sessions (#189): the unmodified `claude` CLI in print mode with stream-json on
- * stdin/stdout, driven by the Chat pane in the agents view instead of a PTY.
+ * Chat sessions (#189): an agent harness driven by the Chat pane in the agents view instead of
+ * a PTY. This module is the harness-neutral part: session list, replay buffer, watchers, orphan
+ * timer. A driver per protocol (chatDrivers/) spawns the CLI and translates its protocol into
+ * Claude Code's stream-json event shapes, which the client reducer (utils/chatEvents.ts) reads:
  *
- * Protocol (verified against CLI 2.1.317): one JSON object per line. We send
- * `control_request initialize` once, then `user` messages; the CLI streams system/assistant/
- * user(tool_result)/stream_event/result lines and asks `control_request can_use_tool` for
- * permissions, which we answer with `control_response`. `control_request interrupt` stops a turn.
+ * | harness        | driver   | protocol                     |
+ * | :------------- | :------- | :--------------------------- |
+ * | claude         | claude   | `claude -p` stream-json      |
+ * | omp, opencode  | acp      | ACP (`omp acp`, `opencode acp`) |
+ * | pi             | piRpc    | `pi --mode rpc`              |
+ * | codex          | codex    | `codex app-server`           |
+ *
+ * Driver interface: `startDriver(opts, { bin, spawn, emit, exit })` returns
+ * `{ send(text), interrupt(), answer(requestId, decision), stop() }`. Resume ids are checked
+ * here first (Claude's UUID, else `HARNESS_RESUME` in config/harnesses.js, the same ids the
+ * terminal resume takes). The driver emits Claude-shaped events, this module adds `devorbit_user`,
+ * `devorbit_permission` and `devorbit_exit`.
  */
 import { spawn as nodeSpawn } from 'child_process';
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
 import fs from 'fs';
-import path from 'path';
-import { CLI_BUILTINS } from './claudeBuiltins.js';
+import { HARNESS_RESUME, resolveHarnessBinary } from '../../config/harnesses.js';
+import * as claudeDriver from './chatDrivers/claude.js';
+import * as acpDriver from './chatDrivers/acp.js';
+import * as piRpcDriver from './chatDrivers/piRpc.js';
+import * as codexDriver from './chatDrivers/codex.js';
 import {
-  paths as agentPaths,
-  projectSlug,
   assertAllowedPath,
   getAllowedDirectories,
   isUnsafeFlagsAllowed,
@@ -26,8 +37,19 @@ import {
   listSubagents,
 } from './agentService.js';
 
+const { findTranscript, historyEvents, commandsEvent, HISTORY_BYTES } = claudeDriver;
+
+/** harness → driver module */
+const DRIVERS = {
+  claude: claudeDriver,
+  omp: acpDriver,
+  opencode: acpDriver,
+  pi: piRpcDriver,
+  codex: codexDriver,
+};
+export const CHAT_HARNESSES = Object.keys(DRIVERS);
+
 export const PERMISSION_MODES = ['default', 'acceptEdits', 'auto', 'manual', 'dontAsk', 'plan'];
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MODEL_RE = /^[a-zA-Z0-9][a-zA-Z0-9._[\]-]{0,79}$/;
 const NAME_RE = /^[^\0\n\r]{1,80}$/;
 /** Replay buffer per session; stream deltas are live-only, the full messages replay */
@@ -43,10 +65,14 @@ function badRequest(message) {
 
 /**
  * Validate a start request. Throws 400/403 before anything is spawned.
- * @returns {{cwd: string, model?: string, permissionMode?: string, resume?: string,
- *   continue?: boolean, skipPermissions?: boolean, name?: string}}
+ * Model, permission mode, skip permissions and continue are Claude Code options; the other
+ * harnesses start with their own configured defaults.
+ * @returns {{harness: string, cwd: string, model?: string, permissionMode?: string,
+ *   resume?: string, continue?: boolean, skipPermissions?: boolean, name?: string}}
  */
 export function sanitizeChatOptions(opts = {}, context = {}) {
+  const harness = opts.harness ?? 'claude';
+  if (!Object.hasOwn(DRIVERS, harness)) throw badRequest('Unknown harness');
   const allowedDirs = context.allowedDirs ?? getAllowedDirectories();
   if (allowedDirs.length === 0) {
     const error = new Error('No project directories are configured');
@@ -61,19 +87,25 @@ export function sanitizeChatOptions(opts = {}, context = {}) {
     error.status = 400;
     throw error;
   }
-  const out = { cwd };
-  if (opts.model != null && opts.model !== '') {
+  const out = { harness, cwd };
+  const given = (v) => v != null && v !== '' && v !== false;
+  if (harness !== 'claude') {
+    for (const key of ['model', 'permissionMode', 'skipPermissions', 'continue'])
+      if (given(opts[key])) throw badRequest(`${key} is a Claude Code option`);
+  }
+  if (given(opts.model)) {
     if (typeof opts.model !== 'string' || !MODEL_RE.test(opts.model))
       throw badRequest('Invalid model');
     out.model = opts.model;
   }
-  if (opts.permissionMode != null && opts.permissionMode !== '') {
+  if (given(opts.permissionMode)) {
     if (!PERMISSION_MODES.includes(opts.permissionMode))
       throw badRequest('Invalid permission mode');
     out.permissionMode = opts.permissionMode;
   }
-  if (opts.resume != null && opts.resume !== '') {
-    if (typeof opts.resume !== 'string' || !UUID_RE.test(opts.resume))
+  if (given(opts.resume)) {
+    const idRe = harness === 'claude' ? claudeDriver.SESSION_ID_RE : HARNESS_RESUME[harness].id;
+    if (typeof opts.resume !== 'string' || !idRe.test(opts.resume))
       throw badRequest('Invalid session id');
     out.resume = opts.resume;
   }
@@ -91,135 +123,11 @@ export function sanitizeChatOptions(opts = {}, context = {}) {
     }
     out.skipPermissions = true;
   }
-  if (opts.name != null && opts.name !== '') {
+  if (given(opts.name)) {
     if (typeof opts.name !== 'string' || !NAME_RE.test(opts.name)) throw badRequest('Invalid name');
     out.name = opts.name;
   }
   return out;
-}
-
-/** CLI arguments for a sanitized start request (argument array, never a shell string) */
-export function buildChatArgs(safe) {
-  const args = [
-    '-p',
-    '--input-format',
-    'stream-json',
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '--include-partial-messages',
-    '--permission-prompt-tool',
-    'stdio',
-  ];
-  if (safe.model) args.push('--model', safe.model);
-  // CLI 2.1.x has no `default` mode any more; its equivalent (ask for every tool) is `manual`
-  if (safe.permissionMode)
-    args.push(
-      '--permission-mode',
-      safe.permissionMode === 'default' ? 'manual' : safe.permissionMode
-    );
-  if (safe.skipPermissions) args.push('--dangerously-skip-permissions');
-  if (safe.resume) args.push('--resume', safe.resume);
-  if (safe.continue) args.push('--continue');
-  if (safe.name) args.push('--name', safe.name);
-  return args;
-}
-
-/** One stdout line → message object, or null for blank/garbage lines (never throws) */
-export function parseLine(line) {
-  const trimmed = typeof line === 'string' ? line.trim() : '';
-  if (!trimmed) return null;
-  try {
-    const value = JSON.parse(trimmed);
-    return value && typeof value === 'object' && typeof value.type === 'string' ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Transcript bytes read for the history of a resumed chat (newest part of the file) */
-const HISTORY_BYTES = 8 * 1024 * 1024;
-
-/**
- * Transcript JSONL lines → replay events, so a resumed chat shows what came before.
- * `claude -p --resume` itself never replays the old turns.
- */
-export function historyEvents(lines) {
-  const events = [];
-  for (const line of lines) {
-    const rec = parseLine(line);
-    if (!rec || rec.isSidechain || rec.isMeta || rec.isCompactSummary) continue;
-    if (rec.type === 'system' && rec.subtype === 'away_summary' && rec.content) {
-      events.push({ type: 'system', subtype: 'away_summary', content: rec.content });
-      continue;
-    }
-    if (!rec.message) continue;
-    const content = rec.message.content;
-    if (rec.type === 'assistant' && Array.isArray(content)) {
-      events.push({
-        type: 'assistant',
-        message: rec.message,
-        parent_tool_use_id: null,
-        history: true,
-      });
-    } else if (rec.type === 'user') {
-      const text =
-        typeof content === 'string'
-          ? content
-          : Array.isArray(content)
-            ? content
-                .filter((b) => b?.type === 'text')
-                .map((b) => b.text)
-                .join('\n')
-            : '';
-      // `<command-name>`, `<local-command-stdout>` and similar CLI wrappers are not user turns
-      if (text.trim() && !text.trimStart().startsWith('<')) {
-        events.push({ type: 'devorbit_user', text, history: true });
-      }
-      if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) {
-        events.push({ type: 'user', message: rec.message, parent_tool_use_id: null });
-      }
-    }
-  }
-  return events.slice(-MAX_EVENTS);
-}
-
-/** Transcript of a CLI session: the cwd's project folder, else any (worktree sessions) */
-function findTranscript(sessionId, cwd, projectsDir = agentPaths.PROJECTS_DIR) {
-  const name = `${sessionId}.jsonl`;
-  const direct = path.join(projectsDir, projectSlug(cwd), name);
-  if (fs.existsSync(direct)) return direct;
-  try {
-    for (const dir of fs.readdirSync(projectsDir)) {
-      const candidate = path.join(projectsDir, dir, name);
-      if (fs.existsSync(candidate)) return candidate;
-    }
-  } catch {
-    // no projects dir
-  }
-  return null;
-}
-
-/** Replay events for a resumed session; empty when there is no readable transcript */
-export function loadHistory(sessionId, cwd, projectsDir) {
-  const file = findTranscript(sessionId, cwd, projectsDir);
-  if (!file) return [];
-  try {
-    const size = fs.statSync(file).size;
-    const length = Math.min(size, HISTORY_BYTES);
-    const buffer = Buffer.alloc(length);
-    const fd = fs.openSync(file, 'r');
-    try {
-      fs.readSync(fd, buffer, 0, length, size - length);
-    } finally {
-      fs.closeSync(fd);
-    }
-    const lines = buffer.toString('utf8').split('\n');
-    if (length < size) lines.shift(); // partial first line
-    return historyEvents(lines);
-  } catch {
-    return [];
-  }
 }
 
 const sessions = new Map();
@@ -229,6 +137,7 @@ chatEvents.setMaxListeners(0);
 function summary(s) {
   return {
     id: s.id,
+    harness: s.harness,
     cwd: s.cwd,
     name: s.name,
     sessionId: s.sessionId,
@@ -258,91 +167,46 @@ function record(s, event) {
   chatEvents.emit(`event:${s.id}`, event);
 }
 
-function write(s, obj) {
-  if (s.view) throw badRequest('Live view: the agent runs in its own process, use its terminal');
-  if (!s.running || !s.proc.stdin.writable) throw badRequest('Chat session is not running');
-  s.proc.stdin.write(`${JSON.stringify(obj)}\n`);
-}
-
-const clip = (v, n) => (typeof v === 'string' ? v.slice(0, n) : '');
-
-/** The CLI's command / agent lists, trimmed: the raw init answer is ~100 KB per chat */
-export function commandsEvent(commands, agents) {
-  const event = { type: 'devorbit_commands' };
-  if (Array.isArray(commands))
-    event.commands = commands
-      .filter((c) => c && typeof c.name === 'string' && !c.name.startsWith('__'))
-      .map((c) => ({
-        name: c.name,
-        description: clip(c.description, 600),
-        argumentHint: clip(c.argumentHint, 200),
-        builtin: c.builtin === true,
-      }));
-  if (Array.isArray(agents))
-    event.agents = agents
-      .filter((a) => a && typeof a.name === 'string')
-      .map((a) => ({ name: a.name, description: clip(a.description, 600) }));
-  return event;
-}
-
-// The CLI answers our initialize only after the first message, so a fresh chat starts with the
-// built-ins the last chat reported, or the shipped snapshot (the same for every chat)
-let knownBuiltins = CLI_BUILTINS.map((name) => ({
-  name,
-  description: '',
-  argumentHint: '',
-  builtin: true,
-}));
-
-function recordCommands(s, event) {
-  const builtins = event.commands?.filter((c) => c.builtin);
-  if (builtins?.length) knownBuiltins = builtins;
+/** A driver event: session id, model, open permission requests and the busy flag ride along */
+function handleEvent(s, event) {
+  if (event.session_id && !s.sessionId) s.sessionId = event.session_id;
+  if (event.type === 'system' && event.subtype === 'init' && event.model) s.model = event.model;
+  if (event.type === 'control_request' && event.request?.subtype === 'can_use_tool')
+    s.pending.add(event.request_id);
+  if (event.type === 'result') {
+    s.busy = false;
+    // A turn that ended (interrupted) left its open requests unanswerable: close their cards
+    for (const requestId of s.pending)
+      record(s, { type: 'devorbit_permission', request_id: requestId, decision: 'deny' });
+    s.pending.clear();
+  }
   record(s, event);
 }
 
-function handleMessage(s, msg) {
-  if (msg.session_id && !s.sessionId) s.sessionId = msg.session_id;
-  if (msg.type === 'system' && msg.subtype === 'init' && msg.model) s.model = msg.model;
-  if (msg.type === 'control_request' && msg.request?.subtype === 'can_use_tool') {
-    s.pending.set(msg.request_id, msg.request);
-  }
-  if (msg.type === 'result') s.busy = false;
-  // Our own initialize answer carries the command list; the rest of it stays out of the chat
-  if (msg.type === 'control_response') {
-    const r = msg.response;
-    if (r?.request_id === `init-${s.id}` && r.response)
-      recordCommands(s, commandsEvent(r.response.commands, r.response.agents));
-    return;
-  }
-  if (msg.type === 'system' && msg.subtype === 'commands_changed') {
-    recordCommands(s, commandsEvent(msg.commands));
-    return;
-  }
-  if (msg.type === 'system' && /^hook_/.test(msg.subtype || '')) return;
-  record(s, msg);
+/** Driver call on a live session; a dead process or a live view is a 400 */
+function live(s) {
+  if (s.view) throw badRequest('Live view: the agent runs in its own process, use its terminal');
+  if (!s.running) throw badRequest('Chat session is not running');
+  return s.driver;
 }
 
 /**
- * Start a chat session. `spawn` is injectable for tests.
+ * Start a chat session. `spawn` and `bin` are injectable for tests.
  * @returns {object} session summary
  */
 export function startChat(opts, context = {}) {
   const safe = sanitizeChatOptions(opts, context);
-  const bin = context.bin ?? resolveClaudeBinary();
+  const bin =
+    context.bin ??
+    (safe.harness === 'claude' ? resolveClaudeBinary() : resolveHarnessBinary(safe.harness));
   if (!bin || bin.includes('via PTY-Host')) {
-    const error = new Error('Chat needs a local claude CLI');
+    const error = new Error(`Chat needs a local ${safe.harness} CLI`);
     error.status = 501;
     throw error;
   }
-  const spawn = context.spawn ?? nodeSpawn;
-  const proc = spawn(bin, buildChatArgs(safe), {
-    cwd: safe.cwd,
-    // -p leaves out TaskCreate/TaskUpdate; the chat's plan card needs them like the TUI has them
-    env: { ...process.env, CLAUDE_CODE_ENABLE_TODO_TOOLS: '1' },
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
   const s = {
     id: crypto.randomUUID(),
+    harness: safe.harness,
     cwd: safe.cwd,
     name: safe.name || safe.cwd.split('/').pop() || 'chat',
     sessionId: safe.resume || null,
@@ -350,60 +214,33 @@ export function startChat(opts, context = {}) {
     busy: false,
     running: true,
     startedAt: Date.now(),
-    proc,
-    events: safe.resume ? (context.loadHistory ?? loadHistory)(safe.resume, safe.cwd) : [],
-    pending: new Map(),
+    driver: null,
+    events: [],
+    pending: new Set(),
     watchers: 0,
     orphanTimer: null,
-    stderr: '',
   };
   s.exited = new Promise((resolve) => {
     s.markExited = resolve;
   });
   sessions.set(s.id, s);
-  record(s, { type: 'devorbit_commands', commands: knownBuiltins });
-
-  let buffer = '';
-  proc.stdout.setEncoding('utf8');
-  proc.stdout.on('data', (chunk) => {
-    buffer += chunk;
-    let nl;
-    while ((nl = buffer.indexOf('\n')) >= 0) {
-      const msg = parseLine(buffer.slice(0, nl));
-      buffer = buffer.slice(nl + 1);
-      if (msg) handleMessage(s, msg);
-    }
-  });
-  proc.stderr.setEncoding('utf8');
-  proc.stderr.on('data', (chunk) => {
-    s.stderr = (s.stderr + chunk).slice(-4000);
-  });
-  const onEnd = (code) => {
-    if (!s.running) return;
-    s.running = false;
-    s.busy = false;
-    s.markExited();
-    clearTimeout(s.orphanTimer);
-    record(s, {
-      type: 'devorbit_exit',
-      code: code ?? null,
-      stderr: code ? s.stderr.trim().slice(-800) : '',
-    });
-    chatEvents.emit('change', listChats());
-  };
-  proc.on('exit', onEnd);
-  proc.on('error', (error) => {
-    s.stderr += `\n${error.message}`;
-    onEnd(-1);
-  });
-  proc.stdin.on('error', () => {
-    // EPIPE after the process died; onEnd reports it
-  });
-
-  write(s, {
-    type: 'control_request',
-    request_id: `init-${s.id}`,
-    request: { subtype: 'initialize' },
+  s.driver = DRIVERS[safe.harness].startDriver(safe, {
+    bin,
+    spawn: context.spawn ?? nodeSpawn,
+    emit: (event) => handleEvent(s, event),
+    exit: ({ code, stderr }) => {
+      if (!s.running) return;
+      s.running = false;
+      s.busy = false;
+      s.markExited();
+      clearTimeout(s.orphanTimer);
+      record(s, {
+        type: 'devorbit_exit',
+        code: code ?? null,
+        stderr: code ? stderr.trim().slice(-800) : '',
+      });
+      chatEvents.emit('change', listChats());
+    },
   });
   armOrphanTimer(s);
   chatEvents.emit('change', listChats());
@@ -414,17 +251,19 @@ export function startChat(opts, context = {}) {
 const VIEW_POLL_MS = 1000;
 
 /**
- * Live chat view of an agent that runs in its own process (terminal or `claude --bg`): tails
- * the session transcript instead of spawning a second claude, so it works mid-turn and never
- * stops the agent. Messages go to the agent through `claude attach` (replySession).
+ * Live chat view of a Claude Code agent that runs in its own process (terminal or `claude --bg`):
+ * tails the session transcript instead of spawning a second claude, so it works mid-turn and
+ * never stops the agent. Messages go to the agent through `claude attach` (replySession).
  * @param {{ agentId: string, sessionId: string, cwd: string, name?: string }} agent
  */
 export function viewAgent(agent, context = {}) {
-  if (!UUID_RE.test(agent.sessionId || '')) throw badRequest('Agent has no session id yet');
+  if (!claudeDriver.SESSION_ID_RE.test(agent.sessionId || ''))
+    throw badRequest('Agent has no session id yet');
   for (const existing of sessions.values())
     if (existing.view === agent.agentId && existing.running) return summary(existing);
   const s = {
     id: crypto.randomUUID(),
+    harness: 'claude',
     view: agent.agentId,
     cwd: agent.cwd,
     name: agent.name || agent.cwd.split('/').pop() || 'agent',
@@ -434,7 +273,7 @@ export function viewAgent(agent, context = {}) {
     running: true,
     startedAt: Date.now(),
     events: [],
-    pending: new Map(),
+    pending: new Set(),
     watchers: 0,
     orphanTimer: null,
     reply: context.reply ?? replySession,
@@ -527,34 +366,20 @@ export function sendMessage(id, text) {
     // The agent's transcript brings the message back into the view
     return s.reply(s.view, text, { mode: 'attach' }).then(() => undefined);
   }
-  write(s, { type: 'user', message: { role: 'user', content: text } });
+  live(s).send(text);
   s.busy = true;
   record(s, { type: 'devorbit_user', text });
 }
 
 /**
  * Answer a pending permission request.
- * @param {'allow'|'deny'|'always'} decision - `always` also applies the CLI's own suggestions
+ * @param {'allow'|'deny'|'always'} decision - `always` also applies the harness's own suggestions
  */
 export function answerPermission(id, requestId, decision) {
   const s = get(id);
-  const request = s.pending.get(requestId);
-  if (!request) throw badRequest('No such permission request');
+  if (!s.pending.has(requestId)) throw badRequest('No such permission request');
   if (!['allow', 'deny', 'always'].includes(decision)) throw badRequest('Invalid decision');
-  const response =
-    decision === 'deny'
-      ? { behavior: 'deny', message: 'Denied in the DevOrbit chat' }
-      : {
-          behavior: 'allow',
-          updatedInput: request.input,
-          ...(decision === 'always' && Array.isArray(request.permission_suggestions)
-            ? { updatedPermissions: request.permission_suggestions }
-            : {}),
-        };
-  write(s, {
-    type: 'control_response',
-    response: { subtype: 'success', request_id: requestId, response },
-  });
+  live(s).answer(requestId, decision);
   s.pending.delete(requestId);
   record(s, { type: 'devorbit_permission', request_id: requestId, decision });
 }
@@ -562,11 +387,7 @@ export function answerPermission(id, requestId, decision) {
 export function interruptChat(id) {
   const s = get(id);
   if (s.view) return s.interrupt(s.view);
-  write(s, {
-    type: 'control_request',
-    request_id: `int-${Date.now()}`,
-    request: { subtype: 'interrupt' },
-  });
+  live(s).interrupt();
 }
 
 /** End the process (SIGTERM, SIGKILL after 3 s) and forget the session */
@@ -578,15 +399,7 @@ export function stopChat(id) {
     clearInterval(s.timer);
     s.running = false;
   } else if (s.running) {
-    try {
-      s.proc.stdin.end();
-      s.proc.kill('SIGTERM');
-    } catch {
-      // already gone
-    }
-    setTimeout(() => {
-      if (s.running) s.proc.kill('SIGKILL');
-    }, 3000).unref?.();
+    s.driver.stop();
   }
   clearTimeout(s.orphanTimer);
   chatEvents.emit('change', listChats());

@@ -826,7 +826,10 @@ export async function listSessions(options = {}) {
       return session;
     })
   );
-  const omp = await listOmpSessions({ panes: agentPanes() }).catch(() => []);
+  // Dynamic import: chatService imports this module; a Chat pane holds its omp session like a pane
+  const { listChats } = await import('./chatService.js');
+  const chats = new Map(listChats().flatMap((c) => (c.sessionId ? [[c.sessionId, c.id]] : [])));
+  const omp = await listOmpSessions({ panes: agentPanes(), chats }).catch(() => []);
   const scope = options.cwd ? path.resolve(options.cwd) : null;
   return [
     ...sessions,
