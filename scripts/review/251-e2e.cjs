@@ -63,6 +63,24 @@ const check = (name, ok, detail) => {
     );
     check('quick window hidden after sending', hidden === false);
     await main.screenshot({ path: path.join(out, '251-2-composer.png') });
+
+    // Main window closed (the app keeps running on macOS): the prompt must not get lost
+    await app.evaluate(({ BrowserWindow }) =>
+      BrowserWindow.getAllWindows()
+        .find((w) => w.getBounds().height > 100)
+        .close()
+    );
+    await new Promise((r) => setTimeout(r, 1000));
+    const quickAgain = app.waitForEvent('window');
+    await app.evaluate(({ app }) => app.emit('orkumo-quick-toggle'));
+    const quick2 = await quickAgain;
+    await quick2.getByLabel('Quick prompt').waitFor({ timeout: 20000 });
+    const reopened = app.waitForEvent('window');
+    await quick2.getByLabel('Quick prompt').fill('Zweite Frage ohne Hauptfenster');
+    await quick2.keyboard.press('Enter');
+    const main2 = await reopened;
+    await main2.getByText('Zweite Frage ohne Hauptfenster').first().waitFor({ timeout: 30000 });
+    check('main window closed: Enter reopens it with the prompt in the composer', true);
   } finally {
     await Promise.race([app.close(), new Promise((r) => setTimeout(r, 10000))]);
     try {
