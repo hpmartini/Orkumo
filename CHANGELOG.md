@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Agents workspace tiling works like Ghostty (#212): a pane dropped on the edge of another pane splits only that pane, every other pane keeps its place and size (before: a 2-column grid with empty cells). Saved workspaces are migrated
+- A browser pane dragged onto the tab strip becomes its own tab and survives a reload (#212)
+
 ### Removed
 
 - Monaco editor and its editor switcher in the Web IDE panel; VS Code (code-server) is the only integrated editor (#139)

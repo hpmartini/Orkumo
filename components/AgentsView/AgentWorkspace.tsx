@@ -8,6 +8,7 @@ import {
   AGENT_TAB_MIME,
   browserUrl,
   dropZone,
+  prunedRoot,
   shellCwd,
   insertPosition,
   stepIndices,
@@ -15,6 +16,7 @@ import {
   type DropZone,
   type InsertPosition,
   type PaneLayout,
+  type SplitNode,
   type Workspace,
   type WorkspaceTab,
 } from '../../utils/agentWorkspace';
@@ -65,6 +67,8 @@ interface DragState {
 interface ResolvedTab {
   tab: WorkspaceTab;
   sessions: AgentSession[];
+  /** The tab's split tree without panes that have not loaded */
+  root: SplitNode;
 }
 
 const LAYOUTS: { id: PaneLayout; icon: React.ReactNode; label: string }[] = [
@@ -242,14 +246,18 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
 
   // Tabs whose sessions have not loaded yet stay in the stored workspace but are not shown
   const byId = new Map(sessions.map((s) => [s.id, s]));
+  // (a browser pane alone is a tab of its own, #212; next to an agent it waits for the agent)
   const tabs: ResolvedTab[] = workspace.tabs
-    .map((tab) => ({
-      tab,
-      sessions: tab.panes
+    .map((tab) => {
+      const resolved = tab.panes
         .map((id) => byId.get(id) ?? browserSession(id) ?? shellSession(id))
-        .filter((s): s is AgentSession => !!s),
-    }))
-    .filter((t) => t.sessions.some((s) => browserUrl(s.id) === null));
+        .filter((s): s is AgentSession => !!s);
+      const shown =
+        resolved.length === tab.panes.length || resolved.some((s) => browserUrl(s.id) === null);
+      const root = shown ? prunedRoot(tab.root, (id) => resolved.some((s) => s.id === id)) : null;
+      return root && { tab, sessions: resolved, root };
+    })
+    .filter((t): t is ResolvedTab => !!t);
   const order = tabs.map((t) => t.tab.id);
   const activeTabId = order.includes(workspace.activeTabId ?? '')
     ? workspace.activeTabId
@@ -434,52 +442,47 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     );
   };
 
-  const renderPanes = (resolved: ResolvedTab, visible: boolean) => {
-    const { tab, sessions: panes } = resolved;
-    let layout: PaneLayout = panes.length < 2 ? 'single' : tab.layout;
-    // The stored layout stays; only the rendering falls back when panes would be too narrow
-    if (layout === 'columns' && bodyWidth / panes.length < MIN_PANE_PX) layout = 'rows';
-    if (layout === 'grid' && bodyWidth / 2 < MIN_PANE_PX) layout = 'rows';
-    if (layout === 'single') return renderPane(resolved, panes[0], visible);
-    if (layout === 'grid') {
-      return (
-        <div
-          className="h-full grid gap-1 p-1"
-          style={{
-            gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
-            gridAutoRows: 'minmax(0, 1fr)',
-          }}
-        >
-          {panes.map((session) => (
-            <div key={session.id} className="min-h-0 min-w-0">
-              {renderPane(resolved, session, visible)}
-            </div>
-          ))}
-        </div>
-      );
+  /** One level of the split tree; `width` is the share of the body this node gets (estimate) */
+  const renderNode = (
+    resolved: ResolvedTab,
+    node: SplitNode,
+    visible: boolean,
+    width: number
+  ): React.ReactNode => {
+    if ('pane' in node) {
+      const session = resolved.sessions.find((s) => s.id === node.pane);
+      return session ? renderPane(resolved, session, visible) : null;
     }
+    // The stored tree stays; only the rendering stacks panes that would be too narrow
+    const stacked = node.dir === 'column' || width / node.children.length < MIN_PANE_PX;
     return (
-      <div className="h-full p-1">
-        <Group
-          orientation={layout === 'columns' ? 'horizontal' : 'vertical'}
-          className="h-full w-full"
-        >
-          {panes.map((session, index) => (
-            <React.Fragment key={session.id}>
-              {index > 0 && (
-                <Separator
-                  className={`${layout === 'columns' ? 'w-1 cursor-col-resize' : 'h-1 cursor-row-resize'} bg-gray-800 hover:bg-blue-500/50 transition-colors`}
-                />
-              )}
-              <Panel id={`agent-pane-${session.id}`} minSize={10} className="min-h-0 min-w-0">
-                {renderPane(resolved, session, visible)}
-              </Panel>
-            </React.Fragment>
-          ))}
-        </Group>
-      </div>
+      <Group orientation={stacked ? 'vertical' : 'horizontal'} className="h-full w-full">
+        {node.children.map((child, index) => (
+          <React.Fragment key={child.id}>
+            {index > 0 && (
+              <Separator
+                className={`${stacked ? 'h-1 cursor-row-resize' : 'w-1 cursor-col-resize'} bg-gray-800 hover:bg-blue-500/50 transition-colors`}
+              />
+            )}
+            <Panel
+              id={`agent-pane-${resolved.tab.id}-${child.id}`}
+              minSize={10}
+              className="min-h-0 min-w-0"
+            >
+              {renderNode(resolved, child, visible, stacked ? width : width / node.children.length)}
+            </Panel>
+          </React.Fragment>
+        ))}
+      </Group>
     );
   };
+
+  const renderPanes = (resolved: ResolvedTab, visible: boolean) =>
+    'pane' in resolved.root ? (
+      renderNode(resolved, resolved.root, visible, bodyWidth)
+    ) : (
+      <div className="h-full p-1">{renderNode(resolved, resolved.root, visible, bodyWidth)}</div>
+    );
 
   const dropOnTab = (targetId: string, position: InsertPosition) => {
     if (drag?.kind === 'tab') onMoveTab(drag.id, targetId, position);
@@ -609,7 +612,8 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
                     </span>
                   )}
                   <span className="truncate flex-1">{title}</span>
-                  {tabSessionLabel(lead) && (
+                  {/* a browser pane's id is its url, which the title already shows */}
+                  {browserUrl(lead.id) === null && tabSessionLabel(lead) && (
                     <span
                       className="shrink-0 font-mono text-[10px] text-gray-500"
                       data-testid="tab-session-id"
