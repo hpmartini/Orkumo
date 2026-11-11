@@ -169,6 +169,15 @@ function record(s, event) {
 
 /** A driver event: session id, model, open permission requests and the busy flag ride along */
 function handleEvent(s, event) {
+  // Context fill and plan limits a harness reports: status line data, not a chat message
+  if (event.type === 'devorbit_usage') {
+    s.usage = {
+      ...s.usage,
+      ...(event.context && { context: event.context }),
+      ...(event.limits && { limits: event.limits }),
+    };
+    return;
+  }
   if (event.session_id && !s.sessionId) s.sessionId = event.session_id;
   if (event.type === 'system' && event.subtype === 'init' && event.model) s.model = event.model;
   if (event.type === 'control_request' && event.request?.subtype === 'can_use_tool')
@@ -440,6 +449,11 @@ export function watchChat(id, onEvent) {
 
 export function chatSummary(id) {
   return summary(get(id));
+}
+
+/** Last context fill / plan limits the chat's harness reported; null for Claude Code */
+export function chatUsage(id) {
+  return get(id).usage ?? null;
 }
 
 /**

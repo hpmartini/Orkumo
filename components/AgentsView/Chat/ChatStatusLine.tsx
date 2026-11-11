@@ -37,9 +37,9 @@ export const ChatStatusLine: React.FC<{ chatId: string; turns: number; visible: 
   }, [chatId, turns, visible]);
 
   if (!status) return null;
-  const { git, cache, limits } = status;
+  const { git, cache, context, limits } = status;
   const cold = cache && cacheCountdown(cache, Date.now()).expired;
-  const fill = cache ? Math.min(100, (cache.cachedTokens / cache.contextWindow) * 100) : 0;
+  const fill = context ? Math.min(100, (context.tokens / context.window) * 100) : 0;
 
   return (
     <div className="mt-2 grid grid-cols-2 sm:grid-cols-[auto_minmax(9rem,1fr)_minmax(6rem,0.6fr)_minmax(9rem,1fr)] items-end gap-x-4 gap-y-2 text-xs text-gray-300">
@@ -59,13 +59,12 @@ export const ChatStatusLine: React.FC<{ chatId: string; turns: number; visible: 
       ) : (
         <span />
       )}
-      {cache ? (
+      {context ? (
         <div className="min-w-0">
           <div className="flex items-baseline justify-between gap-2">
             <span className="text-gray-400">Context</span>
             <span className="tabular-nums text-gray-100">
-              {formatTokens(cache.cachedTokens)} / {formatTokens(cache.contextWindow)} ·{' '}
-              {Math.round(fill)} %
+              {formatTokens(context.tokens)} / {formatTokens(context.window)} · {Math.round(fill)} %
             </span>
           </div>
           <div
@@ -81,13 +80,15 @@ export const ChatStatusLine: React.FC<{ chatId: string; turns: number; visible: 
               style={{ width: `${fill}%` }}
             />
           </div>
-          <div className="mt-1 text-[11px] text-gray-500">
-            {cold ? (
-              <span title="Prompt cache expired: the next turn writes it again">cache cold</span>
-            ) : (
-              <CacheBadge cache={cache} context={false} />
-            )}
-          </div>
+          {cache && (
+            <div className="mt-1 text-[11px] text-gray-500">
+              {cold ? (
+                <span title="Prompt cache expired: the next turn writes it again">cache cold</span>
+              ) : (
+                <CacheBadge cache={cache} context={false} />
+              )}
+            </div>
+          )}
         </div>
       ) : (
         <span />
