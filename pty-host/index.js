@@ -19,6 +19,7 @@ import fs from 'fs';
 import crypto from 'crypto';
 import { isAllowedExec } from './execPolicy.js';
 import { HARNESS_COMMANDS, harnessArgsError } from '../config/harnesses.js';
+import { ptyBaseEnv } from '../config/ptyEnv.js';
 
 const PORT = process.env.PTY_HOST_PORT || 3096;
 const HTTP_PORT = process.env.PTY_HOST_HTTP_PORT || 3097;
@@ -131,7 +132,7 @@ wss.on('connection', (ws, req) => {
       rows,
       cwd: workingDir,
       env: {
-        ...process.env,
+        ...ptyBaseEnv(),
         TERM: 'xterm-256color',
         COLORTERM: 'truecolor',
       },
