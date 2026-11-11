@@ -277,7 +277,10 @@ export function startDriver(opts, io) {
   function pump() {
     if (!ready || turn || agentBusy || !queue.length || exited || stopped) return;
     turn = { start: Date.now(), aborted: false, error: null, dropped: 0 };
-    request('prompt', { message: queue.shift() }, (r) => {
+    const { text, images } = queue.shift();
+    // Attached images as ImageContent, like an image pasted into pi's terminal
+    const attached = images.map((i) => ({ type: 'image', mimeType: i.mimeType, data: i.data }));
+    request('prompt', { message: text, ...(attached.length && { images: attached }) }, (r) => {
       if (!r.success) failTurn(`pi rejected the message: ${str(r.error) || 'unknown error'}`);
       // an extension command consumed the message without starting a run
       else if (r.data?.disposition === 'handled' && !agentBusy) endTurn('success');
@@ -526,9 +529,9 @@ export function startDriver(opts, io) {
   }
 
   return {
-    send(text) {
+    send(text, images = []) {
       assertAlive();
-      queue.push(text);
+      queue.push({ text, images });
       pump();
     },
     interrupt() {
