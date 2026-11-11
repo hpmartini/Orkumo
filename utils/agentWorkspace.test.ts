@@ -469,3 +469,56 @@ describe('openShell (#207)', () => {
     expect(shellCwd('shell:3:/a/b:c')).toBe('/a/b:c');
   });
 });
+
+// Independent review of #212: random action sequences never leave a broken workspace
+describe('workspace invariants (#212 review)', () => {
+  const nodeOk = (node: SplitNode): boolean =>
+    'pane' in node || (node.children.length >= 2 && node.children.every(nodeOk));
+  const leafPanes = (node: SplitNode): string[] =>
+    'pane' in node ? [node.pane] : node.children.flatMap(leafPanes);
+  const panes = ['a', 'b', 'c', 'd', 'e', 'browser:1:http://x/', 'shell:1:/tmp'];
+  const zones: DropZone[] = ['left', 'right', 'top', 'bottom'];
+
+  it('keeps trees well-formed, ids unique, focus valid and survives a storage round trip', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      let state = seed;
+      const next = (n: number) => {
+        state = (state * 1664525 + 1013904223) >>> 0;
+        return Math.floor((state / 2 ** 32) * n);
+      };
+      let ws = EMPTY_WORKSPACE;
+      for (let step = 0; step < 40; step++) {
+        const [p, q] = [panes[next(panes.length)], panes[next(panes.length)]];
+        const tabId = ws.tabs[next(ws.tabs.length || 1)]?.id ?? 'none';
+        const op = next(8);
+        if (op === 0) ws = openSession(ws, p);
+        else if (op <= 3) ws = splitInto(ws, p, q, zones[next(4)]);
+        else if (op === 4) ws = closeSession(ws, p);
+        else if (op === 5) ws = detachSession(ws, p);
+        else if (op === 6)
+          ws = setTabLayout(ws, tabId, (['columns', 'rows', 'grid'] as const)[next(3)]);
+        else ws = pruneMissing(ws, new Set(panes.filter(() => next(5) > 0)));
+
+        const all = ws.tabs.flatMap((t) => t.panes);
+        expect(new Set(all).size).toBe(all.length);
+        for (const t of ws.tabs) {
+          expect(nodeOk(t.root)).toBe(true);
+          expect(leafPanes(t.root)).toEqual(t.panes);
+          expect(new Set(slots(t.root)).size).toBe(slots(t.root).length);
+          expect(t.panes).toContain(t.activeSessionId);
+        }
+        expect(ws.tabs.length ? ws.tabs.map((t) => t.id) : [null]).toContain(ws.activeTabId);
+        expect(migrateWorkspace(JSON.parse(JSON.stringify(ws)))).toEqual(ws);
+      }
+    }
+  });
+
+  it('a version before #212 reads the stored tree back without losing a pane', () => {
+    // the old reader took `panes` and fell back to columns for a layout it did not know
+    const ws = splitInto(splitInto(open('a', 'b', 'c'), 'b', 'a', 'right'), 'c', 'a', 'bottom');
+    const stored = JSON.parse(JSON.stringify(ws));
+    expect(stored.tabs[0].layout).toBe('custom');
+    const { root: _root, ...flat } = stored.tabs[0];
+    expect(migrateWorkspace({ ...stored, tabs: [flat] }).tabs[0].panes).toEqual(['a', 'c', 'b']);
+  });
+});
