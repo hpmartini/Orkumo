@@ -1,7 +1,8 @@
 /**
  * Main agent (#252): the background session the "Main Agent" dialog talks to, by default the
  * martini-workflow main orchestrator (`main-orchestrator`). Keep-alive: when that session is
- * stopped, it is restarted with `claude respawn`. No prompt is sent, so a ping costs no tokens.
+ * stopped, it is restarted with `claude respawn`. Orkumo sends no prompt with it; that the CLI's
+ * respawn itself starts no turn is an assumption (not yet tried on a real stopped session).
  */
 export const MAIN_AGENT_DEFAULTS = { name: 'main-orchestrator', keepAlive: true };
 

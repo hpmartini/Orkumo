@@ -1512,7 +1512,7 @@ async function poll() {
   pollInProgress = true;
   try {
     const sessions = await listSessions({ all: true });
-    // #252: the main agent is restarted when it stopped (no prompt, no tokens)
+    // #252: the main agent is restarted when it stopped (Orkumo sends no prompt with it)
     keepMainAgentAlive(sessions, {
       config: settingsService.getAgentViewSettings().mainAgent,
       respawn: respawnSession,
