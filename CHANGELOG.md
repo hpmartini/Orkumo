@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Fixed projects (#253): a project group kept via its menu ("Keep as fixed project") or added by directory ("Add fixed project…" in the command palette) stays in the rail's Project grouping without sessions; sessions of its worktrees land in it
+
 ### Removed
 
 - Monaco editor and its editor switcher in the Web IDE panel; VS Code (code-server) is the only integrated editor (#139)

@@ -283,6 +283,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [homeDir, setHomeDir] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
+  /** Directory picker for a new fixed project (#253) */
+  const [pickFixedOpen, setPickFixedOpen] = useState(false);
   const [dispatching, setDispatching] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [subagents, setSubagents] = useState<AgentSubagent[]>([]);
@@ -493,9 +495,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           sort,
           lookup,
           apps,
+          // A filter asks for agents: empty fixed projects would only be in the way
+          fixedProjects: shownSessions.length === sessions.length ? rail.fixedProjects : [],
         })
       ),
-    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps, arrange]
+    [
+      shownSessions,
+      sessions.length,
+      settings.grouping,
+      expandedCompleted,
+      quickFilters,
+      sort,
+      lookup,
+      apps,
+      arrange,
+      rail.fixedProjects,
+    ]
   );
   // Session of the active workspace tab: marked and revealed in the rail
   const activeSessionId = useMemo(() => {
@@ -1885,6 +1900,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             },
           ]
         : []),
+      ...(group.cwd && settings.grouping === 'project'
+        ? [
+            {
+              id: 'fixed-project',
+              label: group.fixed ? 'Remove fixed project' : 'Keep as fixed project',
+              // Several stored directories can mean this project (worktree, subfolder of an app)
+              onSelect: () =>
+                (group.fixed
+                  ? rail.fixedProjects.filter(
+                      (dir) =>
+                        groupSessions([], 'project', { apps, fixedProjects: [dir] })[0]?.key ===
+                        group.key
+                    )
+                  : [group.cwd!]
+                ).forEach(rail.toggleFixedProject),
+            },
+          ]
+        : []),
       ...(group.cwd
         ? [
             {
@@ -1943,6 +1976,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [
       collapsed,
       toggleGroup,
+      settings.grouping,
+      rail.fixedProjects,
+      rail.toggleFixedProject,
+      apps,
       handleStopOrDelete,
       nav,
       navigate,
@@ -2000,7 +2037,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       extra: Partial<PaletteCommand> = {}
     ): PaletteCommand => ({ id: `agents.${id}`, title, group, scope: 'command', run, ...extra });
 
-    const list: PaletteCommand[] = [newTask];
+    const list: PaletteCommand[] = [
+      newTask,
+      cmd('fixed-project.add', 'Add fixed project…', 'Rail', () => setPickFixedOpen(true), {
+        keywords: 'projekt festlegen pflegen pin directory',
+      }),
+    ];
     if (selectedSession) {
       for (const action of rowActions(selectedSession)) {
         if (action.disabled) continue;
@@ -2723,6 +2765,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             setInput(text);
             setEditorOpen(false);
             requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+        />
+      )}
+      {pickFixedOpen && (
+        <DirectoryPicker
+          choices={directoryChoices}
+          current={null}
+          home={homeDir}
+          label="Directory of the fixed project…"
+          onCancel={() => setPickFixedOpen(false)}
+          onPick={(path) => {
+            if (!rail.fixedProjects.includes(path)) rail.toggleFixedProject(path);
+            if (settings.grouping !== 'project') updateSettings({ grouping: 'project' });
+            setPickFixedOpen(false);
           }}
         />
       )}
