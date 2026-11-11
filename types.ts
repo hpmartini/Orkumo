@@ -266,6 +266,8 @@ export interface AgentSession {
   viewOf?: string | null;
   /** PTY command for ptyArgs (default `claude`; another harness, #195) */
   ptyCommand?: AgentHarness;
+  /** Chat session: the harness it runs (default `claude`) */
+  harness?: AgentHarness;
   cwd: string;
   startedAt: number;
   updatedAt?: number | null;

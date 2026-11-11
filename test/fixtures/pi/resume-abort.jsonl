@@ -1,0 +1,48 @@
+{"type":"extension_ui_request","id":"e31956cd-405d-4693-a229-5fe92c954019","method":"setStatus","statusKey":"bgrun"}
+{"type":"extension_ui_request","id":"a63f8342-9044-48dd-b381-fb32faae786a","method":"setWidget","widgetKey":"bgrun"}
+{"id":"s1","type":"response","command":"get_state","success":true,"data":{"model":{"id":"MiniMax-M2.7","name":"MiniMax-M2.7","provider":"minimax"},"isStreaming":false,"sessionFile":"/home/user/.pi/agent/sessions/--private-tmp-pi-probe--/2026-11-10T22-15-03-314Z_01a1c787-6b92-7123-b7a5-30104776fe7d.jsonl","sessionId":"01a1c787-6b92-7123-b7a5-30104776fe7d","messageCount":5}}
+{"id":"m1","type":"response","command":"get_messages","success":true,"data":{"messages":[{"role":"system","content":""},{"role":"user","content":[{"type":"text","text":"Run `ls` with your bash tool, then reply with one short sentence."}]},{"role":"assistant","content":[{"type":"toolCall","id":"call_ba76f0adae67eff001863e80","name":"bash","arguments":{"command":"ls"}}],"model":"MiniMax-M2.7","stopReason":"toolUse"},{"role":"toolResult","toolCallId":"call_ba76f0adae67eff001863e80","toolName":"bash","content":[{"type":"text","text":"dummy.txt\n"}],"isError":false},{"role":"assistant","content":[{"type":"text","text":"The directory contains one file, `dummy.txt`."}],"model":"MiniMax-M2.7","stopReason":"stop"}]}}
+{"id":"p1","type":"response","command":"prompt","success":true,"data":{"disposition":"started"}}
+{"type":"agent_start"}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"user","content":[{"type":"text","text":"Run `sleep 30 && echo hi` with your bash tool, then reply done."}]}}
+{"type":"message_end","message":{"role":"user","content":[{"type":"text","text":"Run `sleep 30 && echo hi` with your bash tool, then reply done."}]}}
+{"type":"message_start","message":{"role":"assistant","content":[],"model":"MiniMax-M2.7","stopReason":"pending"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_start","contentIndex":0}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"Run"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" sleep"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" 30 with bash —"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" it takes"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" "}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"30s. Timeout default"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"? Use"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" timeout param"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" "}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"60.\n\nThe rules"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" say use bgrun for >"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"30s commands"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":". But it's exactly"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" 30s sleep"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":". Simpler: run with timeout "}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":"60 in"}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":" bash."}}
+{"type":"message_update","assistantMessageEvent":{"type":"thinking_end","contentIndex":0,"content":"Run sleep 30 with bash — it takes 30s. Timeout default? Use timeout param 60.\n\nThe rules say use bgrun for >30s commands. But it's exactly 30s sleep. Simpler: run with timeout 60 in bash."}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_start","contentIndex":1,"id":"call_067c4357ee5c33ead399c67c","toolName":"bash"}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_delta","contentIndex":1,"delta":""}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_delta","contentIndex":1,"delta":"{\"command\": \"sleep 30 && echo hi\", \"timeout\": 60}"}}
+{"type":"message_update","assistantMessageEvent":{"type":"toolcall_end","contentIndex":1,"toolCall":{"type":"toolCall","id":"call_067c4357ee5c33ead399c67c","name":"bash","arguments":{"command":"sleep 30 && echo hi","timeout":60}}}}
+{"type":"message_end","message":{"role":"assistant","content":[{"type":"thinking","thinking":"Run sleep 30 with bash — it takes 30s. Timeout default? Use timeout param 60.\n\nThe rules say use bgrun for >30s commands. But it's exactly 30s sleep. Simpler: run with timeout 60 in bash."},{"type":"toolCall","id":"call_067c4357ee5c33ead399c67c","name":"bash","arguments":{"command":"sleep 30 && echo hi","timeout":60}}],"model":"MiniMax-M2.7","stopReason":"toolUse"}}
+{"type":"tool_execution_start","toolCallId":"call_067c4357ee5c33ead399c67c","toolName":"bash","args":{"command":"sleep 30 && echo hi","timeout":60}}
+{"type":"tool_execution_update","toolCallId":"call_067c4357ee5c33ead399c67c","toolName":"bash","args":{"command":"sleep 30 && echo hi","timeout":60},"partialResult":{"content":[]}}
+{"type":"tool_execution_end","toolCallId":"call_067c4357ee5c33ead399c67c","toolName":"bash","result":{"content":[{"type":"text","text":"Command aborted"}]},"isError":true}
+{"type":"message_start","message":{"role":"toolResult","toolCallId":"call_067c4357ee5c33ead399c67c","toolName":"bash","content":[{"type":"text","text":"Command aborted"}],"isError":true}}
+{"type":"message_end","message":{"role":"toolResult","toolCallId":"call_067c4357ee5c33ead399c67c","toolName":"bash","content":[{"type":"text","text":"Command aborted"}],"isError":true}}
+{"type":"turn_end","toolResults":[]}
+{"type":"turn_start"}
+{"type":"message_start","message":{"role":"assistant","content":[],"model":"MiniMax-M2.7","stopReason":"error","errorMessage":"This operation was aborted"}}
+{"type":"message_end","message":{"role":"assistant","content":[],"model":"MiniMax-M2.7","stopReason":"error","errorMessage":"This operation was aborted"}}
+{"type":"turn_end","toolResults":[]}
+{"type":"agent_end","messages":[],"willRetry":false}
+{"type":"agent_settled"}
+{"id":"a1","type":"response","command":"abort","success":true}
+{"id":"s2","type":"response","command":"get_state","success":true,"data":{"model":{"id":"MiniMax-M2.7","name":"MiniMax-M2.7","provider":"minimax"},"isStreaming":false,"sessionFile":"/home/user/.pi/agent/sessions/--private-tmp-pi-probe--/2026-11-10T22-15-03-314Z_01a1c787-6b92-7123-b7a5-30104776fe7d.jsonl","sessionId":"01a1c787-6b92-7123-b7a5-30104776fe7d","messageCount":9}}

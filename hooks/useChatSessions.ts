@@ -11,12 +11,13 @@ import {
 } from '../services/agentsApi';
 import { targetOf, useAgentTarget } from '../utils/agentTarget';
 
-/** Chat summary → pane session (the Chat pane reads id, name, cwd) */
+/** Chat summary → pane session (the Chat pane reads id, name, cwd, harness) */
 const toSession = (c: ChatSummary): AgentSession => ({
   id: c.id,
   sessionId: c.sessionId,
   kind: 'interactive',
   chat: true,
+  harness: c.harness,
   viewOf: c.view ?? null,
   cwd: c.cwd,
   startedAt: c.startedAt,

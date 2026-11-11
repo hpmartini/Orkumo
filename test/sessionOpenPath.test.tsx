@@ -109,6 +109,19 @@ describe('opening a background job (#236)', () => {
     });
     // pane closed (its process ended with it): the row attaches, i.e. runs its ptyArgs
     expect(openPlan(omp, [], new Set())).toEqual({ type: 'attach' });
+    // a Chat pane resumed the session: focus it, never a takeover that would end the chat
+    const chat: AgentSession = {
+      ...job,
+      id: 'c1',
+      kind: 'interactive',
+      chat: true,
+      harness: 'omp',
+      sessionId: id,
+    };
+    expect(openPlan({ ...omp, paneId: null, pid: 4242 }, [chat], new Set(['c1']))).toEqual({
+      type: 'focus',
+      paneId: 'c1',
+    });
   });
 });
 

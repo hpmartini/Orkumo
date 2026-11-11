@@ -153,12 +153,14 @@ async function readHead(file, mtimeMs) {
 
 /**
  * omp sessions as agent rows: every running one plus the ones written in the last 7 days.
- * `panes` maps the pid of an Orkumo PTY to the client pane id it belongs to.
+ * `panes` maps the pid of an Orkumo PTY to the client pane id it belongs to, `chats` an omp
+ * session id to the Chat pane (chatService) that runs it.
  */
 export async function listOmpSessions({
   sessionsDir = ompSessionsDir(),
   now = Date.now(),
   panes = new Map(),
+  chats = new Map(),
   running,
 } = {}) {
   let dirs;
@@ -190,9 +192,8 @@ export async function listOmpSessions({
       if (!pid && now - stat.mtimeMs > RECENT_MS) continue;
       const head = await readHead(file, stat.mtimeMs).catch(() => null);
       if (!head) continue;
-      rows.push(
-        toRow(head, { pid, updatedAt: stat.mtimeMs, now, paneId: pid ? panes.get(pid) : null })
-      );
+      const paneId = pid ? (panes.get(pid) ?? chats.get(head.id)) : null;
+      rows.push(toRow(head, { pid, updatedAt: stat.mtimeMs, now, paneId }));
     }
   }
   return rows.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_LISTED);

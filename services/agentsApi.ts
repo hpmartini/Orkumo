@@ -21,6 +21,7 @@ import type {
   AgentOrphanServer,
   AgentServerStats,
   AgentCacheInfo,
+  AgentHarness,
 } from '../types';
 import type { UsageLimits } from '../components/UsageView/types';
 
@@ -333,11 +334,12 @@ export function subscribeToAgents(handlers: {
 }
 
 // ---------------------------------------------------------------------------
-// Chat sessions (#189): `claude -p` in stream-json mode behind the Chat pane
+// Chat sessions (#189): a harness CLI behind the Chat pane (server: chatService.js, chatDrivers/)
 // ---------------------------------------------------------------------------
 
 export interface ChatSummary {
   id: string;
+  harness: AgentHarness;
   cwd: string;
   name: string;
   sessionId: string | null;
@@ -350,7 +352,9 @@ export interface ChatSummary {
   view?: string | null;
 }
 
+/** model, permissionMode, continue and skipPermissions are Claude Code options */
 export interface ChatStartRequest {
+  harness?: AgentHarness;
   cwd: string;
   model?: string | null;
   permissionMode?: string | null;
