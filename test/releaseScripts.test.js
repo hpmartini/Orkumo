@@ -102,48 +102,53 @@ describe('merge-mac-yml (AC-3)', () => {
   });
 });
 
-describe('release tag schema (#126 point 4)', () => {
-  const workflow = fs.readFileSync(path.join(repo, '.github/workflows/release.yml'), 'utf8');
-  const pattern = /\[\[ "\$TAG" =~ (\S+) \]\]/.exec(workflow)[1];
-  const accepts = (tag) => {
+describe('release-tag.sh (Woodpecker release on merge)', () => {
+  const sha = 'a'.repeat(40);
+  // gh stub: `api …/releases` prints "<tag> <target>" lines, `api …/tags` tag names, like the script's --jq filters
+  const run = ({ releases = '', tags = '', version = '1.0.0' }, ...args) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'release-tag-'));
+    fs.writeFileSync(path.join(dir, 'package.json'), JSON.stringify({ name: 'x', version }));
+    fs.writeFileSync(
+      path.join(dir, 'gh'),
+      '#!/usr/bin/env bash\ncase "$*" in *"/releases"*) printf "%s" "$STUB_RELEASES" ;; *"/tags"*) printf "%s" "$STUB_TAGS" ;; esac\n',
+      { mode: 0o755 }
+    );
     try {
-      execFileSync('bash', ['-c', `[[ "$1" =~ ${pattern} ]]`, '_', tag]);
-      return true;
-    } catch {
-      return false;
-    }
-  };
-  it.each(['v1.0.0', 'v1.0.0-rc.8', 'v1.2.10-rc.10'])('accepts %s', (tag) =>
-    expect(accepts(tag)).toBe(true)
-  );
-  it.each(['v1.0.0-rc7', '1.0.0', 'v1.0.0-beta.1', 'v1.0.0-rc.1-x'])('rejects %s', (tag) =>
-    expect(accepts(tag)).toBe(false)
-  );
-
-  // the whole "Set version from tag" step, run against a scratch package.json
-  const step = yaml
-    .load(workflow)
-    .jobs.build.steps.find((s) => s.name === 'Set version from tag').run;
-  const runStep = (TAG, PRERELEASE) => {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'tag-'));
-    fs.writeFileSync(path.join(dir, 'package.json'), '{"name":"x","version":"0.0.0"}');
-    try {
-      execFileSync('bash', ['-c', step], {
+      return execFileSync('bash', [path.join(repo, 'scripts/release/release-tag.sh'), ...args], {
         cwd: dir,
-        env: { ...process.env, TAG, PRERELEASE },
+        env: {
+          ...process.env,
+          PATH: `${dir}:${process.env.PATH}`,
+          GH_REPO: 'o/r',
+          STUB_RELEASES: releases,
+          STUB_TAGS: tags,
+        },
+        encoding: 'utf8',
         stdio: 'pipe',
-      });
-      return JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).version;
+      }).trim();
     } catch {
       return null;
     }
   };
-  it.each([
-    ['v1.0.0-rc.8', 'true', '1.0.0-rc.8'],
-    ['v1.0.0', 'false', '1.0.0'],
-    ['v1.0.0-rc.8', 'false', null], // /releases/latest would return the rc
-    ['v1.0.0', 'true', null], // rc installs would never see the final release
-  ])('%s with prerelease=%s → %s', (tag, pre, version) => {
-    expect(runStep(tag, pre)).toBe(version);
+
+  it('counts on from the highest rc of the version: old rcN tags, drafts, other versions ignored', () => {
+    const releases = 'v1.0.0-rc.9 bbbb\nv1.0.0-rc7 main\n';
+    const tags = 'v1.0.0-rc7\nv1.0.0-rc.8\nv1.0.1-rc.40\nv0.9.0\n';
+    expect(run({ releases, tags }, sha, '--next')).toBe('v1.0.0-rc.10');
+    expect(run({ tags: 'v1.0.0-rc7\n' }, sha, '--next')).toBe('v1.0.0-rc.8');
+    expect(run({}, sha, '--next')).toBe('v1.0.0-rc.1');
+  });
+
+  it('returns the release that already targets the commit (pipeline restart), matched by sha', () => {
+    const releases = `v1.0.0-rc.8 ${sha}\nv1.0.0-rc.9 ${'b'.repeat(40)}\n`;
+    expect(run({ releases }, sha, '--next')).toBe('v1.0.0-rc.8');
+    expect(run({ releases }, sha)).toBe('v1.0.0-rc.8');
+  });
+
+  it('fails without a release for the commit unless --next, after a final release, on bad input', () => {
+    expect(run({ tags: 'v1.0.0-rc.8\n' }, sha)).toBeNull();
+    expect(run({ tags: 'v1.0.0-rc.8\nv1.0.0\n' }, sha, '--next')).toBeNull();
+    expect(run({ version: '1.0.0-rc.1' }, sha, '--next')).toBeNull();
+    expect(run({}, 'main', '--next')).toBeNull();
   });
 });

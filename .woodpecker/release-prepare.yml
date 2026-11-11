@@ -1,0 +1,22 @@
+# Jeder Merge auf main wird ein Release: hier entsteht der Draft vX.Y.Z-rc.N (Version aus package.json, N fortlaufend),
+# release-linux/-mac/-docker laden ihre Assets hoch, release-publish veröffentlicht ihn als Pre-release.
+# Ein Pipeline-Neustart findet den Draft dieses Commits wieder (scripts/release/release-tag.sh).
+when:
+  - event: push
+    branch: main
+
+labels:
+  backend: docker
+
+steps:
+  - name: draft
+    image: node:20-bookworm
+    environment:
+      GH_REPO: hpmartini/Orkumo
+      GH_TOKEN:
+        from_secret: github_token
+    commands:
+      - apt-get update -qq && apt-get install -y -qq --no-install-recommends gh
+      - TAG=$$(scripts/release/release-tag.sh "$CI_COMMIT_SHA" --next)
+      - echo "Release $$TAG für $CI_COMMIT_SHA"
+      - gh release view "$$TAG" >/dev/null 2>&1 || gh release create "$$TAG" --draft --prerelease --target "$CI_COMMIT_SHA" --title "$$TAG" --generate-notes

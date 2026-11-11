@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Lists the files of an electron-builder output dir that belong on the GitHub release (#126):
 # installers, update metadata (*.yml) and *.blockmap, never builder-debug.yml.
-# --no-mac-yml leaves out *-mac.yml: arm64 and x64 each write one, the merge-mac-yml job uploads the merged file.
+# --no-mac-yml leaves out *-mac.yml: arm64 and x64 each write one, release-mac uploads the merge-mac-yml result.
 set -euo pipefail
 dir=${1:?usage: release-assets.sh <dir> [--no-mac-yml]}
 mode=${2:-}
