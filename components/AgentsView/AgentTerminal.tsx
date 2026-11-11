@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback, useReducer } from 'rea
 import { Terminal as XTerm, type ITerminalOptions } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
+import { ImageAddon } from '@xterm/addon-image';
 import { openLink } from '../../utils/links';
 import { createFileLinkProvider, type FilePathMatch } from '../../utils/fileLinks';
 import '@xterm/xterm/css/xterm.css';
@@ -127,7 +128,21 @@ function createPaneTerminal(
   options: ITerminalOptions,
   props: Pick<PaneTerminal, 'onClose' | 'onOpenLink' | 'cwd'>
 ): PaneTerminal {
-  const terminal = new XTerm({ ...options, scrollback: 5000, allowProposedApi: true });
+  // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140). Shared by
+  // plain-text URLs (WebLinksAddon) and OSC 8 hyperlinks, which xterm otherwise opens through
+  // its own confirm() + window.open, a dead end in the desktop app
+  const activateLink = (event: MouseEvent, uri: string) => {
+    if (!(event.metaKey || event.ctrlKey)) return;
+    const open = pane.onOpenLink;
+    // after xterm's own mouseup handling: opening the split remounts this pane
+    setTimeout(() => openLink(uri, open));
+  };
+  const terminal = new XTerm({
+    ...options,
+    scrollback: 5000,
+    allowProposedApi: true,
+    linkHandler: { activate: activateLink },
+  });
   const fit = new FitAddon();
   const pane: PaneTerminal = {
     terminal,
@@ -139,15 +154,9 @@ function createPaneTerminal(
     ...props,
   };
   terminal.loadAddon(fit);
-  terminal.loadAddon(
-    new WebLinksAddon((event, uri) => {
-      // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140)
-      if (!(event.metaKey || event.ctrlKey)) return;
-      const open = pane.onOpenLink;
-      // after xterm's own mouseup handling: opening the split remounts this pane
-      setTimeout(() => openLink(uri, open));
-    })
-  );
+  terminal.loadAddon(new WebLinksAddon(activateLink));
+  // Inline images (SIXEL, iTerm2 protocol); DA1 / XTSMGRAPHICS answers let TUIs detect SIXEL
+  terminal.loadAddon(new ImageAddon());
   terminal.registerLinkProvider(
     createFileLinkProvider(terminal, (event, match) => {
       if (!(event.metaKey || event.ctrlKey)) return;
