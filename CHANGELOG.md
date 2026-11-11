@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Main agent (#252): a title bar button and the palette command "Main agent" open, in every view, a dialog on the background session named `main-orchestrator` (recent output, reply, attach). Keep-alive (on by default, switch in the dialog): a stopped main agent is restarted with `claude respawn`, without sending a prompt
+
 ### Removed
 
 - Monaco editor and its editor switcher in the Web IDE panel; VS Code (code-server) is the only integrated editor (#139)
