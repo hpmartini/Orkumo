@@ -34,6 +34,7 @@ import { splitAtBuiltin, splitImages } from '../../../utils/chatComposer';
 import { extractNumberedChoices } from '../../../utils/agentInput';
 import { renderTerminalScreen } from '../../../utils/terminalScreen';
 import { harnessLabel, sessionHarness, terminalResumeArgs } from '../../../utils/agentSessions';
+import { pollWhileVisible } from '../../../utils/visiblePoll';
 
 /** Rendered screen tail of an agent that waits on a question or permission (not in its transcript) */
 function useAgentPrompt(agentId: string | null): string | null {
@@ -53,11 +54,10 @@ function useAgentPrompt(agentId: string | null): string | null {
         .catch(() => {
           // keep the last text; the terminal still has the prompt
         });
-    load();
-    const timer = setInterval(load, 3000);
+    const stop = pollWhileVisible(load, 3000);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
       setText('');
     };
   }, [agentId]);
