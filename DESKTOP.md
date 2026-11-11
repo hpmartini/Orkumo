@@ -118,13 +118,27 @@ Five seconds after start the app checks [GitHub Releases](https://github.com/hpm
 
 A failed background check is only logged, never shown. An rc installation is offered newer rcs and the final release of the same or a later version.
 
-**Tag schema:** `vX.Y.Z` or `vX.Y.Z-rc.N` (e.g. `v1.0.0-rc.8`). electron-updater treats the first prerelease part as channel, so `v1.0.0-rc7` would be its own channel `rc7` and never receive an update; the release workflow rejects other tags. Publish `-rc.N` releases with "Set as a pre-release" and final ones without it (the workflow checks this): rc installs find the final release via `/releases/latest`, which only skips flagged prereleases.
-
-**Release assets:** besides the installers the workflow uploads `latest*.yml`/`rc*.yml` and `*.blockmap` (`scripts/release/release-assets.sh`); the `merge-mac-yml` job merges the arm64 and x64 `*-mac.yml` into one file.
-
-**macOS signing:** with the repository secrets `CSC_LINK` (base64 .p12 of the Developer ID Application certificate), `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` the workflow signs with hardened runtime and notarizes (`electron/notarize.js`); without them it builds ad-hoc as before and macOS apps fall back to the notice.
+**Tag schema:** `vX.Y.Z` or `vX.Y.Z-rc.N` (e.g. `v1.0.0-rc.8`). electron-updater treats the first prerelease part as channel, so `v1.0.0-rc7` would be its own channel `rc7` and never receive an update. `-rc.N` releases are flagged as pre-release, final ones are not: rc installs find the final release via `/releases/latest`, which only skips flagged prereleases.
 
 `ORKUMO_DISABLE_UPDATES=1` turns the check off. `ORKUMO_UPDATE_FEED=http://host:port` points it at a fake GitHub (e2e tests in `scripts/review/126/`).
+
+### Releases
+
+Every merge to `main` becomes a pre-release, built by Woodpecker (`.woodpecker/release-*.yml`; GitHub Actions is off since #258):
+
+1. `release-prepare` creates a draft `vX.Y.Z-rc.N` on the merge commit: X.Y.Z from `package.json`, N one above the highest rc of that version (`scripts/release/release-tag.sh`). A restarted pipeline reuses the draft of its commit. Once `vX.Y.Z` itself is released the script stops: raise `package.json`'s version first.
+2. In parallel: `release-linux` (AppImage, deb, rpm), `release-mac` (dmg, zip for arm64 and x64, ad-hoc signed) and `release-docker` (`ghcr.io/hpmartini/devhub-api` and `-frontend` for amd64/arm64 tagged with the version, plus the compose file pinned to it and `init-db.sql`). `latest` images stay with final releases.
+3. `release-publish` publishes the draft as pre-release once all three succeeded, so updaters never see an rc without its `*-mac.yml`.
+
+**Release assets:** besides the installers each build uploads `latest*.yml`/`rc*.yml` and `*.blockmap` (`scripts/release/upload-assets.sh` → `release-assets.sh`); `release-mac` builds arm64 and x64 separately and uploads one `*-mac.yml` merged by `scripts/release/merge-mac-yml.mjs`.
+
+**Woodpecker setup** (once):
+
+- Secret `github_token`: a GitHub PAT for `hpmartini/Orkumo` with `contents: write` and `write:packages` (GHCR).
+- Repository setting "Trusted" → Security: `release-docker` runs `tonistiigi/binfmt` and `plugin-docker-buildx` privileged.
+- A macOS agent with the local backend for `release-mac` (labels `backend=local`, `platform=darwin/arm64` are automatic): install `woodpecker-agent` from the [Woodpecker releases](https://github.com/woodpecker-ci/woodpecker/releases), run it as your user with `WOODPECKER_SERVER`, `WOODPECKER_AGENT_SECRET` and `WOODPECKER_BACKEND=local`; `node`, `bun` and `gh` must be on its `PATH`. While no Mac agent is online the macOS workflow waits and the draft stays unpublished. Every other workflow is pinned to `backend: docker`, so the Mac never runs containers.
+
+**macOS signing:** the Woodpecker build is ad-hoc (`CSC_IDENTITY_AUTO_DISCOVERY=false`), so macOS apps fall back to the update notice. Signing with a Developer ID plus notarization (`electron/notarize.js`) needs `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` in `release-mac`'s environment and `-c.mac.hardenedRuntime=true -c.mac.entitlements=electron/entitlements.mac.plist -c.mac.entitlementsInherit=electron/entitlements.mac.plist` on its `electron-builder` calls.
 
 ## Architecture
 

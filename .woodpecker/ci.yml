@@ -3,6 +3,10 @@ when:
   - event: pull_request
     branch: main
 
+# Der macOS-Agent (local backend, release-mac.yml) kann keine Container: nur Docker-Agents.
+labels:
+  backend: docker
+
 steps:
   - name: install
     image: node:20-bookworm
