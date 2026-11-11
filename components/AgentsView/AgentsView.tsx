@@ -127,6 +127,8 @@ import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
 import { promptWithImages } from '../../utils/composer';
 import { DirectoryPicker } from './DirectoryPicker';
+import { MainAgentDialog } from './MainAgentDialog';
+import { MAIN_AGENT_EVENT } from '../TitleBar';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -283,6 +285,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [homeDir, setHomeDir] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
+  /** Main agent dialog (#252): opened from the title bar or the palette in every view */
+  const [mainAgentOpen, setMainAgentOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setMainAgentOpen(true);
+    window.addEventListener(MAIN_AGENT_EVENT, open);
+    return () => window.removeEventListener(MAIN_AGENT_EVENT, open);
+  }, []);
   const [dispatching, setDispatching] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [subagents, setSubagents] = useState<AgentSubagent[]>([]);
@@ -1989,8 +1998,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         openComposer('task');
       },
     };
-    // The rest acts on the visible view only; the task composer works from every page
-    if (!active) return [newTask];
+    const mainAgent: PaletteCommand = {
+      id: 'agents.main-agent',
+      title: 'Main agent',
+      group: 'Agents',
+      scope: 'command',
+      keywords: 'orchestrator main chef hauptagent',
+      run: () => setMainAgentOpen(true),
+    };
+    // The rest acts on the visible view only; the task composer and the main agent work from every page
+    if (!active) return [newTask, mainAgent];
 
     const cmd = (
       id: string,
@@ -2000,7 +2017,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       extra: Partial<PaletteCommand> = {}
     ): PaletteCommand => ({ id: `agents.${id}`, title, group, scope: 'command', run, ...extra });
 
-    const list: PaletteCommand[] = [newTask];
+    const list: PaletteCommand[] = [newTask, mainAgent];
     if (selectedSession) {
       for (const action of rowActions(selectedSession)) {
         if (action.disabled) continue;
@@ -2619,6 +2636,28 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             onReply={(text) => handleReply(peekSession, text)}
           />
         </div>
+      )}
+
+      {mainAgentOpen && (
+        <MainAgentDialog
+          session={sessions.find(
+            (s) =>
+              s.kind === 'background' &&
+              s.name === settings.mainAgent.name &&
+              !sessions.some(
+                (o) => o.kind === 'background' && o.name === s.name && o.startedAt > s.startedAt
+              )
+          )}
+          config={settings.mainAgent}
+          onConfig={(mainAgent) => updateSettings({ mainAgent })}
+          onClose={() => setMainAgentOpen(false)}
+          onAttach={(session) => {
+            setMainAgentOpen(false);
+            onOpenView();
+            openSession(session);
+          }}
+          onReply={handleReply}
+        />
       )}
 
       {/* Modals */}

@@ -31,6 +31,8 @@ import {
   OMP_SESSION_ID_RE,
 } from './ompSessions.js';
 import { getAllPtySessions } from './ptyService.js';
+import { settingsService } from './settingsService.js';
+import { keepMainAgentAlive } from './mainAgent.js';
 
 /**
  * When the API runs inside Docker the `claude` binary on the host cannot be
@@ -1510,6 +1512,11 @@ async function poll() {
   pollInProgress = true;
   try {
     const sessions = await listSessions({ all: true });
+    // #252: the main agent is restarted when it stopped (no prompt, no tokens)
+    keepMainAgentAlive(sessions, {
+      config: settingsService.getAgentViewSettings().mainAgent,
+      respawn: respawnSession,
+    }).catch((err) => console.warn('[Agents] main agent keep-alive failed:', err.message));
     const next = new Map(sessions.map((s) => [s.id, s]));
     const notifications = [];
     for (const session of sessions) {
