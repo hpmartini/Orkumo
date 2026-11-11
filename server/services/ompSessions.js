@@ -297,29 +297,51 @@ export async function removeOmpSession(
   return { stopped };
 }
 
-/** Last user/assistant messages of an omp session file (peek panel) */
+const TAIL_CHUNK = 512 * 1024;
+/** Bytes read at most for a peek: tool output dominates a long session's newest megabytes */
+const TAIL_MAX = 16 * 1024 * 1024;
+
+/**
+ * Last user/assistant messages of an omp session file (peek panel). Reads backwards in chunks
+ * until `limit` messages are found: one chunk of a session full of tool output held only the
+ * newest prompt.
+ */
 export async function readOmpTranscriptTail(file, limit = 40) {
-  const stat = await fsp.stat(file);
-  const readSize = Math.min(stat.size, 512 * 1024);
+  const { size } = await fsp.stat(file);
   const handle = await fsp.open(file, 'r');
   try {
-    const buffer = Buffer.alloc(readSize);
-    await handle.read(buffer, 0, readSize, stat.size - readSize);
-    const lines = buffer.toString('utf-8').split('\n');
-    if (readSize < stat.size) lines.shift(); // partial first line
-    const entries = [];
-    for (const line of lines) {
-      let record;
-      try {
-        record = JSON.parse(line);
-      } catch {
-        continue;
+    let entries = [];
+    let end = size;
+    // bytes of the line cut by the chunk read last; kept raw so a split UTF-8 character survives
+    let carry = Buffer.alloc(0);
+    while (end > 0 && entries.length < limit && size - end < TAIL_MAX) {
+      const start = Math.max(0, end - TAIL_CHUNK);
+      const read = Buffer.alloc(end - start);
+      await handle.read(read, 0, read.length, start);
+      let buffer = Buffer.concat([read, carry]);
+      carry = Buffer.alloc(0);
+      if (start > 0) {
+        const nl = buffer.indexOf(0x0a);
+        carry = nl === -1 ? buffer : buffer.subarray(0, nl);
+        buffer = nl === -1 ? Buffer.alloc(0) : buffer.subarray(nl + 1);
       }
-      const role = record?.type === 'message' ? record.message?.role : null;
-      if (role !== 'user' && role !== 'assistant') continue;
-      const text = textOf(record.message.content).trim();
-      if (!text) continue;
-      entries.push({ role, text: text.slice(0, 4000), timestamp: record.timestamp || null });
+      const lines = buffer.toString('utf-8').split('\n');
+      const found = [];
+      for (const line of lines) {
+        let record;
+        try {
+          record = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const role = record?.type === 'message' ? record.message?.role : null;
+        if (role !== 'user' && role !== 'assistant') continue;
+        const text = textOf(record.message.content).trim();
+        if (!text) continue;
+        found.push({ role, text: text.slice(0, 4000), timestamp: record.timestamp || null });
+      }
+      entries = [...found, ...entries];
+      end = start;
     }
     return entries.slice(-limit);
   } finally {
