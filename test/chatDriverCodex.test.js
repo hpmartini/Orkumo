@@ -317,6 +317,18 @@ describe('codex driver - recorded turn', () => {
     expect(s.proc.written).toHaveLength(count);
   });
 
+  it('sends attached images as local files, like the TUI does with a pasted image', () => {
+    const s = start({ frames: fixture('fresh.jsonl') });
+    s.driver.send('what is this?', [
+      { path: '/d/agent-images/a.png', mimeType: 'image/png', data: 'iVBO' },
+    ]);
+    s.until(isResponse(2));
+    expect(lastWritten(s.proc).params.input).toEqual([
+      { type: 'text', text: 'what is this?', text_elements: [] },
+      { type: 'localImage', path: '/d/agent-images/a.png' },
+    ]);
+  });
+
   it('runs messages sent during a turn one after another', () => {
     const s = handshake(fixture('fresh.jsonl'), 'one');
     s.driver.send('two');

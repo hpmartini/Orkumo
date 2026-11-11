@@ -119,6 +119,25 @@ describe('chatService - start validation (AC-3)', () => {
   });
 });
 
+describe('claude driver - attached images', () => {
+  it('sends them as base64 image blocks after the text, like a pasted image', async () => {
+    const { startDriver } = await import('../server/services/chatDrivers/claude.js');
+    const { spawn, calls } = fakeSpawn();
+    const driver = startDriver(
+      { cwd: project },
+      { bin: '/bin/claude', spawn, emit() {}, exit() {} }
+    );
+    driver.send('what is this?', [{ path: '/d/a.png', mimeType: 'image/png', data: 'iVBO' }]);
+    expect(calls[0].proc.written.at(-1).message.content).toEqual([
+      { type: 'text', text: 'what is this?' },
+      { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBO' } },
+    ]);
+    driver.send('plain');
+    expect(calls[0].proc.written.at(-1).message.content).toBe('plain');
+    driver.stop();
+  });
+});
+
 describe('chatService - buildChatArgs', () => {
   it('runs the CLI in stream-json print mode with stdio permission prompts', () => {
     expect(buildChatArgs({ cwd: '/p' })).toEqual([

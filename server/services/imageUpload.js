@@ -5,6 +5,7 @@
  */
 import { execFile } from 'child_process';
 import { randomUUID } from 'crypto';
+import fs from 'fs';
 import fsp from 'fs/promises';
 import path from 'path';
 import { getDataPath } from './dataPath.js';
@@ -18,6 +19,41 @@ const AGENT_IMAGE_NAME =
 export function agentImagePath(name, dir = path.join(getDataPath(), 'agent-images')) {
   return AGENT_IMAGE_NAME.test(name) ? path.join(dir, name) : null;
 }
+
+const MIME = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+const IMAGE_LINE = /^\[Image: (.+)\]$/;
+
+/**
+ * The images a composer attached to a prompt (`[Image: <path>]` lines, `promptWithImages`),
+ * read for harnesses that take them as message content like a pasted image. Only files this
+ * server stored (`saveAgentImage`) count; any other line stays text.
+ * @returns {{ text: string, images: { path: string, mimeType: string, data: string }[] }}
+ *   `text` without the image lines, `data` base64
+ */
+export function promptImages(prompt, dir = path.join(getDataPath(), 'agent-images')) {
+  const images = [];
+  const lines = [];
+  for (const line of prompt.split('\n')) {
+    const file = line.match(IMAGE_LINE)?.[1];
+    const name = file && path.dirname(file) === dir ? path.basename(file) : null;
+    const stored = name && agentImagePath(name, dir);
+    if (stored === file) {
+      try {
+        images.push({
+          path: file,
+          mimeType: MIME[path.extname(file).slice(1)],
+          data: fs.readFileSync(file).toString('base64'),
+        });
+        continue;
+      } catch {
+        // gone: keep the line, the agent can say it cannot read it
+      }
+    }
+    lines.push(line);
+  }
+  return { text: lines.join('\n').trim(), images };
+}
+
 export const ISSUE_ASSETS_BRANCH = 'issue-assets';
 
 function httpError(message, status) {

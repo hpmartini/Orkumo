@@ -256,8 +256,18 @@ export function startDriver(safe, io) {
   write({ type: 'control_request', request_id: initId, request: { subtype: 'initialize' } });
 
   return {
-    send(text) {
-      write({ type: 'user', message: { role: 'user', content: text } });
+    /** `images`: `{ mimeType, data }` (base64) sent as image blocks, like a pasted image */
+    send(text, images = []) {
+      const content = images.length
+        ? [
+            ...(text ? [{ type: 'text', text }] : []),
+            ...images.map((i) => ({
+              type: 'image',
+              source: { type: 'base64', media_type: i.mimeType, data: i.data },
+            })),
+          ]
+        : text;
+      write({ type: 'user', message: { role: 'user', content } });
     },
     interrupt() {
       write({
