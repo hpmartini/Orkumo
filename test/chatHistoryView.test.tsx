@@ -79,7 +79,9 @@ describe('ChatHistoryPage (#280)', () => {
       expect.stringContaining('ChatGPTChat 2'),
       expect.stringContaining('ClaudeChat 1'),
     ]);
-    expect(screen.getByTestId('chat-counts')).toHaveTextContent('3 shown · Claude 2 · ChatGPT 1');
+    expect(screen.getByTestId('chat-counts')).toHaveTextContent(
+      '3 matching · Claude 2 · ChatGPT 1'
+    );
   });
 
   it('AC-3: provider, project, topic and period go to the server as filters', async () => {

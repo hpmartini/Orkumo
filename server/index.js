@@ -2123,10 +2123,11 @@ const chatHistoryQuerySchema = z.object({
   topic: z.string().max(200).optional(),
   from: epochMs,
   to: epochMs,
-  limit: z.coerce.number().int().min(1).max(1000).optional(),
+  limit: z.coerce.number().int().min(1).max(100_000).optional(),
 });
 
-app.get('/api/chat-history', agentLimiter, async (req, res) => {
+// Reads of the local store: search asks per keystroke, so only the general API limit applies
+app.get('/api/chat-history', async (req, res) => {
   const query = chatHistoryQuerySchema.safeParse(req.query);
   if (!query.success) return res.status(400).json({ error: 'Invalid chat history query' });
   try {
@@ -2136,7 +2137,7 @@ app.get('/api/chat-history', agentLimiter, async (req, res) => {
   }
 });
 
-app.get('/api/chat-history/conversation', agentLimiter, async (req, res) => {
+app.get('/api/chat-history/conversation', async (req, res) => {
   try {
     const conversation = await chatHistory.get(String(req.query.id ?? ''));
     if (!conversation) return res.status(404).json({ error: 'Unknown conversation' });

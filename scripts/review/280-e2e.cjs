@@ -88,7 +88,7 @@ const timedSearch = (main, word) =>
         lines.some((l) => /\(ChatGPT\): 3 of 4 imported, skipped: 1 no messages/.test(l)),
       lines.join(' | ')
     );
-    await view.getByTestId('chat-counts').getByText('6 shown · Claude 3 · ChatGPT 3').waitFor();
+    await view.getByTestId('chat-counts').getByText('6 matching · Claude 3 · ChatGPT 3').waitFor();
     check('AC-1 counts in the view: Claude 3, ChatGPT 3', true);
     const titles = await rows.evaluateAll((els) =>
       els.map((el) => el.querySelector('.truncate').textContent)
@@ -103,7 +103,7 @@ const timedSearch = (main, word) =>
 
     // Search: a word that only occurs inside an answer
     await view.getByLabel('Search chats').fill('stockgare');
-    await view.getByText('1 shown').waitFor({ timeout: 10000 });
+    await view.getByText('1 matching').waitFor({ timeout: 10000 });
     check(
       'search finds the conversation by a word from a message',
       (await rows.first().textContent()).includes('Sauerteig Brot backen'),
@@ -114,10 +114,10 @@ const timedSearch = (main, word) =>
 
     // AC-3: provider, project, period
     await view.getByLabel('Provider').selectOption('chatgpt');
-    await view.getByText('3 shown').waitFor({ timeout: 10000 });
+    await view.getByText('3 matching').waitFor({ timeout: 10000 });
     check('AC-3 provider filter: 3 ChatGPT chats', (await rows.count()) === 3);
     await view.getByLabel('Project').selectOption({ index: 1 });
-    await view.getByText('1 shown').waitFor({ timeout: 10000 });
+    await view.getByText('1 matching').waitFor({ timeout: 10000 });
     check(
       'AC-3 project filter (ChatGPT project gizmo)',
       (await rows.first().textContent()).includes('Fahrrad Reifen flicken')
@@ -127,14 +127,14 @@ const timedSearch = (main, word) =>
     await view.getByLabel('Provider').selectOption('');
     await view.getByLabel('Active from').fill('2026-02-01');
     await view.getByLabel('Active until').fill('2026-02-28');
-    await view.getByText('1 shown').waitFor({ timeout: 10000 });
+    await view.getByText('1 matching').waitFor({ timeout: 10000 });
     check(
       'AC-3 period filter: February 2026',
       (await rows.first().textContent()).includes('Fahrrad Kette wechseln')
     );
     await view.getByLabel('Active from').fill('');
     await view.getByLabel('Active until').fill('');
-    await view.getByText('6 shown').waitFor({ timeout: 10000 });
+    await view.getByText('6 matching').waitFor({ timeout: 10000 });
 
     // AC-4: topics, computed in the server process
     await view.getByLabel('Group by topic').check();
@@ -208,9 +208,15 @@ const timedSearch = (main, word) =>
       cold.total === 1 && warm.total === 1 && cold.ms < 1000 && warm.ms < 1000,
       `cold after restart ${cold.ms} ms (server ${cold.server} ms), warm ${warm.ms} ms (server ${warm.server} ms)`
     );
+    const broad = await timedSearch(main, 'lorem');
+    check(
+      'AC-2 a word in every conversation (200 snippets read from disk), < 1 s',
+      broad.total === 5000 && broad.ms < 1000,
+      `${broad.ms} ms (server ${broad.server} ms)`
+    );
     await main.getByRole('group', { name: 'Mode' }).getByTitle('Chats').click();
     const view2 = main.locator('[data-chat-history]');
-    await view2.getByText('5006 shown').waitFor({ timeout: 20000 });
+    await view2.getByText('5006 matching').waitFor({ timeout: 20000 });
     const typed = Date.now();
     await view2.getByLabel('Search chats').fill('quittenmarmelade');
     await view2.getByText('Verlauf 3210').waitFor({ timeout: 10000 });

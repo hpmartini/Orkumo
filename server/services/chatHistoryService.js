@@ -209,6 +209,7 @@ const words = (text) =>
 /**
  * Topic per conversation, in input order. A word names a topic when at least `minSize`
  * conversations share it; among its candidates a conversation takes the most shared one.
+ * In a larger history a word that a quarter of all conversations share says nothing.
  * @param {{ title: string, firstMessage: string }[]} entries
  */
 export function assignTopics(entries, minSize = 2) {
@@ -218,9 +219,10 @@ export function assignTopics(entries, minSize = 2) {
   for (let i = 0; i < entries.length; i++)
     for (const w of new Set([...titleWords[i], ...messageWords[i]]))
       shared.set(w, (shared.get(w) ?? 0) + 1);
+  const maxSize = entries.length < 20 ? Infinity : entries.length / 4;
   const best = (list) =>
     list
-      .filter((w) => shared.get(w) >= minSize)
+      .filter((w) => shared.get(w) >= minSize && shared.get(w) <= maxSize)
       .sort((a, b) => shared.get(b) - shared.get(a) || a.localeCompare(b))[0];
   return entries.map((_, i) => best(titleWords[i]) ?? best(messageWords[i]) ?? NO_TOPIC);
 }
