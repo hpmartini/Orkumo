@@ -2525,14 +2525,26 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                         }
                         onOpenAsChat={
                           live
-                            ? (s, sid) =>
+                            ? (s, sid) => {
+                                // Another harness (omp) has no live view: its process ends and the
+                                // chat resumes. Run by this pane, that is just a view switch; ask
+                                // only when the process runs outside Orkumo (#236)
+                                if (sessionHarness(s) !== 'claude') {
+                                  const elsewhere =
+                                    s.pid != null && !s.paneId && !openIdSet.has(s.id);
+                                  guardCopy(
+                                    elsewhere ? s : null,
+                                    () => void openAgentInChat(s, sid),
+                                    true
+                                  );
+                                  return;
+                                }
                                 guardCopy(
                                   // a live view starts no process, so it makes no copy (#236)
                                   !opensAsLiveView(s) && resumeMakesCopy(s) ? s : null,
-                                  () => void openAgentInChat(s, sid),
-                                  // another harness's process is ended before the chat resumes
-                                  sessionHarness(s) !== 'claude'
-                                )
+                                  () => void openAgentInChat(s, sid)
+                                );
+                              }
                             : undefined
                         }
                         onMoveTab={live ? workspaceActions.moveTab : noop}
