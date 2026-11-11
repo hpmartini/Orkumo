@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Switched package manager to bun (`bun install` / `bun run`; node remains the runtime for server, electron and pty scripts)
 - `pty-host` uses `bun.lock`; Docker images install with `--ignore-scripts` and build node-pty with the pinned node-gyp (bun's fallback to `node-gyp@latest` broke on Node 20)
+- Agents view layout: the modes moved from the header into a vertical activity bar at the left edge (VS Code style) with the settings gear at its bottom; "New task", "Agent", "Chat" and "Issue" became one split button [New task | ⌄] next to the robot; the command palette button sits at the right edge of the title bar; grouping, sort, filters and search share one row above the agent list, the grouping shows only the current choice and lists the others on hover (with collapse / expand all); text search and the PR / issue filter are one search button that opens its field on click or Cmd/Ctrl+K
 
 ### Fixed
 
@@ -27,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Chat pane (UI mode) for every harness, not only Claude Code: Oh My Pi and OpenCode via ACP, Pi via its RPC mode, Codex via `codex app-server`. Pick the harness in "New chat"; idle omp sessions open as chat ("Open as chat", or by default with "Open idle agents as chat"), and "Open in terminal" continues any chat in its harness's TUI (`omp -r`, `pi --session`, `opencode --session`, `codex resume`)
 - Agents servers panel: section "Verwaist" lists listening servers of finished worktrees and jobs (`GET /api/agents/servers/orphans`) with a confirmed Stop (`POST /api/agents/servers/:pid/stop`, orphan pids only); a server now belongs to a session only via its process ancestry or the session's own dir without nested `.claude/worktrees/*` and `.claude/jobs/*` (#243)
 - Issues mode (`/issues`, mode bar after Board): filterable list of the GitHub issues of the active context's repos, read straight from the repos so issues off the board appear too ("Board" badge marks the rest). Search, repo / label / assignee / milestone / author / board filters, open/closed, grouping and sorting in the URL; a row opens the issue modal (`GET /api/issues?context=&state=&refresh=1`)
 - Agents rail: switch "Interactive sessions" in the rail footer (and palette command) shows terminal sessions started outside Orkumo; hidden by default, the choice is remembered, the switch counts the hidden ones

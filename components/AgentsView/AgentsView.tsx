@@ -2,14 +2,13 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import toast from 'react-hot-toast';
 import {
   Bot,
+  Settings,
   Settings2,
   HelpCircle,
   RefreshCw,
   Braces,
   AlertTriangle,
   Power,
-  Plus,
-  Search,
   X,
   ArrowLeft,
 } from 'lucide-react';
@@ -90,22 +89,19 @@ import {
   resumableSessionId,
   harnessLabel,
   sessionHarness,
+  terminalResumeArgs,
   isOmpStoreSession,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
-import { RailNav, ProjectsSection, RailNavProps } from './ProjectsRail';
+import { GroupingPicker, ProjectsSection, RailNavProps } from './ProjectsRail';
+import { NewTaskButton } from './NewTaskButton';
 import { ModeSwitcher } from '../ModeSwitcher';
 import { AgentsRailSlot } from '../ModuleSlot';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
 import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
 import { ServersPanel, type ServerRow } from './ServersPanel';
-import {
-  TaskComposerModal,
-  useCommandPalette,
-  useRegisterCommands,
-  PALETTE_SHORTCUT,
-} from '../CommandPalette';
+import { TaskComposerModal, useCommandPalette, useRegisterCommands } from '../CommandPalette';
 import type { PaletteCommand } from '../../utils/commandPalette';
 import { CloudSessionBar } from './CloudSessionBar';
 import { PeekPanel } from './PeekPanel';
@@ -868,11 +864,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [attach]
   );
 
-  /** Starts a Chat pane session with the dispatch defaults (model, permission mode) */
+  /** Starts a Chat pane session; Claude Code gets the dispatch defaults (model, permission mode) */
   const openChat = useCallback(
     async (
       cwd: string | null,
-      extra: { resume?: string; continue?: boolean; name?: string },
+      extra: { harness?: AgentHarness; resume?: string; continue?: boolean; name?: string },
       message = ''
     ) => {
       if (!cwd) {
@@ -881,13 +877,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }
       setDispatching(true);
       try {
+        const claude = (extra.harness ?? 'claude') === 'claude';
         const id = await chats.open(
           {
             cwd,
-            model: settings.dispatch.model,
-            permissionMode: settings.dispatch.permissionMode,
-            skipPermissions: settings.dispatch.skipPermissions || undefined,
+            ...(claude && {
+              model: settings.dispatch.model,
+              permissionMode: settings.dispatch.permissionMode,
+              skipPermissions: settings.dispatch.skipPermissions || undefined,
+            }),
             ...extra,
+            // Session titles (an omp row is named after its first prompt) can exceed the 80 allowed
+            name: extra.name?.replace(/\s+/g, ' ').trim().slice(0, 80) || undefined,
           },
           message
         );
@@ -904,7 +905,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [chats, settings.dispatch, showHint, attach]
   );
 
-  /** "Open in terminal": the chat process ends first, then `claude --resume` takes the session */
+  /** "Open in terminal": the chat process ends first, then the harness's terminal resumes it */
   const openChatInTerminal = useCallback(
     async (chatId: string, sessionId: string) => {
       const chat = chats.chats.find((c) => c.id === chatId);
@@ -915,12 +916,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         attach(chat.viewOf);
         return;
       }
+      const harness = chat ? sessionHarness(chat) : 'claude';
       // The chat's session lives on the chat's instance, not on the one picked now
       openInteractiveClaude(
         chat?.cwd || homeDir || '',
-        chat?.name || 'claude',
-        ['--resume', sessionId],
-        'claude',
+        chat?.name || harness,
+        terminalResumeArgs(harness, sessionId),
+        harness,
         targetOf(chatId)
       );
     },
@@ -930,10 +932,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   /**
    * "Open as chat": a running background agent, and any agent mid-turn, opens as a live view of
    * its own process (chat is just another view). An idle local terminal or a finished job hands
-   * its session to a chat process instead.
+   * its session to a chat process instead. Another harness's session (omp) has no live view:
+   * its process (pane or other terminal) ends first, then the chat resumes the session.
    */
   const openAgentInChat = useCallback(
     async (session: AgentSession, sessionId: string) => {
+      const harness = sessionHarness(session);
+      if (harness !== 'claude') {
+        if (session.displayState === 'working') {
+          showHint(`${harnessLabel(harness)} is mid-turn: open it as chat once it is idle`, 'info');
+          return;
+        }
+        try {
+          // Waits until the process holding the session is gone; closing the pane alone does not
+          if (session.pid != null) await stopAgent(session.id);
+        } catch (err) {
+          showHint(`Takeover failed: ${err instanceof Error ? err.message : err}`, 'error', 6000);
+          return;
+        }
+        closeAnyPane(session.paneId || session.id);
+        await openChat(session.cwd, {
+          harness,
+          resume: sessionId,
+          name: session.name || undefined,
+        });
+        return;
+      }
       if (opensAsLiveView(session)) {
         try {
           // A background pane only detaches; a local terminal stays open, it is the agent
@@ -985,6 +1009,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         attach(running.id);
         return true;
       }
+      if (sessionHarness(session) !== 'claude') {
+        // No live view for other harnesses: mid-turn it stays in its terminal
+        if (!CHAT_OPENABLE.has(session.displayState)) return false;
+        // Its process in another terminal ends first: a takeover, ask (#236)
+        const elsewhere = session.pid != null && !session.paneId;
+        guardCopy(elsewhere ? session : null, () => void openAgentInChat(session, sessionId), true);
+        return true;
+      }
       // A prompt is not in the transcript and `claude logs` only exists for jobs: keep the terminal
       const prompting =
         session.displayState === 'waiting' ||
@@ -1013,6 +1045,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       // A Claude app session runs on claude.ai: a resume here would fork it (#236)
       if (plan.type === 'app') return plan.url ? openInSystemBrowser(plan.url) : undefined;
       if (plan.type === 'attach') {
+        if (openAsChat(session)) return;
         // A harness session running in another terminal: omp has no attach, so taking it over
         // ends that process and resumes the session here (a second process would write in parallel)
         const elsewhere = session.ptyArgs && session.pid != null && !session.paneId;
@@ -1169,24 +1202,31 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const handleSubmit = useCallback(
     async ({ attach: attachAfter }: { attach: boolean }) => {
       if (composerMode === 'chat') {
+        const harness = composerHarness;
+        if (harnessInstalled[harness] === false) {
+          showHint(`${harnessLabel(harness)} is not installed on this machine`, 'error');
+          return;
+        }
         // `/resume [id]` and `/continue` pick up an earlier session; anything else is the first message
         const resume = input.trim().match(/^\/resume(?:\s+(\S+))?$/);
         if (resume) {
           if (resume[1]) {
             const id = resume[1];
             guardCopy(transcriptHolder(sessions, id), () => {
-              void openChat(composerCwd, { resume: id });
+              void openChat(composerCwd, { harness, resume: id });
             });
-          } else setResumePicker({ open: true, query: '', chat: true });
+          } else if (harness === 'claude') setResumePicker({ open: true, query: '', chat: true });
+          else showHint(`${harnessLabel(harness)}: give the session id, /resume <id>`, 'error');
           return;
         }
         if (input.trim() === '/continue') {
-          await openChat(composerCwd, { continue: true });
+          if (harness === 'claude') await openChat(composerCwd, { continue: true });
+          else showHint('/continue is Claude Code only: use /resume <id>', 'error');
           return;
         }
         const paths = await uploadComposerImages();
         if (!paths) return;
-        await openChat(composerCwd, {}, promptWithImages(input, paths));
+        await openChat(composerCwd, { harness }, promptWithImages(input, paths));
         return;
       }
       if (composerHarness !== 'claude') {
@@ -2130,424 +2170,408 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   }
 
   return (
-    <div className="h-full flex flex-col min-h-0 bg-gray-900 text-gray-100" data-agents-view>
-      {/* Header; small screens show it on /agents only, other routes have the app header */}
-      <div
-        className={`relative ${active ? 'flex' : 'hidden md:flex'} flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 border-b border-gray-800 shrink-0`}
+    <div className="h-full flex min-h-0 bg-gray-900 text-gray-100" data-agents-view>
+      {/* Activity bar, like VS Code: modes on top, settings at the bottom */}
+      <nav
+        aria-label="Activity bar"
+        className={`${active ? 'flex' : 'hidden md:flex'} w-12 shrink-0 flex-col py-1 border-r border-gray-800 bg-gray-950`}
       >
-        <button
-          onClick={nav.onOpenContextDashboard}
-          className="p-1 -m-1 rounded text-blue-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-          title="Dashboard of this context"
-          aria-label="Open context dashboard"
-        >
-          <Bot size={18} />
-        </button>
         <ModeSwitcher modes={nav.modes} />
-        <AgentsRailSlot ids={nav.railSlots} />
-        <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
-          <AgentSummaryBar
-            counts={{
-              ...counts,
-              completed: chipCounts.completed,
-              cacheExpiring: chipCounts['cache-expiring'],
-            }}
-            openPrs={totals.openPrs}
-            runningServers={totals.runningServers}
-            daemon={daemon}
-            justCompleted={
-              lastCompleted && Date.now() - lastCompleted.at < 5000 ? lastCompleted.count : 0
-            }
-            active={quickFilters}
-            onToggle={toggleQuickFilter}
-            panel={panel}
-            onOpenPrs={() => {
-              setPrRepo(null);
-              setPanel((p) => (p === 'prs' ? null : 'prs'));
-            }}
-            onOpenServers={() => setPanel((p) => (p === 'servers' ? null : 'servers'))}
-          />
-        </div>
-        {panel === 'prs' && (
-          <PullRequestsPanel
-            rows={pullRows}
-            sessions={sessions}
-            contexts={contexts}
-            repoFilter={prRepo}
-            onClearRepo={() => setPrRepo(null)}
-            onSelectAgent={attach}
-            onOpenCode={openPrCode}
-            onMaximize={() => navigate(pullsUrl(prRepo))}
-            onClose={() => setPanel(null)}
-          />
-        )}
-        {panel === 'servers' && (
-          <ServersPanel rows={serverRows} onSelectAgent={attach} onClose={() => setPanel(null)} />
-        )}
-        <div className="flex-1" />
-        {!active && (
+        <button
+          onClick={nav.onOpenSettings}
+          className="mt-auto flex items-center justify-center h-11 text-gray-500 hover:text-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor"
+          title="Settings"
+          aria-label="Settings"
+        >
+          <Settings size={20} strokeWidth={1.75} aria-hidden />
+        </button>
+      </nav>
+      <div className="flex-1 min-w-0 flex flex-col min-h-0">
+        {/* Header; small screens show it on /agents only, other routes have the app header */}
+        <div
+          className={`relative ${active ? 'flex' : 'hidden md:flex'} flex-wrap items-center gap-x-3 gap-y-1 px-4 py-1.5 border-b border-gray-800 shrink-0`}
+        >
           <button
-            onClick={onOpenView}
-            className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-            title="Close this view and return to the agent tabs"
-            aria-label="Close view"
+            onClick={nav.onOpenContextDashboard}
+            className="p-1 -m-1 rounded text-blue-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+            title="Dashboard of this context"
+            aria-label="Open context dashboard"
           >
-            <X size={14} /> Close
+            <Bot size={18} />
           </button>
-        )}
-        <div
-          className={`hidden ${active ? 'md:flex' : ''} items-center gap-1.5 text-[11px] text-gray-300`}
-          role="status"
-          title="Switch with F6 or Ctrl+Alt+Left / Right"
-        >
-          <span
-            className={`px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
-              focusZone === 'terminal' ? 'bg-blue-300 text-gray-950' : 'bg-gray-700 text-gray-100'
-            }`}
-          >
-            {focusZone === 'terminal'
-              ? 'Keys: terminal'
-              : focusZone === 'rail'
-                ? 'Keys: agent list'
-                : 'Keys: page'}
-          </span>
-          <kbd className="kbd">{FOCUS_CHORD_LABEL}</kbd>
-          <span className="text-gray-400 hidden xl:inline">switches</span>
-        </div>
-        <span className="text-[11px] text-gray-500 font-mono" title={modelTitle}>
-          model {modelLabel}
-          <span className="sr-only"> ({modelTitle})</span>
-        </span>
-        <div className="hidden xl:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
-          {settings.dispatch.effort && (
-            <span title="Dispatch effort (/effort)">effort {settings.dispatch.effort}</span>
-          )}
-          {settings.dispatch.permissionMode && <span>{settings.dispatch.permissionMode}</span>}
-          {settings.dispatch.skipPermissions && (
-            <span className="text-orange-400">bypass permissions</span>
-          )}
-          {settings.scopeCwd && <span title="Scope (--cwd)">cwd {settings.scopeCwd}</span>}
-          {!connected && <span className="text-yellow-500">reconnecting…</span>}
-        </div>
-        <button
-          onClick={copyJson}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title="Copy `claude agents --json --all`"
-        >
-          <Braces size={15} />
-        </button>
-        <button
-          onClick={refresh}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title="Refresh"
-        >
-          <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
-        </button>
-        <button
-          onClick={() => setShowSettings(true)}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title="Dispatch defaults & settings"
-        >
-          <Settings2 size={15} />
-        </button>
-        <button
-          onClick={() => setShowHelp(true)}
-          className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
-          title="Shortcuts (?)"
-        >
-          <HelpCircle size={15} />
-        </button>
-      </div>
-
-      {error && (
-        <div className="px-4 py-1.5 text-xs text-red-300 bg-red-900/20 border-b border-red-900/40 flex items-center gap-2">
-          <AlertTriangle size={12} /> {error}
-        </div>
-      )}
-
-      {/* Body */}
-      <div className="flex-1 flex min-h-0">
-        {/* Session list + dispatch input */}
-        <div
-          ref={railRef}
-          tabIndex={-1}
-          data-focus-zone="rail"
-          data-rail-focused={railFocused}
-          // On small screens the rail is the agents page; other routes show their main area instead
-          className={`${active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
-        >
-          {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
-          {railFocused && (
-            <div
-              aria-hidden="true"
-              className="pointer-events-none absolute inset-0 z-10 border-2 border-blue-300/80"
-            />
-          )}
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-gray-700">
-            <button
-              type="button"
-              onClick={() => openComposer('task')}
-              className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-              title="New task (N or Alt+N)"
-            >
-              <Plus size={14} aria-hidden /> New task
-            </button>
-            <button
-              type="button"
-              onClick={() => openComposer('agent')}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
-              title="New interactive agent session, attached right away"
-            >
-              <Plus size={13} aria-hidden /> Agent
-            </button>
-            <button
-              type="button"
-              onClick={() => openComposer('chat')}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
-              title="New chat: Claude Code with a chat UI instead of a terminal"
-            >
-              <Plus size={13} aria-hidden /> Chat
-            </button>
-            <button
-              type="button"
-              onClick={() => openIssueDialog(selectedRepo)}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
-              title="New GitHub issue"
-            >
-              <Plus size={13} aria-hidden /> Issue
-            </button>
-            <button
-              type="button"
-              onClick={palette.open}
-              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-300"
-              title="Command palette"
-              aria-label={`Command palette (${PALETTE_SHORTCUT})`}
-            >
-              <Search size={13} aria-hidden />
-              <kbd className="font-mono">{PALETTE_SHORTCUT}</kbd>
-            </button>
-          </div>
-          <RailNav
-            nav={nav}
-            grouping={settings.grouping}
-            onGrouping={(grouping) => updateSettings({ grouping })}
-            onCollapseAll={collapseAllGroups}
-            onExpandAll={expandAllGroups}
-            collapseDisabled={filterActive}
-          />
-          <AgentFilterBar
-            sort={sort}
-            onSort={setSort}
-            active={quickFilters}
-            onToggle={toggleQuickFilter}
-            chipCounts={chipCounts}
-            shown={shownSessions.length}
-            total={sessions.length}
-            filtered={filterActive || !!filter}
-            onClear={() => {
-              setQuickFilters(new Set());
-              setLinkFilter(new Set());
-              setTextQuery('');
-              if (filter) setInput('');
-            }}
-            linkEntries={linkEntries}
-            linkSelected={linkFilter}
-            onToggleLink={toggleLinkFilter}
-            query={textQuery}
-            onQuery={setTextQuery}
-          />
-          {loading && sessions.length === 0 ? (
-            <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
-              <RefreshCw size={14} className="animate-spin mr-2" /> Loading sessions…
-            </div>
-          ) : (
-            <AgentList
-              railFocused={railFocused}
-              items={items}
-              selectedIndex={selectedIndex}
-              onSelectIndex={(index) => setSelectedKey(itemKey(items[index]))}
-              onActivate={activateItem}
-              onTogglePeek={togglePeek}
-              peekId={peekId}
-              openIds={openIdSet}
-              onFocusOpen={focusOpen}
-              now={now}
-              grouping={settings.grouping}
-              cardDetails={settings.cardDetails}
-              cardDensity={settings.cardDensity}
-              cardFields={settings.cardFields}
-              lookup={lookup}
-              contexts={contexts}
-              servers={servers}
-              filtered={filterActive || !!filter}
-              onOpenPrs={(repo) => {
-                setPrRepo(repo);
-                setPanel('prs');
-              }}
-              rowActions={rowActions}
-              groupActions={groupActions}
-              highlightedId={highlightedId}
-              collapsedKeys={collapsed}
-              activeSessionId={activeSessionId}
-              onRevealActive={(id) => {
-                rail.revealSession(groups, id);
-                if (isFoldedAway(groups, id)) setExpandedCompleted(true);
-              }}
-              onToggleGroup={toggleCollapsed}
-              favoriteGroupKeys={rail.favoriteGroups}
-              favoriteSessionIds={rail.favoriteSessions}
-              expandedSessionIds={rail.expandedSessions}
-              onToggleFavoriteGroup={rail.toggleFavoriteGroup}
-              onToggleFavoriteSession={rail.toggleFavoriteSession}
-              onMoveGroup={rail.moveGroup}
-              appsById={appsById}
-              nav={nav}
-              issuesByAgent={issuesByAgent}
-              onOpenIssue={setIssueModalKey}
-              top={
-                settings.grouping === 'state' ? (
-                  <ProjectsSection apps={apps} nav={nav} filtered={filterActive || !!filter} />
-                ) : undefined
-              }
-            />
-          )}
-          {filter && (
-            <div className="px-3 py-1 text-[11px] text-blue-300 bg-blue-900/20 border-t border-blue-900/40 flex items-center gap-2">
-              filter active — {visibleSessions.length} of {sessions.length} sessions
-              <button
-                onClick={() => setInput('')}
-                className="ml-auto hover:text-white"
-                aria-label="Clear filter"
-              >
-                <X size={11} />
-              </button>
-            </div>
-          )}
-          <RailSwitch
-            id="interactive-sessions-label"
-            label="Interactive sessions"
-            hint={
-              interactiveCount > 0
-                ? `${interactiveCount} ${showInteractive ? 'shown' : 'hidden'}`
-                : 'terminals outside Orkumo'
+          <NewTaskButton
+            onNew={(kind) =>
+              kind === 'issue' ? openIssueDialog(selectedRepo) : openComposer(kind)
             }
-            checked={showInteractive}
-            onToggle={toggleInteractive}
           />
-          <CloudSessionBar onOpen={openCloud} />
-          {/* Feedback for actions started outside the composer (the composer shows its own) */}
-          <div role="status" aria-live="polite">
-            {!composerOpen && (hint || dispatching) && (
-              <p
-                className={`px-3 py-2 text-xs border-t border-gray-700 ${
-                  hint?.tone === 'error'
-                    ? 'text-red-300'
-                    : hint?.tone === 'success'
-                      ? 'text-emerald-300'
-                      : 'text-gray-200'
-                }`}
-              >
-                {hint?.text || 'Dispatching…'}
-              </p>
+          <AgentsRailSlot ids={nav.railSlots} />
+          <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
+            <AgentSummaryBar
+              counts={{
+                ...counts,
+                completed: chipCounts.completed,
+                cacheExpiring: chipCounts['cache-expiring'],
+              }}
+              openPrs={totals.openPrs}
+              runningServers={totals.runningServers}
+              daemon={daemon}
+              justCompleted={
+                lastCompleted && Date.now() - lastCompleted.at < 5000 ? lastCompleted.count : 0
+              }
+              active={quickFilters}
+              onToggle={toggleQuickFilter}
+              panel={panel}
+              onOpenPrs={() => {
+                setPrRepo(null);
+                setPanel((p) => (p === 'prs' ? null : 'prs'));
+              }}
+              onOpenServers={() => setPanel((p) => (p === 'servers' ? null : 'servers'))}
+            />
+          </div>
+          {panel === 'prs' && (
+            <PullRequestsPanel
+              rows={pullRows}
+              sessions={sessions}
+              contexts={contexts}
+              repoFilter={prRepo}
+              onClearRepo={() => setPrRepo(null)}
+              onSelectAgent={attach}
+              onOpenCode={openPrCode}
+              onMaximize={() => navigate(pullsUrl(prRepo))}
+              onClose={() => setPanel(null)}
+            />
+          )}
+          {panel === 'servers' && (
+            <ServersPanel rows={serverRows} onSelectAgent={attach} onClose={() => setPanel(null)} />
+          )}
+          <div className="flex-1" />
+          {!active && (
+            <button
+              onClick={onOpenView}
+              className="flex items-center gap-1 px-2 py-0.5 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+              title="Close this view and return to the agent tabs"
+              aria-label="Close view"
+            >
+              <X size={14} /> Close
+            </button>
+          )}
+          <div
+            className={`hidden ${active ? 'md:flex' : ''} items-center gap-1.5 text-[11px] text-gray-300`}
+            role="status"
+            title="Switch with F6 or Ctrl+Alt+Left / Right"
+          >
+            <span
+              className={`px-1.5 py-0.5 rounded font-medium whitespace-nowrap ${
+                focusZone === 'terminal' ? 'bg-blue-300 text-gray-950' : 'bg-gray-700 text-gray-100'
+              }`}
+            >
+              {focusZone === 'terminal'
+                ? 'Keys: terminal'
+                : focusZone === 'rail'
+                  ? 'Keys: agent list'
+                  : 'Keys: page'}
+            </span>
+            <kbd className="kbd">{FOCUS_CHORD_LABEL}</kbd>
+            <span className="text-gray-400 hidden xl:inline">switches</span>
+          </div>
+          <span className="text-[11px] text-gray-500 font-mono" title={modelTitle}>
+            model {modelLabel}
+            <span className="sr-only"> ({modelTitle})</span>
+          </span>
+          <div className="hidden xl:flex items-center gap-3 text-[11px] text-gray-500 font-mono">
+            {settings.dispatch.effort && (
+              <span title="Dispatch effort (/effort)">effort {settings.dispatch.effort}</span>
+            )}
+            {settings.dispatch.permissionMode && <span>{settings.dispatch.permissionMode}</span>}
+            {settings.dispatch.skipPermissions && (
+              <span className="text-orange-400">bypass permissions</span>
+            )}
+            {settings.scopeCwd && <span title="Scope (--cwd)">cwd {settings.scopeCwd}</span>}
+            {!connected && <span className="text-yellow-500">reconnecting…</span>}
+          </div>
+          <button
+            onClick={copyJson}
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+            title="Copy `claude agents --json --all`"
+          >
+            <Braces size={15} />
+          </button>
+          <button
+            onClick={refresh}
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+            title="Refresh"
+          >
+            <RefreshCw size={15} className={loading ? 'animate-spin' : ''} />
+          </button>
+          <button
+            onClick={() => setShowSettings(true)}
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+            title="Dispatch defaults & settings"
+          >
+            <Settings2 size={15} />
+          </button>
+          <button
+            onClick={() => setShowHelp(true)}
+            className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800"
+            title="Shortcuts (?)"
+          >
+            <HelpCircle size={15} />
+          </button>
+        </div>
+
+        {error && (
+          <div className="px-4 py-1.5 text-xs text-red-300 bg-red-900/20 border-b border-red-900/40 flex items-center gap-2">
+            <AlertTriangle size={12} /> {error}
+          </div>
+        )}
+
+        {/* Body */}
+        <div className="flex-1 flex min-h-0">
+          {/* Session list + dispatch input */}
+          <div
+            ref={railRef}
+            tabIndex={-1}
+            data-focus-zone="rail"
+            data-rail-focused={railFocused}
+            // On small screens the rail is the agents page; other routes show their main area instead
+            className={`${active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+          >
+            {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
+            {railFocused && (
+              <div
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-0 z-10 border-2 border-blue-300/80"
+              />
+            )}
+            <AgentFilterBar
+              leading={
+                <GroupingPicker
+                  grouping={settings.grouping}
+                  onGrouping={(grouping) => updateSettings({ grouping })}
+                  onCollapseAll={collapseAllGroups}
+                  onExpandAll={expandAllGroups}
+                  collapseDisabled={filterActive}
+                />
+              }
+              sort={sort}
+              onSort={setSort}
+              active={quickFilters}
+              onToggle={toggleQuickFilter}
+              chipCounts={chipCounts}
+              shown={shownSessions.length}
+              total={sessions.length}
+              filtered={filterActive || !!filter}
+              onClear={() => {
+                setQuickFilters(new Set());
+                setLinkFilter(new Set());
+                setTextQuery('');
+                if (filter) setInput('');
+              }}
+              linkEntries={linkEntries}
+              linkSelected={linkFilter}
+              onToggleLink={toggleLinkFilter}
+              query={textQuery}
+              onQuery={setTextQuery}
+            />
+            {loading && sessions.length === 0 ? (
+              <div className="flex-1 flex items-center justify-center text-sm text-gray-500">
+                <RefreshCw size={14} className="animate-spin mr-2" /> Loading sessions…
+              </div>
+            ) : (
+              <AgentList
+                railFocused={railFocused}
+                items={items}
+                selectedIndex={selectedIndex}
+                onSelectIndex={(index) => setSelectedKey(itemKey(items[index]))}
+                onActivate={activateItem}
+                onTogglePeek={togglePeek}
+                peekId={peekId}
+                openIds={openIdSet}
+                onFocusOpen={focusOpen}
+                now={now}
+                grouping={settings.grouping}
+                cardDetails={settings.cardDetails}
+                cardDensity={settings.cardDensity}
+                cardFields={settings.cardFields}
+                lookup={lookup}
+                contexts={contexts}
+                servers={servers}
+                filtered={filterActive || !!filter}
+                onOpenPrs={(repo) => {
+                  setPrRepo(repo);
+                  setPanel('prs');
+                }}
+                rowActions={rowActions}
+                groupActions={groupActions}
+                highlightedId={highlightedId}
+                collapsedKeys={collapsed}
+                activeSessionId={activeSessionId}
+                onRevealActive={(id) => {
+                  rail.revealSession(groups, id);
+                  if (isFoldedAway(groups, id)) setExpandedCompleted(true);
+                }}
+                onToggleGroup={toggleCollapsed}
+                favoriteGroupKeys={rail.favoriteGroups}
+                favoriteSessionIds={rail.favoriteSessions}
+                expandedSessionIds={rail.expandedSessions}
+                onToggleFavoriteGroup={rail.toggleFavoriteGroup}
+                onToggleFavoriteSession={rail.toggleFavoriteSession}
+                onMoveGroup={rail.moveGroup}
+                appsById={appsById}
+                nav={nav}
+                issuesByAgent={issuesByAgent}
+                onOpenIssue={setIssueModalKey}
+                top={
+                  settings.grouping === 'state' ? (
+                    <ProjectsSection apps={apps} nav={nav} filtered={filterActive || !!filter} />
+                  ) : undefined
+                }
+              />
+            )}
+            {filter && (
+              <div className="px-3 py-1 text-[11px] text-blue-300 bg-blue-900/20 border-t border-blue-900/40 flex items-center gap-2">
+                filter active — {visibleSessions.length} of {sessions.length} sessions
+                <button
+                  onClick={() => setInput('')}
+                  className="ml-auto hover:text-white"
+                  aria-label="Clear filter"
+                >
+                  <X size={11} />
+                </button>
+              </div>
+            )}
+            <RailSwitch
+              id="interactive-sessions-label"
+              label="Interactive sessions"
+              hint={
+                interactiveCount > 0
+                  ? `${interactiveCount} ${showInteractive ? 'shown' : 'hidden'}`
+                  : 'terminals outside Orkumo'
+              }
+              checked={showInteractive}
+              onToggle={toggleInteractive}
+            />
+            <CloudSessionBar onOpen={openCloud} />
+            {/* Feedback for actions started outside the composer (the composer shows its own) */}
+            <div role="status" aria-live="polite">
+              {!composerOpen && (hint || dispatching) && (
+                <p
+                  className={`px-3 py-2 text-xs border-t border-gray-700 ${
+                    hint?.tone === 'error'
+                      ? 'text-red-300'
+                      : hint?.tone === 'success'
+                        ? 'text-emerald-300'
+                        : 'text-gray-200'
+                  }`}
+                >
+                  {hint?.text || 'Dispatching…'}
+                </p>
+              )}
+            </div>
+          </div>
+
+          {/* Main area of the other routes; the workspace below stays mounted so terminals survive */}
+          <div className={active ? 'hidden' : 'flex-1 min-w-0 min-h-0 relative'}>
+            <PullRequestsDataContext.Provider value={pullsData}>
+              {children}
+            </PullRequestsDataContext.Provider>
+          </div>
+
+          {/* Workspace */}
+          <div
+            className={`flex-1 min-w-0 min-h-0 ${active ? (narrowWorkspace ? 'flex flex-col' : 'hidden md:flex') : 'hidden'} md:flex-row overflow-hidden`}
+          >
+            <button
+              type="button"
+              onClick={() => setNarrowWorkspace(false)}
+              className="md:hidden flex items-center gap-1.5 px-3 py-2 text-sm text-blue-300 border-b border-gray-800 shrink-0"
+            >
+              <ArrowLeft size={16} aria-hidden /> Agents
+            </button>
+            <div className="flex-1 min-w-0 min-h-0">
+              {/* One workspace per context visited, keyed by context: a switch moves the left one to
+                `parked` (hidden, terminals stay connected) without remounting it */}
+              {[...Object.entries(parked), [contextId ?? '', workspace] as const].map(
+                ([id, ws]) => {
+                  const live = id === (contextId ?? '');
+                  const allSessions = allPanes;
+                  return (
+                    <div key={id} className={live ? 'h-full' : 'hidden'}>
+                      <AgentWorkspace
+                        hidden={!live}
+                        // A session open in the live workspace attaches there only, not twice
+                        sessions={
+                          live ? allSessions : allSessions.filter((x) => !openIdSet.has(x.id))
+                        }
+                        workspace={ws}
+                        onActivateTab={live ? workspaceActions.activateTab : noop}
+                        onFocusPane={live ? workspaceActions.focusPane : noop}
+                        onClosePane={live ? closeAnyPane : noop}
+                        onCloseTab={live ? closeTab : noop}
+                        chatSubmitKey={settings.chatSubmitKey}
+                        chatShowSteps={settings.chatShowSteps}
+                        onToggleChatSteps={() =>
+                          updateSettings({ chatShowSteps: !settings.chatShowSteps })
+                        }
+                        onOpenChatInTerminal={
+                          live
+                            ? (chatId, sid) =>
+                                guardCopy(
+                                  chats.chats.find((c) => c.id === chatId) ?? null,
+                                  () => void openChatInTerminal(chatId, sid),
+                                  true
+                                )
+                            : undefined
+                        }
+                        onOpenAsChat={
+                          live
+                            ? (s, sid) =>
+                                guardCopy(
+                                  // a live view starts no process, so it makes no copy (#236)
+                                  !opensAsLiveView(s) && resumeMakesCopy(s) ? s : null,
+                                  () => void openAgentInChat(s, sid),
+                                  // another harness's process is ended before the chat resumes
+                                  sessionHarness(s) !== 'claude'
+                                )
+                            : undefined
+                        }
+                        onMoveTab={live ? workspaceActions.moveTab : noop}
+                        onSplit={live ? workspaceActions.split : noop}
+                        onDetach={live ? workspaceActions.detach : noop}
+                        onOpenLink={live ? workspaceActions.openBrowser : undefined}
+                        onSetLayout={live ? workspaceActions.setLayout : noop}
+                        onPeek={live ? (sid) => setPeekId(sid) : noop}
+                        focusZone={focusZone}
+                        renderPaneMeta={(x) => (
+                          <SessionLinks
+                            session={x}
+                            ctx={contexts[x.id]}
+                            servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
+                            issueKeys={issuesByAgent?.get(x.id) || []}
+                            onOpenIssue={setIssueModalKey}
+                            onOpenPrs={(repo) => {
+                              setPrRepo(repo);
+                              setPanel('prs');
+                            }}
+                          />
+                        )}
+                      />
+                    </div>
+                  );
+                }
+              )}
+            </div>
+            {peekSession && (
+              <div className="w-[400px] xl:w-[460px] shrink-0 min-h-0">
+                <PeekPanel
+                  session={peekSession}
+                  onClose={() => setPeekId(null)}
+                  onAttach={() => openSession(peekSession)}
+                  onReply={(text) => handleReply(peekSession, text)}
+                />
+              </div>
             )}
           </div>
-        </div>
-
-        {/* Main area of the other routes; the workspace below stays mounted so terminals survive */}
-        <div className={active ? 'hidden' : 'flex-1 min-w-0 min-h-0 relative'}>
-          <PullRequestsDataContext.Provider value={pullsData}>
-            {children}
-          </PullRequestsDataContext.Provider>
-        </div>
-
-        {/* Workspace */}
-        <div
-          className={`flex-1 min-w-0 min-h-0 ${active ? (narrowWorkspace ? 'flex flex-col' : 'hidden md:flex') : 'hidden'} md:flex-row overflow-hidden`}
-        >
-          <button
-            type="button"
-            onClick={() => setNarrowWorkspace(false)}
-            className="md:hidden flex items-center gap-1.5 px-3 py-2 text-sm text-blue-300 border-b border-gray-800 shrink-0"
-          >
-            <ArrowLeft size={16} aria-hidden /> Agents
-          </button>
-          <div className="flex-1 min-w-0 min-h-0">
-            {/* One workspace per context visited, keyed by context: a switch moves the left one to
-                `parked` (hidden, terminals stay connected) without remounting it */}
-            {[...Object.entries(parked), [contextId ?? '', workspace] as const].map(([id, ws]) => {
-              const live = id === (contextId ?? '');
-              const allSessions = allPanes;
-              return (
-                <div key={id} className={live ? 'h-full' : 'hidden'}>
-                  <AgentWorkspace
-                    hidden={!live}
-                    // A session open in the live workspace attaches there only, not twice
-                    sessions={live ? allSessions : allSessions.filter((x) => !openIdSet.has(x.id))}
-                    workspace={ws}
-                    onActivateTab={live ? workspaceActions.activateTab : noop}
-                    onFocusPane={live ? workspaceActions.focusPane : noop}
-                    onClosePane={live ? closeAnyPane : noop}
-                    onCloseTab={live ? closeTab : noop}
-                    chatSubmitKey={settings.chatSubmitKey}
-                    chatShowSteps={settings.chatShowSteps}
-                    onToggleChatSteps={() =>
-                      updateSettings({ chatShowSteps: !settings.chatShowSteps })
-                    }
-                    onOpenChatInTerminal={
-                      live
-                        ? (chatId, sid) =>
-                            guardCopy(
-                              chats.chats.find((c) => c.id === chatId) ?? null,
-                              () => void openChatInTerminal(chatId, sid),
-                              true
-                            )
-                        : undefined
-                    }
-                    onOpenAsChat={
-                      live
-                        ? (s, sid) =>
-                            guardCopy(
-                              // a live view starts no process, so it makes no copy (#236)
-                              !opensAsLiveView(s) && resumeMakesCopy(s) ? s : null,
-                              () => void openAgentInChat(s, sid)
-                            )
-                        : undefined
-                    }
-                    onMoveTab={live ? workspaceActions.moveTab : noop}
-                    onSplit={live ? workspaceActions.split : noop}
-                    onDetach={live ? workspaceActions.detach : noop}
-                    onOpenLink={live ? workspaceActions.openBrowser : undefined}
-                    onSetLayout={live ? workspaceActions.setLayout : noop}
-                    onPeek={live ? (sid) => setPeekId(sid) : noop}
-                    focusZone={focusZone}
-                    renderPaneMeta={(x) => (
-                      <SessionLinks
-                        session={x}
-                        ctx={contexts[x.id]}
-                        servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
-                        issueKeys={issuesByAgent?.get(x.id) || []}
-                        onOpenIssue={setIssueModalKey}
-                        onOpenPrs={(repo) => {
-                          setPrRepo(repo);
-                          setPanel('prs');
-                        }}
-                      />
-                    )}
-                  />
-                </div>
-              );
-            })}
-          </div>
-          {peekSession && (
-            <div className="w-[400px] xl:w-[460px] shrink-0 min-h-0">
-              <PeekPanel
-                session={peekSession}
-                onClose={() => setPeekId(null)}
-                onAttach={() => openSession(peekSession)}
-                onReply={(text) => handleReply(peekSession, text)}
-              />
-            </div>
-          )}
         </div>
       </div>
 
@@ -2620,7 +2644,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onPickDirectory={() => setPickDirOpen(true)}
         targetCwd={composerCwd}
         variant={composerMode}
-        harness={composerMode === 'chat' ? undefined : composerHarness}
+        harness={composerHarness}
         onHarnessChange={setComposerHarness}
         harnessInstalled={harnessInstalled}
         images={composerImages}

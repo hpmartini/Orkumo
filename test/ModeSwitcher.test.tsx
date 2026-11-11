@@ -101,6 +101,7 @@ describe('TitleBar (#184)', () => {
       <MemoryRouter>
         <TitleBar
           onOpenDashboard={() => {}}
+          onOpenPalette={() => {}}
           contexts={[]}
           activeId={null}
           onSelect={() => {}}

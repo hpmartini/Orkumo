@@ -13,7 +13,10 @@ export const MODES = [
   { path: '/code', label: 'Code', icon: Code2 },
 ] as const;
 
-/** Work modes of the active context (#184): the route is the state, one click switches */
+/**
+ * Work modes of the active context (#184) as a vertical activity bar column, like VS Code:
+ * icons only, the label is the tooltip. The route is the state, one click switches.
+ */
 export const ModeSwitcher: React.FC<{ modes?: ModeEntry[] }> = ({ modes = [] }) => {
   const { pathname } = useLocation();
   const navigate = useNavigate();
@@ -24,11 +27,7 @@ export const ModeSwitcher: React.FC<{ modes?: ModeEntry[] }> = ({ modes = [] }) 
     ...host,
   ];
   return (
-    <div
-      role="group"
-      aria-label="Mode"
-      className="flex items-center rounded border border-gray-700 bg-gray-950 p-0.5 shrink-0"
-    >
+    <div role="group" aria-label="Mode" className="flex flex-col items-stretch w-full">
       {all.map(({ path, label, icon: Icon }) => {
         const active = pathname === path;
         return (
@@ -39,12 +38,14 @@ export const ModeSwitcher: React.FC<{ modes?: ModeEntry[] }> = ({ modes = [] }) 
             aria-pressed={active}
             aria-label={label}
             title={label}
-            className={`flex items-center gap-1.5 px-2 py-0.5 rounded text-xs transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${
-              active ? 'bg-sel text-white' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            className={`relative flex items-center justify-center h-11 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${
+              active ? 'text-white' : 'text-gray-500 hover:text-gray-200'
             }`}
           >
-            <Icon size={13} aria-hidden />
-            <span className="hidden lg:inline">{label}</span>
+            {active && (
+              <span aria-hidden className="absolute left-0 inset-y-1.5 w-0.5 rounded-r bg-white" />
+            )}
+            <Icon size={20} strokeWidth={1.75} aria-hidden />
           </button>
         );
       })}

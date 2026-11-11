@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import {
@@ -80,6 +81,8 @@ describe('cache-expiring quick filter', () => {
         linkEntries={[]}
         linkSelected={new Set()}
         onToggleLink={() => {}}
+        query=""
+        onQuery={() => {}}
       />
     );
     // Chips start collapsed
@@ -94,43 +97,79 @@ describe('cache-expiring quick filter', () => {
   });
 });
 
-describe('PR / issue filter dropdown', () => {
-  it('searches entries and toggles the clicked one', () => {
+const SearchBar = ({ onToggleLink = vi.fn() }: { onToggleLink?: (key: string) => void }) => {
+  const [query, setQuery] = useState('');
+  return (
+    <AgentFilterBar
+      sort={{ key: 'attention', dir: 'desc' }}
+      onSort={() => {}}
+      active={new Set()}
+      onToggle={() => {}}
+      chipCounts={
+        Object.fromEntries(QUICK_FILTERS.map((f) => [f.key, 0])) as Record<AgentQuickFilter, number>
+      }
+      shown={2}
+      total={2}
+      filtered={false}
+      onClear={() => {}}
+      linkEntries={[
+        { key: 'pr:u', kind: 'pr', label: '#5', title: 'Add login' },
+        { key: 'issue:o/r#7', kind: 'issue', label: '#7', title: 'Fix crash' },
+      ]}
+      linkSelected={new Set(['issue:o/r#7'])}
+      onToggleLink={onToggleLink}
+      query={query}
+      onQuery={setQuery}
+    />
+  );
+};
+const searchButton = () => screen.getByRole('button', { name: /^Search agents, PRs and issues/ });
+
+describe('rail search (agents, PRs and issues in one)', () => {
+  it('is a button; its field narrows the PR / issue list and the clicked entry toggles', () => {
     const onToggleLink = vi.fn();
-    render(
-      <AgentFilterBar
-        sort={{ key: 'attention', dir: 'desc' }}
-        onSort={() => {}}
-        active={new Set()}
-        onToggle={() => {}}
-        chipCounts={
-          Object.fromEntries(QUICK_FILTERS.map((f) => [f.key, 0])) as Record<
-            AgentQuickFilter,
-            number
-          >
-        }
-        shown={2}
-        total={2}
-        filtered={false}
-        onClear={() => {}}
-        linkEntries={[
-          { key: 'pr:u', kind: 'pr', label: '#5', title: 'Add login' },
-          { key: 'issue:o/r#7', kind: 'issue', label: '#7', title: 'Fix crash' },
-        ]}
-        linkSelected={new Set(['issue:o/r#7'])}
-        onToggleLink={onToggleLink}
-      />
-    );
-    fireEvent.click(screen.getByRole('button', { name: 'Filter by pull request or issue' }));
+    render(<SearchBar onToggleLink={onToggleLink} />);
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    fireEvent.click(searchButton());
     expect(screen.getByRole('checkbox', { name: /Fix crash/ })).toHaveAttribute(
       'aria-checked',
       'true'
     );
-    fireEvent.change(screen.getByLabelText('Search PRs and issues'), {
+    fireEvent.change(screen.getByRole('searchbox', { name: 'Search agents' }), {
       target: { value: 'login' },
     });
     expect(screen.queryByRole('checkbox', { name: /Fix crash/ })).toBeNull();
     fireEvent.click(screen.getByRole('checkbox', { name: /Add login/ }));
     expect(onToggleLink).toHaveBeenCalledWith('pr:u');
+  });
+
+  it('keeps the term after closing and shows it on the button', () => {
+    render(<SearchBar />);
+    fireEvent.click(searchButton());
+    const field = screen.getByRole('searchbox', { name: 'Search agents' });
+    fireEvent.change(field, { target: { value: 'login' } });
+    fireEvent.keyDown(field, { key: 'Enter' });
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    expect(searchButton()).toHaveTextContent('login');
+  });
+
+  it('opens with Ctrl+K (Cmd+K on macOS) and focuses the field', () => {
+    render(<SearchBar />);
+    fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+    expect(screen.getByRole('searchbox', { name: 'Search agents' })).toHaveFocus();
+    fireEvent.keyDown(document.body, { key: 'k', ctrlKey: true });
+    expect(screen.queryByRole('searchbox')).toBeNull();
+  });
+
+  it('leaves Ctrl+K to the terminal, there it takes Ctrl+Shift+K', () => {
+    render(<SearchBar />);
+    const xterm = document.createElement('div');
+    xterm.className = 'xterm';
+    document.body.appendChild(xterm);
+    fireEvent.keyDown(xterm, { key: 'k', ctrlKey: true });
+    expect(screen.queryByRole('searchbox')).toBeNull();
+    fireEvent.keyDown(xterm, { key: 'K', ctrlKey: true, shiftKey: true });
+    expect(screen.getByRole('searchbox', { name: 'Search agents' })).toBeInTheDocument();
+    xterm.remove();
   });
 });

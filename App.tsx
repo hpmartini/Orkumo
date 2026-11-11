@@ -28,7 +28,11 @@ import { AgentOverview } from './components/AgentOverview';
 import { UsageView, UsageCard, SessionsCard } from './components/UsageView';
 import { useKeyboardShortcuts } from './hooks/useKeyboardShortcuts';
 import { useProjectContexts, ROUTE_KEY } from './hooks/useProjectContexts';
-import { CommandPaletteProvider, useRegisterCommands } from './components/CommandPalette';
+import {
+  CommandPaletteProvider,
+  useCommandPalette,
+  useRegisterCommands,
+} from './components/CommandPalette';
 import type { PaletteCommand } from './utils/commandPalette';
 import { codeUrl } from './utils/codeTarget';
 import { fetchConfig } from './services/api';
@@ -229,6 +233,7 @@ function AppContent() {
       ),
   ];
   useRegisterCommands('app', paletteCommands);
+  const palette = useCommandPalette();
 
   if (loading || !contexts.ready || !modulesReady) {
     return <LoadingSkeleton />;
@@ -261,6 +266,7 @@ function AppContent() {
       {/* TitleBar - custom titlebar with tabs and pane controls */}
       <TitleBar
         onOpenDashboard={handleSelectDashboard}
+        onOpenPalette={palette.open}
         contexts={contexts.contexts}
         activeId={contexts.active?.id ?? null}
         onSelect={contexts.switchTo}
