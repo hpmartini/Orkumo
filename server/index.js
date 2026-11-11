@@ -36,6 +36,7 @@ import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
 import * as chatService from './services/chatService.js';
 import * as chatStatus from './services/chatStatus.js';
+import { ompSkillsArgs } from './services/ompSkills.js';
 import { getSelfDnsName } from './services/tailscale.js';
 import * as remoteAccess from './services/remoteAccess.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
@@ -2542,7 +2543,12 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  let args = harnessArgs ?? [];
+  // omp panes see the user's Claude skills like an omp chat does (ompSkills.js); server-chosen
+  // options go before the validated client args
+  let args =
+    command === 'omp' && harnessArgs && !isRunningInDocker
+      ? [...ompSkillsArgs(spawnCommand, cwd), ...harnessArgs]
+      : (harnessArgs ?? []);
   const argsParam = url.searchParams.get('args');
   // harness args are already parsed above; a second decodeURIComponent would mangle a `%` prompt
   if (argsParam && !harnessArgs) {
