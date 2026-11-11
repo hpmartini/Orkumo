@@ -114,11 +114,21 @@ function setupQuickWindow() {
   ipcMain.on('quick-hide', () => quickWindow?.hide());
   ipcMain.on('quick-submit', (_event, text) => {
     quickWindow?.hide();
-    if (typeof text !== 'string' || !text.trim() || !mainWindow) return;
+    if (typeof text !== 'string' || !text.trim()) return;
+    const prompt = text.slice(0, 20000);
+    // Main window closed (macOS keeps the app running): open it again, hand over once it has loaded
+    if (!mainWindow) {
+      createWindow();
+      mainWindow.webContents.once('did-finish-load', () =>
+        // the renderer subscribes in an effect after the first paint
+        setTimeout(() => mainWindow?.webContents.send('quick-prompt', prompt), 1500)
+      );
+      return;
+    }
     if (mainWindow.isMinimized()) mainWindow.restore();
     mainWindow.show();
     mainWindow.focus();
-    mainWindow.webContents.send('quick-prompt', text.slice(0, 20000));
+    mainWindow.webContents.send('quick-prompt', prompt);
   });
   if (!QUICK_SHORTCUT) return;
   try {
@@ -1017,7 +1027,8 @@ app.whenReady().then(async () => {
 
     // On macOS, recreate window when dock icon is clicked
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      // not getAllWindows(): a hidden quick window (#251) would count
+      if (!mainWindow) {
         createWindow();
       }
     });
