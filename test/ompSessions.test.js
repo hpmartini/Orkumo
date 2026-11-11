@@ -181,6 +181,32 @@ describe('omp transcript', () => {
       ['assistant', 'Hallo zurück'],
     ]);
   });
+
+  it('reads back past megabytes of tool output to the earlier prompts', async () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'omp-tail-')), 's.jsonl');
+    const msg = (role, text) =>
+      JSON.stringify({ type: 'message', message: { role, content: [{ type: 'text', text }] } });
+    const output = JSON.stringify({
+      type: 'message',
+      message: { role: 'toolResult', content: [{ type: 'text', text: 'ä'.repeat(400_000) }] },
+    });
+    fs.writeFileSync(
+      file,
+      [
+        msg('user', 'erster Prompt'),
+        output,
+        output,
+        msg('user', 'zweiter Prompt'),
+        output,
+        msg('assistant', 'fertig'),
+      ].join('\n')
+    );
+    expect((await readOmpTranscriptTail(file)).map((e) => e.text)).toEqual([
+      'erster Prompt',
+      'zweiter Prompt',
+      'fertig',
+    ]);
+  });
 });
 
 describe('stopOmpSession (taking over a session from another terminal)', () => {

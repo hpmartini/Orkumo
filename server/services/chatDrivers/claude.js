@@ -73,6 +73,18 @@ export function historyEvents(lines) {
       events.push({ type: 'system', subtype: 'away_summary', content: rec.content });
       continue;
     }
+    // A prompt typed while the agent works is no user message: Claude Code stores it as a
+    // queued-command attachment when it hands it to the running turn (task notifications too)
+    const queued = rec.type === 'attachment' ? rec.attachment : null;
+    if (queued?.type === 'queued_command') {
+      if (
+        queued.commandMode === 'prompt' &&
+        typeof queued.prompt === 'string' &&
+        queued.prompt.trim()
+      )
+        events.push({ type: 'devorbit_user', text: queued.prompt, history: true });
+      continue;
+    }
     if (!rec.message) continue;
     const content = rec.message.content;
     if (rec.type === 'assistant' && Array.isArray(content)) {
