@@ -189,7 +189,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
         onMouseDown={(e) => e.stopPropagation()}
         // Resizable by the native corner grip; min keeps every field usable, max keeps it on screen
         style={{ width: size?.width ?? 560, height: size?.height, maxWidth: 'calc(100vw - 2rem)' }}
-        className="flex flex-col min-w-[420px] min-h-[320px] max-h-[85vh] resize overflow-auto bg-gray-800 border border-gray-600 rounded-xl shadow-2xl p-4"
+        className="flex flex-col min-w-[420px] min-h-[320px] max-h-[calc(100vh-2rem)] resize overflow-auto bg-gray-800 border border-gray-600 rounded-xl shadow-2xl p-4"
       >
         <form onSubmit={submit} className="flex flex-col flex-1 min-h-0">
           <div className="flex items-center mb-3">
@@ -303,7 +303,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                             {group.items.map((app) => (
                               <li key={app.id}>
                                 <label
-                                  className="flex items-center gap-2 min-w-0 px-2 py-1.5 text-gray-200 hover:bg-gray-750 cursor-pointer"
+                                  className="flex items-center gap-2 min-w-0 px-2 py-1 text-gray-200 hover:bg-gray-750 cursor-pointer"
                                   title={`${app.name}\n${app.path}`}
                                 >
                                   <input
