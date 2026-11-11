@@ -41,12 +41,14 @@ const textOf = (content) =>
 
 /**
  * Header of a session file: id, cwd and start from the `session` record, the title from the
- * `title` record (omp rewrites it in place), else the first user message.
+ * `title` record (omp rewrites it in place), else the first user message; `prompted` whether
+ * the head holds a user message at all.
  */
 export function parseSessionHead(head) {
   let title = '';
   let session = null;
   let firstPrompt = '';
+  let prompted = false;
   for (const line of head.split('\n')) {
     let record;
     try {
@@ -56,10 +58,11 @@ export function parseSessionHead(head) {
     }
     if (record?.type === 'title' && typeof record.title === 'string') title = oneLine(record.title);
     else if (record?.type === 'session' && !session) session = record;
-    else if (record?.type === 'message' && record.message?.role === 'user' && !firstPrompt) {
+    else if (record?.type === 'message' && record.message?.role === 'user' && !prompted) {
+      prompted = true;
       firstPrompt = oneLine(textOf(record.message.content));
     }
-    if (session && (title || firstPrompt)) break;
+    if (session && prompted) break;
   }
   if (!session || !OMP_SESSION_ID_RE.test(session.id || '')) return null;
   return {
@@ -67,6 +70,7 @@ export function parseSessionHead(head) {
     cwd: typeof session.cwd === 'string' ? session.cwd : '',
     startedAt: Date.parse(session.timestamp) || null,
     title: title || firstPrompt || null,
+    prompted,
   };
 }
 
@@ -152,9 +156,9 @@ async function readHead(file, mtimeMs) {
 }
 
 /**
- * omp sessions as agent rows: every running one plus the ones written in the last 7 days.
- * `panes` maps the pid of an Orkumo PTY to the client pane id it belongs to, `chats` an omp
- * session id to the Chat pane (chatService) that runs it.
+ * omp sessions as agent rows: every running one plus the ones written in the last 7 days that
+ * hold a prompt. `panes` maps the pid of an Orkumo PTY to the client pane id it belongs to,
+ * `chats` an omp session id to the Chat pane (chatService) that runs it.
  */
 export async function listOmpSessions({
   sessionsDir = ompSessionsDir(),
@@ -192,6 +196,9 @@ export async function listOmpSessions({
       if (!pid && now - stat.mtimeMs > RECENT_MS) continue;
       const head = await readHead(file, stat.mtimeMs).catch(() => null);
       if (!head) continue;
+      // Never prompted (a chat or `omp acp` opened and closed, a TUI quit at once): nothing to
+      // resume. Only when the whole file was read; a running one still shows
+      if (!pid && !head.prompted && stat.size <= HEAD_BYTES) continue;
       const paneId = pid ? (panes.get(pid) ?? chats.get(head.id)) : null;
       rows.push(toRow(head, { pid, updatedAt: stat.mtimeMs, now, paneId }));
     }
