@@ -95,6 +95,13 @@ describe('assignTopics (AC-4)', () => {
   it('groups by the shared word of the title, else of the first message', () => {
     expect(assignTopics(entries)).toEqual(['brot', 'brot', 'fahrrad', 'fahrrad', NO_TOPIC]);
   });
+  it('in a larger history a word nearly every chat shares is no topic', () => {
+    const many = Array.from({ length: 40 }, (_, n) => ({
+      title: `Verlauf ${n % 2 ? 'Fahrrad' : 'Brot'} ${n < 8 ? 'Zebra' : ''}`,
+      firstMessage: '',
+    }));
+    expect(new Set(assignTopics(many))).toEqual(new Set(['zebra', NO_TOPIC]));
+  });
   it('runs locally: no network call of any kind', () => {
     const fetchSpy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network'));
     assignTopics(entries);

@@ -144,7 +144,7 @@ export const ChatHistoryPage: React.FC = () => {
           <span className="font-medium">Chats</span>
           {data && (
             <span className="text-gray-500 tabular-nums text-xs" data-testid="chat-counts">
-              {data.total} shown · Claude {data.counts.claude} · ChatGPT {data.counts.chatgpt}
+              {data.total} matching · Claude {data.counts.claude} · ChatGPT {data.counts.chatgpt}
             </span>
           )}
           <div className="flex-1" />
@@ -256,7 +256,7 @@ export const ChatHistoryPage: React.FC = () => {
               <p>
                 Request your data export (claude.ai: Settings → Privacy → Export data; ChatGPT:
                 Settings → Data controls → Export data), unpack the ZIP from the mail and import its
-                folder above. Nothing is sent anywhere: the files are read on this machine.
+                folder above. The files are read and searched on this machine only.
               </p>
             </div>
           ) : data && items.length === 0 ? (

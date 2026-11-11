@@ -9,7 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Chats mode (`/chats`, #280): import the official data exports of claude.ai and ChatGPT (unpacked folder) and read them in one local list: full-text search, filters for provider, project and period, topics, and "Continue in Orkumo" to carry a conversation into a new chat. Nothing is fetched from or sent to either provider
+- Chats mode (`/chats`, #280): import the official data exports of claude.ai and ChatGPT (unpacked folder) and read them in one local list: full-text search, filters for provider, project and period, topics, and "Continue in Orkumo" to carry a conversation into a new chat. Import, search and topics run locally, nothing is fetched from either provider; a continued conversation goes to the harness of the new chat
 
 ### Removed
 
