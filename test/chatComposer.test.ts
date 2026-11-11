@@ -111,6 +111,17 @@ describe('suggestions', () => {
       '@agent-reviewer ',
     ]);
   });
+  it('lists every command on a bare /, so skills behind many built-ins stay reachable', () => {
+    const commands = [
+      ...Array.from({ length: 60 }, (_, i) => ({ name: `builtin-${i}`, description: '' })),
+      { name: 'skill:boost', description: 'my skill' },
+    ];
+    const labels = chatSuggestions('/', '', { commands, agents: [], files: [] }).map(
+      (s) => s.label
+    );
+    expect(labels).toHaveLength(61);
+    expect(labels.at(-1)).toBe('/skill:boost');
+  });
 });
 
 describe('splitImages', () => {

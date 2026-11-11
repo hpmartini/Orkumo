@@ -127,6 +127,7 @@ function rank<T>(items: T[], query: string, name: (t: T) => string, desc: (t: T)
     .map(([t]) => t);
 }
 
+/** `limit` caps `@` results (files run into thousands); commands are never cut */
 export function chatSuggestions(
   trigger: '/' | '@',
   query: string,
@@ -134,20 +135,22 @@ export function chatSuggestions(
   limit = 50
 ): ChatSuggestion[] {
   if (trigger === '/') {
-    return rank(
-      ctx.commands,
-      query,
-      (c) => c.name,
-      (c) => c.description
-    )
-      .slice(0, limit)
-      .map((c) => ({
-        kind: 'command',
-        label: `/${c.name}`,
-        insert: `/${c.name} `,
-        description: c.description,
-        hint: c.argumentHint || '',
-      }));
+    return (
+      rank(
+        ctx.commands,
+        query,
+        (c) => c.name,
+        (c) => c.description
+      )
+        // every command: the list scrolls, and a cap cut off the skills behind the built-ins
+        .map((c) => ({
+          kind: 'command',
+          label: `/${c.name}`,
+          insert: `/${c.name} `,
+          description: c.description,
+          hint: c.argumentHint || '',
+        }))
+    );
   }
   // `@agent-rev` and `@rev` both find the agent `reviewer`
   const agents = rank(

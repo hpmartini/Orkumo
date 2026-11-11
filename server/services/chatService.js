@@ -22,6 +22,7 @@ import { EventEmitter } from 'events';
 import crypto from 'crypto';
 import fs from 'fs';
 import { HARNESS_RESUME, resolveHarnessBinary } from '../../config/harnesses.js';
+import { ompSkillsArgs } from './ompSkills.js';
 import * as claudeDriver from './chatDrivers/claude.js';
 import * as acpDriver from './chatDrivers/acp.js';
 import * as piRpcDriver from './chatDrivers/piRpc.js';
@@ -235,6 +236,8 @@ export function startChat(opts, context = {}) {
   sessions.set(s.id, s);
   s.driver = DRIVERS[safe.harness].startDriver(safe, {
     bin,
+    // omp: the user's Claude skills (ompSkills.js); tests inject their own
+    extraArgs: context.extraArgs ?? (safe.harness === 'omp' ? ompSkillsArgs(bin, safe.cwd) : []),
     spawn: context.spawn ?? nodeSpawn,
     emit: (event) => handleEvent(s, event),
     exit: ({ code, stderr }) => {
