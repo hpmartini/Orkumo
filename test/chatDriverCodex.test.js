@@ -112,6 +112,7 @@ describe('codex driver - handshake', () => {
     s.until(isResponse(1));
     expect(s.proc.written.slice(1)).toEqual([
       { jsonrpc: '2.0', method: 'initialized' },
+      { jsonrpc: '2.0', id: 'rate-limits', method: 'account/rateLimits/read' },
       { jsonrpc: '2.0', id: 2, method: 'thread/start', params: { cwd: CWD } },
     ]);
     s.until(isResponse(2));
@@ -135,6 +136,45 @@ describe('codex driver - handshake', () => {
     s.feed({ id: 2, error: { code: -32600, message: 'not logged in' } });
     expect(s.proc.kill).toHaveBeenCalledWith('SIGTERM');
     expect(s.exits).toEqual([{ code: 1, stderr: 'codex thread/start: not logged in' }]);
+  });
+
+  it('reports context fill and plan limits; a sparse limits update keeps the other window', () => {
+    const s = start();
+    s.feed({ id: 1, result: {} });
+    s.feed({
+      id: 'rate-limits',
+      result: {
+        rateLimits: {
+          primary: { usedPercent: 12, windowDurationMins: 300, resetsAt: 1794380000 },
+          secondary: { usedPercent: 40, windowDurationMins: 10080, resetsAt: null },
+        },
+      },
+    });
+    s.feed({
+      method: 'account/rateLimits/updated',
+      params: { rateLimits: { primary: { usedPercent: 15, windowDurationMins: 300 } } },
+    });
+    s.feed({
+      method: 'thread/tokenUsage/updated',
+      params: {
+        threadId: THREAD,
+        turnId: 't1',
+        tokenUsage: { last: { totalTokens: 21000 }, total: {}, modelContextWindow: 258000 },
+      },
+    });
+    const usage = s.events.filter((e) => e.type === 'devorbit_usage');
+    expect(usage[0].limits).toEqual({
+      fiveHour: { usedPercent: 12, resetsAt: 1794380000000, windowMinutes: 300 },
+      weekly: { usedPercent: 40, resetsAt: null, windowMinutes: 10080 },
+    });
+    expect(usage[1].limits).toEqual({
+      fiveHour: { usedPercent: 15, resetsAt: null, windowMinutes: 300 },
+      weekly: { usedPercent: 40, resetsAt: null, windowMinutes: 10080 },
+    });
+    expect(usage[2]).toEqual({
+      type: 'devorbit_usage',
+      context: { tokens: 21000, window: 258000 },
+    });
   });
 });
 

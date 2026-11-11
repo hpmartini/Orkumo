@@ -536,8 +536,16 @@ export function startDriver(opts, io) {
         }
         return;
       }
+      case 'usage_update':
+        // `used` tokens of the `size` context window (omp, opencode)
+        if (typeof update.used === 'number' && typeof update.size === 'number' && update.size > 0)
+          io.emit({
+            type: 'devorbit_usage',
+            context: { tokens: update.used, window: update.size },
+          });
+        return;
       default:
-        // usage_update, session_info_update, current_mode_update: nothing to show
+        // session_info_update, current_mode_update: nothing to show
         return;
     }
   }

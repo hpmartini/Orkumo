@@ -376,6 +376,7 @@ export function startDriver(opts, io) {
         return;
       case 'agent_settled':
         agentBusy = false;
+        requestUsage();
         if (turn)
           endTurn(turn.aborted ? 'error_during_execution' : turn.error ? 'error' : 'success');
         else pump();
@@ -417,7 +418,21 @@ export function startDriver(opts, io) {
 
   function finishHandshake() {
     ready = true;
+    requestUsage();
     pump();
+  }
+
+  /** Context fill for the status line; pi reports it only on request */
+  function requestUsage() {
+    if (exited || stopped) return;
+    request('get_session_stats', {}, (r) => {
+      const usage = r.success ? r.data?.contextUsage : null;
+      if (typeof usage?.tokens === 'number' && usage.contextWindow > 0)
+        io.emit({
+          type: 'devorbit_usage',
+          context: { tokens: usage.tokens, window: usage.contextWindow },
+        });
+    });
   }
 
   request('get_state', {}, (r) => {

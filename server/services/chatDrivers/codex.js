@@ -14,17 +14,42 @@
 
 /** Notifications the chat never reads; opted out so codex does not send them */
 const OPT_OUT = [
-  'account/rateLimits/updated',
   'hook/completed',
   'hook/started',
   'item/commandExecution/outputDelta',
   'item/fileChange/outputDelta',
   'mcpServer/startupStatus/updated',
   'remoteControl/status/changed',
-  'thread/tokenUsage/updated',
   'turn/diff/updated',
   'turn/moderationMetadata',
 ];
+const FIVE_HOUR_MIN = 300;
+const WEEK_MIN = 7 * 24 * 60;
+
+/**
+ * Codex RateLimitSnapshot → the status line's `{ fiveHour, weekly }` (usage page shape); `prev`
+ * is the last result: rolling updates are sparse and only replace the windows they carry.
+ */
+export function codexRateLimits(snapshot, prev = null) {
+  const windows = [snapshot?.primary, snapshot?.secondary].filter(
+    (w) => w && typeof w.usedPercent === 'number'
+  );
+  const pick = (minutes) => {
+    const w = windows.find((x) => x.windowDurationMins === minutes);
+    return w
+      ? {
+          usedPercent: w.usedPercent,
+          resetsAt: typeof w.resetsAt === 'number' ? w.resetsAt * 1000 : null,
+          windowMinutes: minutes,
+        }
+      : null;
+  };
+  return {
+    fiveHour: pick(FIVE_HOUR_MIN) ?? prev?.fiveHour ?? null,
+    weekly: pick(WEEK_MIN) ?? prev?.weekly ?? null,
+  };
+}
+
 /** Newest turns of a resumed thread shown as history */
 const HISTORY_TURNS = 100;
 const HISTORY_PAGE = 50;
@@ -450,6 +475,8 @@ export function startDriver(opts, io) {
   let stderr = '';
   let threadId = null;
   let model = null;
+  /** Last rate-limit windows: codex sends sparse updates */
+  let limits = null;
   let ready = false;
   let nextId = 1;
   /** our request id → response handler */
@@ -660,6 +687,21 @@ export function startDriver(opts, io) {
           emitInit();
         }
         return;
+      case 'thread/tokenUsage/updated': {
+        // The last request's prompt + answer is what the context holds now
+        const usage = p.tokenUsage;
+        const tokens = usage?.last?.totalTokens;
+        if (typeof tokens === 'number' && usage.modelContextWindow > 0)
+          io.emit({
+            type: 'devorbit_usage',
+            context: { tokens, window: usage.modelContextWindow },
+          });
+        return;
+      }
+      case 'account/rateLimits/updated':
+        limits = codexRateLimits(p.rateLimits, limits);
+        io.emit({ type: 'devorbit_usage', limits });
+        return;
       case 'turn/completed': {
         if (!turn) return;
         const t = p.turn ?? {};
@@ -753,6 +795,13 @@ export function startDriver(opts, io) {
     (msg) => {
       if (msg.error) return fail(`codex initialize: ${str(msg.error.message)}`);
       write({ method: 'initialized' });
+      // Own id outside the numbered requests: a side query, not part of the thread's sequence
+      calls.set('rate-limits', (res) => {
+        if (res.error || !isObj(res.result)) return;
+        limits = codexRateLimits(res.result.rateLimits, limits);
+        io.emit({ type: 'devorbit_usage', limits });
+      });
+      write({ id: 'rate-limits', method: 'account/rateLimits/read' });
       if (opts.resume)
         call(
           'thread/resume',
