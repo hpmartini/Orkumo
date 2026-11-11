@@ -26,7 +26,11 @@ const check = (name, ok, detail) => {
   /** Right-click the agent row, screenshot the open menu, return its labels */
   const menu = async (shot, viewport) => {
     if (viewport) await p.setViewportSize(viewport);
+    // the menu follows the loaded settings: wait for them, not just for the row
+    const settingsLoaded = p.waitForResponse((r) => r.url().endsWith('/api/settings/agent-view'));
     await p.reload({ waitUntil: 'load' });
+    await settingsLoaded;
+    await p.waitForTimeout(300);
     const row = p.getByText('e2e-worker', { exact: true }).first();
     await row.waitFor({ timeout: 90000 });
     await row.click({ button: 'right' });
@@ -43,6 +47,8 @@ const check = (name, ok, detail) => {
   await p.request.put(`${base}/api/settings/agent-view`, { data: { cardDetails: 'hover' } });
   labels = await menu('hover-desktop', { width: 1400, height: 860 });
   check('AC-5 hover: "Keep details open" offered', labels.includes('Keep details open'), labels.join(' | '));
+  labels = await menu('hover-mobile', { width: 390, height: 844 });
+  check('AC-5 hover (mobile): "Keep details open" offered', labels.includes('Keep details open'));
   await b.close();
   if (fails) process.exit(1);
 })().catch((e) => {
