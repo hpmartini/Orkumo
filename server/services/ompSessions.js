@@ -272,6 +272,31 @@ export async function stopOmpSession(
   throw new Error(`omp (PID ${pid}) did not exit`);
 }
 
+/**
+ * Deletes an omp session the way omp's own picker does (deleteSessionWithArtifacts): the session
+ * file, its artifacts folder and stale `.bak` copies. A process still running it is ended first,
+ * otherwise it would write the file again.
+ */
+export async function removeOmpSession(
+  sessionId,
+  { sessionsDir = ompSessionsDir(), running } = {}
+) {
+  const file = await findOmpSessionFile(sessionId, sessionsDir);
+  if (!file) throw new Error('Oh My Pi session not found');
+  const { stopped } = await stopOmpSession(sessionId, { sessionsDir, running });
+  await fsp.unlink(file);
+  heads.delete(file);
+  await fsp.rm(file.slice(0, -'.jsonl'.length), { recursive: true, force: true });
+  const base = path.basename(file);
+  const siblings = await fsp.readdir(path.dirname(file)).catch(() => []);
+  for (const name of siblings) {
+    if (name.startsWith(`${base}.`) && name.endsWith('.bak')) {
+      await fsp.rm(path.join(path.dirname(file), name), { force: true });
+    }
+  }
+  return { stopped };
+}
+
 /** Last user/assistant messages of an omp session file (peek panel) */
 export async function readOmpTranscriptTail(file, limit = 40) {
   const stat = await fsp.stat(file);

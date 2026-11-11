@@ -11,6 +11,7 @@ import {
   findOmpSessionFile,
   readOmpTranscriptTail,
   stopOmpSession,
+  removeOmpSession,
 } from '../server/services/ompSessions.js';
 
 // Fixtures in omp's own session format (title line, session header, messages)
@@ -202,6 +203,39 @@ describe('stopOmpSession (taking over a session from another terminal)', () => {
     } finally {
       holder.kill('SIGKILL');
       bystander.kill('SIGKILL');
+    }
+  });
+});
+
+describe('removeOmpSession', () => {
+  it('ends the running process, then deletes the session file, artifacts and backups only', async () => {
+    const slug = path.join(dir, '-PROJECTS-del');
+    fs.mkdirSync(slug);
+    const id = '01a1d000-1111-7222-8333-444455556666';
+    const keep = '01a1d000-1111-7222-8333-777788889999';
+    const base = `2026-11-10T09-00-00-000Z_${id}`;
+    const file = path.join(slug, `${base}.jsonl`);
+    fs.writeFileSync(file, sessionFile(id, '/w/del'));
+    fs.mkdirSync(path.join(slug, base));
+    fs.writeFileSync(path.join(slug, base, 'artifact.txt'), 'x');
+    fs.writeFileSync(path.join(slug, `${base}.jsonl.1.bak`), 'old');
+    const other = path.join(slug, `2026-11-10T09-00-00-000Z_${keep}.jsonl`);
+    fs.writeFileSync(other, sessionFile(keep, '/w/del'));
+    const holder = spawn('sleep', ['30'], { stdio: 'ignore' });
+    const exited = new Promise((resolve) => holder.on('exit', (_code, signal) => resolve(signal)));
+    try {
+      const running = new Map([[file, holder.pid]]);
+      expect(await removeOmpSession(id, { sessionsDir: dir, running })).toEqual({
+        stopped: holder.pid,
+      });
+      expect(await exited).toBe('SIGTERM');
+      expect(fs.readdirSync(slug)).toEqual([path.basename(other)]);
+      expect(await findOmpSessionFile(id, dir)).toBeNull();
+      await expect(removeOmpSession(id, { sessionsDir: dir, running })).rejects.toThrow(
+        'not found'
+      );
+    } finally {
+      holder.kill('SIGKILL');
     }
   });
 });

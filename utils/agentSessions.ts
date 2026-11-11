@@ -997,6 +997,13 @@ export const terminalResumeArgs = (harness: AgentHarness, sessionId: string): st
   sessionId,
 ];
 
+/**
+ * An Oh My Pi session listed from omp's session store (#195), wherever its process runs: the
+ * server stops and deletes it. A harness pane started here gets such a row once omp writes.
+ */
+export const isOmpStoreSession = (session: AgentSession): boolean =>
+  session.id.startsWith('omp-') && sessionHarness(session) === 'omp';
+
 const APP_ORIGINS: Record<string, string> = { ios: 'iOS', android: 'Android', web: 'Web' };
 
 /** Where a Claude app session was started ("iOS", "Android", "Web"); null for other sessions */
