@@ -749,13 +749,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     navigate('/agents', { replace: true });
   }, [attachParam, loading, sessions, attach, showHint, navigate]);
 
-  // Board "Agent starten": composer prefill via router state, which external links cannot set
-  const prefill = active ? (location.state as { dispatch?: unknown; cwd?: unknown } | null) : null;
+  // Board "Agent starten" / chat history "Continue" (#280): composer prefill via router state,
+  // which external links cannot set
+  const prefill = active
+    ? (location.state as { dispatch?: unknown; cwd?: unknown; mode?: unknown } | null)
+    : null;
   useEffect(() => {
     if (typeof prefill?.dispatch !== 'string') return;
     setInput(prefill.dispatch);
     if (typeof prefill.cwd === 'string' && prefill.cwd) pickDispatchCwd(prefill.cwd);
-    openComposer('task');
+    openComposer(prefill.mode === 'chat' ? 'chat' : 'task');
     navigate('/agents', { replace: true, state: null });
   }, [prefill, navigate, openComposer, pickDispatchCwd]);
 

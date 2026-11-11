@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Chats mode (`/chats`, #280): import the official data exports of claude.ai and ChatGPT (unpacked folder) and read them in one local list: full-text search, filters for provider, project and period, topics, and "Continue in Orkumo" to carry a conversation into a new chat. Nothing is fetched from or sent to either provider
+
 ### Removed
 
 - Monaco editor and its editor switcher in the Web IDE panel; VS Code (code-server) is the only integrated editor (#139)

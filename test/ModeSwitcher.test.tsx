@@ -34,6 +34,7 @@ describe('ModeSwitcher (#184)', () => {
       'Issues',
       'Pull Requests',
       'Code',
+      'Chats',
     ]);
   });
 
@@ -60,6 +61,7 @@ describe('ModeSwitcher (#184)', () => {
       'Issues',
       'Pull Requests',
       'Code',
+      'Chats',
     ]);
   });
 
