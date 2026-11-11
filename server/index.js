@@ -1387,10 +1387,16 @@ app.post(
   chatAction((req) => chatService.interruptChat(req.params.chatId))
 );
 
-/** Status line of a chat: git (branch, untracked, changed), prompt cache, plan limits */
+/** Status line of a chat: git (branch, untracked, changed), context fill, plan limits */
 app.get('/api/agents/chat/:chatId/status', validateParams(chatIdSchema), async (req, res) => {
   try {
-    res.json(await chatStatus.chatStatus(chatService.chatSummary(req.params.chatId)));
+    const { chatId } = req.params;
+    res.json(
+      await chatStatus.chatStatus({
+        ...chatService.chatSummary(chatId),
+        usage: chatService.chatUsage(chatId),
+      })
+    );
   } catch (error) {
     sendAgentError(res, error);
   }

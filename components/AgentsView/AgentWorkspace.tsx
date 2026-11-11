@@ -369,6 +369,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             onClose={() => onClosePane(session.id)}
             onMaximize={multi ? () => onDetach(session.id) : undefined}
             onOpenInTerminal={(sid) => onOpenChatInTerminal?.(session.id, sid)}
+            meta={renderPaneMeta?.(session)}
             headerProps={
               multi
                 ? {

@@ -420,7 +420,10 @@ export interface ChatStatus {
     ahead: number;
     behind: number;
   } | null;
+  /** Claude Code only: prompt cache (expiry badge) */
   cache: AgentCacheInfo | null;
+  /** Tokens in the context window, for every harness that reports them */
+  context: { tokens: number; window: number } | null;
   limits: UsageLimits | null;
 }
 

@@ -95,6 +95,8 @@ interface ChatPaneProps {
   /** Ends the chat and continues the same CLI session in a terminal tab */
   onOpenInTerminal: (sessionId: string) => void;
   headerProps?: React.HTMLAttributes<HTMLDivElement>;
+  /** Linked PRs, issues and running servers (same items as a terminal pane's header) */
+  meta?: React.ReactNode;
 }
 
 /** Chat UI for a harness session (#189): Claude Code, or another harness through its driver */
@@ -111,6 +113,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   onMaximize,
   onOpenInTerminal,
   headerProps,
+  meta,
 }) => {
   const [state, dispatch] = useReducer(reducer, initialChatState);
   const [gone, setGone] = useState(false);
@@ -286,6 +289,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         >
           {status}
         </span>
+        {meta && (
+          <div className="flex items-center gap-x-2 min-w-0 overflow-hidden text-[11px] text-gray-400">
+            {meta}
+          </div>
+        )}
         <span className="flex-1" />
         <button
           type="button"
