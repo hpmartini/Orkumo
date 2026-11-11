@@ -38,7 +38,7 @@ export const MainAgentDialog: React.FC<{
           <span className="font-mono text-gray-400">{config.name}</span>
           <label
             className="ml-auto flex items-center gap-1.5 cursor-pointer"
-            title="Restart this session when it is stopped (claude respawn; sends no prompt)"
+            title="Restart this session when it is stopped (claude respawn)"
           >
             <input
               type="checkbox"
