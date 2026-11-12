@@ -20,6 +20,7 @@ import type {
   AgentRepo,
   AgentSlashCommand,
   AgentPastSession,
+  AgentPrLink,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
@@ -101,6 +102,7 @@ import { ModeSwitcher } from '../ModeSwitcher';
 import { AgentsRailSlot } from '../ModuleSlot';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
+import { PullRequestModal } from './PullRequestModal';
 import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
 import { ServersPanel, type ServerRow } from './ServersPanel';
 import { TaskComposerModal, useCommandPalette, useRegisterCommands } from '../CommandPalette';
@@ -397,6 +399,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     if (!active) setPanel(null);
   }, [active]);
   const [prRepo, setPrRepo] = useState<string | null>(null);
+  // PR pill -> exactly that session's PR(s); the overview opens from the summary bar
+  const [prModal, setPrModal] = useState<AgentPrLink[] | null>(null);
   const pullRows = useMemo(() => collectPullRequests(sessions, contexts), [sessions, contexts]);
   const serverRows = useMemo(() => {
     const seen = new Set<number>();
@@ -2488,10 +2492,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 contexts={contexts}
                 servers={servers}
                 filtered={filterActive || !!filter}
-                onOpenPrs={(repo) => {
-                  setPrRepo(repo);
-                  setPanel('prs');
-                }}
+                onOpenPr={setPrModal}
                 rowActions={rowActions}
                 groupActions={groupActions}
                 highlightedId={highlightedId}
@@ -2657,10 +2658,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                               servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
                               issueKeys={issuesByAgent?.get(x.id) || []}
                               onOpenIssue={setIssueModalKey}
-                              onOpenPrs={(repo) => {
-                                setPrRepo(repo);
-                                setPanel('prs');
-                              }}
+                              onOpenPr={setPrModal}
                             />
                           );
                         }}
@@ -2725,6 +2723,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           issueKey={issueModalKey}
           sessions={sessions}
           onClose={() => setIssueModalKey(null)}
+        />
+      )}
+      {prModal && (
+        <PullRequestModal
+          links={prModal}
+          rows={pullRows}
+          contexts={contexts}
+          onSelectAgent={attach}
+          onOpenCode={openPrCode}
+          onOpenOverview={() => {
+            setPrRepo(null);
+            setPanel('prs');
+          }}
+          onClose={() => setPrModal(null)}
         />
       )}
       {issueDialog && (
