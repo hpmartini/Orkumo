@@ -345,6 +345,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
 
             <span className="text-gray-400">Labels</span>
             <FieldPicker
+              boxed
               disabled={!!orphan}
               label="Labels"
               multi
@@ -359,6 +360,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             />
             <span className="text-gray-400">Assignees</span>
             <FieldPicker
+              boxed
               disabled={!!orphan}
               label="Assignees"
               multi
@@ -369,6 +371,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             />
             <span className="text-gray-400">Milestone</span>
             <FieldPicker
+              boxed
               disabled={!!orphan}
               label="Milestone"
               choices={milestoneChoices(options)}

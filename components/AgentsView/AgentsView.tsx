@@ -2728,6 +2728,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         <IssueCreateModal
           repo={issueDialog.repo}
           repos={issueRepos}
+          statusOptions={board?.statusField.options}
           onClose={() => setIssueDialog(null)}
           onCreated={(item) => {
             const key = `${item.repo}#${item.number}`;
