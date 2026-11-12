@@ -47,6 +47,7 @@ describe('moduleLoader', () => {
     expect(loaded).toEqual([
       { id: 'premium-placeholder', name: 'Premium Placeholder' },
       { id: 'with-mode', name: 'With Mode' },
+      { id: 'with-slot', name: 'With Slot' },
     ]);
     expect(await (await get('/')).json()).toEqual([
       { id: 'premium-placeholder', name: 'Premium Placeholder', ui: false },
@@ -56,6 +57,7 @@ describe('moduleLoader', () => {
         ui: true,
         mode: { label: 'Fixture Mode', icon: 'Boxes', keywords: 'fixture demo', scoped: true },
       },
+      { id: 'with-slot', name: 'With Slot', ui: true, slot: 'agents-rail' },
     ]);
     const res = await get('/premium-placeholder');
     expect(res.status).toBe(200);

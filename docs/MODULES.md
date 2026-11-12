@@ -149,7 +149,7 @@ Modules run with full server rights. The trust boundary is write access to the m
 
 ## Development
 
-`test/fixtures/premium/placeholder` is an empty module that only registers itself; `test/fixtures/premium/with-mode` brings a mode. Load it with `DEVHUB_PREMIUM_DIR=$PWD/test/fixtures/premium bun run server` (the `broken-*` siblings there exercise the error path and log errors).
+`test/fixtures/premium/placeholder` is an empty module that only registers itself; `test/fixtures/premium/with-mode` brings a mode, `test/fixtures/premium/with-slot` a UI in the `agents-rail` slot. Load it with `DEVHUB_PREMIUM_DIR=$PWD/test/fixtures/premium bun run server` (the `broken-*` siblings there exercise the error path and log errors).
 
 ## Workflow provider
 
