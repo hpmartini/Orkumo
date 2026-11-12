@@ -83,3 +83,37 @@ export const NewTaskButton: React.FC<{ onNew: (kind: NewKind) => void }> = ({ on
     </div>
   );
 };
+
+const KINDS: { kind: NewKind; label: string }[] = [
+  { kind: 'task', label: 'Task' },
+  { kind: 'agent', label: 'Agent' },
+  { kind: 'chat', label: 'Chat' },
+  { kind: 'issue', label: 'Issue' },
+];
+
+/** Switch between the four "new" dialogs while one is open (#271); the caller carries the draft over */
+export const NewKindTabs: React.FC<{
+  kind: NewKind;
+  onChange: (kind: NewKind) => void;
+  disabled?: boolean;
+}> = ({ kind, onChange, disabled }) => (
+  <div role="tablist" aria-label="What to create" className="flex rounded-md bg-gray-850 p-0.5">
+    {KINDS.map((k) => (
+      <button
+        key={k.kind}
+        type="button"
+        role="tab"
+        aria-selected={k.kind === kind}
+        disabled={disabled}
+        onClick={() => k.kind !== kind && onChange(k.kind)}
+        className={`px-2.5 py-0.5 rounded text-xs focus-visible:outline focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50 ${
+          k.kind === kind
+            ? 'bg-blue-600 text-white font-medium'
+            : 'text-gray-300 hover:text-white hover:bg-gray-700'
+        }`}
+      >
+        {k.label}
+      </button>
+    ))}
+  </div>
+);
