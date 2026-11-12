@@ -100,7 +100,7 @@ function renderList(
       collapsedKeys={new Set()}
       issuesByAgent={opts.issues ? new Map([[s.id, opts.issues]]) : undefined}
       onOpenIssue={opts.onOpenIssue ?? (() => {})}
-      onOpenPrs={() => {}}
+      onOpenPr={() => {}}
     />
   );
 }
@@ -192,7 +192,7 @@ describe('AgentList local agent links (#159, AC-5)', () => {
     const details = card().querySelector('[data-card-details]') as HTMLElement;
     expect(within(details).getByText('#3')).toBeTruthy();
     expect(within(details).getByText('#4')).toBeTruthy();
-    const prPill = within(card()).getByTitle(/List pull requests/);
+    const prPill = within(card()).getByTitle(/Show these 2 pull requests/);
     expect(prPill.textContent).toMatch(/2/);
   });
 });
@@ -254,7 +254,7 @@ describe('AgentList card details trigger (#181)', () => {
           collapsedKeys={new Set()}
           issuesByAgent={new Map(sessions.map((s) => [s.id, [`hpmartini/Orkumo#${s.id}1`]]))}
           onOpenIssue={() => {}}
-          onOpenPrs={() => {}}
+          onOpenPr={() => {}}
           expandedSessionIds={expanded}
           onToggleDetails={(id) =>
             setExpanded((prev) => {
@@ -394,7 +394,7 @@ describe('AgentList card highlights (#210)', () => {
           rowActions={() => []}
           groupActions={() => []}
           collapsedKeys={new Set()}
-          onOpenPrs={() => {}}
+          onOpenPr={() => {}}
         />
       </>
     );
