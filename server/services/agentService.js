@@ -33,6 +33,8 @@ import {
   OMP_SESSION_ID_RE,
 } from './ompSessions.js';
 import { getAllPtySessions } from './ptyService.js';
+import { settingsService } from './settingsService.js';
+import { keepMainAgentAlive } from './mainAgent.js';
 import { agentWatchSources, createRefreshScheduler, watchSources } from './agentRefresh.js';
 
 /**
@@ -1521,6 +1523,11 @@ async function refreshSessions() {
     const sessions = await listSessions({ all: true });
     if (!scheduler) return; // unsubscribed meanwhile
     latestSessions = sessions;
+    // #252: the main agent is restarted when it stopped (Orkumo sends no prompt with it)
+    keepMainAgentAlive(sessions, {
+      config: settingsService.getAgentViewSettings().mainAgent,
+      respawn: respawnSession,
+    }).catch((err) => console.warn('[Agents] main agent keep-alive failed:', err.message));
     const next = new Map(sessions.map((s) => [s.id, s]));
     const notifications = [];
     for (const session of sessions) {

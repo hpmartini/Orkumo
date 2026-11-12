@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Main agent (#252): a title bar button and the palette command "Main agent" open, in every view, a dialog on the background session named `main-orchestrator` (recent output, reply, attach). Keep-alive (on by default, switch in the dialog): a stopped main agent is restarted with `claude respawn`; Orkumo sends no prompt with it
 - Fixed projects (#253): a project group kept via its menu ("Keep as fixed project") or added by directory ("Add fixed project…" in the command palette) stays in the rail's Project grouping without sessions; sessions of its worktrees land in it
 - "Neues Issue": `#` in the empty title lists the repositories, typing filters, Enter picks one (#228)
 
