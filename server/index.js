@@ -146,6 +146,12 @@ const isAllowedOrigin = (origin) => {
   }
 };
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
+// A packaged Electron app paired with this server from another machine (DevHub-pro#8): its
+// file:// renderer sends no Origin on fetch and "file://" on upgrades, which any local file or
+// sandboxed frame can produce too. So that shape passes only together with the pairing token.
+const isPairedElectron = (req) =>
+  (!req.headers.origin || remoteAccess.isOpaqueOrigin(req.headers.origin)) &&
+  remoteAccess.hasValidToken(req);
 // After cors so preflights are answered; before every route so nothing is reachable without the token.
 app.use(remoteAccess.requireRemoteToken);
 app.use(express.json({ limit: '1mb' })); // Limit body size
@@ -1558,7 +1564,8 @@ const sameSiteOnly = (req, res, next) => {
   const crossSite = origin
     ? !isAllowedOrigin(origin)
     : req.get('sec-fetch-site') === 'cross-site' && process.env.ELECTRON_MODE !== 'true';
-  if (crossSite) return res.status(403).json({ error: 'Cross-origin request refused' });
+  if (crossSite && !isPairedElectron(req))
+    return res.status(403).json({ error: 'Cross-origin request refused' });
   next();
 };
 
@@ -2308,7 +2315,7 @@ const refuseUpgrade = (socket, status) => {
 // the token or an authorizer (isAuthorized).
 const isAllowedUpgradeOrigin = (req) => {
   const origin = req.headers.origin;
-  if (!origin || isAllowedOrigin(origin)) return true;
+  if (!origin || isAllowedOrigin(origin) || isPairedElectron(req)) return true;
   if (!remoteAccess.isRemoteEnabled()) return false;
   try {
     return new URL(origin).host === req.headers.host;
