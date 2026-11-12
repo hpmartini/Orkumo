@@ -88,6 +88,8 @@ export interface ElectronAPI {
 
   /** Port the backend server actually listens on; null if not reported */
   serverPort: number | null;
+  /** Pairing link when the app is a client of another machine's server (ORKUMO_REMOTE) */
+  remoteLink: string | null;
 }
 
 declare global {

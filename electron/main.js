@@ -67,6 +67,16 @@ const VITE_PORT = parseInt(process.env.VITE_PORT || String(PORTS.devhub), 10);
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || `http://localhost:${VITE_PORT}`;
 const SERVER_PORT = parseInt(process.env.SERVER_PORT || String(PORTS.server), 10);
 
+// DevHub-pro#8: with ORKUMO_REMOTE (also from .env.local) set to another machine's pairing link
+// (devorbit://pair?url=…&token=…, Settings → Remote there) the app starts no server of its own and
+// talks to that one. Not a launch argument: the token would show up in the process list.
+const REMOTE_LINK = (process.env.ORKUMO_REMOTE ?? '').startsWith('devorbit://pair?')
+  ? process.env.ORKUMO_REMOTE
+  : null;
+ipcMain.on('remote-link', (event) => {
+  event.returnValue = REMOTE_LINK;
+});
+
 // Quick window (#251): a small prompt field over everything, toggled by a system-wide shortcut.
 // ORKUMO_QUICK_SHORTCUT (Electron accelerator, also from .env.local) overrides it, empty turns it off.
 const QUICK_SHORTCUT = process.env.ORKUMO_QUICK_SHORTCUT ?? 'Alt+Shift+Space';
@@ -1012,8 +1022,8 @@ function startUpdateCheck() {
 app.whenReady().then(async () => {
   persistSessionCookies(session.fromPartition(BROWSER_PREVIEW_PARTITION));
   try {
-    // Start backend server first
-    await startBackendServer();
+    // Start backend server first; a remote client has none
+    if (!REMOTE_LINK) await startBackendServer();
 
     // Setup IPC handlers
     setupIpcHandlers();
