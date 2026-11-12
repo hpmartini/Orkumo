@@ -12,7 +12,11 @@ import { listChats } from './chatService.js';
 const GH_TTL_MS = 60_000;
 const CONCURRENCY = 4;
 const GH_FAIL_TTL_MS = 10_000;
+// Repos of sessions without a change since the last compute: git and gh are re-read this rarely
+// (PR merges, CI and edits outside an agent leave no session event)
+const QUIET_MAX_AGE_MS = 5 * 60_000;
 const ghCache = new Map(); // slug -> { at, ttl, promise }
+const gitCache = new Map(); // dir -> { key, at, promise }
 const LSOF_TTL_MS = 5_000;
 let serverScan = null; // { at, promise }
 let parentScan = null; // { at, promise }
@@ -441,9 +445,11 @@ async function ghPulls(slug) {
   }
 }
 
-async function ghInfo(slug) {
+/** `quiet`: no session of this repo changed since the last compute, so the gh data keeps longer */
+async function ghInfo(slug, quiet = false) {
   const hit = ghCache.get(slug);
-  if (hit && Date.now() - hit.at < hit.ttl) return hit.promise;
+  const ttl = hit && quiet && hit.ttl === GH_TTL_MS ? QUIET_MAX_AGE_MS : hit?.ttl;
+  if (hit && Date.now() - hit.at < ttl) return hit.promise;
   // Cache the in-flight promise so concurrent polls share one gh run; failures expire quickly.
   const entry = { at: Date.now(), ttl: GH_TTL_MS, promise: null };
   entry.promise = Promise.all([ghIssues(slug), ghPulls(slug)]).then(([issues, pulls]) => {
@@ -661,10 +667,33 @@ function isDir(p) {
 }
 
 /**
+ * What of a session can change its repo or PRs: its state and turn status (an agent edits,
+ * commits and pushes during a turn) and its PR links. Not `detail` / `updatedAt`, which change
+ * all through a turn.
+ */
+export function sessionSignature(s) {
+  return `${s.id}:${s.state ?? ''}:${s.status ?? ''}:${s.displayState ?? ''}:${s.links?.length ?? 0}`;
+}
+
+/** A cached per-dir result is reused while its sessions are unchanged, up to `maxAgeMs` */
+export function isCacheCurrent(entry, key, now, maxAgeMs = QUIET_MAX_AGE_MS) {
+  return Boolean(entry) && entry.key === key && now - entry.at < maxAgeMs;
+}
+
+/** gitInfo of a dir, re-read only when one of its sessions changed (or after QUIET_MAX_AGE_MS) */
+function cachedGitInfo(dir, key) {
+  const hit = gitCache.get(dir);
+  if (isCacheCurrent(hit, key, Date.now())) return { promise: hit.promise, changed: false };
+  const entry = { key, at: Date.now(), promise: gitInfo(dir) };
+  gitCache.set(dir, entry);
+  return { promise: entry.promise, changed: true };
+}
+
+/**
  * @returns {Promise<{contexts: Record<string, import('../../types').AgentContext>, orphans: object[]}>}
  */
 async function computeAgentContexts() {
-  const listed = await agentService.listSessions({ all: true });
+  const listed = await agentService.currentSessions();
   // Chat panes (#189, every harness) are no list rows, but get repo, PRs and cache like one;
   // they own no servers (the ownership scan keeps to the listed sessions)
   const chats = listChats().map((c) => ({
@@ -676,12 +705,26 @@ async function computeAgentContexts() {
   }));
   const sessions = [...listed, ...chats];
   const dirOf = sessionDir;
-  const dirs = [...new Set(sessions.map(dirOf).filter(Boolean))];
+  const signatures = new Map(); // dir -> signatures of its sessions
+  for (const s of sessions) {
+    const dir = dirOf(s);
+    if (dir) signatures.set(dir, [...(signatures.get(dir) ?? []), sessionSignature(s)]);
+  }
+  const keys = new Map([...signatures].map(([dir, list]) => [dir, list.sort().join('|')]));
+  for (const dir of gitCache.keys()) if (!keys.has(dir)) gitCache.delete(dir);
   const repos = new Map();
-  await mapLimit(dirs, CONCURRENCY, async (dir) => repos.set(dir, await gitInfo(dir)));
+  const changedDirs = new Set();
+  await mapLimit([...keys.keys()], CONCURRENCY, async (dir) => {
+    const { promise, changed } = cachedGitInfo(dir, keys.get(dir));
+    if (changed) changedDirs.add(dir);
+    repos.set(dir, await promise);
+  });
   const slugs = [...new Set([...repos.values()].map((r) => r?.slug).filter(Boolean))];
+  const activeSlugs = new Set([...changedDirs].map((dir) => repos.get(dir)?.slug));
   const remotes = new Map();
-  await mapLimit(slugs, CONCURRENCY, async (slug) => remotes.set(slug, await ghInfo(slug)));
+  await mapLimit(slugs, CONCURRENCY, async (slug) =>
+    remotes.set(slug, await ghInfo(slug, !activeSlugs.has(slug)))
+  );
 
   const { resolved, owner, orphans } = await scanOwnership(listed);
   // eslint-disable-next-line no-unused-vars -- cwd is stripped from the response
@@ -713,6 +756,8 @@ async function computeAgentContexts() {
 
 // Stale-while-revalidate: gh + lsof take 7-12s cold, so serve the last result and refresh behind it.
 const CONTEXT_FRESH_MS = 10_000;
+// `fresh` (asked after a session changed): a result at most this old, else wait for a recompute
+const CONTEXT_FRESH_REQUEST_MS = 2_000;
 let contextCache = null; // { at, value, promise }
 let contextGeneration = 0;
 
@@ -726,10 +771,11 @@ export async function getKnownServerPids() {
 }
 
 /**
+ * @param {{ fresh?: boolean }} [options] fresh: wait for a recompute instead of serving a stale one
  * @returns {Promise<Record<string, import('../../types').AgentContext>>}
  */
-export async function getAgentContexts() {
-  return (await agentSnapshot()).contexts;
+export async function getAgentContexts({ fresh = false } = {}) {
+  return (await agentSnapshot({ fresh })).contexts;
 }
 
 /** Listening servers in a worktree or job dir that no running session owns. */
@@ -765,8 +811,9 @@ export async function stopOrphanServer(pid) {
   return true;
 }
 
-function agentSnapshot() {
-  if (contextCache?.value && Date.now() - contextCache.at < CONTEXT_FRESH_MS) {
+function agentSnapshot({ fresh = false } = {}) {
+  const maxAge = fresh ? CONTEXT_FRESH_REQUEST_MS : CONTEXT_FRESH_MS;
+  if (contextCache?.value && Date.now() - contextCache.at < maxAge) {
     return Promise.resolve(contextCache.value);
   }
   if (!contextCache?.promise) {
@@ -784,5 +831,5 @@ function agentSnapshot() {
     );
     contextCache = { ...(contextCache || { at: 0, value: null }), promise };
   }
-  return contextCache.value ? Promise.resolve(contextCache.value) : contextCache.promise;
+  return contextCache.value && !fresh ? Promise.resolve(contextCache.value) : contextCache.promise;
 }
