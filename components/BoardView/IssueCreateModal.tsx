@@ -7,6 +7,7 @@ import { useDialogA11y } from '../CommandPalette/useDialogA11y';
 import { ImageAttachments, imageDropHandlers } from '../ImageAttachments';
 import { bodyWithImages, submitIntent } from '../../utils/composer';
 import { LabelChip } from './BoardCard';
+import { NewKindTabs, type NewKind } from '../AgentsView/NewTaskButton';
 import {
   FIELD_INPUT,
   FieldPicker,
@@ -43,6 +44,13 @@ export function repoHashMatches(title: string, repos: string[]): string[] | null
   ];
 }
 
+/** What moves along when the user switches between the "new" dialogs (#271) */
+export interface IssueDraft {
+  title: string;
+  body: string;
+  images: File[];
+}
+
 interface IssueCreateModalProps {
   /** Preselected repository ("owner/name") */
   repo: string | null;
@@ -51,6 +59,10 @@ interface IssueCreateModalProps {
   /** Status options of the board; without them the server picks "Backlog" */
   statusOptions?: BoardStatusOption[];
   statusOptionId?: string;
+  /** Text and images typed in another "new" dialog */
+  draft?: IssueDraft;
+  /** Shows the Task/Agent/Chat/Issue switch; called with the current draft (#271) */
+  onKindChange?: (kind: Exclude<NewKind, 'issue'>, draft: IssueDraft) => void;
   onClose: () => void;
   /** Called with the new item; the caller gives the success feedback */
   onCreated: (item: BoardItem) => void;
@@ -62,6 +74,8 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
   repos,
   statusOptions,
   statusOptionId: initialStatus,
+  draft,
+  onKindChange,
   onClose,
   onCreated,
 }) => {
@@ -73,12 +87,12 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
   const [statusOptionId, setStatusOptionId] = useState(
     initialStatus ?? statusOptions?.find((o) => o.name.toLowerCase() === 'backlog')?.id ?? ''
   );
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [title, setTitle] = useState(draft?.title ?? '');
+  const [body, setBody] = useState(draft?.body ?? '');
   const [labels, setLabels] = useState<string[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [milestone, setMilestone] = useState<string[]>([]);
-  const [images, setImages] = useState<File[]>([]);
+  const [images, setImages] = useState<File[]>(draft?.images ?? []);
   const [saving, setSaving] = useState(false);
   // Issue exists on GitHub but the project step failed: the next submit only retries that step
   const [orphan, setOrphan] = useState<{ id: string; url: string | null } | null>(null);
@@ -177,6 +191,18 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             <h2 id="issue-create-title" className="text-sm font-semibold text-gray-50">
               Neues Issue
             </h2>
+            {onKindChange && (
+              <div className="ml-3">
+                <NewKindTabs
+                  kind="issue"
+                  // the issue may already exist (orphan) or be on its way
+                  disabled={saving || !!orphan}
+                  onChange={(kind) =>
+                    kind !== 'issue' && onKindChange(kind, { title, body, images })
+                  }
+                />
+              </div>
+            )}
             <button
               type="button"
               onClick={onClose}

@@ -123,9 +123,9 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchBoard } from '../../services/boardApi';
 import { deriveAgentLinks, itemKey as boardItemKey, linksByAgent } from '../../utils/board';
 import type { BoardData } from '../../types';
-import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
+import { IssueCreateModal, lastIssueRepo, type IssueDraft } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
-import { promptWithImages } from '../../utils/composer';
+import { issueDraftToTask, promptWithImages, taskToIssueDraft } from '../../utils/composer';
 import { pollWhileVisible } from '../../utils/visiblePoll';
 import { DirectoryPicker } from './DirectoryPicker';
 import { MainAgentDialog } from './MainAgentDialog';
@@ -771,7 +771,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [pullRows, sessions, contexts, attach, openPrCode]
   );
   // New issue dialog; repo null = the user picks one of `issueRepos`
-  const [issueDialog, setIssueDialog] = useState<{ repo: string | null } | null>(null);
+  const [issueDialog, setIssueDialog] = useState<{
+    repo: string | null;
+    draft?: IssueDraft;
+  } | null>(null);
   const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
   useEffect(() => {
     if (!attachParam || loading) return;
@@ -2728,6 +2731,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         <IssueCreateModal
           repo={issueDialog.repo}
           repos={issueRepos}
+          draft={issueDialog.draft}
+          onKindChange={(kind, draft) => {
+            setIssueDialog(null);
+            setInput(issueDraftToTask(draft));
+            setComposerImages(draft.images);
+            openComposer(kind);
+          }}
           statusOptions={board?.statusField.options}
           onClose={() => setIssueDialog(null)}
           onCreated={(item) => {
@@ -2773,6 +2783,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onPickDirectory={() => setPickDirOpen(true)}
         targetCwd={composerCwd}
         variant={composerMode}
+        onKindChange={(kind) => {
+          if (kind !== 'issue') return openComposer(kind);
+          // The text moves into the issue dialog, so it is not left behind in the composer
+          setComposerOpen(false);
+          setIssueDialog({
+            repo: selectedRepo || lastIssueRepo(issueRepos),
+            draft: { ...taskToIssueDraft(input), images: composerImages },
+          });
+          setInput('');
+          setComposerImages([]);
+        }}
         harness={composerHarness}
         onHarnessChange={setComposerHarness}
         harnessInstalled={harnessInstalled}
