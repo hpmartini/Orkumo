@@ -62,6 +62,7 @@ export interface ElectronAPI {
   /** Quick window chat (#251): grow to show the answer / shrink back; hand its chat to the main window */
   quickExpand: (expanded: boolean) => void;
   quickOpenChat: (chatId: string) => void;
+  onQuickHidden: (callback: () => void) => () => void;
   onQuickChat: (callback: (chatId: string) => void) => () => void;
 
   // Window state
