@@ -36,3 +36,17 @@ export function bodyWithImages(body: string, urls: string[]): string {
   const images = urls.map((url, i) => `![image-${i + 1}](${url})`).join('\n');
   return body.trim() ? `${body.trimEnd()}\n\n${images}` : images;
 }
+
+/** Task text -> issue fields when switching dialogs (#271): first line is the title (GitHub limit 256) */
+export function taskToIssueDraft(text: string): { title: string; body: string } {
+  const [first = '', ...rest] = text.trim().split('\n');
+  const title = first.trim();
+  return title.length > 256
+    ? { title: '', body: text.trim() }
+    : { title, body: rest.join('\n').trim() };
+}
+
+/** Issue fields -> task text; the inverse of taskToIssueDraft */
+export function issueDraftToTask(draft: { title: string; body: string }): string {
+  return [draft.title.trim(), draft.body.trim()].filter(Boolean).join('\n\n');
+}
