@@ -121,6 +121,15 @@ function toggleQuickWindow() {
     // Spotlight-like: clicking elsewhere hides it, unless it shows a chat
     quickWindow.on('blur', () => !quickExpanded && quickWindow?.hide());
     quickWindow.on('closed', () => (quickWindow = null));
+    // Model answers render links: same guard as the main window, and no navigating away from the app
+    quickWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (windowOpenRoute(url) === 'renderer') mainWindow?.webContents.send('open-link', url);
+      else console.warn('[Electron] Blocked attempt to open invalid URL:', url);
+      return { action: 'deny' };
+    });
+    quickWindow.webContents.on('will-navigate', (event, url) => {
+      if (url !== quickWindow?.webContents.getURL()) event.preventDefault();
+    });
   }
   // Opens small and empty every time; the renderer ended its chat when it was hidden
   setQuickExpanded(false);
