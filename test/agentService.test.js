@@ -276,3 +276,22 @@ describe('agentService - dispatch safety', () => {
     ).rejects.toMatchObject({ status: 400 });
   });
 });
+
+describe('agentService - subscribe', () => {
+  it('an unsubscribe called twice (SSE close + error) counts its client once', () => {
+    // fake timers: the watcher's first refresh (claude agents) never runs in the test
+    vi.useFakeTimers();
+    try {
+      const first = mod.subscribe();
+      const second = mod.subscribe();
+      expect(mod.getSubscriberCount()).toBe(2);
+      first();
+      first();
+      expect(mod.getSubscriberCount()).toBe(1);
+      second();
+      expect(mod.getSubscriberCount()).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

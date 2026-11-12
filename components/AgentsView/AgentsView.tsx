@@ -126,6 +126,7 @@ import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
 import { promptWithImages } from '../../utils/composer';
+import { pollWhileVisible } from '../../utils/visiblePoll';
 import { DirectoryPicker } from './DirectoryPicker';
 import { MainAgentDialog } from './MainAgentDialog';
 import { MAIN_AGENT_EVENT } from '../TitleBar';
@@ -229,7 +230,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     lastCompleted,
     refresh,
   } = useAgentSessions({ active: true });
-  const contexts = useAgentContexts(true);
+  const contexts = useAgentContexts(true, listed);
   // Every harness gets the PRs of its branch, not only Claude jobs that report links
   const sessions = useMemo(
     () => sessionsWithBranchPullRequests(listed, contexts),
@@ -292,6 +293,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     window.addEventListener(MAIN_AGENT_EVENT, open);
     return () => window.removeEventListener(MAIN_AGENT_EVENT, open);
   }, []);
+  /** Directory picker for a new fixed project (#253) */
+  const [pickFixedOpen, setPickFixedOpen] = useState(false);
   const [dispatching, setDispatching] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [subagents, setSubagents] = useState<AgentSubagent[]>([]);
@@ -358,9 +361,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       fetchBoard()
         .then(setBoard)
         .catch(() => {});
-    load();
-    const interval = setInterval(load, BOARD_REFRESH_MS);
-    return () => clearInterval(interval);
+    return pollWhileVisible(load, BOARD_REFRESH_MS);
   }, []);
   // Chat panes are no list rows, but their branch PRs lead to board issues just the same
   const chatsWithPrs = useMemo(
@@ -502,9 +503,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           sort,
           lookup,
           apps,
+          // A filter asks for agents: empty fixed projects would only be in the way
+          fixedProjects: filterActive ? [] : rail.fixedProjects,
         })
       ),
-    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps, arrange]
+    [
+      shownSessions,
+      filterActive,
+      settings.grouping,
+      expandedCompleted,
+      quickFilters,
+      sort,
+      lookup,
+      apps,
+      arrange,
+      rail.fixedProjects,
+    ]
   );
   // Session of the active workspace tab: marked and revealed in the rail
   const activeSessionId = useMemo(() => {
@@ -1894,6 +1908,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             },
           ]
         : []),
+      ...(group.cwd && settings.grouping === 'project'
+        ? [
+            {
+              id: 'fixed-project',
+              label: group.fixed ? 'Remove fixed project' : 'Keep as fixed project',
+              // Several stored directories can mean this project (worktree, subfolder of an app)
+              onSelect: () =>
+                (group.fixed
+                  ? rail.fixedProjects.filter(
+                      (dir) =>
+                        groupSessions([], 'project', { apps, fixedProjects: [dir] })[0]?.key ===
+                        group.key
+                    )
+                  : [group.cwd!]
+                ).forEach(rail.toggleFixedProject),
+            },
+          ]
+        : []),
       ...(group.cwd
         ? [
             {
@@ -1952,6 +1984,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [
       collapsed,
       toggleGroup,
+      settings.grouping,
+      rail.fixedProjects,
+      rail.toggleFixedProject,
+      apps,
       handleStopOrDelete,
       nav,
       navigate,
@@ -2017,7 +2053,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       extra: Partial<PaletteCommand> = {}
     ): PaletteCommand => ({ id: `agents.${id}`, title, group, scope: 'command', run, ...extra });
 
-    const list: PaletteCommand[] = [newTask, mainAgent];
+    const list: PaletteCommand[] = [
+      newTask,
+      mainAgent,
+      cmd('fixed-project.add', 'Add fixed project…', 'Rail', () => setPickFixedOpen(true), {
+        keywords: 'projekt festlegen pflegen pin directory',
+      }),
+    ];
     if (selectedSession) {
       for (const action of rowActions(selectedSession)) {
         if (action.disabled) continue;
@@ -2762,6 +2804,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             setInput(text);
             setEditorOpen(false);
             requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+        />
+      )}
+      {pickFixedOpen && (
+        <DirectoryPicker
+          choices={directoryChoices}
+          current={null}
+          home={homeDir}
+          label="Directory of the fixed project…"
+          onCancel={() => setPickFixedOpen(false)}
+          onPick={(path) => {
+            if (!rail.fixedProjects.includes(path)) rail.toggleFixedProject(path);
+            if (settings.grouping !== 'project') updateSettings({ grouping: 'project' });
+            setPickFixedOpen(false);
           }}
         />
       )}
