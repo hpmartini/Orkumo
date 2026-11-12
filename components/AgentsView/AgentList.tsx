@@ -25,6 +25,7 @@ import type {
   AgentCardElement,
   AgentHarness,
   AgentCardFields,
+  AgentPrLink,
 } from '../../types';
 import { DEFAULT_AGENT_CARD_FIELDS } from '../../types';
 import {
@@ -104,7 +105,7 @@ interface AgentListProps {
   /** Filters hide everything: show a different empty state */
   filtered?: boolean;
   /** Row PR chip opens the PR panel, filtered to that repo ("owner/repo") */
-  onOpenPrs?: (repo: string | null) => void;
+  onOpenPr?: (links: AgentPrLink[]) => void;
   rowActions: (session: AgentSession) => AgentRowAction[];
   groupActions: (group: SessionGroup) => AgentRowAction[];
   /** Session that was just backgrounded/dispatched (rendered bold) */
@@ -217,7 +218,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   contexts,
   servers,
   filtered,
-  onOpenPrs,
+  onOpenPr,
   rowActions,
   groupActions,
   highlightedId,
@@ -822,7 +823,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                         </span>
                       )),
                     pr: session.links.length > 0 && (
-                      <PrPill session={session} repoSlug={ctx?.repo?.slug} onOpenPrs={onOpenPrs} />
+                      <PrPill session={session} onOpenPr={onOpenPr} />
                     ),
                     project: showProject && repo && (
                       <span

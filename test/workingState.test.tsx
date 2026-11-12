@@ -73,7 +73,7 @@ describe('working state (#194)', () => {
         justCompleted={0}
         active={new Set()}
         onToggle={() => {}}
-        onOpenPrs={() => {}}
+        onOpenPr={() => {}}
         onOpenServers={() => {}}
         panel={null}
       />

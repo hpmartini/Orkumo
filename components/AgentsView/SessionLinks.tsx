@@ -1,6 +1,6 @@
 import React from 'react';
 import { Bot, ExternalLink, GitPullRequest } from 'lucide-react';
-import type { AgentContext, AgentSession } from '../../types';
+import type { AgentContext, AgentPrLink, AgentSession } from '../../types';
 import { AgentServer, prLabel } from '../../utils/agentSessions';
 
 /** "owner/name#12" → "#12" inside the agent's own repo, else "name#12" */
@@ -30,23 +30,25 @@ export const IssuePill: React.FC<{
   </button>
 );
 
-/** PR state of a session; opens the PR panel when `onOpenPrs` is given, else the PR itself */
+/** PR state of a session; opens exactly its PR(s) when `onOpenPr` is given, else links out */
 export const PrPill: React.FC<{
   session: Pick<AgentSession, 'links'>;
-  repoSlug?: string | null;
-  onOpenPrs?: (repoSlug: string | null) => void;
-}> = ({ session, repoSlug, onOpenPrs }) => {
+  onOpenPr?: (links: AgentPrLink[]) => void;
+}> = ({ session, onOpenPr }) => {
   const label = prLabel(session.links);
   if (!label) return null;
-  return onOpenPrs ? (
+  return onOpenPr ? (
     <button
       onClick={(e) => {
         e.stopPropagation();
-        onOpenPrs(repoSlug || null);
+        onOpenPr(session.links);
       }}
-      data-popover-trigger
       className={`${pillClass} ${label.className} flex items-center gap-0.5 hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor`}
-      title={`List pull requests${repoSlug ? ` of ${repoSlug}` : ''}`}
+      title={
+        session.links.length > 1
+          ? `Show these ${session.links.length} pull requests`
+          : `Show pull request ${label.text}`
+      }
     >
       <GitPullRequest size={10} aria-hidden="true" />
       <span className="sr-only">Pull request </span>
@@ -113,7 +115,7 @@ export interface SessionLinksProps {
   servers: AgentServer[];
   issueKeys: string[];
   onOpenIssue?: (issueKey: string) => void;
-  onOpenPrs?: (repoSlug: string | null) => void;
+  onOpenPr?: (links: AgentPrLink[]) => void;
 }
 
 /**
@@ -126,10 +128,10 @@ export const SessionLinks: React.FC<SessionLinksProps> = ({
   servers,
   issueKeys,
   onOpenIssue,
-  onOpenPrs,
+  onOpenPr,
 }) => (
   <>
-    <PrPill session={session} repoSlug={ctx?.repo?.slug} onOpenPrs={onOpenPrs} />
+    <PrPill session={session} onOpenPr={onOpenPr} />
     {issueKeys.map((key) => (
       <IssuePill key={key} issueKey={key} repoSlug={ctx?.repo?.slug} onOpen={onOpenIssue} />
     ))}
