@@ -123,10 +123,12 @@ export const ElectronBrowserView = ({ url, appId, ...chrome }: ElectronBrowserVi
     let lastBounds = '';
 
     const updateBounds = () => {
-      // The native view paints above all HTML: collapse it while a modal is open (#140)
-      const bounds = document.querySelector('[aria-modal="true"]')
-        ? { x: 0, y: 0, width: 0, height: 0 }
-        : calculateBounds();
+      // The native view paints above all HTML: collapse it while a modal is open (#140),
+      // unless that modal is the one showing this view (PR modal, MAGOS#497)
+      const covered = [...document.querySelectorAll('[aria-modal="true"]')].some(
+        (modal) => !modal.contains(containerRef.current)
+      );
+      const bounds = covered ? { x: 0, y: 0, width: 0, height: 0 } : calculateBounds();
       // body mutations fire constantly (terminals); only send real changes over IPC
       const key = JSON.stringify(bounds);
       if (bounds && key !== lastBounds) {
