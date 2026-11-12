@@ -100,6 +100,15 @@ function tokenFrom(req) {
   return url.searchParams.get('token') ?? undefined;
 }
 
+/** Renderer of a packaged Electron app: "file://" on WebSocket upgrades, "null" on module scripts. */
+export const isOpaqueOrigin = (origin) => origin === 'null' || origin === 'file://';
+
+/**
+ * Valid pairing token on the request (remote mode only). Unlike loopback reach or a cookie the
+ * token is no ambient credential: a foreign page cannot attach it, so its Origin does not matter.
+ */
+export const hasValidToken = (req) => isRemoteEnabled() && isValidToken(tokenFrom(req));
+
 const authorizers = [];
 
 /**
