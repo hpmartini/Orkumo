@@ -109,4 +109,19 @@ describe('QuickWindow (#251)', () => {
     await waitFor(() => expect(api.quickSubmit).toHaveBeenCalledWith('Hallo'));
     expect(api.quickExpand).not.toHaveBeenCalledWith(true);
   });
+
+  it('ends a chat that finishes starting after the window was hidden', async () => {
+    let started: (chat: ChatSummary) => void = () => {};
+    vi.mocked(startChat).mockReturnValue(new Promise((r) => (started = r)));
+    const user = userEvent.setup();
+    render(<QuickWindow />);
+    await user.type(screen.getByLabelText('Quick prompt'), 'Hallo{Enter}');
+    await waitFor(() => expect(startChat).toHaveBeenCalled());
+    await user.keyboard('{Escape}');
+    await act(async () => started({ id: 'chat-1' } as ChatSummary));
+    expect(stopChat).toHaveBeenCalledWith('chat-1');
+    expect(api.quickExpand).not.toHaveBeenCalledWith(true);
+    expect(sendChatMessage).not.toHaveBeenCalled();
+    expect(api.quickSubmit).not.toHaveBeenCalled();
+  });
 });

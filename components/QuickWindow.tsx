@@ -41,7 +41,7 @@ async function startQuickChat(): Promise<string> {
  * Quick window (#251): the whole content of the small always-on-top Electron window a
  * system-wide shortcut toggles. Enter starts a chat and shows the answer here (the window grows);
  * follow-ups continue it. "Open in Orkumo" (Cmd+Enter) hands the chat to the main window.
- * Hiding the window (Escape, shortcut) ends a chat that was not handed over.
+ * Hiding the window (Escape, shortcut, click-away while small) ends a chat that was not handed over.
  */
 export const QuickWindow: React.FC = () => {
   const [text, setText] = useState('');
@@ -51,9 +51,12 @@ export const QuickWindow: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const chatRef = useRef<string | null>(null);
+  // Bumped by every reset: a chat start still in flight then knows it is no longer wanted
+  const generation = useRef(0);
 
   /** Back to the small, empty prompt; `keepChat` when the main window took the chat over */
   const reset = useCallback((keepChat = false) => {
+    generation.current += 1;
     const id = chatRef.current;
     if (id && !keepChat) void stopChat(id).catch(() => {});
     chatRef.current = null;
@@ -64,20 +67,66 @@ export const QuickWindow: React.FC = () => {
     window.electronAPI?.quickExpand?.(false);
   }, []);
 
-  // The window is hidden, not closed: on hide the chat ends, on show the field is focused
+  const send = async (prompt: string) => {
+    const gen = generation.current;
+    setSending(true);
+    try {
+      let id = chatRef.current;
+      if (!id) {
+        id = await startQuickChat();
+        // Hidden or handed over while starting: nobody would see this chat
+        if (gen !== generation.current) {
+          void stopChat(id).catch(() => {});
+          return;
+        }
+        chatRef.current = id;
+        setChatId(id);
+        window.electronAPI?.quickExpand?.(true);
+      }
+      setText('');
+      await sendChatMessage(id, prompt);
+    } catch {
+      if (gen !== generation.current) return;
+      // No chat here (server, harness): the main window's composer takes the prompt as before
+      if (!chatRef.current) window.electronAPI?.quickSubmit(prompt);
+      else setText(prompt);
+    } finally {
+      if (gen === generation.current) setSending(false);
+    }
+  };
+
+  const openInOrkumo = (prompt: string) => {
+    const id = chatRef.current;
+    reset(Boolean(id));
+    if (id) window.electronAPI?.quickOpenChat?.(id);
+    else if (prompt.trim()) window.electronAPI?.quickSubmit(prompt);
+  };
+
+  // The window is hidden, not closed: on hide (Escape, shortcut, click-away) the chat ends,
+  // on show the field is focused. Keys work wherever the focus is (also after a click in the answer).
+  const keys = useRef({ text, openInOrkumo });
+  keys.current = { text, openInOrkumo };
   useEffect(() => {
     const onFocus = () => {
       if (!chatRef.current) setText('');
       inputRef.current?.focus();
     };
-    const onVisibility = () => {
-      if (document.visibilityState === 'hidden' && chatRef.current) reset();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        reset();
+        window.electronAPI?.quickHide();
+      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        keys.current.openInOrkumo(keys.current.text);
+      }
     };
     window.addEventListener('focus', onFocus);
-    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('keydown', onKey);
+    const offHidden = window.electronAPI?.onQuickHidden?.(() => reset());
     return () => {
       window.removeEventListener('focus', onFocus);
-      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('keydown', onKey);
+      offHidden?.();
     };
   }, [reset]);
 
@@ -99,37 +148,6 @@ export const QuickWindow: React.FC = () => {
     if (list) list.scrollTop = list.scrollHeight;
   }, [state.messages]);
 
-  const send = async (prompt: string) => {
-    setSending(true);
-    try {
-      let id = chatRef.current;
-      if (!id) {
-        id = await startQuickChat();
-        chatRef.current = id;
-        setChatId(id);
-        window.electronAPI?.quickExpand?.(true);
-      }
-      setText('');
-      await sendChatMessage(id, prompt);
-    } catch {
-      // No chat here (server, harness): the main window's composer takes the prompt as before
-      if (!chatRef.current) window.electronAPI?.quickSubmit(prompt);
-      else setText(prompt);
-    } finally {
-      setSending(false);
-    }
-  };
-
-  const openInOrkumo = () => {
-    const id = chatRef.current;
-    if (!id) {
-      if (text.trim()) window.electronAPI?.quickSubmit(text);
-      return;
-    }
-    reset(true);
-    window.electronAPI?.quickOpenChat?.(id);
-  };
-
   const waitsForPermission = state.messages.some(
     (m) => m.kind === 'permission' && m.decision === null
   );
@@ -149,15 +167,6 @@ export const QuickWindow: React.FC = () => {
           autoFocus
           value={text}
           onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Escape') {
-              reset();
-              window.electronAPI?.quickHide();
-            } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
-              e.preventDefault();
-              openInOrkumo();
-            }
-          }}
           aria-label="Quick prompt"
           placeholder={
             chatId
@@ -169,7 +178,7 @@ export const QuickWindow: React.FC = () => {
         {chatId && (
           <button
             type="button"
-            onClick={openInOrkumo}
+            onClick={() => openInOrkumo(text)}
             className="shrink-0 flex items-center gap-1 rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800"
           >
             <ExternalLink size={12} aria-hidden /> In Orkumo öffnen

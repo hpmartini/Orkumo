@@ -120,6 +120,8 @@ function toggleQuickWindow() {
     else quickWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: '/quick' });
     // Spotlight-like: clicking elsewhere hides it, unless it shows a chat
     quickWindow.on('blur', () => !quickExpanded && quickWindow?.hide());
+    // Every way of hiding (Escape, shortcut, blur) ends the renderer's chat unless it was handed over
+    quickWindow.on('hide', () => quickWindow?.webContents.send('quick-hidden'));
     quickWindow.on('closed', () => (quickWindow = null));
     // Model answers render links: same guard as the main window, and no navigating away from the app
     quickWindow.webContents.setWindowOpenHandler(({ url }) => {
