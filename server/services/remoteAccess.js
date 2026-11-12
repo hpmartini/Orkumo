@@ -58,32 +58,63 @@ export function isLocalRequest(req) {
   return !FORWARD_HEADERS.some((h) => req.headers[h] !== undefined);
 }
 
-const tokenFile = () => path.join(getDataPath(), 'remote-token');
-let cachedToken = null;
+const secrets = new Map();
 
-/** Pairing token, created on first use and kept in the data dir (mode 600). */
-export function getToken() {
-  if (cachedToken) return cachedToken;
-  const file = tokenFile();
+/** Random secret, created on first use and kept in the data dir (mode 600). */
+function secret(name) {
+  let value = secrets.get(name);
+  if (value) return value;
+  const file = path.join(getDataPath(), name);
   try {
-    cachedToken = fs.readFileSync(file, 'utf8').trim();
+    value = fs.readFileSync(file, 'utf8').trim();
   } catch {
-    cachedToken = '';
+    value = '';
   }
-  if (!cachedToken) {
-    cachedToken = crypto.randomBytes(32).toString('base64url');
+  if (!value) {
+    value = crypto.randomBytes(32).toString('base64url');
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, cachedToken, { mode: 0o600 });
+    fs.writeFileSync(file, value, { mode: 0o600 });
   }
-  return cachedToken;
+  secrets.set(name, value);
+  return value;
 }
+
+/** Pairing token. */
+export const getToken = () => secret('remote-token');
 
 /** Constant-time comparison; hashing first equalises lengths for timingSafeEqual. */
+const sameSecret = (candidate, expected) => {
+  const hash = (s) => crypto.createHash('sha256').update(s).digest();
+  return crypto.timingSafeEqual(hash(candidate), hash(expected));
+};
+
 export function isValidToken(candidate) {
   if (typeof candidate !== 'string' || !candidate) return false;
-  const hash = (s) => crypto.createHash('sha256').update(s).digest();
-  return crypto.timingSafeEqual(hash(candidate), hash(getToken()));
+  return sameSecret(candidate, getToken());
 }
+
+/**
+ * Path secret for `tailscale serve`: set up with `http://127.0.0.1:<port>/<secret>` as target, only
+ * serve's relayed requests arrive under that prefix. That is what makes its identity headers
+ * (Tailscale-User-Login) believable: any other local process can set them, but does not know the path.
+ */
+export const getServeSecret = () => secret('serve-secret');
+
+const viaServe = new WeakSet();
+
+/** Strips the serve prefix from `req.url` and remembers the request; any other request stays as it is. */
+export function takeServePrefix(req) {
+  if (!isRemoteEnabled()) return;
+  const length = getServeSecret().length + 1;
+  const rest = req.url.slice(length);
+  if (rest && rest[0] !== '/' && rest[0] !== '?') return;
+  if (!sameSecret(req.url.slice(0, length), `/${getServeSecret()}`)) return;
+  req.url = rest.startsWith('/') ? rest : `/${rest}`;
+  viaServe.add(req);
+}
+
+/** True for a request that came in under the serve prefix (takeServePrefix). */
+export const isViaServe = (req) => viaServe.has(req);
 
 /** EventSource and WebSocket cannot set headers; only they may carry the token in the URL (logs, history). */
 function allowsQueryToken(req, url) {
@@ -140,5 +171,5 @@ export function pairingLink(serverUrl) {
 
 /** For tests: forget the cached token so a new data dir takes effect. */
 export function resetTokenCache() {
-  cachedToken = null;
+  secrets.clear();
 }
