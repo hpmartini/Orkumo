@@ -115,6 +115,27 @@ describe('remote access token', () => {
     expect(await wsOutcome(`?sessionId=x&token=${token}`, REMOTE)).toBe('open');
   });
 
+  it('takes the serve path secret off the URL and remembers the request', () => {
+    const secret = remoteAccess.getServeSecret();
+    expect(fs.statSync(path.join(dataDir, 'serve-secret')).mode & 0o777).toBe(0o600);
+    const take = (url) => {
+      const req = { url };
+      remoteAccess.takeServePrefix(req);
+      return [req.url, remoteAccess.isViaServe(req)];
+    };
+    expect(take(`/${secret}/api/x?y=1`)).toEqual(['/api/x?y=1', true]);
+    expect(take(`/${secret}`)).toEqual(['/', true]);
+    expect(take(`/${secret}?a=1`)).toEqual(['/?a=1', true]);
+    // not the secret: longer segment, wrong value of the same length, plain API path
+    expect(take(`/${secret}x/api/x`)).toEqual([`/${secret}x/api/x`, false]);
+    const wrong = `/${'A'.repeat(secret.length)}/api/x`;
+    expect(take(wrong)).toEqual([wrong, false]);
+    expect(take('/api/x')).toEqual(['/api/x', false]);
+
+    process.env.DEVORBIT_REMOTE = '';
+    expect(take(`/${secret}/api/x`)).toEqual([`/${secret}/api/x`, false]);
+  });
+
   it('persists the token with owner-only permissions', () => {
     const token = remoteAccess.getToken();
     const file = path.join(dataDir, 'remote-token');
