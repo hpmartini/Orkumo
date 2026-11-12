@@ -145,6 +145,11 @@ const isAllowedOrigin = (origin) => {
     return false;
   }
 };
+// First of all: requests relayed by `tailscale serve` carry a path secret (remoteAccess.getServeSecret)
+app.use((req, res, next) => {
+  remoteAccess.takeServePrefix(req);
+  next();
+});
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 // After cors so preflights are answered; before every route so nothing is reachable without the token.
 app.use(remoteAccess.requireRemoteToken);
@@ -2318,6 +2323,7 @@ const isAllowedUpgradeOrigin = (req) => {
 };
 
 server.on('upgrade', (req, socket, head) => {
+  remoteAccess.takeServePrefix(req);
   if (!isAllowedUpgradeOrigin(req)) return refuseUpgrade(socket, '403 Forbidden');
   if (!remoteAccess.isAuthorized(req)) return refuseUpgrade(socket, '401 Unauthorized');
   const { pathname } = new URL(req.url, 'http://x');

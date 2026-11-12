@@ -15,7 +15,7 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { getDataPath } from './dataPath.js';
 import { getProvider, setProvider, validateProvider } from './workflowProvider.js';
-import { addAuthorizer } from './remoteAccess.js';
+import { addAuthorizer, getServeSecret, isViaServe } from './remoteAccess.js';
 
 // Same pattern as ideIdSchema in server/index.js; the id becomes a URL segment.
 const MODULE_ID = /^[a-z0-9-]+$/;
@@ -151,6 +151,8 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
         if (typeof fn !== 'function') throw new Error('addAuthorizer needs a function');
         authorizers.push(fn);
       },
+      isViaServe,
+      serveSecret: getServeSecret,
     });
 
     // Mount only after register succeeded: a failing module leaves no route or hook behind.
