@@ -43,6 +43,7 @@ beforeEach(() => {
 
 afterEach(() => {
   delete process.env.DEVORBIT_REMOTE;
+  delete process.env.DEVORBIT_TRUST_LOOPBACK;
   delete process.env.DEVORBIT_DATA_PATH;
   fs.rmSync(dataDir, { recursive: true, force: true });
 });
@@ -85,6 +86,17 @@ describe('remote access token', () => {
   });
 
   it('lets a direct localhost request through without token', async () => {
+    expect((await get('/api/ping')).status).toBe(200);
+  });
+
+  it('asks loopback for the token too when DEVORBIT_TRUST_LOOPBACK=false (shared machine)', async () => {
+    process.env.DEVORBIT_TRUST_LOOPBACK = 'false';
+    const token = remoteAccess.getToken();
+    expect((await get('/api/ping')).status).toBe(401);
+    expect((await get('/api/ping', { 'X-DevOrbit-Token': token })).status).toBe(200);
+    expect(await wsOutcome('?sessionId=x')).toBe(401);
+    expect(await wsOutcome(`?sessionId=x&token=${token}`)).toBe('open');
+    process.env.DEVORBIT_TRUST_LOOPBACK = 'true';
     expect((await get('/api/ping')).status).toBe(200);
   });
 
