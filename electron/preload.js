@@ -16,6 +16,8 @@ const serverPort = serverPortArg ? parseInt(serverPortArg.split('=')[1], 10) : n
 contextBridge.exposeInMainWorld('electronAPI', {
   // Port the backend server actually listens on
   serverPort: Number.isInteger(serverPort) ? serverPort : null,
+  // Pairing link of another machine's server (ORKUMO_REMOTE) or null; sync for the same reason
+  remoteLink: ipcRenderer.sendSync('remote-link'),
 
   // Platform information
   getPlatform: () => ipcRenderer.invoke('get-platform'),

@@ -126,6 +126,7 @@ describe('apiConfig', () => {
   it('uses the paired server in the iOS app and localhost in Electron', () => {
     expect(serverOrigin(true, PAIRING, false)).toBe('https://mac.tail1.ts.net');
     expect(serverOrigin(false, null, true)).toMatch(/^http:\/\/localhost:\d+$/);
+    expect(serverOrigin(false, PAIRING, true)).toBe('https://mac.tail1.ts.net');
     expect(serverOrigin(false, null, false)).toBe('');
   });
   it('treats only a non-web origin as a bundled client (iOS app: capacitor://)', () => {

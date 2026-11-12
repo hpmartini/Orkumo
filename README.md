@@ -110,6 +110,8 @@ tailscale serve --bg --https=8443 http://127.0.0.1:3099   # HTTPS nur im Tailnet
 
 **2. Koppeln:** Admin Panel → „iOS-App“ zeigt Adresse, Token, den Link `devorbit://pair?…` und denselben Link als QR-Code.
 
+**Desktop-App als Client eines anderen Rechners:** Mit `ORKUMO_REMOTE='devorbit://pair?…'` (Umgebung oder `.env.local`, der Link aus Schritt 2) startet die Electron-App keinen eigenen Server und arbeitet gegen den gekoppelten: `ORKUMO_REMOTE='devorbit://pair?…' open -a Orkumo`. Der Server lässt den `file://`-Renderer einer fremden App nur mit gültigem Token zu. Nicht über diesen Weg: Modul-Oberflächen (ihr Skript-Import kann keinen Token tragen) und Aktionen, die auf dem Server-Rechner Programme öffnen. Nachweis: `scripts/review/pro8-app.sh`.
+
 **Gebündelte Clients:** Eine App, die den Web-Build mitbringt, ersetzt `index.tsx` durch einen eigenen Einstieg und nutzt `App.tsx`, `utils/apiConfig.ts` (`isNativeApp`, `pairing`) und `utils/remoteClient.ts` (Pairing, Token an fetch, SSE und WebSocket). Erkannt wird sie an einem Nicht-Web-Origin (z. B. `capacitor://`); dann gelten HashRouter und die gespeicherte Server-Adresse.
 
 ## 🐳 Docker Deployment
