@@ -38,6 +38,16 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Quick window (#251): its prompt goes to the main window
   quickSubmit: (text) => ipcRenderer.send('quick-submit', text),
   quickHide: () => ipcRenderer.send('quick-hide'),
+  quickExpand: (expanded) => ipcRenderer.send('quick-expand', expanded === true),
+  quickOpenChat: (chatId) => ipcRenderer.send('quick-open-chat', chatId),
+  onQuickChat: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = (event, chatId) => callback(chatId);
+    ipcRenderer.on('quick-chat', handler);
+    return () => ipcRenderer.removeListener('quick-chat', handler);
+  },
   onQuickPrompt: (callback) => {
     if (typeof callback !== 'function') {
       throw new TypeError('Callback must be a function');
