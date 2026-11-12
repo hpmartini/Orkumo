@@ -93,4 +93,28 @@ describe('Electron renderer origin', { timeout: 60_000 }, () => {
     expect(await upgrade(base, 'file://')).toBe(403);
     expect(await stop(base, { 'Sec-Fetch-Site': 'cross-site' })).toBe(403);
   });
+
+  // #214 AC-4: the file:// renderer imports a module's UI bundle cross-origin (module script, CORS mode)
+  const PREMIUM = path.join(ROOT, 'test/fixtures/premium');
+  const uiJs = (base, origin) =>
+    fetch(`http://${base}/api/modules/with-mode/ui.js`, { headers: { Origin: origin } });
+
+  it('serves a module ui.js to Origin null / file:// inside Electron', async () => {
+    const base = await startServer({ ELECTRON_MODE: 'true', DEVHUB_PREMIUM_DIR: PREMIUM });
+    for (const origin of ['null', 'file://']) {
+      const res = await uiJs(base, origin);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('access-control-allow-origin')).toBe(origin);
+    }
+    expect(
+      (await uiJs(base, 'https://evil.example')).headers.get('access-control-allow-origin')
+    ).toBeNull();
+  });
+
+  it('grants a module ui.js no CORS header for Origin null / file:// outside Electron', async () => {
+    const base = await startServer({ DEVHUB_PREMIUM_DIR: PREMIUM });
+    for (const origin of ['null', 'file://']) {
+      expect((await uiJs(base, origin)).headers.get('access-control-allow-origin')).toBeNull();
+    }
+  });
 });
