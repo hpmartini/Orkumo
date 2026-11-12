@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchUsage } from '../../services/api';
+import { pollWhileVisible } from '../../utils/visiblePoll';
 import type { UsageDays, UsageResponse } from './types';
 
 const REFRESH_MS = 60_000;
 
-/** Fetches /api/usage while enabled and refreshes every 60 s; keeps the last data during reloads */
+/** Fetches /api/usage while enabled and refreshes every 60 s while the page is visible; keeps the last data during reloads */
 export function useUsage(days: UsageDays, enabled: boolean) {
   const [data, setData] = useState<UsageResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -29,10 +30,9 @@ export function useUsage(days: UsageDays, enabled: boolean) {
 
   useEffect(() => {
     if (!enabled) return;
-    refresh();
-    const timer = setInterval(refresh, REFRESH_MS);
+    const stop = pollWhileVisible(refresh, REFRESH_MS);
     return () => {
-      clearInterval(timer);
+      stop();
       requestId.current++; // drop in-flight responses after disable / days change
     };
   }, [enabled, refresh]);

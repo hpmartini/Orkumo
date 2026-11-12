@@ -9,6 +9,7 @@ vi.mock('node-pty', () => ({ spawn: vi.fn() }));
 const sessions = [];
 vi.mock('../server/services/agentService.js', () => ({
   listSessions: vi.fn(async () => sessions),
+  currentSessions: vi.fn(async () => sessions),
   paths: { JOBS_DIR: path.join(os.tmpdir(), 'orphan-test-no-jobs') },
 }));
 
