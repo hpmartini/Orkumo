@@ -145,6 +145,11 @@ const isAllowedOrigin = (origin) => {
     return false;
   }
 };
+// First of all: requests relayed by `tailscale serve` carry a path secret (remoteAccess.getServeSecret)
+app.use((req, res, next) => {
+  remoteAccess.takeServePrefix(req);
+  next();
+});
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
 // A packaged Electron app paired with this server from another machine (DevHub-pro#8): its
 // file:// renderer sends no Origin on fetch and "file://" on upgrades, which any local file or
@@ -2325,6 +2330,7 @@ const isAllowedUpgradeOrigin = (req) => {
 };
 
 server.on('upgrade', (req, socket, head) => {
+  remoteAccess.takeServePrefix(req);
   if (!isAllowedUpgradeOrigin(req)) return refuseUpgrade(socket, '403 Forbidden');
   if (!remoteAccess.isAuthorized(req)) return refuseUpgrade(socket, '401 Unauthorized');
   const { pathname } = new URL(req.url, 'http://x');
