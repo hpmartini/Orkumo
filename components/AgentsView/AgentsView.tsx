@@ -586,6 +586,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setComposerHarness(null);
     setComposerOpen(true);
   }, []);
+  // Quick window (#251): its prompt opens the chat composer here, ready to send
+  useEffect(
+    () =>
+      window.electronAPI?.onQuickPrompt?.((text) => {
+        onOpenView();
+        setInput(text);
+        openComposer('chat');
+      }),
+    [onOpenView, openComposer]
+  );
   const composerCwd =
     composerMode === 'agent'
       ? agentCwd || homeDir

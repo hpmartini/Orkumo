@@ -39,6 +39,7 @@ import { fetchConfig } from './services/api';
 import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
+import { QuickWindow } from './components/QuickWindow';
 import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
 import { ConnectedIssuesPage } from './components/IssuesView';
 import { CodeView } from './components/CodeView';
@@ -478,6 +479,8 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/agents" replace />} />
+      {/* Quick window (#251): its own small Electron window, without the app shell */}
+      <Route path="/quick" element={<QuickWindow />} />
       {/* AppContent resolves the path: host modes, module modes, else /agents */}
       <Route path="*" element={<AppContent />} />
     </Routes>
