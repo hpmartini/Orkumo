@@ -18,6 +18,9 @@ export const CAPACITOR_ORIGIN = 'capacitor://localhost';
 
 export const isRemoteEnabled = () => process.env.DEVORBIT_REMOTE === 'true';
 
+// On a shared machine (VPS) every local process reaches loopback; DEVORBIT_TRUST_LOOPBACK=false makes it pair too.
+export const trustsLoopback = () => process.env.DEVORBIT_TRUST_LOOPBACK !== 'false';
+
 const LOOPBACK = new Set(['127.0.0.1', '::1', '::ffff:127.0.0.1']);
 // Set by proxies (tailscale serve, reverse proxies): a loopback peer carrying them speaks for a remote client.
 const FORWARD_HEADERS = [
@@ -162,7 +165,7 @@ const passesAuthorizer = (req) =>
 
 /** True when the request may proceed. Used for HTTP requests and WebSocket upgrades alike. */
 export function isAuthorized(req) {
-  if (!isRemoteEnabled() || isLocalRequest(req)) return true;
+  if (!isRemoteEnabled() || (trustsLoopback() && isLocalRequest(req))) return true;
   return isValidToken(tokenFrom(req)) || passesAuthorizer(req);
 }
 
