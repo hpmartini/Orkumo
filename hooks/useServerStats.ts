@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import type { AgentServerStats } from '../types';
 import { fetchServerStats } from '../services/agentsApi';
+import { pollWhileVisible } from '../utils/visiblePoll';
 
 const POLL_MS = 5_000;
 // Matches the server limit (processStatsService MAX_PIDS)
@@ -37,7 +38,6 @@ export function useServerStats(pids: number[], enabled: boolean): ServerStatsSta
     const wanted = pidKey.split(',').map(Number);
     let controller: AbortController | null = null;
     const load = () => {
-      if (document.hidden) return;
       controller?.abort();
       const own = (controller = new AbortController());
       fetchServerStats(wanted, own.signal)
@@ -54,12 +54,9 @@ export function useServerStats(pids: number[], enabled: boolean): ServerStatsSta
           if (!own.signal.aborted) setState((s) => ({ ...s, failures: s.failures + 1 }));
         });
     };
-    load();
-    const timer = setInterval(load, POLL_MS);
-    document.addEventListener('visibilitychange', load);
+    const stop = pollWhileVisible(load, POLL_MS);
     return () => {
-      clearInterval(timer);
-      document.removeEventListener('visibilitychange', load);
+      stop();
       controller?.abort();
     };
   }, [enabled, pidKey]);

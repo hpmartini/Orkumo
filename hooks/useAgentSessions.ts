@@ -25,6 +25,9 @@ import {
 } from '../services/agentsApi';
 import { summarizeSessions } from '../utils/agentSessions';
 import { getAgentTarget, useAgentTarget } from '../utils/agentTarget';
+import { pollWhileVisible } from '../utils/visiblePoll';
+
+const DAEMON_REFRESH_MS = 60_000;
 
 interface UseAgentSessionsOptions {
   /** When false, no SSE subscription is opened (view not visible) */
@@ -120,11 +123,10 @@ export function useAgentSessions({ active = true }: UseAgentSessionsOptions = {}
     refresh();
   }, [active, refresh, settings.scopeCwd, target]);
 
-  // Poll daemon status together with a periodic refresh (SSE only carries sessions)
+  // Daemon status rides along a slow refresh (SSE only carries sessions); none while hidden
   useEffect(() => {
     if (!active) return;
-    const interval = setInterval(refresh, 15000);
-    return () => clearInterval(interval);
+    return pollWhileVisible(refresh, DAEMON_REFRESH_MS, { immediate: false });
   }, [active, refresh]);
 
   // SSE subscription
