@@ -5,6 +5,7 @@ import { cacheCountdown, formatTokens } from '../../../utils/agentCache';
 import { CacheBadge } from '../CacheBadge';
 import { LimitBar } from '../../UsageView/LimitBar';
 import { WEEK_TICKS, weekPace } from '../../../utils/usage';
+import { pollWhileVisible } from '../../../utils/visiblePoll';
 
 const POLL_MS = 15_000;
 
@@ -28,11 +29,10 @@ export const ChatStatusLine: React.FC<{ chatId: string; turns: number; visible: 
         .catch(() => {
           // keep the last status; the chat itself reports a gone session
         });
-    load();
-    const timer = setInterval(load, POLL_MS);
+    const stop = pollWhileVisible(load, POLL_MS);
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      stop();
     };
   }, [chatId, turns, visible]);
 

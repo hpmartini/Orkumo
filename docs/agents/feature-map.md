@@ -30,6 +30,7 @@ Further modes:
 - Claude Code Agents View (browser version of `claude agents`, route `/agents`):
   - `components/AgentsView/` - list, dispatch input, peek panel, attached sessions in tabs / tiled panes
   - `server/services/agentService.js` - wraps the `claude` CLI (`--bg`, `agents --json`, `logs`, `stop`, `respawn`, `rm`, `daemon`) and `~/.claude/jobs` state; routes under `/api/agents/*`
+  - Live list: `server/services/agentRefresh.js` watches the session stores (jobs, sessions, omp) and runs `claude agents --json` only after a change (debounced, ≤ 1 per 2.5 s) plus a 60 s reconcile, while an SSE client (`/api/agents/stream`) is subscribed; client polls go through `utils/visiblePoll.ts` and pause while the page is hidden; contexts (`useAgentContexts`) refetch on session state/turn changes
   - `utils/agentInput.ts` (dispatch syntax) and `utils/agentSessions.ts` (grouping) are pure and unit-tested
   - Interactive terminal sessions are hidden in the rail unless the footer switch "Interactive sessions" is on (localStorage `devOrbitAgentInteractive`)
   - Claude app sessions (`kind: 'app'`, `server/services/appSessions.js`): interactive sessions whose `~/.claude/sessions/<pid>.json` has a `bridgeSessionId`; title, origin and status come from `api.anthropic.com/v1/sessions/<id>` with the subscription login (server-side, cached 60 s), they open on claude.ai

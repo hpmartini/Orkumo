@@ -10,6 +10,7 @@ import {
   isDoneOption,
   itemKey,
   shortRepo,
+  shownItems,
   withinDoneWindow,
   type Lane,
 } from '../../utils/board';
@@ -265,7 +266,7 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
                 <span className="text-gray-300 truncate">{lane.title}</span>
               )}
               <span className="ml-1 px-1.5 rounded-full bg-gray-800 text-[11px] font-normal text-gray-300 tabular-nums">
-                {lane.items.length}
+                {shownItems(lane.items, options, now).length}
               </span>
               {lane.parent && lane.total > 0 && (
                 <span className="flex items-center gap-1.5 text-[11px] font-normal text-gray-400 tabular-nums shrink-0">

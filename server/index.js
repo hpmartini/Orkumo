@@ -1169,7 +1169,8 @@ app.get('/api/agents', async (req, res) => {
       });
     }
     const [sessions, daemon, userSettings] = await Promise.all([
-      agentService.listSessions({ cwd, all }),
+      // unscoped: the watcher's list while a client is subscribed, no extra `claude agents`
+      cwd || !all ? agentService.listSessions({ cwd, all }) : agentService.currentSessions(),
       agentService.daemonStatus().catch(() => null),
       agentService.readClaudeUserSettings(),
     ]);
@@ -1517,9 +1518,10 @@ app.post(
   }
 );
 
+// ?fresh=1 (the client asks after a session changed): wait for a recompute instead of the stale value
 app.get('/api/agents/context', agentLimiter, async (req, res) => {
   try {
-    res.json({ contexts: await getAgentContexts() });
+    res.json({ contexts: await getAgentContexts({ fresh: req.query.fresh === '1' }) });
   } catch (error) {
     sendAgentError(res, error);
   }
