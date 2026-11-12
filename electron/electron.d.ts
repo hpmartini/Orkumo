@@ -55,6 +55,10 @@ export interface ElectronAPI {
   openExternal: (url: string) => Promise<ExternalUrlResult>;
   /** window.open from the app or the Web-IDE, routed back for the link setting (#140) */
   onOpenLink: (callback: (url: string) => void) => () => void;
+  /** Quick window (#251): send its prompt to the main window / hide it / receive a prompt */
+  quickSubmit: (text: string) => void;
+  quickHide: () => void;
+  onQuickPrompt: (callback: (text: string) => void) => () => void;
 
   // Window state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void;

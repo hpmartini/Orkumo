@@ -9,6 +9,7 @@ import {
   boardColumns,
   columnKeyOf,
   withinDoneWindow,
+  shownItems,
   sliceValues,
   sliceKey,
   buildSlices,
@@ -121,6 +122,29 @@ describe('status columns', () => {
     expect(cols.map((c) => c.key)).toEqual(['o-backlog', 'o-todo', 'o-done', UNSET_STATUS]);
     expect(cols[3].option).toBeNull();
     expect(cols[0].option).toBe(OPTIONS[0]);
+  });
+});
+
+describe('shownItems', () => {
+  // martini-workflow-plugin#222: header said "14 Items" while the columns showed 9 (1 Backlog + 8 Done within 14 days)
+  it('leaves Done items outside the window out of the count, like the grid', () => {
+    const now = Date.parse('2026-11-05T19:28:00Z');
+    const day = 24 * 60 * 60 * 1000;
+    const options = [
+      { id: 'b', name: 'Backlog' },
+      { id: 'd', name: 'Done' },
+    ] as Parameters<typeof shownItems>[1];
+    const done = (days: number) =>
+      item({ statusOptionId: 'd', closedAt: new Date(now - days * day).toISOString() });
+    const items = [
+      item({ statusOptionId: 'b', updatedAt: '2020-01-01T00:00:00Z' }),
+      ...Array.from({ length: 8 }, (_, k) => done(k + 1)),
+      ...Array.from({ length: 5 }, (_, k) => done(20 + k)),
+    ];
+    expect(items).toHaveLength(14);
+    expect(shownItems(items, options, now)).toHaveLength(9);
+    // an open item never drops out, however old
+    expect(shownItems([items[0]], options, now)).toHaveLength(1);
   });
 });
 

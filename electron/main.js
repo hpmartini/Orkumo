@@ -1,4 +1,15 @@
-import { app, BrowserWindow, BrowserView, ipcMain, Menu, dialog, shell, session } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  BrowserView,
+  ipcMain,
+  Menu,
+  dialog,
+  shell,
+  session,
+  globalShortcut,
+  screen,
+} from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { fork } from 'child_process';
@@ -55,6 +66,78 @@ const isDev = !app.isPackaged;
 const VITE_PORT = parseInt(process.env.VITE_PORT || String(PORTS.devhub), 10);
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || `http://localhost:${VITE_PORT}`;
 const SERVER_PORT = parseInt(process.env.SERVER_PORT || String(PORTS.server), 10);
+
+// Quick window (#251): a small prompt field over everything, toggled by a system-wide shortcut.
+// ORKUMO_QUICK_SHORTCUT (Electron accelerator, also from .env.local) overrides it, empty turns it off.
+const QUICK_SHORTCUT = process.env.ORKUMO_QUICK_SHORTCUT ?? 'Alt+Shift+Space';
+let quickWindow = null;
+
+function toggleQuickWindow() {
+  if (quickWindow?.isVisible()) return quickWindow.hide();
+  if (!quickWindow || quickWindow.isDestroyed()) {
+    quickWindow = new BrowserWindow({
+      width: 680,
+      height: 64,
+      frame: false,
+      resizable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      show: false,
+      backgroundColor: '#0f172a',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false,
+        preload: path.join(__dirname, 'preload.js'),
+        additionalArguments: [`--devorbit-server-port=${SERVER_PORT}`],
+      },
+    });
+    // The renderer uses the HashRouter in Electron
+    if (isDev) quickWindow.loadURL(`${VITE_DEV_SERVER_URL}#/quick`);
+    else quickWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: '/quick' });
+    quickWindow.on('blur', () => quickWindow?.hide());
+    quickWindow.on('closed', () => (quickWindow = null));
+  }
+  // On the display the pointer is on, in the upper third like Spotlight
+  const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  quickWindow.setPosition(
+    Math.round(workArea.x + (workArea.width - 680) / 2),
+    Math.round(workArea.y + workArea.height * 0.25)
+  );
+  quickWindow.show();
+  quickWindow.focus();
+}
+
+function setupQuickWindow() {
+  // Also reachable without the shortcut (tests, a future menu entry)
+  app.on('orkumo-quick-toggle', toggleQuickWindow);
+  ipcMain.on('quick-hide', () => quickWindow?.hide());
+  ipcMain.on('quick-submit', (_event, text) => {
+    quickWindow?.hide();
+    if (typeof text !== 'string' || !text.trim()) return;
+    const prompt = text.slice(0, 20000);
+    // Main window closed (macOS keeps the app running): open it again, hand over once it has loaded
+    if (!mainWindow) {
+      createWindow();
+      mainWindow.webContents.once('did-finish-load', () =>
+        // the renderer subscribes in an effect after the first paint
+        setTimeout(() => mainWindow?.webContents.send('quick-prompt', prompt), 1500)
+      );
+      return;
+    }
+    if (mainWindow.isMinimized()) mainWindow.restore();
+    mainWindow.show();
+    mainWindow.focus();
+    mainWindow.webContents.send('quick-prompt', prompt);
+  });
+  if (!QUICK_SHORTCUT) return;
+  try {
+    if (!globalShortcut.register(QUICK_SHORTCUT, toggleQuickWindow))
+      console.warn(`[Electron] Quick window shortcut ${QUICK_SHORTCUT} is taken by another app`);
+  } catch (err) {
+    console.warn(`[Electron] Quick window shortcut ${QUICK_SHORTCUT} is invalid:`, err.message);
+  }
+}
 
 /**
  * Create the main application window
@@ -130,6 +213,8 @@ function createWindow() {
 
   // Handle window close
   mainWindow.on('closed', () => {
+    // a hidden quick window must not keep the app (or the dock's activate) from seeing no window
+    quickWindow?.destroy();
     mainWindow = null;
   });
 
@@ -932,6 +1017,7 @@ app.whenReady().then(async () => {
 
     // Setup IPC handlers
     setupIpcHandlers();
+    setupQuickWindow();
 
     // Create main window
     createWindow();
@@ -941,7 +1027,8 @@ app.whenReady().then(async () => {
 
     // On macOS, recreate window when dock icon is clicked
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      // not getAllWindows(): a hidden quick window (#251) would count
+      if (!mainWindow) {
         createWindow();
       }
     });
@@ -971,6 +1058,7 @@ app.on('window-all-closed', () => {
 
 // Cleanup before quit
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll();
   stopBackendServer();
 });
 
