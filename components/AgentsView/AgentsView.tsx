@@ -126,6 +126,7 @@ import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
 import { promptWithImages } from '../../utils/composer';
+import { pollWhileVisible } from '../../utils/visiblePoll';
 import { DirectoryPicker } from './DirectoryPicker';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
@@ -227,7 +228,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     lastCompleted,
     refresh,
   } = useAgentSessions({ active: true });
-  const contexts = useAgentContexts(true);
+  const contexts = useAgentContexts(true, listed);
   // Every harness gets the PRs of its branch, not only Claude jobs that report links
   const sessions = useMemo(
     () => sessionsWithBranchPullRequests(listed, contexts),
@@ -349,9 +350,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       fetchBoard()
         .then(setBoard)
         .catch(() => {});
-    load();
-    const interval = setInterval(load, BOARD_REFRESH_MS);
-    return () => clearInterval(interval);
+    return pollWhileVisible(load, BOARD_REFRESH_MS);
   }, []);
   // Chat panes are no list rows, but their branch PRs lead to board issues just the same
   const chatsWithPrs = useMemo(
