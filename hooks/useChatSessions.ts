@@ -77,6 +77,14 @@ export function useChatSessions() {
     return summary.id;
   }, []);
 
+  /** Takes over a chat another window started (quick window, #251); false when the server has none */
+  const adopt = useCallback(async (id: string) => {
+    const summary = (await fetchChats()).find((c) => c.id === id);
+    if (!summary) return false;
+    setChats((prev) => (prev.some((c) => c.id === id) ? prev : [...prev, toSession(summary)]));
+    return true;
+  }, []);
+
   const isChat = useCallback((id: string) => chats.some((c) => c.id === id), [chats]);
 
   /** Ends the chat process (pane closed, tab closed, handed to the terminal) */
@@ -85,5 +93,5 @@ export function useChatSessions() {
     return stopChat(id).catch(() => ({ stopped: false }));
   }, []);
 
-  return { chats, loaded, open, openView, isChat, stop };
+  return { chats, loaded, open, openView, adopt, isChat, stop };
 }

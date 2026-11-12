@@ -89,6 +89,7 @@ import {
   SessionGroup,
   resumableSessionId,
   harnessLabel,
+  HARNESSES,
   sessionHarness,
   withBranchPullRequests,
   sessionsWithBranchPullRequests,
@@ -748,6 +749,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     },
     [attachPane, active, onOpenView]
   );
+  // Quick window (#251) handing over its running chat, which continues in a Chat pane here
+  const { adopt: adoptChat } = chats;
+  useEffect(
+    () =>
+      window.electronAPI?.onQuickChat?.((chatId) => {
+        onOpenView();
+        adoptChat(chatId)
+          .then((found) =>
+            found ? attach(chatId) : showHint('The quick window chat has ended', 'error')
+          )
+          .catch(() => showHint('The quick window chat has ended', 'error'));
+      }),
+    [onOpenView, adoptChat, attach, showHint]
+  );
 
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
@@ -792,13 +807,21 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Board "Agent starten" / chat history "Continue" (#280): composer prefill via router state,
   // which external links cannot set
   const prefill = active
-    ? (location.state as { dispatch?: unknown; cwd?: unknown; mode?: unknown } | null)
+    ? (location.state as {
+        dispatch?: unknown;
+        cwd?: unknown;
+        mode?: unknown;
+        harness?: unknown;
+      } | null)
     : null;
   useEffect(() => {
     if (typeof prefill?.dispatch !== 'string') return;
     setInput(prefill.dispatch);
     if (typeof prefill.cwd === 'string' && prefill.cwd) pickDispatchCwd(prefill.cwd);
     openComposer(prefill.mode === 'chat' ? 'chat' : 'task');
+    // After openComposer, which resets the pick; sending checks that the harness is installed
+    const harness = HARNESSES.find((h) => h.id === prefill.harness)?.id;
+    if (harness) setComposerHarness(harness);
     navigate('/agents', { replace: true, state: null });
   }, [prefill, navigate, openComposer, pickDispatchCwd]);
 

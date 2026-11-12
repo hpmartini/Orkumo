@@ -11,7 +11,12 @@ import {
   type ChatImportReport,
   type ChatProvider,
 } from '../../services/chatHistoryApi';
-import { PROVIDER_LABEL, continuePrompt, dayBound } from '../../utils/chatHistory';
+import {
+  PROVIDER_HARNESS,
+  PROVIDER_LABEL,
+  continuePrompt,
+  dayBound,
+} from '../../utils/chatHistory';
 import { Filter, ICON_BTN, SELECT_CLS } from '../AgentsView/PullRequestsPage';
 
 const PAGE = 200;
@@ -325,10 +330,16 @@ export const ChatHistoryPage: React.FC = () => {
                 </div>
                 <button
                   onClick={() =>
-                    navigate('/agents', { state: { dispatch: continuePrompt(open), mode: 'chat' } })
+                    navigate('/agents', {
+                      state: {
+                        dispatch: continuePrompt(open),
+                        mode: 'chat',
+                        harness: PROVIDER_HARNESS[open.provider],
+                      },
+                    })
                   }
                   className={`${ICON_BTN} border border-gray-700`}
-                  title="Opens a new Orkumo chat with this conversation as its start"
+                  title="Opens a new Orkumo chat with this conversation as its start, on the same subscription (Claude Code or Codex)"
                 >
                   <MessageSquarePlus size={12} aria-hidden /> Continue in Orkumo
                 </button>
