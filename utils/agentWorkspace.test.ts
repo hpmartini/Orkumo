@@ -23,11 +23,23 @@ import {
   browserUrl,
   openShell,
   shellCwd,
+  type DropZone,
+  type SplitNode,
   type Workspace,
 } from './agentWorkspace';
 
 const open = (...ids: string[]) => ids.reduce(openSession, EMPTY_WORKSPACE);
 const shape = (ws: Workspace) => ws.tabs.map((t) => `${t.layout}:${t.panes.join(',')}`);
+const tree = (node: SplitNode): string =>
+  'pane' in node ? node.pane : `${node.dir}(${node.children.map(tree).join(',')})`;
+const slots = (node: SplitNode): string[] =>
+  'pane' in node ? [node.id] : [node.id, ...node.children.flatMap(slots)];
+const slotOf = (node: SplitNode, pane: string): string | undefined =>
+  'pane' in node
+    ? node.pane === pane
+      ? node.id
+      : undefined
+    : node.children.map((c) => slotOf(c, pane)).find(Boolean);
 const activeTab = (ws: Workspace) => ws.tabs.find((t) => t.id === ws.activeTabId);
 
 const rect = { left: 100, top: 50, width: 200, height: 100 };
@@ -148,15 +160,49 @@ describe('splitInto', () => {
     const ws = splitInto(splitInto(open('a', 'b', 'c'), 'b', 'a', 'right'), 'b', 'c', 'right');
     expect(shape(ws)).toEqual(['single:a', 'columns:c,b']);
   });
-  it('mixed split directions fall back to grid at three panes', () => {
+  it('#212 AC-1: a pane dropped below A splits only A; B keeps the full height', () => {
     let ws = splitInto(open('a', 'b', 'c'), 'b', 'a', 'right');
+    const before = ws.tabs[0].root;
     ws = splitInto(ws, 'c', 'a', 'bottom');
-    expect(shape(ws)).toEqual(['grid:a,c,b']);
+    expect(shape(ws)).toEqual(['custom:a,c,b']);
+    expect(tree(ws.tabs[0].root)).toBe('row(column(a,c),b)');
+    // B's slot and the root's are untouched: their panels stay mounted and keep their size
+    expect(slotOf(ws.tabs[0].root, 'b')).toBe(slotOf(before, 'b'));
+    expect(ws.tabs[0].root.id).toBe(before.id);
+    // the new node sits in A's old slot
+    expect((ws.tabs[0].root as { children: SplitNode[] }).children[0].id).toBe(slotOf(before, 'a'));
   });
-  it('same direction keeps columns at three panes', () => {
-    let ws = splitInto(open('a', 'b', 'c'), 'b', 'a', 'right');
-    ws = splitInto(ws, 'c', 'b', 'right');
-    expect(shape(ws)).toEqual(['columns:a,b,c']);
+  it('#212 AC-2: every edge splits only the target, on the right side of it', () => {
+    const base = splitInto(open('a', 'b', 'c'), 'b', 'a', 'right');
+    const drop = (zone: DropZone) => tree(splitInto(base, 'c', 'b', zone).tabs[0].root);
+    expect(drop('left')).toBe('row(a,row(c,b))');
+    expect(drop('right')).toBe('row(a,row(b,c))');
+    expect(drop('top')).toBe('row(a,column(c,b))');
+    expect(drop('bottom')).toBe('row(a,column(b,c))');
+  });
+  it('#212 AC-2: slot ids stay unique over many splits', () => {
+    let ws = open('a', 'b', 'c', 'd', 'e');
+    ws = splitInto(ws, 'b', 'a', 'right');
+    ws = splitInto(ws, 'c', 'a', 'bottom');
+    ws = splitInto(ws, 'd', 'c', 'right');
+    ws = splitInto(ws, 'e', 'b', 'top');
+    expect(tree(ws.tabs[0].root)).toBe('row(column(a,row(c,d)),column(e,b))');
+    const ids = slots(ws.tabs[0].root);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+  it('#212 AC-3: closing or detaching a pane collapses its parent, the rest stays', () => {
+    let ws = splitInto(open('a', 'b', 'c', 'd'), 'b', 'a', 'right');
+    ws = splitInto(ws, 'c', 'a', 'bottom');
+    ws = splitInto(ws, 'd', 'c', 'right');
+    const before = ws.tabs[0].root;
+    const closed = closeSession(ws, 'd').tabs[0].root;
+    expect(tree(closed)).toBe('row(column(a,c),b)');
+    expect(slotOf(closed, 'a')).toBe(slotOf(before, 'a'));
+    expect(slotOf(closed, 'b')).toBe(slotOf(before, 'b'));
+    const detached = detachSession(ws, 'a');
+    expect(detached.tabs.map((t) => tree(t.root))).toEqual(['row(row(c,d),b)', 'a']);
+    expect(slotOf(detached.tabs[0].root, 'b')).toBe(slotOf(before, 'b'));
+    expect(closeSession(closeSession(open('a'), 'a'), 'a').tabs).toEqual([]);
   });
   it('reorders inside one tab', () => {
     const ws = splitInto(splitInto(open('a', 'b'), 'b', 'a', 'right'), 'b', 'a', 'left');
@@ -215,6 +261,21 @@ describe('moveTab / setTabLayout / focus', () => {
     expect(setTabLayout(solo, 't1', 'grid')).toBe(solo);
     const split = splitInto(open('a', 'b'), 'b', 'a', 'right');
     expect(shape(setTabLayout(split, 't1', 'rows'))).toEqual(['rows:a,b']);
+    // #212 AC-7: the buttons lay all panes out flat again, whatever the tree was
+    let nested = splitInto(open('a', 'b', 'c', 'd', 'e'), 'b', 'a', 'right');
+    for (const id of ['c', 'd', 'e']) nested = splitInto(nested, id, 'a', 'bottom');
+    const flat = (layout: 'columns' | 'rows' | 'grid') => {
+      const tab = setTabLayout(nested, 't1', layout).tabs[0];
+      expect(tab.layout).toBe(layout);
+      return tree(tab.root);
+    };
+    expect(tree(nested.tabs[0].root)).toBe('row(column(column(column(a,e),d),c),b)');
+    expect(flat('columns')).toBe('row(a,e,d,c,b)');
+    expect(flat('rows')).toBe('column(a,e,d,c,b)');
+    expect(flat('grid')).toBe('column(row(a,e),row(d,c),b)');
+    expect(setTabLayout(nested, 't1', 'grid').tabs[0].activeSessionId).toBe(
+      nested.tabs[0].activeSessionId
+    );
     expect(setTabLayout(split, 't1', 'single')).toBe(split);
   });
   it('focusSession ignores unknown ids; activateTab switches tabs', () => {
@@ -274,6 +335,59 @@ describe('migrateWorkspace', () => {
     expect(fixed.tabs[0].activeSessionId).toBe('a');
     expect(fixed.activeTabId).toBe('y');
   });
+  it('#212 AC-4: loads the flat shape before the split tree without losing a pane', () => {
+    // as written by the app before #212 (localStorage devOrbitAgentWorkspace.v2)
+    const stored = {
+      tabs: [
+        { id: 't1', panes: ['a'], layout: 'single', activeSessionId: 'a' },
+        {
+          id: 't4',
+          panes: ['b', 'browser:1:http://localhost:3000/'],
+          layout: 'columns',
+          activeSessionId: 'b',
+        },
+        { id: 't2', panes: ['c', 'd', 'shell:1:/tmp'], layout: 'rows', activeSessionId: 'd' },
+        { id: 't7', panes: ['e', 'f', 'g', 'h', 'i'], layout: 'grid', activeSessionId: 'h' },
+      ],
+      activeTabId: 't2',
+    };
+    const ws = migrateWorkspace(stored);
+    expect(ws.tabs.map((t) => [t.id, t.panes, t.layout, t.activeSessionId])).toEqual(
+      stored.tabs.map((t) => [t.id, t.panes, t.layout, t.activeSessionId])
+    );
+    expect(ws.activeTabId).toBe('t2');
+    expect(ws.tabs.map((t) => tree(t.root))).toEqual([
+      'a',
+      'row(b,browser:1:http://localhost:3000/)',
+      'column(c,d,shell:1:/tmp)',
+      'column(row(e,f),row(g,h),i)',
+    ]);
+    for (const t of ws.tabs) expect(new Set(slots(t.root)).size).toBe(slots(t.root).length);
+  });
+  it('#212 AC-4: repairs a damaged tree instead of dropping the tab', () => {
+    const ws = migrateWorkspace({
+      tabs: [
+        {
+          id: 't1',
+          root: {
+            id: 's1',
+            dir: 'row',
+            children: [
+              { id: 's1', pane: 'a' },
+              { dir: 'column', children: [{ pane: 'b' }, { pane: 'a' }, 'junk'] },
+              { id: 's9', dir: 'diagonal', children: [{ id: 's8', pane: 'lost' }] },
+            ],
+          },
+          activeSessionId: 'b',
+        },
+        { id: 't2', root: { dir: 'row', children: [] }, panes: ['c', 'd'], layout: 'rows' },
+      ],
+      activeTabId: 't1',
+    });
+    expect(ws.tabs.map((t) => tree(t.root))).toEqual(['row(a,b)', 'column(c,d)']);
+    expect(ws.tabs[0].activeSessionId).toBe('b');
+    expect(new Set(slots(ws.tabs[0].root)).size).toBe(3);
+  });
 });
 
 describe('openBrowser', () => {
@@ -282,7 +396,7 @@ describe('openBrowser', () => {
     const ws = openBrowser(splitInto(open('a', 'b'), 'b', 'a', 'right'), 'a', url);
     const tab = activeTab(ws)!;
     expect(tab.panes.map((p) => browserUrl(p) ?? p)).toEqual(['a', url, 'b']);
-    expect(tab.layout).toBe('columns');
+    expect(tab.layout).toBe('custom');
     expect(browserUrl(tab.activeSessionId)).toBe(url);
   });
 
@@ -353,5 +467,58 @@ describe('openShell (#207)', () => {
     expect(shellCwd('shell:1:')).toBeNull();
     expect(shellCwd('browser:1:https://a.b')).toBeNull();
     expect(shellCwd('shell:3:/a/b:c')).toBe('/a/b:c');
+  });
+});
+
+// Independent review of #212: random action sequences never leave a broken workspace
+describe('workspace invariants (#212 review)', () => {
+  const nodeOk = (node: SplitNode): boolean =>
+    'pane' in node || (node.children.length >= 2 && node.children.every(nodeOk));
+  const leafPanes = (node: SplitNode): string[] =>
+    'pane' in node ? [node.pane] : node.children.flatMap(leafPanes);
+  const panes = ['a', 'b', 'c', 'd', 'e', 'browser:1:http://x/', 'shell:1:/tmp'];
+  const zones: DropZone[] = ['left', 'right', 'top', 'bottom'];
+
+  it('keeps trees well-formed, ids unique, focus valid and survives a storage round trip', () => {
+    for (let seed = 1; seed <= 40; seed++) {
+      let state = seed;
+      const next = (n: number) => {
+        state = (state * 1664525 + 1013904223) >>> 0;
+        return Math.floor((state / 2 ** 32) * n);
+      };
+      let ws = EMPTY_WORKSPACE;
+      for (let step = 0; step < 40; step++) {
+        const [p, q] = [panes[next(panes.length)], panes[next(panes.length)]];
+        const tabId = ws.tabs[next(ws.tabs.length || 1)]?.id ?? 'none';
+        const op = next(8);
+        if (op === 0) ws = openSession(ws, p);
+        else if (op <= 3) ws = splitInto(ws, p, q, zones[next(4)]);
+        else if (op === 4) ws = closeSession(ws, p);
+        else if (op === 5) ws = detachSession(ws, p);
+        else if (op === 6)
+          ws = setTabLayout(ws, tabId, (['columns', 'rows', 'grid'] as const)[next(3)]);
+        else ws = pruneMissing(ws, new Set(panes.filter(() => next(5) > 0)));
+
+        const all = ws.tabs.flatMap((t) => t.panes);
+        expect(new Set(all).size).toBe(all.length);
+        for (const t of ws.tabs) {
+          expect(nodeOk(t.root)).toBe(true);
+          expect(leafPanes(t.root)).toEqual(t.panes);
+          expect(new Set(slots(t.root)).size).toBe(slots(t.root).length);
+          expect(t.panes).toContain(t.activeSessionId);
+        }
+        expect(ws.tabs.length ? ws.tabs.map((t) => t.id) : [null]).toContain(ws.activeTabId);
+        expect(migrateWorkspace(JSON.parse(JSON.stringify(ws)))).toEqual(ws);
+      }
+    }
+  });
+
+  it('a version before #212 reads the stored tree back without losing a pane', () => {
+    // the old reader took `panes` and fell back to columns for a layout it did not know
+    const ws = splitInto(splitInto(open('a', 'b', 'c'), 'b', 'a', 'right'), 'c', 'a', 'bottom');
+    const stored = JSON.parse(JSON.stringify(ws));
+    expect(stored.tabs[0].layout).toBe('custom');
+    const { root: _root, ...flat } = stored.tabs[0];
+    expect(migrateWorkspace({ ...stored, tabs: [flat] }).tabs[0].panes).toEqual(['a', 'c', 'b']);
   });
 });
