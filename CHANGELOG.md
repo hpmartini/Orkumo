@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Fixed projects (#253): a project group kept via its menu ("Keep as fixed project") or added by directory ("Add fixed project…" in the command palette) stays in the rail's Project grouping without sessions; sessions of its worktrees land in it
 - "Neues Issue": `#` in the empty title lists the repositories, typing filters, Enter picks one (#228)
 
 ### Changed
