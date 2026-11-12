@@ -69,16 +69,30 @@ export function positionForZone(zone: DropZone): InsertPosition {
 }
 
 // ---------------------------------------------------------------------------
-// Workspace model: tabs hold panes (session ids). A session lives in at most
-// one tab; splitting moves a session into another tab's panes, never adds a tab.
+// Workspace model: tabs hold panes (session ids) in a split tree. A session lives in at
+// most one tab; splitting moves a session into another tab's tree, never adds a tab.
 // ---------------------------------------------------------------------------
 
 export type PaneLayout = 'single' | 'columns' | 'rows' | 'grid';
+/** What a tab's tree amounts to; `custom` is any nesting the layout buttons do not produce */
+export type TabLayout = PaneLayout | 'custom';
+
+/**
+ * Split tree (#212): a leaf is a pane, a node lays its children out side by side (`row`) or
+ * stacked (`column`). `id` names the slot, unique within the tab and stable while the tree is
+ * rearranged, so the rendering keeps panels (and their sizes) that a change does not touch.
+ */
+export type SplitNode =
+  | { id: string; pane: string }
+  | { id: string; dir: 'row' | 'column'; children: SplitNode[] };
 
 export interface WorkspaceTab {
   id: string;
+  root: SplitNode;
+  /** Leaves of `root` in reading order (derived, also what older versions read back) */
   panes: string[];
-  layout: PaneLayout;
+  /** Derived from `root` */
+  layout: TabLayout;
   activeSessionId: string;
 }
 
@@ -88,6 +102,94 @@ export interface Workspace {
 }
 
 export const EMPTY_WORKSPACE: Workspace = { tabs: [], activeTabId: null };
+
+const isLeaf = (node: SplitNode): node is { id: string; pane: string } => 'pane' in node;
+
+export const leaves = (node: SplitNode): string[] =>
+  isLeaf(node) ? [node.pane] : node.children.flatMap(leaves);
+
+const slotIds = (node: SplitNode): string[] =>
+  isLeaf(node) ? [node.id] : [node.id, ...node.children.flatMap(slotIds)];
+
+/** `count` slot ids not used in `root` */
+function freshIds(root: SplitNode | null, count: number): string[] {
+  const used = new Set(root ? slotIds(root) : []);
+  const ids: string[] = [];
+  for (let n = 1; ids.length < count; n++) {
+    if (!used.has(`s${n}`)) ids.push(`s${n}`);
+  }
+  return ids;
+}
+
+const isLeafRow = (node: SplitNode) =>
+  !isLeaf(node) && node.dir === 'row' && node.children.length === 2 && node.children.every(isLeaf);
+
+function layoutOf(root: SplitNode): TabLayout {
+  if (isLeaf(root)) return 'single';
+  if (root.children.every(isLeaf)) return root.dir === 'row' ? 'columns' : 'rows';
+  const last = root.children[root.children.length - 1];
+  const grid =
+    root.dir === 'column' &&
+    root.children.slice(0, -1).every(isLeafRow) &&
+    (isLeaf(last) || isLeafRow(last));
+  return grid ? 'grid' : 'custom';
+}
+
+/** All panes flat: side by side, stacked, or two per row (an odd last pane spans the width) */
+function flatRoot(panes: string[], layout: PaneLayout): SplitNode {
+  const ids = freshIds(null, panes.length * 2);
+  const leaf = (pane: string) => ({ id: ids.shift()!, pane });
+  if (panes.length === 1) return leaf(panes[0]);
+  if (layout !== 'grid' || panes.length === 2) {
+    return {
+      id: ids.shift()!,
+      dir: layout === 'rows' ? 'column' : 'row',
+      children: panes.map(leaf),
+    };
+  }
+  const rows: SplitNode[] = [];
+  for (let i = 0; i < panes.length; i += 2) {
+    const pair = panes.slice(i, i + 2).map(leaf);
+    rows.push(pair.length === 1 ? pair[0] : { id: ids.shift()!, dir: 'row', children: pair });
+  }
+  return { id: ids.shift()!, dir: 'column', children: rows };
+}
+
+/**
+ * `root` without the panes `keep` rejects. A node left with one child collapses into it: the
+ * child takes over the node's slot, so the sibling fills the freed space and nothing else moves.
+ */
+export function prunedRoot(root: SplitNode, keep: (pane: string) => boolean): SplitNode | null {
+  if (isLeaf(root)) return keep(root.pane) ? root : null;
+  const children = root.children
+    .map((child) => prunedRoot(child, keep))
+    .filter((child): child is SplitNode => child !== null);
+  if (children.length === root.children.length && children.every((c, i) => c === root.children[i]))
+    return root;
+  if (children.length === 0) return null;
+  return children.length === 1 ? { ...children[0], id: root.id } : { ...root, children };
+}
+
+const mapLeaf = (
+  root: SplitNode,
+  pane: string,
+  fn: (leaf: { id: string; pane: string }) => SplitNode
+): SplitNode =>
+  isLeaf(root)
+    ? root.pane === pane
+      ? fn(root)
+      : root
+    : { ...root, children: root.children.map((child) => mapLeaf(child, pane, fn)) };
+
+const makeTab = (id: string, root: SplitNode, activeSessionId: string): WorkspaceTab => ({
+  id,
+  root,
+  panes: leaves(root),
+  layout: layoutOf(root),
+  activeSessionId,
+});
+
+const soloTab = (id: string, pane: string) => makeTab(id, { id: 's1', pane }, pane);
 
 const tabIndexOf = (ws: Workspace, sessionId: string) =>
   ws.tabs.findIndex((t) => t.panes.includes(sessionId));
@@ -99,24 +201,19 @@ function nextTabId(tabs: WorkspaceTab[]): string {
   return `t${n}`;
 }
 
-/** single iff one pane; never single for 2+ */
-function fitLayout(layout: PaneLayout, count: number): PaneLayout {
-  if (count <= 1) return 'single';
-  return layout === 'single' ? 'columns' : layout;
-}
-
 /** Remove a session from its tab; an emptied tab vanishes and the active tab / pane are re-picked */
 function removeSession(ws: Workspace, sessionId: string): Workspace {
   const index = tabIndexOf(ws, sessionId);
   if (index < 0) return ws;
   const tab = ws.tabs[index];
-  const panes = tab.panes.filter((p) => p !== sessionId);
-  if (panes.length === 0) {
+  const root = prunedRoot(tab.root, (pane) => pane !== sessionId);
+  if (!root) {
     const tabs = ws.tabs.filter((t) => t.id !== tab.id);
     const activeTabId =
       ws.activeTabId === tab.id ? ((tabs[index] ?? tabs[index - 1])?.id ?? null) : ws.activeTabId;
     return { tabs, activeTabId };
   }
+  const panes = leaves(root);
   const paneIndex = tab.panes.indexOf(sessionId);
   const activeSessionId =
     tab.activeSessionId === sessionId
@@ -124,9 +221,7 @@ function removeSession(ws: Workspace, sessionId: string): Workspace {
       : tab.activeSessionId;
   return {
     ...ws,
-    tabs: ws.tabs.map((t) =>
-      t === tab ? { ...t, panes, activeSessionId, layout: fitLayout(t.layout, panes.length) } : t
-    ),
+    tabs: ws.tabs.map((t) => (t === tab ? makeTab(t.id, root, activeSessionId) : t)),
   };
 }
 
@@ -145,10 +240,7 @@ export function focusSession(ws: Workspace, sessionId: string): Workspace {
 export function openSession(ws: Workspace, sessionId: string): Workspace {
   if (tabIndexOf(ws, sessionId) >= 0) return focusSession(ws, sessionId);
   const id = nextTabId(ws.tabs);
-  return {
-    tabs: [...ws.tabs, { id, panes: [sessionId], layout: 'single', activeSessionId: sessionId }],
-    activeTabId: id,
-  };
+  return { tabs: [...ws.tabs, soloTab(id, sessionId)], activeTabId: id };
 }
 
 export function activateTab(ws: Workspace, tabId: string): Workspace {
@@ -166,8 +258,9 @@ export function closeTab(ws: Workspace, tabId: string): Workspace {
 }
 
 /**
- * Move `sessionId` next to `targetId` on the zone's side, inside the target's tab.
- * The session leaves its old tab. No-op for self / unknown target.
+ * Split the pane `targetId` and put `sessionId` on the zone's side of it. Only the target gives
+ * up space (half of it); every other pane keeps its place. The session leaves its old tab.
+ * No-op for self / unknown target.
  */
 export function splitInto(
   ws: Workspace,
@@ -176,18 +269,23 @@ export function splitInto(
   zone: DropZone
 ): Workspace {
   if (sessionId === targetId || tabIndexOf(ws, targetId) < 0) return ws;
-  const orientation = layoutForZone(zone);
   const without = removeSession(ws, sessionId);
   const targetTab = without.tabs[tabIndexOf(without, targetId)];
-  const panes = targetTab.panes.filter((p) => p !== sessionId);
-  panes.splice(panes.indexOf(targetId) + (positionForZone(zone) === 'after' ? 1 : 0), 0, sessionId);
-  // 2 panes follow the drop direction; more keep it only when it matches, else grid
-  const layout: PaneLayout =
-    panes.length === 2 || targetTab.layout === orientation ? orientation : 'grid';
+  const [a, b] = freshIds(targetTab.root, 2);
+  const root = mapLeaf(targetTab.root, targetId, (leaf) => {
+    const pair = [
+      { id: a, pane: targetId },
+      { id: b, pane: sessionId },
+    ];
+    // The new node takes the target's slot: its neighbours keep their panels
+    return {
+      id: leaf.id,
+      dir: layoutForZone(zone) === 'columns' ? 'row' : 'column',
+      children: positionForZone(zone) === 'after' ? pair : pair.reverse(),
+    };
+  });
   return {
-    tabs: without.tabs.map((t) =>
-      t.id === targetTab.id ? { ...t, panes, layout, activeSessionId: sessionId } : t
-    ),
+    tabs: without.tabs.map((t) => (t.id === targetTab.id ? makeTab(t.id, root, sessionId) : t)),
     activeTabId: targetTab.id,
   };
 }
@@ -200,12 +298,7 @@ export function detachSession(ws: Workspace, sessionId: string): Workspace {
   const without = removeSession(ws, sessionId);
   const id = nextTabId(without.tabs);
   const tabs = [...without.tabs];
-  tabs.splice(index + 1, 0, {
-    id,
-    panes: [sessionId],
-    layout: 'single',
-    activeSessionId: sessionId,
-  });
+  tabs.splice(index + 1, 0, soloTab(id, sessionId));
   return { tabs, activeTabId: id };
 }
 
@@ -228,11 +321,15 @@ export function moveTab(
   return { ...ws, tabs };
 }
 
-/** Manual layout override; ignored for tabs with fewer than two panes */
+/** Rearrange all panes of a tab flat (layout buttons); ignored for tabs with fewer than two panes */
 export function setTabLayout(ws: Workspace, tabId: string, layout: PaneLayout): Workspace {
   const tab = ws.tabs.find((t) => t.id === tabId);
   if (!tab || tab.panes.length < 2 || layout === 'single' || tab.layout === layout) return ws;
-  return { ...ws, tabs: ws.tabs.map((t) => (t === tab ? { ...t, layout } : t)) };
+  const root = flatRoot(tab.panes, layout);
+  return {
+    ...ws,
+    tabs: ws.tabs.map((t) => (t === tab ? makeTab(t.id, root, t.activeSessionId) : t)),
+  };
 }
 
 /** Drop sessions that no longer exist (call only once the session list has loaded) */
@@ -270,7 +367,11 @@ export function openBrowser(ws: Workspace, fromId: string, url: string): Workspa
   return {
     tabs: ws.tabs.map((t) =>
       t === tab
-        ? { ...t, panes: t.panes.map((p) => (p === existing ? id : p)), activeSessionId: id }
+        ? makeTab(
+            t.id,
+            mapLeaf(t.root, existing, (leaf) => ({ ...leaf, pane: id })),
+            id
+          )
         : t
     ),
     activeTabId: tab.id,
@@ -307,42 +408,73 @@ const isLayout = (v: unknown): v is PaneLayout =>
   v === 'single' || v === 'columns' || v === 'rows' || v === 'grid';
 
 /**
- * Normalise anything read from storage: the current `{tabs, activeTabId}` shape, the
- * legacy `{openIds, activeId}` shape (one tab per id), or garbage (empty workspace).
- * A duplicate session keeps its first pane; malformed tabs are dropped.
+ * Normalise anything read from storage: the current shape (tabs with a split tree), the flat
+ * shape before #212 (`panes` + `layout`), the legacy `{openIds, activeId}` shape (one tab per
+ * id), or garbage (empty workspace). A duplicate session keeps its first pane; malformed tabs
+ * and tree parts are dropped.
  */
 export function migrateWorkspace(raw: unknown): Workspace {
   if (!raw || typeof raw !== 'object') return EMPTY_WORKSPACE;
   const data = raw as Record<string, unknown>;
   const seen = new Set<string>();
-  const sessionIds = (v: unknown): string[] =>
-    (Array.isArray(v) ? v : []).filter((x): x is string => {
-      if (typeof x !== 'string' || !x || seen.has(x)) return false;
-      seen.add(x);
-      return true;
-    });
+  const fresh = (x: unknown): x is string => {
+    if (typeof x !== 'string' || !x || seen.has(x)) return false;
+    seen.add(x);
+    return true;
+  };
+  const sessionIds = (v: unknown): string[] => (Array.isArray(v) ? v : []).filter(fresh);
+  // Stored slot ids are kept while unique in their tab; missing or doubled ones are replaced
+  let slots = new Set<string>();
+  const slotId = (v: unknown): string => {
+    if (typeof v !== 'string' || !v || slots.has(v)) return '';
+    slots.add(v);
+    return v;
+  };
+  const parse = (v: unknown): SplitNode | null => {
+    if (!v || typeof v !== 'object') return null;
+    const node = v as Record<string, unknown>;
+    if ('pane' in node) return fresh(node.pane) ? { id: slotId(node.id), pane: node.pane } : null;
+    if ((node.dir !== 'row' && node.dir !== 'column') || !Array.isArray(node.children)) return null;
+    const children = node.children.map(parse).filter((c): c is SplitNode => c !== null);
+    if (children.length < 2) return children[0] ?? null;
+    return { id: slotId(node.id), dir: node.dir, children };
+  };
+  const withIds = (root: SplitNode): SplitNode => {
+    const spare = freshIds(root, slotIds(root).length);
+    const fill = (node: SplitNode): SplitNode => {
+      const id = node.id || spare.shift()!;
+      return isLeaf(node) ? { ...node, id } : { ...node, id, children: node.children.map(fill) };
+    };
+    return fill(root);
+  };
 
   const tabs: WorkspaceTab[] = [];
   let activeTabId: string | null = null;
   if (Array.isArray(data.tabs)) {
     for (const entry of data.tabs as Record<string, unknown>[]) {
-      const panes = sessionIds(entry?.panes);
-      if (panes.length === 0 || typeof entry.id !== 'string' || tabs.some((t) => t.id === entry.id))
-        continue;
-      tabs.push({
-        id: entry.id,
-        panes,
-        layout: fitLayout(isLayout(entry.layout) ? entry.layout : 'columns', panes.length),
-        activeSessionId: panes.includes(entry.activeSessionId as string)
-          ? (entry.activeSessionId as string)
-          : panes[0],
-      });
+      if (typeof entry?.id !== 'string' || tabs.some((t) => t.id === entry.id)) continue;
+      slots = new Set();
+      let root = parse(entry.root);
+      if (root) root = withIds(root);
+      else {
+        const panes = sessionIds(entry.panes);
+        if (panes.length === 0) continue;
+        root = flatRoot(panes, isLayout(entry.layout) ? entry.layout : 'columns');
+      }
+      const panes = leaves(root);
+      tabs.push(
+        makeTab(
+          entry.id,
+          root,
+          panes.includes(entry.activeSessionId as string)
+            ? (entry.activeSessionId as string)
+            : panes[0]
+        )
+      );
     }
     if (typeof data.activeTabId === 'string') activeTabId = data.activeTabId;
   } else if (Array.isArray(data.openIds)) {
-    sessionIds(data.openIds).forEach((id, i) =>
-      tabs.push({ id: `t${i + 1}`, panes: [id], layout: 'single', activeSessionId: id })
-    );
+    sessionIds(data.openIds).forEach((id, i) => tabs.push(soloTab(`t${i + 1}`, id)));
     activeTabId = tabs.find((t) => t.panes[0] === data.activeId)?.id ?? null;
   }
   if (!tabs.some((t) => t.id === activeTabId)) activeTabId = tabs[tabs.length - 1]?.id ?? null;

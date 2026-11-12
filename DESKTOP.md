@@ -106,6 +106,10 @@ When running in development mode (`bun run electron:dev`):
 - Backend server runs with live reloading
 - Logs are printed to the terminal
 
+### Quick window
+
+`Alt+Shift+Space` (system-wide, while Orkumo runs) toggles a small prompt field above all windows. Enter brings Orkumo to the front and opens the chat composer with the text, Escape or a click elsewhere hides it. Set `ORKUMO_QUICK_SHORTCUT` (an [Electron accelerator](https://www.electronjs.org/docs/latest/api/accelerator), also in `.env.local`) for another shortcut, or to nothing to turn it off. A shortcut another app already holds is logged and not taken.
+
 ### Updates
 
 Five seconds after start the app checks [GitHub Releases](https://github.com/hpmartini/Orkumo/releases) (`electron/updater.js`, #126). What happens next depends on the installation:

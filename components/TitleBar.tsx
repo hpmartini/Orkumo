@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Rocket, Search } from 'lucide-react';
+import { Bot, Rocket, Search } from 'lucide-react';
 import { ContextTabs } from './ContextTabs';
 import { isElectron } from '../utils/apiConfig';
 import { PALETTE_SHORTCUT } from './CommandPalette/CommandPaletteProvider';
+
+/** Fired on `window` to open the main agent dialog from anywhere */
+export const MAIN_AGENT_EVENT = 'orkumo:main-agent';
 
 type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
   /** The rocket opens the global dashboard (all contexts) */
@@ -82,6 +85,17 @@ export const TitleBar: React.FC<TitleBarProps> = ({ onOpenDashboard, onOpenPalet
       </div>
       <div className="flex-1 h-full" />
 
+      {/* Main agent (#252): the dialog lives in AgentsView, which is mounted in every view */}
+      <button
+        onClick={() => window.dispatchEvent(new Event(MAIN_AGENT_EVENT))}
+        className="mr-2 flex items-center gap-1.5 shrink-0 px-2 py-1 rounded border border-gray-700 bg-gray-950 text-xs text-gray-400 hover:text-white hover:border-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+        style={{ WebkitAppRegion: 'no-drag' } as React.CSSProperties}
+        title="Main agent"
+        aria-label="Open main agent"
+      >
+        <Bot size={13} aria-hidden />
+        <span className="hidden sm:inline">Main</span>
+      </button>
       <button
         onClick={onOpenPalette}
         className="mr-2 flex items-center gap-2 shrink-0 px-2 py-1 rounded border border-gray-700 bg-gray-950 text-xs text-gray-400 hover:text-white hover:border-gray-600 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"

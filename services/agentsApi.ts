@@ -95,8 +95,13 @@ export async function fetchAgentsRawJson(
   return response.text();
 }
 
-export async function fetchAgentContexts(): Promise<Record<string, AgentContext>> {
-  const { contexts } = await request<{ contexts: Record<string, AgentContext> }>('/agents/context');
+/** `fresh`: wait for a recompute (after a session changed) instead of the server's cached result */
+export async function fetchAgentContexts({ fresh = false } = {}): Promise<
+  Record<string, AgentContext>
+> {
+  const { contexts } = await request<{ contexts: Record<string, AgentContext> }>(
+    `/agents/context${fresh ? '?fresh=1' : ''}`
+  );
   return contexts;
 }
 
