@@ -9,6 +9,7 @@ import { renderTerminalScreen } from '../../utils/terminalScreen';
 import { useDialogA11y } from '../CommandPalette/useDialogA11y';
 import { appOriginLabel, sessionHarness, stateGlyph } from '../../utils/agentSessions';
 import { openInSystemBrowser } from '../../utils/links';
+import { pollWhileVisible } from '../../utils/visiblePoll';
 
 interface PeekPanelProps {
   session: AgentSession;
@@ -69,9 +70,7 @@ export const PeekPanel: React.FC<PeekPanelProps> = ({ session, onClose, onAttach
 
   useEffect(() => {
     setLoading(true);
-    load();
-    const interval = setInterval(load, 4000);
-    return () => clearInterval(interval);
+    return pollWhileVisible(load, 4000);
   }, [load]);
 
   useEffect(() => {
