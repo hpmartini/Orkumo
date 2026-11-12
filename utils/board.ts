@@ -80,7 +80,11 @@ export function withinDoneWindow(item: BoardItem, now: number, days = DONE_WINDO
 }
 
 /** The items the grid shows: a Done item outside the window is hidden, so header and lane counts leave it out too */
-export function shownItems(items: BoardItem[], options: BoardStatusOption[], now: number): BoardItem[] {
+export function shownItems(
+  items: BoardItem[],
+  options: BoardStatusOption[],
+  now: number
+): BoardItem[] {
   const done = new Set(options.filter(isDoneOption).map((o) => o.id));
   return items.filter(
     (i) => !(i.statusOptionId && done.has(i.statusOptionId)) || withinDoneWindow(i, now)

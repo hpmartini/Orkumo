@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- "Neues Issue": `#` in the empty title lists the repositories, typing filters, Enter picks one (#228)
+
 ### Changed
 
 - Agents workspace tiling works like Ghostty (#212): a pane dropped on the edge of another pane splits only that pane, every other pane keeps its place and size (before: a 2-column grid with empty cells). Saved workspaces are migrated
