@@ -50,6 +50,7 @@ import {
 } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
 import * as issueListService from './services/issueListService.js';
+import { createChatHistory } from './services/chatHistoryService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowProvider from './services/workflowProvider.js';
 import { ISSUE_URL_RE } from '../utils/issueUrl.js';
@@ -2104,6 +2105,58 @@ app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
       boardService.clearCache();
     }
     res.json(settingsService.updateBoardSettings(req.body));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// ============================================
+// Chat history (#280): imported claude.ai / ChatGPT data exports, local only
+// ============================================
+
+const chatHistory = createChatHistory();
+// Read the store now, in the background: the first search after a start should not wait for it
+chatHistory.list({ limit: 1 }).catch(() => {});
+const epochMs = z.coerce.number().int().nonnegative().optional();
+const chatHistoryQuerySchema = z.object({
+  q: z.string().max(200).optional(),
+  provider: z.enum(['claude', 'chatgpt']).optional(),
+  project: z.string().max(200).optional(),
+  topic: z.string().max(200).optional(),
+  from: epochMs,
+  to: epochMs,
+  limit: z.coerce.number().int().min(1).max(100_000).optional(),
+});
+
+// Reads of the local store: search asks per keystroke, so only the general API limit applies
+app.get('/api/chat-history', async (req, res) => {
+  const query = chatHistoryQuerySchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Invalid chat history query' });
+  try {
+    res.json(await chatHistory.list(query.data));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.get('/api/chat-history/conversation', async (req, res) => {
+  try {
+    const conversation = await chatHistory.get(String(req.query.id ?? ''));
+    if (!conversation) return res.status(404).json({ error: 'Unknown conversation' });
+    res.json(conversation);
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// The path names a folder on this machine, so only this machine may send it. The service
+// opens nothing but conversations*.json / projects.json below it and answers with counts.
+app.post('/api/chat-history/import', agentLimiter, async (req, res) => {
+  if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
+  const body = z.object({ path: z.string().min(1).max(2000) }).safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'Invalid import path' });
+  try {
+    res.json(await chatHistory.importFrom(body.data.path));
   } catch (error) {
     sendAgentError(res, error);
   }

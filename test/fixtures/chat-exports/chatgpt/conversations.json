@@ -1,0 +1,353 @@
+[
+  {
+    "title": "Brot ohne Hefe",
+    "create_time": 1767600000.0,
+    "update_time": 1767600600.0,
+    "mapping": {
+      "root": {
+        "id": "root",
+        "message": null,
+        "parent": null,
+        "children": ["sys"]
+      },
+      "sys": {
+        "id": "sys",
+        "message": {
+          "id": "sys",
+          "author": {
+            "role": "system",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767600000.0,
+          "update_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": [""]
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {
+            "is_visually_hidden_from_conversation": true
+          },
+          "recipient": "all",
+          "channel": null
+        },
+        "parent": "root",
+        "children": ["u1"]
+      },
+      "u1": {
+        "id": "u1",
+        "message": {
+          "id": "u1",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767600001.0,
+          "update_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": ["Geht Brot auch ohne Hefe?"]
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {},
+          "recipient": "all",
+          "channel": null
+        },
+        "parent": "sys",
+        "children": ["a1", "a2"]
+      },
+      "a1": {
+        "id": "a1",
+        "message": {
+          "id": "a1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767600002.0,
+          "update_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": ["Verworfene Fassung mit Natron"]
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {},
+          "recipient": "all",
+          "channel": null
+        },
+        "parent": "u1",
+        "children": []
+      },
+      "a2": {
+        "id": "a2",
+        "message": {
+          "id": "a2",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767600003.0,
+          "update_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": ["Ja, mit Backpulver oder Sauerteig; Stichwort Sodabrot."]
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {},
+          "recipient": "all",
+          "channel": null
+        },
+        "parent": "u1",
+        "children": []
+      }
+    },
+    "moderation_results": [],
+    "current_node": "a2",
+    "plugin_ids": null,
+    "conversation_id": "33333333-0000-4000-8000-000000000001",
+    "conversation_template_id": null,
+    "gizmo_id": null,
+    "is_archived": false,
+    "safe_urls": [],
+    "default_model_slug": "gpt-4o",
+    "id": "33333333-0000-4000-8000-000000000001"
+  },
+  {
+    "title": "Fahrrad Reifen flicken",
+    "create_time": 1767686400.0,
+    "update_time": 1767690000.0,
+    "mapping": {
+      "root": {
+        "id": "root",
+        "message": null,
+        "parent": null,
+        "children": ["u1"]
+      },
+      "u1": {
+        "id": "u1",
+        "message": {
+          "id": "u1",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767686400.0,
+          "update_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": ["Wie flicke ich einen Reifen am Fahrrad?"]
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {},
+          "recipient": "all",
+          "channel": null
+        },
+        "parent": "root",
+        "children": ["t1"]
+      },
+      "t1": {
+        "id": "t1",
+        "message": {
+          "id": "t1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767686401.0,
+          "update_time": null,
+          "content": {
+            "content_type": "code",
+            "language": "python",
+            "text": "print('suche')"
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {},
+          "recipient": "python",
+          "channel": null
+        },
+        "parent": "u1",
+        "children": ["t2"]
+      },
+      "t2": {
+        "id": "t2",
+        "message": {
+          "id": "t2",
+          "author": {
+            "role": "tool",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767686402.0,
+          "update_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": ["Ausgabe des Werkzeugs"]
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {},
+          "recipient": "all",
+          "channel": null
+        },
+        "parent": "t1",
+        "children": ["a1"]
+      },
+      "a1": {
+        "id": "a1",
+        "message": {
+          "id": "a1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767686403.0,
+          "update_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": ["Loch suchen, anrauen, Flicken aufkleben."]
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {},
+          "recipient": "all",
+          "channel": null
+        },
+        "parent": "t2",
+        "children": []
+      }
+    },
+    "moderation_results": [],
+    "current_node": "a1",
+    "plugin_ids": null,
+    "conversation_id": "33333333-0000-4000-8000-000000000002",
+    "conversation_template_id": null,
+    "gizmo_id": "g-p-0123456789abcdef0123456789abcdef",
+    "is_archived": false,
+    "safe_urls": [],
+    "default_model_slug": "gpt-4o",
+    "id": "33333333-0000-4000-8000-000000000002"
+  },
+  {
+    "title": null,
+    "create_time": 1767772800.0,
+    "update_time": null,
+    "mapping": {
+      "root": {
+        "id": "root",
+        "message": null,
+        "parent": null,
+        "children": ["u1"]
+      },
+      "u1": {
+        "id": "u1",
+        "message": {
+          "id": "u1",
+          "author": {
+            "role": "user",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": 1767772800.0,
+          "update_time": null,
+          "content": {
+            "content_type": "text",
+            "parts": ["Zeig mir ein Bild von einem Zebra"]
+          },
+          "status": "finished_successfully",
+          "end_turn": true,
+          "weight": 1.0,
+          "metadata": {},
+          "recipient": "all",
+          "channel": null
+        },
+        "parent": "root",
+        "children": ["a1"]
+      },
+      "a1": {
+        "id": "a1",
+        "parent": "u1",
+        "children": [],
+        "message": {
+          "id": "a1",
+          "author": {
+            "role": "assistant",
+            "name": null,
+            "metadata": {}
+          },
+          "create_time": null,
+          "update_time": null,
+          "content": {
+            "content_type": "multimodal_text",
+            "parts": [
+              {
+                "content_type": "image_asset_pointer",
+                "asset_pointer": "file-service://file-beispiel",
+                "size_bytes": 1,
+                "width": 1,
+                "height": 1
+              },
+              "Hier ist das Zebra."
+            ]
+          },
+          "status": "finished_successfully",
+          "metadata": {},
+          "recipient": "all"
+        }
+      }
+    },
+    "moderation_results": [],
+    "current_node": "a1",
+    "plugin_ids": null,
+    "conversation_id": "33333333-0000-4000-8000-000000000003",
+    "conversation_template_id": null,
+    "gizmo_id": null,
+    "is_archived": false,
+    "safe_urls": [],
+    "default_model_slug": "gpt-4o",
+    "id": "33333333-0000-4000-8000-000000000003"
+  },
+  {
+    "title": "Ohne Inhalt",
+    "create_time": 1767600000.0,
+    "update_time": 1767600000.0,
+    "mapping": {
+      "root": {
+        "id": "root",
+        "message": null,
+        "parent": null,
+        "children": []
+      }
+    },
+    "moderation_results": [],
+    "current_node": "root",
+    "plugin_ids": null,
+    "conversation_id": "33333333-0000-4000-8000-000000000004",
+    "conversation_template_id": null,
+    "gizmo_id": null,
+    "is_archived": false,
+    "safe_urls": [],
+    "default_model_slug": "gpt-4o",
+    "id": "33333333-0000-4000-8000-000000000004"
+  }
+]
