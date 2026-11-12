@@ -4,6 +4,7 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import { spawn } from 'child_process';
 import fs from 'fs';
+import net from 'net';
 import os from 'os';
 import path from 'path';
 
@@ -15,29 +16,46 @@ const fakeClaude = path.join(root, 'claude');
 const cwdLog = path.join(root, 'dispatch-cwd.txt');
 const servers = [];
 
-function startServer(port, extraEnv = {}) {
-  const dataDir = fs.mkdtempSync(path.join(root, 'data-'));
-  const child = spawn(process.execPath, ['server/index.js'], {
-    cwd: path.resolve(__dirname, '..'),
-    env: {
-      ...process.env,
-      HOME: home,
-      DEVORBIT_DATA_PATH: dataDir,
-      SERVER_PORT: String(port),
-      CLAUDE_CLI_PATH: fakeClaude,
-      CLAUDE_CONFIG_DIR: '',
-      ...extraEnv,
-    },
-    stdio: 'ignore',
+// #240: fixed ports made parallel runs in one checkout talk to each other's servers
+const freePort = () =>
+  new Promise((resolve) => {
+    const s = net.createServer().listen(0, () => {
+      const { port } = s.address();
+      s.close(() => resolve(port));
+    });
   });
-  servers.push(child);
-  return { base: `http://127.0.0.1:${port}`, dataDir };
+
+// Resolves once the server answers. The port is free when picked, not when bound: retry on exit.
+async function startServer(extraEnv = {}) {
+  const dataDir = fs.mkdtempSync(path.join(root, 'data-'));
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const port = await freePort();
+    const child = spawn(process.execPath, ['server/index.js'], {
+      cwd: path.resolve(__dirname, '..'),
+      env: {
+        ...process.env,
+        HOME: home,
+        DEVORBIT_DATA_PATH: dataDir,
+        SERVER_PORT: String(port),
+        CLAUDE_CLI_PATH: fakeClaude,
+        CLAUDE_CONFIG_DIR: '',
+        ...extraEnv,
+      },
+      stdio: 'ignore',
+    });
+    servers.push(child);
+    const base = `http://127.0.0.1:${port}`;
+    if (await waitUp(base, child)) return { base, dataDir };
+  }
+  throw new Error('server did not start on five free ports');
 }
 
-async function waitUp(base) {
+// false: the child exited (port taken meanwhile). Someone else answering on its port must not count.
+async function waitUp(base, child) {
   for (let i = 0; i < 60; i++) {
+    if (child.exitCode !== null) return false;
     try {
-      if ((await fetch(`${base}/api/config`)).ok) return;
+      if ((await fetch(`${base}/api/config`)).ok && child.exitCode === null) return true;
     } catch {
       // not listening yet
     }
@@ -76,12 +94,13 @@ beforeAll(async () => {
   // Second home whose ~/.claude is a symlink (dotfiles setup)
   fs.mkdirSync(path.join(linkedHome, 'dotfiles', 'claude'), { recursive: true });
   fs.symlinkSync(path.join(linkedHome, 'dotfiles', 'claude'), path.join(linkedHome, '.claude'));
-  main = startServer(3291);
-  alt = startServer(3292, { CLAUDE_CONFIG_DIR: altConfig });
-  // A config dir above HOME must not exempt every hidden home dir
-  above = startServer(3293, { CLAUDE_CONFIG_DIR: root });
-  linked = startServer(3294, { HOME: linkedHome });
-  await Promise.all([alt, above, linked, main].map((s) => waitUp(s.base)));
+  // above: a config dir above HOME must not exempt every hidden home dir
+  [main, alt, above, linked] = await Promise.all([
+    startServer(),
+    startServer({ CLAUDE_CONFIG_DIR: altConfig }),
+    startServer({ CLAUDE_CONFIG_DIR: root }),
+    startServer({ HOME: linkedHome }),
+  ]);
 }, 30000);
 
 afterAll(() => {
@@ -201,10 +220,11 @@ describe('forbidden home dirs (#217)', () => {
     fs.mkdirSync(path.join(home, 'bin'));
     fs.mkdirSync(path.join(home, 'var'));
     fs.symlinkSync(path.join(home, '.aws'), path.join(home, 'PROJECTS', 'aws-link'));
-    forbidden.forEach((dir, i) => {
-      exempted[dir] = startServer(3295 + i, { CLAUDE_CONFIG_DIR: path.join(home, dir) });
-    });
-    await Promise.all(Object.values(exempted).map((s) => waitUp(s.base)));
+    await Promise.all(
+      forbidden.map(async (dir) => {
+        exempted[dir] = await startServer({ CLAUDE_CONFIG_DIR: path.join(home, dir) });
+      })
+    );
   }, 30000);
 
   const expectRejected = async (server, dir) => {
@@ -212,7 +232,9 @@ describe('forbidden home dirs (#217)', () => {
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/is not allowed for security reasons/);
     const config = path.join(server.dataDir, 'config.json');
-    const stored = fs.existsSync(config) ? JSON.parse(fs.readFileSync(config, 'utf-8')).directories : [];
+    const stored = fs.existsSync(config)
+      ? JSON.parse(fs.readFileSync(config, 'utf-8')).directories
+      : [];
     expect(stored ?? []).not.toContain(dir);
   };
 
