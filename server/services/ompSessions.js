@@ -15,7 +15,7 @@ export const OMP_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 /** Finished sessions older than this stay in `omp -r` only */
 const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
 /** A running session whose file changed this recently is mid-turn */
-const ACTIVE_WRITE_MS = 15_000;
+export const ACTIVE_WRITE_MS = 15_000;
 const HEAD_BYTES = 64 * 1024;
 const MAX_LISTED = 100;
 

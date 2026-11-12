@@ -37,6 +37,7 @@ import {
 } from '../AgentsView/PullRequestsPage';
 import { IssueModal } from '../BoardView/IssueModal';
 import { LabelChip } from '../BoardView/BoardCard';
+import { pollWhileVisible } from '../../utils/visiblePoll';
 
 const POLL_MS = 60_000;
 const NO_SESSIONS: AgentSession[] = [];
@@ -175,9 +176,7 @@ export const IssuesPage: React.FC<IssuesPageProps> = ({ active, contextId, sessi
 
   useEffect(() => {
     if (!active) return;
-    load();
-    const timer = setInterval(() => load(), POLL_MS);
-    return () => clearInterval(timer);
+    return pollWhileVisible(() => load(), POLL_MS);
   }, [active, load]);
 
   // Switching to the mode puts the keyboard on the view, like /pulls
