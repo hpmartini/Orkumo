@@ -296,7 +296,9 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
               </option>
             ))}
           </select>
-          <span className="text-xs text-gray-400 shrink-0">{shownItems(visible, options, now).length} Items</span>
+          <span className="text-xs text-gray-400 shrink-0">
+            {shownItems(visible, options, now).length} Items
+          </span>
           <div className="flex-1" />
           {error && data && (
             <span className="flex items-center gap-1 text-xs text-red-300" title={error}>
