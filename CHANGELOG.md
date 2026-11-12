@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Module fixture `test/fixtures/premium/with-slot`: a runnable example of a module UI in the `agents-rail` slot, next to the placeholder and the mode fixture (`docs/MODULES.md`, "Development").
 - Chats mode (`/chats`, #280): import the official data exports of claude.ai and ChatGPT (unpacked folder) and read them in one local list: full-text search, filters for provider, project and period, topics, and "Continue in Orkumo" to carry a conversation into a new chat. Import, search and topics run locally, nothing is fetched from either provider; a continued conversation goes to the harness of the new chat
 - Quick window (#251, desktop app): a system-wide shortcut (default `Alt+Shift+Space`, `ORKUMO_QUICK_SHORTCUT` overrides, empty turns it off) toggles a small always-on-top prompt field; Enter opens the chat composer in Orkumo with the text
 - Main agent (#252): a title bar button and the palette command "Main agent" open, in every view, a dialog on the background session named `main-orchestrator` (recent output, reply, attach). Keep-alive (on by default, switch in the dialog): a stopped main agent is restarted with `claude respawn`; Orkumo sends no prompt with it
