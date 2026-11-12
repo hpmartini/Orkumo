@@ -11,7 +11,7 @@ import {
   type ChatHistoryItem,
   type ChatHistoryList,
 } from '../services/chatHistoryApi';
-import { continuePrompt, dayBound } from '../utils/chatHistory';
+import { PROVIDER_HARNESS, continuePrompt, dayBound } from '../utils/chatHistory';
 
 vi.mock('../services/chatHistoryApi', () => ({
   fetchChatHistory: vi.fn(),
@@ -147,7 +147,12 @@ describe('ChatHistoryPage (#280)', () => {
     await user.click(screen.getByRole('button', { name: /Continue in Orkumo/ }));
     const [path, state] = JSON.parse(screen.getByTestId('where').textContent!);
     expect(path).toBe('/agents');
-    expect(state).toEqual({ dispatch: continuePrompt(conversation), mode: 'chat' });
+    // a ChatGPT conversation continues on the ChatGPT subscription, i.e. Codex
+    expect(state).toEqual({
+      dispatch: continuePrompt(conversation),
+      mode: 'chat',
+      harness: 'codex',
+    });
     expect(state.dispatch).toContain('ChatGPT: Loch suchen.');
   });
 
@@ -204,5 +209,9 @@ describe('ChatHistoryPage (#280)', () => {
     expect(prompt).not.toContain('START');
     expect(prompt).toContain('the END');
     expect(prompt.length).toBeLessThan(25000);
+  });
+
+  it('#251: continues each provider on the CLI of its subscription', () => {
+    expect(PROVIDER_HARNESS).toEqual({ claude: 'claude', chatgpt: 'codex' });
   });
 });

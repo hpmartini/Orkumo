@@ -106,6 +106,7 @@ tailscale serve --bg --https=8443 http://127.0.0.1:3099   # HTTPS nur im Tailnet
 
 - Mit `DEVORBIT_REMOTE=true` braucht jede Anfrage, die nicht direkt von localhost kommt (auch über `tailscale serve`), den Pairing-Token. Er liegt in `<data>/remote-token` (Modus 600) und wird beim ersten Start erzeugt. Der Server lauscht dann nur auf `127.0.0.1`; von außen kommt man ausschließlich über `tailscale serve` heran.
 - HTTPS ist Pflicht: WKWebView blockt `http`-Fetch und -WebSocket aus der App (`capacitor://`) als Mixed Content. Bind an die Tailnet-IP mit http reicht daher nicht.
+- Geteilter Rechner (VPS): `DEVORBIT_TRUST_LOOPBACK=false` setzen, dann brauchen auch Anfragen direkt von localhost den Pairing-Token (HTTP und `/api/pty`). Standard ist `true`, damit die Electron-App auf dem eigenen Rechner ohne Token läuft.
 - Läuft `tailscale serve` auf einem anderen Port als 443 oder unter anderem Namen: `DEVORBIT_REMOTE_URL=https://<mac>.<tailnet>.ts.net:8443` setzen, sonst nimmt die Pairing-Anzeige `https://<MagicDNS-Name>`.
 
 **2. Koppeln:** Admin Panel → „iOS-App“ zeigt Adresse, Token, den Link `devorbit://pair?…` und denselben Link als QR-Code.

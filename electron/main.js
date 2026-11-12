@@ -81,13 +81,26 @@ ipcMain.on('remote-link', (event) => {
 // ORKUMO_QUICK_SHORTCUT (Electron accelerator, also from .env.local) overrides it, empty turns it off.
 const QUICK_SHORTCUT = process.env.ORKUMO_QUICK_SHORTCUT ?? 'Alt+Shift+Space';
 let quickWindow = null;
+// Only these two sizes: the prompt field, and the field with the streamed answer below it
+const QUICK_SMALL = { width: 680, height: 64 };
+const QUICK_LARGE = { width: 680, height: 520 };
+let quickExpanded = false;
+
+function setQuickExpanded(expanded) {
+  quickExpanded = expanded === true;
+  if (!quickWindow || quickWindow.isDestroyed()) return;
+  const { width, height } = quickExpanded ? QUICK_LARGE : QUICK_SMALL;
+  // resizable: false also blocks setSize on some platforms
+  quickWindow.setResizable(true);
+  quickWindow.setSize(width, height);
+  quickWindow.setResizable(false);
+}
 
 function toggleQuickWindow() {
   if (quickWindow?.isVisible()) return quickWindow.hide();
   if (!quickWindow || quickWindow.isDestroyed()) {
     quickWindow = new BrowserWindow({
-      width: 680,
-      height: 64,
+      ...QUICK_SMALL,
       frame: false,
       resizable: false,
       alwaysOnTop: true,
@@ -105,9 +118,23 @@ function toggleQuickWindow() {
     // The renderer uses the HashRouter in Electron
     if (isDev) quickWindow.loadURL(`${VITE_DEV_SERVER_URL}#/quick`);
     else quickWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: '/quick' });
-    quickWindow.on('blur', () => quickWindow?.hide());
+    // Spotlight-like: clicking elsewhere hides it, unless it shows a chat
+    quickWindow.on('blur', () => !quickExpanded && quickWindow?.hide());
+    // Every way of hiding (Escape, shortcut, blur) ends the renderer's chat unless it was handed over
+    quickWindow.on('hide', () => quickWindow?.webContents.send('quick-hidden'));
     quickWindow.on('closed', () => (quickWindow = null));
+    // Model answers render links: same guard as the main window, and no navigating away from the app
+    quickWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (windowOpenRoute(url) === 'renderer') mainWindow?.webContents.send('open-link', url);
+      else console.warn('[Electron] Blocked attempt to open invalid URL:', url);
+      return { action: 'deny' };
+    });
+    quickWindow.webContents.on('will-navigate', (event, url) => {
+      if (url !== quickWindow?.webContents.getURL()) event.preventDefault();
+    });
   }
+  // Opens small and empty every time; the renderer ended its chat when it was hidden
+  setQuickExpanded(false);
   // On the display the pointer is on, in the upper third like Spotlight
   const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
   quickWindow.setPosition(
@@ -118,27 +145,38 @@ function toggleQuickWindow() {
   quickWindow.focus();
 }
 
+/** Brings the main window up and sends it `channel` with `payload` once it listens */
+function sendToMainWindow(channel, payload) {
+  // Main window closed (macOS keeps the app running): open it again, hand over once it has loaded
+  if (!mainWindow) {
+    createWindow();
+    mainWindow.webContents.once('did-finish-load', () =>
+      // the renderer subscribes in an effect after the first paint
+      setTimeout(() => mainWindow?.webContents.send(channel, payload), 1500)
+    );
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send(channel, payload);
+}
+
 function setupQuickWindow() {
   // Also reachable without the shortcut (tests, a future menu entry)
   app.on('orkumo-quick-toggle', toggleQuickWindow);
   ipcMain.on('quick-hide', () => quickWindow?.hide());
+  ipcMain.on('quick-expand', (_event, expanded) => setQuickExpanded(expanded));
   ipcMain.on('quick-submit', (_event, text) => {
     quickWindow?.hide();
     if (typeof text !== 'string' || !text.trim()) return;
-    const prompt = text.slice(0, 20000);
-    // Main window closed (macOS keeps the app running): open it again, hand over once it has loaded
-    if (!mainWindow) {
-      createWindow();
-      mainWindow.webContents.once('did-finish-load', () =>
-        // the renderer subscribes in an effect after the first paint
-        setTimeout(() => mainWindow?.webContents.send('quick-prompt', prompt), 1500)
-      );
-      return;
-    }
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.show();
-    mainWindow.focus();
-    mainWindow.webContents.send('quick-prompt', prompt);
+    sendToMainWindow('quick-prompt', text.slice(0, 20000));
+  });
+  // The quick window's running chat moves to the Agents view instead of a new one starting
+  ipcMain.on('quick-open-chat', (_event, chatId) => {
+    quickWindow?.hide();
+    if (typeof chatId !== 'string' || !chatId || chatId.length > 200) return;
+    sendToMainWindow('quick-chat', chatId);
   });
   if (!QUICK_SHORTCUT) return;
   try {

@@ -1,6 +1,13 @@
 import type { ChatHistoryConversation } from '../services/chatHistoryApi';
+import type { AgentHarness } from '../types';
 
 export const PROVIDER_LABEL = { claude: 'Claude', chatgpt: 'ChatGPT' } as const;
+
+/** Harness a continued conversation runs on: the CLI of the same subscription (#251) */
+export const PROVIDER_HARNESS = { claude: 'claude', chatgpt: 'codex' } as const satisfies Record<
+  ChatHistoryConversation['provider'],
+  AgentHarness
+>;
 
 // shortcut: the transcript travels inside the prompt, so long ones keep only their end;
 // hand it over as a file once chats take attachments
