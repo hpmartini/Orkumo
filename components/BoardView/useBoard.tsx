@@ -11,6 +11,7 @@ import {
 } from '../../services/boardApi';
 import { itemKey } from '../../utils/board';
 import { keepWrite, mergeRecentWrites, type RecentWrite } from '../../utils/boardWrites';
+import { pollWhileVisible } from '../../utils/visiblePoll';
 
 const POLL_MS = 60_000;
 
@@ -85,9 +86,7 @@ export function useBoard(active: boolean) {
 
   useEffect(() => {
     if (!active) return;
-    load();
-    const interval = setInterval(() => load(), POLL_MS);
-    return () => clearInterval(interval);
+    return pollWhileVisible(() => load(), POLL_MS);
   }, [active, load]);
 
   useEffect(() => {
