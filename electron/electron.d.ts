@@ -55,6 +55,15 @@ export interface ElectronAPI {
   openExternal: (url: string) => Promise<ExternalUrlResult>;
   /** window.open from the app or the Web-IDE, routed back for the link setting (#140) */
   onOpenLink: (callback: (url: string) => void) => () => void;
+  /** Quick window (#251): send its prompt to the main window / hide it / receive a prompt */
+  quickSubmit: (text: string) => void;
+  quickHide: () => void;
+  onQuickPrompt: (callback: (text: string) => void) => () => void;
+  /** Quick window chat (#251): grow to show the answer / shrink back; hand its chat to the main window */
+  quickExpand: (expanded: boolean) => void;
+  quickOpenChat: (paneId: string) => void;
+  onQuickHidden: (callback: () => void) => () => void;
+  onQuickChat: (callback: (paneId: string) => void) => () => void;
 
   // Window state
   onFullscreenChange: (callback: (isFullscreen: boolean) => void) => () => void;
@@ -84,6 +93,8 @@ export interface ElectronAPI {
 
   /** Port the backend server actually listens on; null if not reported */
   serverPort: number | null;
+  /** Pairing link when the app is a client of another machine's server (ORKUMO_REMOTE) */
+  remoteLink: string | null;
 }
 
 declare global {

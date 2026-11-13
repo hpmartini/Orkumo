@@ -39,13 +39,15 @@ import { fetchConfig } from './services/api';
 import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
+import { QuickWindow } from './components/QuickWindow';
 import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
 import { ConnectedIssuesPage } from './components/IssuesView';
+import { ChatHistoryPage } from './components/ChatHistoryView/ChatHistoryPage';
 import { CodeView } from './components/CodeView';
 import { ShellBrowser } from './components/ShellBrowser';
 import { installAnchorInterception, openLink, setLinkTarget } from './utils/links';
 
-const HOST_TABS = ['dashboard', 'usage', 'agents', 'board', 'issues', 'code', 'pulls'];
+const HOST_TABS = ['dashboard', 'usage', 'agents', 'board', 'issues', 'code', 'pulls', 'chats'];
 
 function AppContent() {
   const navigate = useNavigate();
@@ -210,6 +212,13 @@ function AppContent() {
       'Navigate',
       () => navigate('/issues'),
       'github issues list repos'
+    ),
+    command(
+      'chats',
+      'Open chat history',
+      'Navigate',
+      () => navigate('/chats'),
+      'claude chatgpt conversations export search'
     ),
     command('code', 'Open code mode', 'Navigate', () => navigate('/code'), 'ide vscode editor'),
     ...modeCommands(modes, navigate),
@@ -424,6 +433,13 @@ function AppContent() {
                   />
                 </div>
 
+                {/* Imported claude.ai / ChatGPT conversations (#280) */}
+                {activeTab === 'chats' && (
+                  <div className="absolute inset-0 z-10 flex flex-col min-h-0">
+                    <ChatHistoryPage />
+                  </div>
+                )}
+
                 {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
                 {activeTab === 'pulls' && (
                   <div className="absolute inset-0 z-10 flex flex-col min-h-0">
@@ -478,6 +494,8 @@ function AppRouter() {
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/agents" replace />} />
+      {/* Quick window (#251): its own small Electron window, without the app shell */}
+      <Route path="/quick" element={<QuickWindow />} />
       {/* AppContent resolves the path: host modes, module modes, else /agents */}
       <Route path="*" element={<AppContent />} />
     </Routes>

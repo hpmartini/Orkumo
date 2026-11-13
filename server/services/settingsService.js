@@ -37,6 +37,8 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
+  // Main agent (#252): session name behind the "Main Agent" dialog; keepAlive respawns it when stopped
+  mainAgent: { name: 'main-orchestrator', keepAlive: true },
   cardDensity: 'comfortable', // 'comfortable' | 'compact'
   // Card element -> slot (#159); mirrors DEFAULT_AGENT_CARD_FIELDS in types.ts
   cardFields: {

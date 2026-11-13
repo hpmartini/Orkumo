@@ -1,4 +1,15 @@
-import { app, BrowserWindow, BrowserView, ipcMain, Menu, dialog, shell, session } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  BrowserView,
+  ipcMain,
+  Menu,
+  dialog,
+  shell,
+  session,
+  globalShortcut,
+  screen,
+} from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
 import { fork } from 'child_process';
@@ -55,6 +66,126 @@ const isDev = !app.isPackaged;
 const VITE_PORT = parseInt(process.env.VITE_PORT || String(PORTS.devhub), 10);
 const VITE_DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || `http://localhost:${VITE_PORT}`;
 const SERVER_PORT = parseInt(process.env.SERVER_PORT || String(PORTS.server), 10);
+
+// DevHub-pro#8: with ORKUMO_REMOTE (also from .env.local) set to another machine's pairing link
+// (devorbit://pair?url=…&token=…, Settings → Remote there) the app starts no server of its own and
+// talks to that one. Not a launch argument: the token would show up in the process list.
+const REMOTE_LINK = (process.env.ORKUMO_REMOTE ?? '').startsWith('devorbit://pair?')
+  ? process.env.ORKUMO_REMOTE
+  : null;
+ipcMain.on('remote-link', (event) => {
+  event.returnValue = REMOTE_LINK;
+});
+
+// Quick window (#251): a small prompt field over everything, toggled by a system-wide shortcut.
+// ORKUMO_QUICK_SHORTCUT (Electron accelerator, also from .env.local) overrides it, empty turns it off.
+const QUICK_SHORTCUT = process.env.ORKUMO_QUICK_SHORTCUT ?? 'Alt+Shift+Space';
+let quickWindow = null;
+// Only these two sizes: the prompt field, and the field with the streamed answer below it
+const QUICK_SMALL = { width: 680, height: 64 };
+const QUICK_LARGE = { width: 680, height: 520 };
+let quickExpanded = false;
+
+function setQuickExpanded(expanded) {
+  quickExpanded = expanded === true;
+  if (!quickWindow || quickWindow.isDestroyed()) return;
+  const { width, height } = quickExpanded ? QUICK_LARGE : QUICK_SMALL;
+  // resizable: false also blocks setSize on some platforms
+  quickWindow.setResizable(true);
+  quickWindow.setSize(width, height);
+  quickWindow.setResizable(false);
+}
+
+function toggleQuickWindow() {
+  if (quickWindow?.isVisible()) return quickWindow.hide();
+  if (!quickWindow || quickWindow.isDestroyed()) {
+    quickWindow = new BrowserWindow({
+      ...QUICK_SMALL,
+      frame: false,
+      resizable: false,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      show: false,
+      backgroundColor: '#0f172a',
+      webPreferences: {
+        nodeIntegration: false,
+        contextIsolation: true,
+        sandbox: false,
+        preload: path.join(__dirname, 'preload.js'),
+        additionalArguments: [`--devorbit-server-port=${SERVER_PORT}`],
+      },
+    });
+    // The renderer uses the HashRouter in Electron
+    if (isDev) quickWindow.loadURL(`${VITE_DEV_SERVER_URL}#/quick`);
+    else quickWindow.loadFile(path.join(__dirname, '../dist/index.html'), { hash: '/quick' });
+    // Spotlight-like: clicking elsewhere hides it, unless it shows a chat
+    quickWindow.on('blur', () => !quickExpanded && quickWindow?.hide());
+    // Every way of hiding (Escape, shortcut, blur) ends the renderer's chat unless it was handed over
+    quickWindow.on('hide', () => quickWindow?.webContents.send('quick-hidden'));
+    quickWindow.on('closed', () => (quickWindow = null));
+    // Model answers render links: same guard as the main window, and no navigating away from the app
+    quickWindow.webContents.setWindowOpenHandler(({ url }) => {
+      if (windowOpenRoute(url) === 'renderer') mainWindow?.webContents.send('open-link', url);
+      else console.warn('[Electron] Blocked attempt to open invalid URL:', url);
+      return { action: 'deny' };
+    });
+    quickWindow.webContents.on('will-navigate', (event, url) => {
+      if (url !== quickWindow?.webContents.getURL()) event.preventDefault();
+    });
+  }
+  // Opens small and empty every time; the renderer ended its chat when it was hidden
+  setQuickExpanded(false);
+  // On the display the pointer is on, in the upper third like Spotlight
+  const { workArea } = screen.getDisplayNearestPoint(screen.getCursorScreenPoint());
+  quickWindow.setPosition(
+    Math.round(workArea.x + (workArea.width - 680) / 2),
+    Math.round(workArea.y + workArea.height * 0.25)
+  );
+  quickWindow.show();
+  quickWindow.focus();
+}
+
+/** Brings the main window up and sends it `channel` with `payload` once it listens */
+function sendToMainWindow(channel, payload) {
+  // Main window closed (macOS keeps the app running): open it again, hand over once it has loaded
+  if (!mainWindow) {
+    createWindow();
+    mainWindow.webContents.once('did-finish-load', () =>
+      // the renderer subscribes in an effect after the first paint
+      setTimeout(() => mainWindow?.webContents.send(channel, payload), 1500)
+    );
+    return;
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore();
+  mainWindow.show();
+  mainWindow.focus();
+  mainWindow.webContents.send(channel, payload);
+}
+
+function setupQuickWindow() {
+  // Also reachable without the shortcut (tests, a future menu entry)
+  app.on('orkumo-quick-toggle', toggleQuickWindow);
+  ipcMain.on('quick-hide', () => quickWindow?.hide());
+  ipcMain.on('quick-expand', (_event, expanded) => setQuickExpanded(expanded));
+  ipcMain.on('quick-submit', (_event, text) => {
+    quickWindow?.hide();
+    if (typeof text !== 'string' || !text.trim()) return;
+    sendToMainWindow('quick-prompt', text.slice(0, 20000));
+  });
+  // The quick window's running chat moves to the Agents view instead of a new one starting
+  ipcMain.on('quick-open-chat', (_event, chatId) => {
+    quickWindow?.hide();
+    if (typeof chatId !== 'string' || !chatId || chatId.length > 200) return;
+    sendToMainWindow('quick-chat', chatId);
+  });
+  if (!QUICK_SHORTCUT) return;
+  try {
+    if (!globalShortcut.register(QUICK_SHORTCUT, toggleQuickWindow))
+      console.warn(`[Electron] Quick window shortcut ${QUICK_SHORTCUT} is taken by another app`);
+  } catch (err) {
+    console.warn(`[Electron] Quick window shortcut ${QUICK_SHORTCUT} is invalid:`, err.message);
+  }
+}
 
 /**
  * Create the main application window
@@ -130,6 +261,8 @@ function createWindow() {
 
   // Handle window close
   mainWindow.on('closed', () => {
+    // a hidden quick window must not keep the app (or the dock's activate) from seeing no window
+    quickWindow?.destroy();
     mainWindow = null;
   });
 
@@ -927,11 +1060,12 @@ function startUpdateCheck() {
 app.whenReady().then(async () => {
   persistSessionCookies(session.fromPartition(BROWSER_PREVIEW_PARTITION));
   try {
-    // Start backend server first
-    await startBackendServer();
+    // Start backend server first; a remote client has none
+    if (!REMOTE_LINK) await startBackendServer();
 
     // Setup IPC handlers
     setupIpcHandlers();
+    setupQuickWindow();
 
     // Create main window
     createWindow();
@@ -941,7 +1075,8 @@ app.whenReady().then(async () => {
 
     // On macOS, recreate window when dock icon is clicked
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) {
+      // not getAllWindows(): a hidden quick window (#251) would count
+      if (!mainWindow) {
         createWindow();
       }
     });
@@ -971,6 +1106,7 @@ app.on('window-all-closed', () => {
 
 // Cleanup before quit
 app.on('before-quit', () => {
+  globalShortcut.unregisterAll();
   stopBackendServer();
 });
 

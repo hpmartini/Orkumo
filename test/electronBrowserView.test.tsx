@@ -152,4 +152,42 @@ describe('ElectronBrowserView navigation (#182)', () => {
     expect(onHide).toHaveBeenCalledTimes(1);
     unmount();
   });
+
+  it('stays visible inside the modal that shows it, collapses under a second modal (MAGOS#497)', async () => {
+    const api = {
+      create: vi.fn(ok),
+      navigate: vi.fn(ok),
+      destroy: vi.fn(ok),
+      resize: vi.fn(ok),
+    };
+    (window as unknown as { electronAPI: unknown }).electronAPI = { browserView: api };
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 10,
+      y: 20,
+      width: 800,
+      height: 600,
+    } as never);
+    const { unmount } = render(
+      <div aria-modal="true">
+        <ElectronBrowserView url="https://a.test/" appId="" />
+      </div>
+    );
+    const open = { x: 10, y: 20, width: 800, height: 600 };
+    await waitFor(() => expect(api.resize).toHaveBeenLastCalledWith(expect.any(String), open));
+
+    const second = document.createElement('div');
+    second.setAttribute('aria-modal', 'true');
+    document.body.appendChild(second);
+    await waitFor(() =>
+      expect(api.resize).toHaveBeenLastCalledWith(expect.any(String), {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+      })
+    );
+    second.remove();
+    await waitFor(() => expect(api.resize).toHaveBeenLastCalledWith(expect.any(String), open));
+    unmount();
+  });
 });

@@ -1,6 +1,7 @@
 import React, { useRef } from 'react';
 import { X } from 'lucide-react';
 import { DispatchInput } from '../AgentsView/DispatchInput';
+import { NewKindTabs, type NewKind } from '../AgentsView/NewTaskButton';
 import { useDialogA11y } from './useDialogA11y';
 import { ImageAttachments, imageDropHandlers } from '../ImageAttachments';
 
@@ -12,6 +13,8 @@ interface TaskComposerModalProps extends Omit<DispatchInputProps, 'onEscape' | '
   /** Images handed to the session as local file paths */
   images: File[];
   onImagesChange: (images: File[]) => void;
+  /** Shows the Task/Agent/Chat/Issue switch (#271) */
+  onKindChange?: (kind: NewKind) => void;
 }
 
 /** "New task" / "New agent" dialog around the dispatch input. */
@@ -20,6 +23,7 @@ export const TaskComposerModal: React.FC<TaskComposerModalProps> = ({
   onClose,
   images,
   onImagesChange,
+  onKindChange,
   ...inputProps
 }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -58,6 +62,15 @@ export const TaskComposerModal: React.FC<TaskComposerModalProps> = ({
                 ? 'New agent'
                 : 'New task'}
           </h2>
+          {onKindChange && (
+            <div className="ml-3">
+              <NewKindTabs
+                kind={inputProps.variant ?? 'task'}
+                onChange={onKindChange}
+                disabled={inputProps.disabled}
+              />
+            </div>
+          )}
           <button
             type="button"
             onClick={onClose}

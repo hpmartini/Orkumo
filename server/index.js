@@ -25,9 +25,12 @@ import {
   resizePty,
   killPtySession,
   killPanePtys,
+  typeIntoPanePty,
   ptyEvents,
   detectClaudeCLI,
 } from './services/ptyService.js';
+import { startQuickAgent } from './services/quickAgent.js';
+import { listOmpSessions } from './services/ompSessions.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
@@ -39,6 +42,7 @@ import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
 import * as chatService from './services/chatService.js';
 import * as chatStatus from './services/chatStatus.js';
+import { ompSkillsArgs } from './services/ompSkills.js';
 import { getSelfDnsName } from './services/tailscale.js';
 import * as remoteAccess from './services/remoteAccess.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
@@ -52,6 +56,7 @@ import {
 } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
 import * as issueListService from './services/issueListService.js';
+import { createChatHistory } from './services/chatHistoryService.js';
 import * as imageUpload from './services/imageUpload.js';
 import * as workflowProvider from './services/workflowProvider.js';
 import { ISSUE_URL_RE } from '../utils/issueUrl.js';
@@ -67,6 +72,7 @@ import {
   isHarnessCommand,
   harnessArgsError,
   resolveHarnessBinary,
+  MAX_HARNESS_PROMPT,
 } from '../config/harnesses.js';
 
 // Load environment variables from .env.local
@@ -146,7 +152,18 @@ const isAllowedOrigin = (origin) => {
     return false;
   }
 };
+// First of all: requests relayed by `tailscale serve` carry a path secret (remoteAccess.getServeSecret)
+app.use((req, res, next) => {
+  remoteAccess.takeServePrefix(req);
+  next();
+});
 app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
+// A packaged Electron app paired with this server from another machine (DevHub-pro#8): its
+// file:// renderer sends no Origin on fetch and "file://" on upgrades, which any local file or
+// sandboxed frame can produce too. So that shape passes only together with the pairing token.
+const isPairedElectron = (req) =>
+  (!req.headers.origin || remoteAccess.isOpaqueOrigin(req.headers.origin)) &&
+  remoteAccess.hasValidToken(req);
 // After cors so preflights are answered; before every route so nothing is reachable without the token.
 app.use(remoteAccess.requireRemoteToken);
 app.use(express.json({ limit: '1mb' })); // Limit body size
@@ -1171,7 +1188,8 @@ app.get('/api/agents', async (req, res) => {
       });
     }
     const [sessions, daemon, userSettings] = await Promise.all([
-      agentService.listSessions({ cwd, all }),
+      // unscoped: the watcher's list while a client is subscribed, no extra `claude agents`
+      cwd || !all ? agentService.listSessions({ cwd, all }) : agentService.currentSessions(),
       agentService.daemonStatus().catch(() => null),
       agentService.readClaudeUserSettings(),
     ]);
@@ -1333,10 +1351,11 @@ app.get('/api/agents/chat/:chatId/stream', validateParams(chatIdSchema), (req, r
   req.on('error', cleanup);
 });
 
-/** Status line of a chat: git (branch, untracked, changed), prompt cache, plan limits */
+/** Status line of a chat: git (branch, untracked, changed), prompt cache, context fill, plan limits */
 app.get('/api/agents/chat/:chatId/status', validateParams(chatIdSchema), async (req, res) => {
   try {
-    res.json(await chatStatus.chatStatus(chatService.chatSummary(req.params.chatId)));
+    const { chatId } = req.params;
+    res.json(await chatStatus.chatStatus(chatService.chatSummary(chatId)));
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -1452,9 +1471,10 @@ app.post(
   }
 );
 
+// ?fresh=1 (the client asks after a session changed): wait for a recompute instead of the stale value
 app.get('/api/agents/context', agentLimiter, async (req, res) => {
   try {
-    res.json({ contexts: await getAgentContexts() });
+    res.json({ contexts: await getAgentContexts({ fresh: req.query.fresh === '1' }) });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -1490,7 +1510,8 @@ const sameSiteOnly = (req, res, next) => {
   const crossSite = origin
     ? !isAllowedOrigin(origin)
     : req.get('sec-fetch-site') === 'cross-site' && process.env.ELECTRON_MODE !== 'true';
-  if (crossSite) return res.status(403).json({ error: 'Cross-origin request refused' });
+  if (crossSite && !isPairedElectron(req))
+    return res.status(403).json({ error: 'Cross-origin request refused' });
   next();
 };
 
@@ -1606,6 +1627,51 @@ app.post(
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
   (req, res) => {
     res.json({ stopped: killPanePtys(req.params.paneId) });
+  }
+);
+
+// Quick window (#251): the default harness as an agent pane of its own, shown through its transcript
+app.post(
+  '/api/agents/quick',
+  agentLimiter,
+  sameSiteOnly,
+  validate(z.object({ prompt: z.string().trim().min(1).max(MAX_HARNESS_PROMPT) })),
+  async (req, res) => {
+    if (isRunningInDocker) return res.status(501).json({ error: 'Not available in Docker' });
+    const { harness, model, permissionMode } = settingsService.getAgentViewSettings().dispatch;
+    try {
+      res.status(201).json(
+        await startQuickAgent(
+          { prompt: req.body.prompt, harness, cwd: os.homedir(), model, permissionMode },
+          {
+            openAgentPty,
+            killPanePtys,
+            resolveBinary: resolveHarnessBinary,
+            ompArgs: (bin) => ompSkillsArgs(bin, os.homedir()),
+            findOmpSession: async (paneId) => {
+              const rows = await listOmpSessions({ panes: agentService.agentPanes() });
+              return rows.find((r) => r.paneId === paneId)?.sessionId ?? null;
+            },
+          }
+        )
+      );
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.message });
+    }
+  }
+);
+
+/** Types a message into an agent pane's terminal and submits it (quick window follow-ups) */
+app.post(
+  '/api/agents/panes/:paneId/message',
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
+  validate(z.object({ text: z.string().trim().min(1).max(100000) })),
+  (req, res) => {
+    if (!typeIntoPanePty(req.params.paneId, req.body.text))
+      return res.status(404).json({ error: 'No agent runs in this pane' });
+    res.json({ delivered: true });
   }
 );
 
@@ -2054,6 +2120,58 @@ app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
 });
 
 // ============================================
+// Chat history (#280): imported claude.ai / ChatGPT data exports, local only
+// ============================================
+
+const chatHistory = createChatHistory();
+// Read the store now, in the background: the first search after a start should not wait for it
+chatHistory.list({ limit: 1 }).catch(() => {});
+const epochMs = z.coerce.number().int().nonnegative().optional();
+const chatHistoryQuerySchema = z.object({
+  q: z.string().max(200).optional(),
+  provider: z.enum(['claude', 'chatgpt']).optional(),
+  project: z.string().max(200).optional(),
+  topic: z.string().max(200).optional(),
+  from: epochMs,
+  to: epochMs,
+  limit: z.coerce.number().int().min(1).max(100_000).optional(),
+});
+
+// Reads of the local store: search asks per keystroke, so only the general API limit applies
+app.get('/api/chat-history', async (req, res) => {
+  const query = chatHistoryQuerySchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Invalid chat history query' });
+  try {
+    res.json(await chatHistory.list(query.data));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.get('/api/chat-history/conversation', async (req, res) => {
+  try {
+    const conversation = await chatHistory.get(String(req.query.id ?? ''));
+    if (!conversation) return res.status(404).json({ error: 'Unknown conversation' });
+    res.json(conversation);
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// The path names a folder on this machine, so only this machine may send it. The service
+// opens nothing but conversations*.json / projects.json below it and answers with counts.
+app.post('/api/chat-history/import', agentLimiter, async (req, res) => {
+  if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
+  const body = z.object({ path: z.string().min(1).max(2000) }).safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'Invalid import path' });
+  try {
+    res.json(await chatHistory.importFrom(body.data.path));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// ============================================
 // Project contexts (#97): title bar tabs with their own favorites, board slices, agent tabs
 // ============================================
 
@@ -2199,7 +2317,7 @@ const refuseUpgrade = (socket, status) => {
 // the token or an authorizer (isAuthorized).
 const isAllowedUpgradeOrigin = (req) => {
   const origin = req.headers.origin;
-  if (!origin || isAllowedOrigin(origin)) return true;
+  if (!origin || isAllowedOrigin(origin) || isPairedElectron(req)) return true;
   if (!remoteAccess.isRemoteEnabled()) return false;
   try {
     return new URL(origin).host === req.headers.host;
@@ -2209,6 +2327,7 @@ const isAllowedUpgradeOrigin = (req) => {
 };
 
 server.on('upgrade', (req, socket, head) => {
+  remoteAccess.takeServePrefix(req);
   if (!isAllowedUpgradeOrigin(req)) return refuseUpgrade(socket, '403 Forbidden');
   if (!remoteAccess.isAuthorized(req)) return refuseUpgrade(socket, '401 Unauthorized');
   const { pathname } = new URL(req.url, 'http://x');
@@ -2506,7 +2625,12 @@ wss.on('connection', (ws, req) => {
     }
   }
 
-  let args = harnessArgs ?? [];
+  // omp panes see the user's Claude skills like an omp chat does (ompSkills.js); server-chosen
+  // options go before the validated client args
+  let args =
+    command === 'omp' && harnessArgs && !isRunningInDocker
+      ? [...ompSkillsArgs(spawnCommand, cwd), ...harnessArgs]
+      : (harnessArgs ?? []);
   const argsParam = url.searchParams.get('args');
   // harness args are already parsed above; a second decodeURIComponent would mangle a `%` prompt
   if (argsParam && !harnessArgs) {

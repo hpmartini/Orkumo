@@ -4,7 +4,7 @@
  */
 
 import { PORTS } from '../config/defaults';
-import { readPairing, type Pairing } from './remoteClient';
+import { parsePairingLink, readPairing, type Pairing } from './remoteClient';
 
 // Detect if running in Electron
 // In production: file:// protocol
@@ -25,11 +25,17 @@ export const isBundledOrigin = (protocol: string): boolean => !/^(https?|file):$
 // Bundled client such as the iOS app from DevHub-pro: talks to the paired Mac (remoteClient).
 export const isNativeApp =
   typeof window !== 'undefined' && isBundledOrigin(window.location.protocol);
-export const pairing = isNativeApp ? readPairing() : null;
+// Electron as client of another machine's server (ORKUMO_REMOTE): pairing comes from the main process.
+const remoteLink = typeof window !== 'undefined' ? window.electronAPI?.remoteLink : null;
+export const pairing = isNativeApp
+  ? readPairing()
+  : remoteLink
+    ? parsePairingLink(remoteLink)
+    : null;
 
 /** Server origin when the API is not same-origin (Electron, iOS app); '' otherwise. */
 export const serverOrigin = (native: boolean, paired: Pairing | null, electron: boolean): string =>
-  native ? (paired?.url ?? '') : electron ? `http://localhost:${SERVER_PORT}` : '';
+  native ? (paired?.url ?? '') : electron ? (paired?.url ?? `http://localhost:${SERVER_PORT}`) : '';
 
 const SERVER_ORIGIN = serverOrigin(isNativeApp, pairing, isElectron);
 

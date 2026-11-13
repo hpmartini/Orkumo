@@ -26,7 +26,9 @@ export const DirectoryPicker: React.FC<{
   home: string | null;
   onCancel: () => void;
   onPick: (path: string) => void;
-}> = ({ choices, current, home, onCancel, onPick }) => {
+  /** Placeholder of the filter field when the directory is not a dispatch target */
+  label?: string;
+}> = ({ choices, current, home, onCancel, onPick, label = 'Directory for new sessions…' }) => {
   const [query, setQuery] = useState('');
   const [custom, setCustom] = useState(current || '');
   const [collapsed, setCollapsed] = useState(loadCollapsed);
@@ -90,7 +92,7 @@ export const DirectoryPicker: React.FC<{
             onKeyDown={(e) => {
               if (e.key === 'Enter' && first) onPick(first.path);
             }}
-            placeholder="Directory for new sessions…"
+            placeholder={label}
             className="flex-1 min-w-0 bg-transparent text-sm text-gray-100 placeholder-gray-600 outline-none"
           />
           {bulkActions.map(({ label, Icon, run }) => (

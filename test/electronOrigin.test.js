@@ -54,11 +54,10 @@ async function startServer(env) {
   return base;
 }
 
-const upgrade = (base, origin) =>
+const upgrade = (base, origin, token = '') =>
   new Promise((resolve) => {
-    const ws = new WebSocket(`ws://${base}/api/pty?sessionId=origin-${Date.now()}&cwd=/tmp`, {
-      headers: { Origin: origin },
-    });
+    const query = `sessionId=origin-${Date.now()}&cwd=/tmp${token && `&token=${token}`}`;
+    const ws = new WebSocket(`ws://${base}/api/pty?${query}`, { headers: { Origin: origin } });
     ws.on('open', () => {
       ws.close();
       resolve('open');
@@ -92,5 +91,51 @@ describe('Electron renderer origin', { timeout: 60_000 }, () => {
     const base = await startServer({});
     expect(await upgrade(base, 'file://')).toBe(403);
     expect(await stop(base, { 'Sec-Fetch-Site': 'cross-site' })).toBe(403);
+  });
+
+  // DevHub-pro#8: a packaged app paired with another machine's server. Its file:// shape passes
+  // only with the pairing token; from loopback, where requests need no token otherwise.
+  it('lets a foreign Electron renderer in with the pairing token only', async () => {
+    const base = await startServer({ DEVORBIT_REMOTE: 'true' });
+    const { token } = await fetch(`http://${base}/api/remote/pairing`).then((r) => r.json());
+    const auth = { 'X-DevOrbit-Token': token };
+
+    expect(await upgrade(base, 'file://')).toBe(403);
+    expect(await upgrade(base, 'file://', 'wrong')).toBe(403);
+    expect(await upgrade(base, 'file://', token)).toBe('open');
+    expect(await upgrade(base, 'https://evil.example', token)).toBe(403);
+
+    expect(await stop(base, { 'Sec-Fetch-Site': 'cross-site' })).toBe(403);
+    expect(await stop(base, { 'Sec-Fetch-Site': 'cross-site', ...auth })).not.toBe(403);
+    expect(await stop(base, { Origin: 'https://evil.example', ...auth })).toBe(403);
+  });
+
+  it('ignores the token for file:// without remote mode', async () => {
+    const base = await startServer({});
+    expect(await upgrade(base, 'file://', 'anything')).toBe(403);
+  });
+
+  // #214 AC-4: the file:// renderer imports a module's UI bundle cross-origin (module script, CORS mode)
+  const PREMIUM = path.join(ROOT, 'test/fixtures/premium');
+  const uiJs = (base, origin) =>
+    fetch(`http://${base}/api/modules/with-mode/ui.js`, { headers: { Origin: origin } });
+
+  it('serves a module ui.js to Origin null / file:// inside Electron', async () => {
+    const base = await startServer({ ELECTRON_MODE: 'true', DEVHUB_PREMIUM_DIR: PREMIUM });
+    for (const origin of ['null', 'file://']) {
+      const res = await uiJs(base, origin);
+      expect(res.status).toBe(200);
+      expect(res.headers.get('access-control-allow-origin')).toBe(origin);
+    }
+    expect(
+      (await uiJs(base, 'https://evil.example')).headers.get('access-control-allow-origin')
+    ).toBeNull();
+  });
+
+  it('grants a module ui.js no CORS header for Origin null / file:// outside Electron', async () => {
+    const base = await startServer({ DEVHUB_PREMIUM_DIR: PREMIUM });
+    for (const origin of ['null', 'file://']) {
+      expect((await uiJs(base, origin)).headers.get('access-control-allow-origin')).toBeNull();
+    }
   });
 });

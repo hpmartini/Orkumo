@@ -15,7 +15,7 @@ export const OMP_SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 /** Finished sessions older than this stay in `omp -r` only */
 const RECENT_MS = 7 * 24 * 60 * 60 * 1000;
 /** A running session whose file changed this recently is mid-turn */
-const ACTIVE_WRITE_MS = 15_000;
+export const ACTIVE_WRITE_MS = 15_000;
 const HEAD_BYTES = 64 * 1024;
 const MAX_LISTED = 100;
 
@@ -41,12 +41,14 @@ const textOf = (content) =>
 
 /**
  * Header of a session file: id, cwd and start from the `session` record, the title from the
- * `title` record (omp rewrites it in place), else the first user message.
+ * `title` record (omp rewrites it in place), else the first user message; `prompted` whether
+ * the head holds a user message at all.
  */
 export function parseSessionHead(head) {
   let title = '';
   let session = null;
   let firstPrompt = '';
+  let prompted = false;
   for (const line of head.split('\n')) {
     let record;
     try {
@@ -56,10 +58,11 @@ export function parseSessionHead(head) {
     }
     if (record?.type === 'title' && typeof record.title === 'string') title = oneLine(record.title);
     else if (record?.type === 'session' && !session) session = record;
-    else if (record?.type === 'message' && record.message?.role === 'user' && !firstPrompt) {
+    else if (record?.type === 'message' && record.message?.role === 'user' && !prompted) {
+      prompted = true;
       firstPrompt = oneLine(textOf(record.message.content));
     }
-    if (session && (title || firstPrompt)) break;
+    if (session && prompted) break;
   }
   if (!session || !OMP_SESSION_ID_RE.test(session.id || '')) return null;
   return {
@@ -67,6 +70,7 @@ export function parseSessionHead(head) {
     cwd: typeof session.cwd === 'string' ? session.cwd : '',
     startedAt: Date.parse(session.timestamp) || null,
     title: title || firstPrompt || null,
+    prompted,
   };
 }
 
@@ -152,8 +156,8 @@ async function readHead(file, mtimeMs) {
 }
 
 /**
- * omp sessions as agent rows: every running one plus the ones written in the last 7 days.
- * `panes` maps the pid of an Orkumo PTY to the client pane id it belongs to.
+ * omp sessions as agent rows: every running one plus the ones written in the last 7 days that
+ * hold a prompt. `panes` maps the pid of an Orkumo PTY to the client pane id it belongs to.
  */
 export async function listOmpSessions({
   sessionsDir = ompSessionsDir(),
@@ -190,6 +194,9 @@ export async function listOmpSessions({
       if (!pid && now - stat.mtimeMs > RECENT_MS) continue;
       const head = await readHead(file, stat.mtimeMs).catch(() => null);
       if (!head) continue;
+      // Never prompted (`omp acp` opened and closed, a TUI quit at once): nothing to resume.
+      // Only when the whole file was read; a running one still shows
+      if (!pid && !head.prompted && stat.size <= HEAD_BYTES) continue;
       const paneId = pid ? panes.get(pid) : null;
       rows.push(toRow(head, { pid, updatedAt: stat.mtimeMs, now, paneId }));
     }
@@ -295,29 +302,51 @@ export async function removeOmpSession(
   return { stopped };
 }
 
-/** Last user/assistant messages of an omp session file (peek panel) */
+const TAIL_CHUNK = 512 * 1024;
+/** Bytes read at most for a peek: tool output dominates a long session's newest megabytes */
+const TAIL_MAX = 16 * 1024 * 1024;
+
+/**
+ * Last user/assistant messages of an omp session file (peek panel). Reads backwards in chunks
+ * until `limit` messages are found: one chunk of a session full of tool output held only the
+ * newest prompt.
+ */
 export async function readOmpTranscriptTail(file, limit = 40) {
-  const stat = await fsp.stat(file);
-  const readSize = Math.min(stat.size, 512 * 1024);
+  const { size } = await fsp.stat(file);
   const handle = await fsp.open(file, 'r');
   try {
-    const buffer = Buffer.alloc(readSize);
-    await handle.read(buffer, 0, readSize, stat.size - readSize);
-    const lines = buffer.toString('utf-8').split('\n');
-    if (readSize < stat.size) lines.shift(); // partial first line
-    const entries = [];
-    for (const line of lines) {
-      let record;
-      try {
-        record = JSON.parse(line);
-      } catch {
-        continue;
+    let entries = [];
+    let end = size;
+    // bytes of the line cut by the chunk read last; kept raw so a split UTF-8 character survives
+    let carry = Buffer.alloc(0);
+    while (end > 0 && entries.length < limit && size - end < TAIL_MAX) {
+      const start = Math.max(0, end - TAIL_CHUNK);
+      const read = Buffer.alloc(end - start);
+      await handle.read(read, 0, read.length, start);
+      let buffer = Buffer.concat([read, carry]);
+      carry = Buffer.alloc(0);
+      if (start > 0) {
+        const nl = buffer.indexOf(0x0a);
+        carry = nl === -1 ? buffer : buffer.subarray(0, nl);
+        buffer = nl === -1 ? Buffer.alloc(0) : buffer.subarray(nl + 1);
       }
-      const role = record?.type === 'message' ? record.message?.role : null;
-      if (role !== 'user' && role !== 'assistant') continue;
-      const text = textOf(record.message.content).trim();
-      if (!text) continue;
-      entries.push({ role, text: text.slice(0, 4000), timestamp: record.timestamp || null });
+      const lines = buffer.toString('utf-8').split('\n');
+      const found = [];
+      for (const line of lines) {
+        let record;
+        try {
+          record = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const role = record?.type === 'message' ? record.message?.role : null;
+        if (role !== 'user' && role !== 'assistant') continue;
+        const text = textOf(record.message.content).trim();
+        if (!text) continue;
+        found.push({ role, text: text.slice(0, 4000), timestamp: record.timestamp || null });
+      }
+      entries = [...found, ...entries];
+      end = start;
     }
     return entries.slice(-limit);
   } finally {

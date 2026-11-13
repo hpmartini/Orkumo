@@ -59,6 +59,8 @@ Without the module there is no route, no toggle, no palette entry, no rail entry
 | `logger`             | `info`/`warn`/`error`, prefixed `[module:<id>]`                                                                             |
 | `onUpgrade(handler)` | WebSocket upgrades under `/api/modules/<id>/...` go to `handler(req, socket, head)` (Node `upgrade` event arguments)        |
 | `addAuthorizer(fn)`  | sync `fn(req)`; `=== true` lets a non-local request in without the pairing token (only matters with `DEVORBIT_REMOTE=true`) |
+| `isViaServe(req)`    | `true` when the request came in under the serve path secret, i.e. was relayed by `tailscale serve` (see Authorizers)        |
+| `serveSecret()`      | that secret, for the setup command `tailscale serve … http://127.0.0.1:<port>/<secret>`; file `<data>/serve-secret` (600)   |
 
 `onUpgrade` and `addAuthorizer` take effect only after `register` succeeded, like the routes.
 
@@ -68,7 +70,7 @@ The server has one `upgrade` dispatcher. It refuses a browser `Origin` that is n
 
 ### Authorizers
 
-An authorizer widens who may call the whole API, not only the module's routes, so it must be narrow and sync (it also runs for WebSocket upgrades). A throwing authorizer counts as a no. Example: the mesh module accepts a request that `tailscale serve` relayed for the machine owner's own tailnet login (`Tailscale-User-Login`, which serve overwrites on every request) from one of the owner's own devices (the last `X-Forwarded-For` hop, checked against `tailscale status`). Never trust an identity header alone: check it against a source the client cannot write. An identity header proves the device, not the page: also refuse cross-site browser requests (`Sec-Fetch-Site` other than `same-origin`/`none`, or an `Origin` without it), or any site open in the owner's browser can call the API (CSRF).
+An authorizer widens who may call the whole API, not only the module's routes, so it must be narrow and sync (it also runs for WebSocket upgrades). A throwing authorizer counts as a no. Example: the mesh module accepts a request that `tailscale serve` relayed for the machine owner's own tailnet login (`Tailscale-User-Login`, which serve overwrites on every request) from one of the owner's own devices (the last `X-Forwarded-For` hop, checked against `tailscale status`). Never trust an identity header alone: check it against a source the client cannot write. An identity header proves the device, not the page: also refuse cross-site browser requests (`Sec-Fetch-Site` other than `same-origin`/`none`, or an `Origin` without it), or any site open in the owner's browser can call the API (CSRF). Headers a proxy on this machine adds prove nothing on their own either: every local process reaches the loopback port and can set them. `ctx.isViaServe(req)` closes that: with `tailscale serve` pointed at `http://127.0.0.1:<port>/<ctx.serveSecret()>`, only requests it relayed arrive under that path (a Unix socket would be tighter, but tailscaled on macOS cannot reach one).
 
 `ctx.services`:
 
@@ -149,7 +151,7 @@ Modules run with full server rights. The trust boundary is write access to the m
 
 ## Development
 
-`test/fixtures/premium/placeholder` is an empty module that only registers itself; `test/fixtures/premium/with-mode` brings a mode. Load it with `DEVHUB_PREMIUM_DIR=$PWD/test/fixtures/premium bun run server` (the `broken-*` siblings there exercise the error path and log errors).
+`test/fixtures/premium/placeholder` is an empty module that only registers itself; `test/fixtures/premium/with-mode` brings a mode, `test/fixtures/premium/with-slot` a UI in the `agents-rail` slot. Load it with `DEVHUB_PREMIUM_DIR=$PWD/test/fixtures/premium bun run server` (the `broken-*` siblings there exercise the error path and log errors).
 
 ## Workflow provider
 

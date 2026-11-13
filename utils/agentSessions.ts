@@ -39,6 +39,8 @@ export interface SessionGroup {
   sessions: AgentSession[];
   /** Sessions hidden behind the "… N more" row */
   hidden: AgentSession[];
+  /** Fixed project (#253): stays in the rail without sessions */
+  fixed?: boolean;
 }
 
 /** GitHub repo ("owner/name") of a project/directory group's agents; null for state groups */
@@ -121,6 +123,8 @@ export function groupSessions(
     lookup?: SessionLookup;
     /** Orkumo apps, needed for the 'project' grouping */
     apps?: ProjectApp[];
+    /** Directories of fixed projects (#253): their 'project' groups exist without sessions */
+    fixedProjects?: string[];
   } = {}
 ): SessionGroup[] {
   const order = (list: AgentSession[]) =>
@@ -129,7 +133,8 @@ export function groupSessions(
   if (grouping === 'none') {
     return [{ key: 'all', title: 'All', sessions: order(sessions), hidden: [] }];
   }
-  if (grouping === 'project') return projectGroups(sessions, order, options.apps, options.lookup);
+  if (grouping === 'project')
+    return projectGroups(sessions, order, options.apps, options.lookup, options.fixedProjects);
   if (grouping === 'directory') {
     const byDir = new Map<string, AgentSession[]>();
     for (const session of sessions) {
@@ -231,10 +236,29 @@ function projectGroups(
   sessions: AgentSession[],
   order: (list: AgentSession[]) => AgentSession[],
   apps: ProjectApp[] = [],
-  lookup?: SessionLookup
+  lookup?: SessionLookup,
+  fixedProjects: string[] = []
 ): SessionGroup[] {
   const sorted = bySpecificity(apps);
   const clusters = new Map<string, SessionGroup & { matched: boolean; fallback: string }>();
+  // Fixed projects first, under the key their sessions get: a worktree path means its main checkout
+  for (const dir of fixedProjects) {
+    const mainDir = mainRepoPath(dir);
+    const app = sorted.find((a) => a.path && isUnder(a.path.toLowerCase(), mainDir.toLowerCase()));
+    const key: GroupKey = app ? `project:${app.id}` : `project:dir:${mainDir}`;
+    if (clusters.has(key)) continue;
+    clusters.set(key, {
+      key,
+      title: '',
+      fallback: app ? app.name : lastSegment(mainDir),
+      cwd: app ? app.path : mainDir,
+      appId: app?.id,
+      sessions: [],
+      hidden: [],
+      fixed: true,
+      matched: !!app,
+    });
+  }
   for (const session of sessions) {
     const app = sessionApp(session, sorted, lookup);
     const mainDir = sessionDirs(session, lookup).mains[0];
@@ -804,6 +828,48 @@ export function collectPullRequests(
   );
 }
 
+/**
+ * The session with PR links for every harness: Claude Code jobs report theirs (`links`), any
+ * other session (omp, chats, interactive terminals) gets the open PRs of its current branch,
+ * matched like the PR panel does (`collectPullRequests`). Unchanged sessions are returned as is.
+ */
+export function withBranchPullRequests(
+  session: AgentSession,
+  ctx: AgentContext | undefined
+): AgentSession {
+  const branch = ctx?.repo?.branch;
+  if (session.links.length > 0 || !branch) return session;
+  const links = (ctx.pulls?.items || [])
+    .filter((pr) => pr.headRef === branch)
+    .map(
+      (pr): AgentPrLink => ({
+        id: `${pr.repoSlug}#${pr.number}`,
+        href: pr.url,
+        title: pr.title,
+        number: pr.number,
+        provider: 'github',
+        // as the label colours read it (`prClass`)
+        state: pr.isDraft
+          ? 'draft'
+          : pr.mergeReady
+            ? 'ready'
+            : pr.ci === 'failure'
+              ? 'failing'
+              : 'open',
+      })
+    );
+  return links.length > 0 ? { ...session, links } : session;
+}
+
+/** `withBranchPullRequests` over a list; the same array when no session changed (stable deps) */
+export function sessionsWithBranchPullRequests(
+  sessions: AgentSession[],
+  contexts: Record<string, AgentContext | undefined>
+): AgentSession[] {
+  const next = sessions.map((s) => withBranchPullRequests(s, contexts[s.id]));
+  return next.every((s, i) => s === sessions[i]) ? sessions : next;
+}
+
 /** Totals across all sessions for the summary bar. */
 export function summarizeContext(
   sessions: AgentSession[],
@@ -841,7 +907,8 @@ export function flattenGroups(
 ): NavItem[] {
   const items: NavItem[] = [];
   for (const group of groups) {
-    if (hideEmpty && group.sessions.length === 0 && group.hidden.length === 0) continue;
+    if (hideEmpty && !group.fixed && group.sessions.length === 0 && group.hidden.length === 0)
+      continue;
     // The flat list has no header row
     if (group.key !== 'all') items.push({ type: 'group', group });
     if (collapsed.has(group.key)) continue;
