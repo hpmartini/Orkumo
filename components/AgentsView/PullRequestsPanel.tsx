@@ -23,7 +23,7 @@ import {
  * outside clicks close, focus returns to the trigger unless the user moved it elsewhere
  * (e.g. attached an agent). Non-modal on purpose: Tab may leave the panel.
  */
-export function usePopover(onClose: () => void) {
+export function usePopover(onClose: () => void, exclusive = false) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
     // activeElement is body in Safari/Firefox after a click, so find the trigger by its state
@@ -38,15 +38,22 @@ export function usePopover(onClose: () => void) {
     };
     const onDown = (e: MouseEvent) => {
       const target = e.target as HTMLElement;
-      // Triggers toggle the panel themselves
-      if (ref.current?.contains(target) || target.closest('[data-popover-trigger]')) return;
+      // Triggers toggle the panel themselves. exclusive (#254): only the trigger next to this
+      // panel counts, so opening a sibling picker closes this one.
+      const hit = target.closest('[data-popover-trigger]');
+      const own = exclusive ? !!hit && !!ref.current?.parentElement?.contains(hit) : !!hit;
+      if (ref.current?.contains(target) || own) return;
       onClose();
     };
     document.addEventListener('keydown', onKey, true);
-    document.addEventListener('mousedown', onDown);
+    // capture: dialogs stop mousedown from bubbling to document (#254)
+    document.addEventListener('mousedown', onDown, true);
+    // Enter/Space on a sibling trigger sends a click without a mousedown
+    if (exclusive) document.addEventListener('click', onDown, true);
     return () => {
       document.removeEventListener('keydown', onKey, true);
-      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('mousedown', onDown, true);
+      document.removeEventListener('click', onDown, true);
       const focus = document.activeElement;
       if (!focus || focus === document.body || ref.current?.contains(focus)) trigger?.focus?.();
     };

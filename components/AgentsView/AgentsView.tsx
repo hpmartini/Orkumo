@@ -20,6 +20,7 @@ import type {
   AgentRepo,
   AgentSlashCommand,
   AgentPastSession,
+  AgentPrLink,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
 import { useAgentWorkspace, type PaneView } from '../../hooks/useAgentWorkspace';
@@ -87,7 +88,10 @@ import {
   NavItem,
   SessionGroup,
   harnessLabel,
+  HARNESSES,
   sessionHarness,
+  withBranchPullRequests,
+  sessionsWithBranchPullRequests,
   terminalResumeArgs,
   UI_VIEW_HARNESSES,
   isOmpStoreSession,
@@ -99,6 +103,7 @@ import { ModeSwitcher } from '../ModeSwitcher';
 import { AgentsRailSlot } from '../ModuleSlot';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
+import { PullRequestModal } from './PullRequestModal';
 import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
 import { ServersPanel, type ServerRow } from './ServersPanel';
 import { TaskComposerModal, useCommandPalette, useRegisterCommands } from '../CommandPalette';
@@ -121,10 +126,13 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { fetchBoard } from '../../services/boardApi';
 import { deriveAgentLinks, itemKey as boardItemKey, linksByAgent } from '../../utils/board';
 import type { BoardData } from '../../types';
-import { IssueCreateModal, lastIssueRepo } from '../BoardView/IssueCreateModal';
+import { IssueCreateModal, lastIssueRepo, type IssueDraft } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
-import { promptWithImages } from '../../utils/composer';
+import { issueDraftToTask, promptWithImages, taskToIssueDraft } from '../../utils/composer';
+import { pollWhileVisible } from '../../utils/visiblePoll';
 import { DirectoryPicker } from './DirectoryPicker';
+import { MainAgentDialog } from './MainAgentDialog';
+import { MAIN_AGENT_EVENT } from '../TitleBar';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -198,7 +206,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 }) => {
   const palette = useCommandPalette();
   const {
-    sessions,
+    sessions: listed,
     listTarget,
     daemon,
     userSettings,
@@ -213,6 +221,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     lastCompleted,
     refresh,
   } = useAgentSessions({ active: true });
+  const contexts = useAgentContexts(true, listed);
+  // Every harness gets the PRs of its branch, not only Claude jobs that report links
+  const sessions = useMemo(
+    () => sessionsWithBranchPullRequests(listed, contexts),
+    [listed, contexts]
+  );
 
   const [input, setInput] = useState('');
   const [hint, setHint] = useState<{ text: string; tone: 'info' | 'error' | 'success' } | null>(
@@ -265,6 +279,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [homeDir, setHomeDir] = useState<string | null>(null);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
+  /** Main agent dialog (#252): opened from the title bar or the palette in every view */
+  const [mainAgentOpen, setMainAgentOpen] = useState(false);
+  useEffect(() => {
+    const open = () => setMainAgentOpen(true);
+    window.addEventListener(MAIN_AGENT_EVENT, open);
+    return () => window.removeEventListener(MAIN_AGENT_EVENT, open);
+  }, []);
+  /** Directory picker for a new fixed project (#253) */
+  const [pickFixedOpen, setPickFixedOpen] = useState(false);
   const [dispatching, setDispatching] = useState(false);
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   const [subagents, setSubagents] = useState<AgentSubagent[]>([]);
@@ -336,7 +359,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
   const railRef = useRef<HTMLDivElement>(null);
   const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
-  const contexts = useAgentContexts(true);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
     [sessions, apps, contexts]
@@ -349,9 +371,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       fetchBoard()
         .then(setBoard)
         .catch(() => {});
-    load();
-    const interval = setInterval(load, BOARD_REFRESH_MS);
-    return () => clearInterval(interval);
+    return pollWhileVisible(load, BOARD_REFRESH_MS);
   }, []);
   const issueLinks = useMemo(
     () => (board ? deriveAgentLinks(board.items, sessions) : undefined),
@@ -382,6 +402,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     if (!active) setPanel(null);
   }, [active]);
   const [prRepo, setPrRepo] = useState<string | null>(null);
+  // PR pill -> exactly that session's PR(s); the overview opens from the summary bar
+  const [prModal, setPrModal] = useState<AgentPrLink[] | null>(null);
   const pullRows = useMemo(() => collectPullRequests(sessions, contexts), [sessions, contexts]);
   const serverRows = useMemo(() => {
     const seen = new Set<number>();
@@ -492,9 +514,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           sort,
           lookup,
           apps,
+          // A filter asks for agents: empty fixed projects would only be in the way
+          fixedProjects: filterActive ? [] : rail.fixedProjects,
         })
       ),
-    [shownSessions, settings.grouping, expandedCompleted, quickFilters, sort, lookup, apps, arrange]
+    [
+      shownSessions,
+      filterActive,
+      settings.grouping,
+      expandedCompleted,
+      quickFilters,
+      sort,
+      lookup,
+      apps,
+      arrange,
+      rail.fixedProjects,
+    ]
   );
   // Session of the active workspace tab: marked and revealed in the rail
   const activeSessionId = useMemo(() => {
@@ -562,6 +597,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setComposerHarness(null);
     setComposerOpen(true);
   }, []);
+  // Quick window (#251): its prompt opens the chat composer here, ready to send
+  useEffect(
+    () =>
+      window.electronAPI?.onQuickPrompt?.((text) => {
+        onOpenView();
+        setInput(text);
+        openComposer('chat');
+      }),
+    [onOpenView, openComposer]
+  );
   const composerCwd =
     composerMode === 'agent'
       ? agentCwd || homeDir
@@ -701,6 +746,31 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     },
     [attachPane, active, onOpenView]
   );
+  // Quick window (#251) handing over its agent pane: opened here once the session list names the
+  // pane (its stand-in), which reattaches to the same process
+  const [quickPane, setQuickPane] = useState<string | null>(null);
+  useEffect(
+    () =>
+      window.electronAPI?.onQuickChat?.((paneId) => {
+        onOpenView();
+        setQuickPane(paneId);
+      }),
+    [onOpenView]
+  );
+  const quickPaneListed = !!quickPane && paneStandIns.some((s) => s.id === quickPane);
+  useEffect(() => {
+    if (!quickPane) return;
+    if (quickPaneListed) {
+      setQuickPane(null);
+      attach(quickPane);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setQuickPane(null);
+      showHint('The quick window agent did not show up here', 'error');
+    }, 20000);
+    return () => clearTimeout(timer);
+  }, [quickPane, quickPaneListed, attach, showHint]);
 
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
@@ -728,7 +798,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [pullRows, sessions, contexts, attach, openPrCode]
   );
   // New issue dialog; repo null = the user picks one of `issueRepos`
-  const [issueDialog, setIssueDialog] = useState<{ repo: string | null } | null>(null);
+  const [issueDialog, setIssueDialog] = useState<{
+    repo: string | null;
+    draft?: IssueDraft;
+  } | null>(null);
   const attachParam = active ? new URLSearchParams(location.search).get('attach') : null;
   useEffect(() => {
     if (!attachParam || loading) return;
@@ -739,13 +812,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     navigate('/agents', { replace: true });
   }, [attachParam, loading, sessions, attach, showHint, navigate]);
 
-  // Board "Agent starten": composer prefill via router state, which external links cannot set
-  const prefill = active ? (location.state as { dispatch?: unknown; cwd?: unknown } | null) : null;
+  // Board "Agent starten" / chat history "Continue" (#280): composer prefill via router state,
+  // which external links cannot set
+  const prefill = active
+    ? (location.state as {
+        dispatch?: unknown;
+        cwd?: unknown;
+        mode?: unknown;
+        harness?: unknown;
+      } | null)
+    : null;
   useEffect(() => {
     if (typeof prefill?.dispatch !== 'string') return;
     setInput(prefill.dispatch);
     if (typeof prefill.cwd === 'string' && prefill.cwd) pickDispatchCwd(prefill.cwd);
-    openComposer('task');
+    openComposer(prefill.mode === 'chat' ? 'chat' : 'task');
+    // After openComposer, which resets the pick; sending checks that the harness is installed
+    const harness = HARNESSES.find((h) => h.id === prefill.harness)?.id;
+    if (harness) setComposerHarness(harness);
     navigate('/agents', { replace: true, state: null });
   }, [prefill, navigate, openComposer, pickDispatchCwd]);
 
@@ -1766,6 +1850,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             },
           ]
         : []),
+      ...(group.cwd && settings.grouping === 'project'
+        ? [
+            {
+              id: 'fixed-project',
+              label: group.fixed ? 'Remove fixed project' : 'Keep as fixed project',
+              // Several stored directories can mean this project (worktree, subfolder of an app)
+              onSelect: () =>
+                (group.fixed
+                  ? rail.fixedProjects.filter(
+                      (dir) =>
+                        groupSessions([], 'project', { apps, fixedProjects: [dir] })[0]?.key ===
+                        group.key
+                    )
+                  : [group.cwd!]
+                ).forEach(rail.toggleFixedProject),
+            },
+          ]
+        : []),
       ...(group.cwd
         ? [
             {
@@ -1824,6 +1926,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [
       collapsed,
       toggleGroup,
+      settings.grouping,
+      rail.fixedProjects,
+      rail.toggleFixedProject,
+      apps,
       handleStopOrDelete,
       nav,
       navigate,
@@ -1879,8 +1985,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         openComposer('task');
       },
     };
-    // The rest acts on the visible view only; the task composer works from every page
-    if (!active) return [newTask];
+    const mainAgent: PaletteCommand = {
+      id: 'agents.main-agent',
+      title: 'Main agent',
+      group: 'Agents',
+      scope: 'command',
+      keywords: 'orchestrator main chef hauptagent',
+      run: () => setMainAgentOpen(true),
+    };
+    // The rest acts on the visible view only; the task composer and the main agent work from every page
+    if (!active) return [newTask, mainAgent];
 
     const cmd = (
       id: string,
@@ -1890,7 +2004,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       extra: Partial<PaletteCommand> = {}
     ): PaletteCommand => ({ id: `agents.${id}`, title, group, scope: 'command', run, ...extra });
 
-    const list: PaletteCommand[] = [newTask];
+    const list: PaletteCommand[] = [
+      newTask,
+      mainAgent,
+      cmd('fixed-project.add', 'Add fixed project…', 'Rail', () => setPickFixedOpen(true), {
+        keywords: 'projekt festlegen pflegen pin directory',
+      }),
+    ];
     if (selectedSession) {
       for (const action of rowActions(selectedSession)) {
         if (action.disabled) continue;
@@ -2318,10 +2438,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 contexts={contexts}
                 servers={servers}
                 filtered={filterActive || !!filter}
-                onOpenPrs={(repo) => {
-                  setPrRepo(repo);
-                  setPanel('prs');
-                }}
+                onOpenPr={setPrModal}
                 rowActions={rowActions}
                 groupActions={groupActions}
                 highlightedId={highlightedId}
@@ -2444,19 +2561,21 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                         onSetLayout={live ? workspaceActions.setLayout : noop}
                         onPeek={live ? (sid) => setPeekId(sid) : noop}
                         focusZone={focusZone}
-                        renderPaneMeta={(x) => (
-                          <SessionLinks
-                            session={x}
-                            ctx={contexts[x.id]}
-                            servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
-                            issueKeys={issuesByAgent?.get(x.id) || []}
-                            onOpenIssue={setIssueModalKey}
-                            onOpenPrs={(repo) => {
-                              setPrRepo(repo);
-                              setPanel('prs');
-                            }}
-                          />
-                        )}
+                        renderPaneMeta={(pane) => {
+                          // A harness pane started here is represented by the server row that
+                          // claimed it (#195); a chat by itself (its context comes from the server)
+                          const x = sessions.find((s) => s.paneId === pane.id) ?? pane;
+                          return (
+                            <SessionLinks
+                              session={withBranchPullRequests(x, contexts[x.id])}
+                              ctx={contexts[x.id]}
+                              servers={(servers.get(x.id) || []).filter((srv) => srv.running)}
+                              issueKeys={issuesByAgent?.get(x.id) || []}
+                              onOpenIssue={setIssueModalKey}
+                              onOpenPr={setPrModal}
+                            />
+                          );
+                        }}
                       />
                     </div>
                   );
@@ -2489,6 +2608,28 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         </div>
       )}
 
+      {mainAgentOpen && (
+        <MainAgentDialog
+          session={sessions.find(
+            (s) =>
+              s.kind === 'background' &&
+              s.name === settings.mainAgent.name &&
+              !sessions.some(
+                (o) => o.kind === 'background' && o.name === s.name && o.startedAt > s.startedAt
+              )
+          )}
+          config={settings.mainAgent}
+          onConfig={(mainAgent) => updateSettings({ mainAgent })}
+          onClose={() => setMainAgentOpen(false)}
+          onAttach={(session) => {
+            setMainAgentOpen(false);
+            onOpenView();
+            openSession(session);
+          }}
+          onReply={handleReply}
+        />
+      )}
+
       {/* Modals */}
       <ShortcutsHelp open={showHelp} onClose={() => setShowHelp(false)} />
       {issueModalKey && (
@@ -2498,10 +2639,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           onClose={() => setIssueModalKey(null)}
         />
       )}
+      {prModal && (
+        <PullRequestModal
+          links={prModal}
+          rows={pullRows}
+          contexts={contexts}
+          onSelectAgent={attach}
+          onOpenCode={openPrCode}
+          onOpenOverview={() => {
+            setPrRepo(null);
+            setPanel('prs');
+          }}
+          onClose={() => setPrModal(null)}
+        />
+      )}
       {issueDialog && (
         <IssueCreateModal
           repo={issueDialog.repo}
           repos={issueRepos}
+          draft={issueDialog.draft}
+          onKindChange={(kind, draft) => {
+            setIssueDialog(null);
+            setInput(issueDraftToTask(draft));
+            setComposerImages(draft.images);
+            openComposer(kind);
+          }}
+          statusOptions={board?.statusField.options}
           onClose={() => setIssueDialog(null)}
           onCreated={(item) => {
             const key = `${item.repo}#${item.number}`;
@@ -2546,6 +2709,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onPickDirectory={() => setPickDirOpen(true)}
         targetCwd={composerCwd}
         variant={composerMode}
+        onKindChange={(kind) => {
+          if (kind !== 'issue') return openComposer(kind);
+          // The text moves into the issue dialog, so it is not left behind in the composer
+          setComposerOpen(false);
+          setIssueDialog({
+            repo: selectedRepo || lastIssueRepo(issueRepos),
+            draft: { ...taskToIssueDraft(input), images: composerImages },
+          });
+          setInput('');
+          setComposerImages([]);
+        }}
         harness={composerHarness}
         onHarnessChange={setComposerHarness}
         harnessInstalled={harnessInstalled}
@@ -2596,6 +2770,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             setInput(text);
             setEditorOpen(false);
             requestAnimationFrame(() => inputRef.current?.focus());
+          }}
+        />
+      )}
+      {pickFixedOpen && (
+        <DirectoryPicker
+          choices={directoryChoices}
+          current={null}
+          home={homeDir}
+          label="Directory of the fixed project…"
+          onCancel={() => setPickFixedOpen(false)}
+          onPick={(path) => {
+            if (!rail.fixedProjects.includes(path)) rail.toggleFixedProject(path);
+            if (settings.grouping !== 'project') updateSettings({ grouping: 'project' });
+            setPickFixedOpen(false);
           }}
         />
       )}

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Check, Pencil } from 'lucide-react';
+import { Check, ChevronDown, Pencil } from 'lucide-react';
 import type { BoardLabel, BoardRepoOptions } from '../../types';
 import { fetchRepoOptions } from '../../services/boardApi';
 import { usePopover } from '../AgentsView/PullRequestsPanel';
@@ -35,7 +35,7 @@ const PickerList: React.FC<{
   onClose: () => void;
   label: string;
 }> = ({ choices, selected, multi, onPick, onClose, label }) => {
-  const ref = usePopover(onClose);
+  const ref = usePopover(onClose, true);
   return (
     <div
       ref={ref}
@@ -79,7 +79,9 @@ export const FieldPicker: React.FC<{
   onChange: (next: string[]) => void;
   display: React.ReactNode;
   disabled?: boolean;
-}> = ({ label, multi = false, choices, value, onChange, display, disabled }) => {
+  /** Visible button as wide as its value (create dialog, #254) instead of a hover-only row */
+  boxed?: boolean;
+}> = ({ label, multi = false, choices, value, onChange, display, disabled, boxed }) => {
   const [open, setOpen] = useState(false);
   const pick = (v: string) => {
     if (multi) onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
@@ -97,11 +99,21 @@ export const FieldPicker: React.FC<{
         aria-label={`${label} ändern`}
         disabled={disabled || !choices}
         onClick={() => setOpen(!open)}
-        className="group w-full flex items-center gap-1 min-h-[24px] rounded px-1 -mx-1 text-left hover:bg-gray-800 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+        className={
+          boxed
+            ? `inline-flex max-w-full items-center gap-1.5 min-h-[26px] rounded border bg-gray-850 px-2 py-0.5 text-left hover:border-gray-500 disabled:opacity-60 disabled:hover:border-gray-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor ${
+                open ? 'border-blue-500' : 'border-gray-700'
+              }`
+            : 'group w-full flex items-center gap-1 min-h-[24px] rounded px-1 -mx-1 text-left hover:bg-gray-800 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor'
+        }
         title={choices ? `${label} ändern` : 'Lade Auswahl …'}
       >
-        <span className="flex-1 min-w-0 flex flex-wrap gap-1">{display}</span>
-        <Pencil size={11} className="shrink-0 text-gray-500 opacity-0 group-hover:opacity-100" />
+        <span className={`min-w-0 flex flex-wrap gap-1 ${boxed ? '' : 'flex-1'}`}>{display}</span>
+        {boxed ? (
+          <ChevronDown size={12} className="shrink-0 text-gray-400" />
+        ) : (
+          <Pencil size={11} className="shrink-0 text-gray-500 opacity-0 group-hover:opacity-100" />
+        )}
       </button>
       {open && choices && (
         <PickerList

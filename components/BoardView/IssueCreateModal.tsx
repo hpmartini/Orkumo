@@ -7,6 +7,7 @@ import { useDialogA11y } from '../CommandPalette/useDialogA11y';
 import { ImageAttachments, imageDropHandlers } from '../ImageAttachments';
 import { bodyWithImages, submitIntent } from '../../utils/composer';
 import { LabelChip } from './BoardCard';
+import { NewKindTabs, type NewKind } from '../AgentsView/NewTaskButton';
 import {
   FIELD_INPUT,
   FieldPicker,
@@ -29,6 +30,27 @@ export function lastIssueRepo(repos: string[]): string | null {
   }
 }
 
+/**
+ * Repositories a title of the form `#text` picks from (#228, like GitHub Projects' add bar):
+ * null unless the whole title is that one token. Matches on the repo name come first.
+ */
+export function repoHashMatches(title: string, repos: string[]): string[] | null {
+  const query = /^#(\S*)$/.exec(title)?.[1].toLowerCase();
+  if (query === undefined) return null;
+  const name = (r: string) => r.slice(r.indexOf('/') + 1).toLowerCase();
+  return [
+    ...repos.filter((r) => name(r).startsWith(query)),
+    ...repos.filter((r) => !name(r).startsWith(query) && r.toLowerCase().includes(query)),
+  ];
+}
+
+/** What moves along when the user switches between the "new" dialogs (#271) */
+export interface IssueDraft {
+  title: string;
+  body: string;
+  images: File[];
+}
+
 interface IssueCreateModalProps {
   /** Preselected repository ("owner/name") */
   repo: string | null;
@@ -37,6 +59,10 @@ interface IssueCreateModalProps {
   /** Status options of the board; without them the server picks "Backlog" */
   statusOptions?: BoardStatusOption[];
   statusOptionId?: string;
+  /** Text and images typed in another "new" dialog */
+  draft?: IssueDraft;
+  /** Shows the Task/Agent/Chat/Issue switch; called with the current draft (#271) */
+  onKindChange?: (kind: Exclude<NewKind, 'issue'>, draft: IssueDraft) => void;
   onClose: () => void;
   /** Called with the new item; the caller gives the success feedback */
   onCreated: (item: BoardItem) => void;
@@ -48,6 +74,8 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
   repos,
   statusOptions,
   statusOptionId: initialStatus,
+  draft,
+  onKindChange,
   onClose,
   onCreated,
 }) => {
@@ -59,16 +87,21 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
   const [statusOptionId, setStatusOptionId] = useState(
     initialStatus ?? statusOptions?.find((o) => o.name.toLowerCase() === 'backlog')?.id ?? ''
   );
-  const [title, setTitle] = useState('');
-  const [body, setBody] = useState('');
+  const [title, setTitle] = useState(draft?.title ?? '');
+  const [body, setBody] = useState(draft?.body ?? '');
   const [labels, setLabels] = useState<string[]>([]);
   const [assignees, setAssignees] = useState<string[]>([]);
   const [milestone, setMilestone] = useState<string[]>([]);
-  const [images, setImages] = useState<File[]>([]);
+  const [images, setImages] = useState<File[]>(draft?.images ?? []);
   const [saving, setSaving] = useState(false);
   // Issue exists on GitHub but the project step failed: the next submit only retries that step
   const [orphan, setOrphan] = useState<{ id: string; url: string | null } | null>(null);
   const { options, error } = useRepoOptions(repo || null);
+
+  // `#` in the empty title picks the repository (#228); Escape hides the list until the title changes
+  const [hash, setHash] = useState({ index: 0, hidden: false });
+  const hashRepos =
+    repos && repos.length > 1 && !orphan && !hash.hidden ? repoHashMatches(title, repos) : null;
 
   const changeRepo = (next: string) => {
     setRepo(next);
@@ -158,6 +191,18 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             <h2 id="issue-create-title" className="text-sm font-semibold text-gray-50">
               Neues Issue
             </h2>
+            {onKindChange && (
+              <div className="ml-3">
+                <NewKindTabs
+                  kind="issue"
+                  // the issue may already exist (orphan) or be on its way
+                  disabled={saving || !!orphan}
+                  onChange={(kind) =>
+                    kind !== 'issue' && onKindChange(kind, { title, body, images })
+                  }
+                />
+              </div>
+            )}
             <button
               type="button"
               onClick={onClose}
@@ -216,21 +261,88 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             <label htmlFor="issue-create-name" className="text-gray-400">
               Titel
             </label>
-            <input
-              id="issue-create-name"
-              ref={titleRef}
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              // Only Cmd/Ctrl+Enter submits (#105), so a stray Enter cannot create the issue
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !submitIntent(e)) e.preventDefault();
-              }}
-              maxLength={256}
-              required
-              disabled={!!orphan}
-              placeholder="Was soll passieren?"
-              className={FIELD_INPUT}
-            />
+            <div className="relative">
+              <input
+                id="issue-create-name"
+                ref={titleRef}
+                value={title}
+                onChange={(e) => {
+                  setTitle(e.target.value);
+                  setHash({ index: 0, hidden: false });
+                }}
+                onKeyDown={(e) => {
+                  if (hashRepos) {
+                    const step = e.key === 'ArrowDown' ? 1 : e.key === 'ArrowUp' ? -1 : 0;
+                    const pick = hashRepos[hash.index];
+                    if (step && hashRepos.length) {
+                      e.preventDefault();
+                      const index = (hash.index + step + hashRepos.length) % hashRepos.length;
+                      setHash({ index, hidden: false });
+                    } else if ((e.key === 'Enter' || e.key === 'Tab') && pick) {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (pick !== repo) changeRepo(pick);
+                      setTitle('');
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault();
+                      setHash({ index: 0, hidden: true });
+                    }
+                  }
+                  // Only Cmd/Ctrl+Enter submits (#105), so a stray Enter cannot create the issue
+                  if (e.key === 'Enter' && !submitIntent(e)) e.preventDefault();
+                }}
+                maxLength={256}
+                required
+                disabled={!!orphan}
+                placeholder={
+                  repos && repos.length > 1
+                    ? 'Was soll passieren? (# wählt das Repository)'
+                    : 'Was soll passieren?'
+                }
+                role="combobox"
+                aria-expanded={!!hashRepos}
+                aria-controls="issue-create-repo-list"
+                aria-activedescendant={
+                  hashRepos?.length ? `issue-create-repo-option-${hash.index}` : undefined
+                }
+                aria-autocomplete="list"
+                autoComplete="off"
+                className={FIELD_INPUT}
+              />
+              {hashRepos && (
+                <ul
+                  id="issue-create-repo-list"
+                  role="listbox"
+                  aria-label="Repository"
+                  className="absolute z-10 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto bg-gray-850 border border-gray-600 rounded shadow-xl py-1"
+                >
+                  {hashRepos.length === 0 && (
+                    <li className="px-2 py-1 text-gray-400">Kein Repository passt</li>
+                  )}
+                  {hashRepos.map((r, i) => (
+                    <li
+                      key={r}
+                      id={`issue-create-repo-option-${i}`}
+                      role="option"
+                      aria-selected={i === hash.index}
+                      // mousedown: the input keeps the focus
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        if (r !== repo) changeRepo(r);
+                        setTitle('');
+                      }}
+                      className={`px-2 py-1 font-mono cursor-pointer ${
+                        i === hash.index
+                          ? 'bg-blue-600 text-white'
+                          : 'text-gray-200 hover:bg-gray-700'
+                      }`}
+                    >
+                      {r}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
 
             <label htmlFor="issue-create-body" className="text-gray-400 self-start pt-1">
               Beschreibung
@@ -259,6 +371,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
 
             <span className="text-gray-400">Labels</span>
             <FieldPicker
+              boxed
               disabled={!!orphan}
               label="Labels"
               multi
@@ -273,6 +386,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             />
             <span className="text-gray-400">Assignees</span>
             <FieldPicker
+              boxed
               disabled={!!orphan}
               label="Assignees"
               multi
@@ -283,6 +397,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             />
             <span className="text-gray-400">Milestone</span>
             <FieldPicker
+              boxed
               disabled={!!orphan}
               label="Milestone"
               choices={milestoneChoices(options)}

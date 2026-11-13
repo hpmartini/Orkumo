@@ -404,6 +404,19 @@ export function killPanePtys(paneId) {
 }
 
 /**
+ * Types `text` into the running agent of pane `paneId` and submits it, like a paste into its
+ * terminal: bracketed paste keeps a multi-line message one message, Enter follows separately
+ * (a TUI treats an Enter in the same chunk as part of the paste). false when no agent runs there.
+ */
+export function typeIntoPanePty(paneId, text) {
+  const running = runningPanePty(paneId);
+  if (!running) return false;
+  writeToPty(running.sessionId, `\x1b[200~${text}\x1b[201~`);
+  setTimeout(() => writeToPty(running.sessionId, '\r'), 80);
+  return true;
+}
+
+/**
  * Kill a PTY session
  * @param {string} sessionId - Session identifier
  * @param {number} [pid] - Only kill if the session still runs this PTY (a reconnect may have replaced it)

@@ -1,5 +1,5 @@
 import React from 'react';
-import { MessagesSquare, Kanban, CircleDot, GitPullRequest, Code2 } from 'lucide-react';
+import { MessagesSquare, Kanban, CircleDot, GitPullRequest, Code2, History } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ModeEntry } from '../hooks/useModules';
 import { moduleIcon } from './moduleIcon';
@@ -11,6 +11,7 @@ export const MODES = [
   { path: '/issues', label: 'Issues', icon: CircleDot },
   { path: '/pulls', label: 'Pull Requests', icon: GitPullRequest },
   { path: '/code', label: 'Code', icon: Code2 },
+  { path: '/chats', label: 'Chats', icon: History },
 ] as const;
 
 /**

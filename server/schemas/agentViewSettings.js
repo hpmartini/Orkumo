@@ -39,6 +39,9 @@ export const agentViewSettingsSchema = z
     chatSubmitKey: z.enum(['enter', 'mod+enter']).optional(),
     chatShowSteps: z.boolean().optional(),
     agentOpenView: z.enum(['chat', 'terminal']).optional(),
+    mainAgent: z
+      .object({ name: z.string().trim().min(1).max(100), keepAlive: z.boolean() })
+      .optional(),
     dispatch: z
       .object({
         harness: z.enum(['claude', 'omp', 'opencode', 'codex', 'pi']).optional(),

@@ -80,6 +80,8 @@ interface ChatPaneProps {
   /** Back to the terminal view of the same process */
   onShowTerminal: () => void;
   headerProps?: React.HTMLAttributes<HTMLDivElement>;
+  /** Linked PRs, issues and running servers (same items as a terminal pane's header) */
+  meta?: React.ReactNode;
 }
 
 /**
@@ -100,6 +102,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   onMaximize,
   onShowTerminal,
   headerProps,
+  meta,
 }) => {
   const [state, dispatch] = useReducer(reducer, initialChatState);
   const [chatId, setChatId] = useState<string | null>(null);
@@ -277,6 +280,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         >
           {status}
         </span>
+        {meta && (
+          <div className="flex items-center gap-x-2 min-w-0 overflow-hidden text-[11px] text-gray-400">
+            {meta}
+          </div>
+        )}
         <span className="flex-1" />
         <button
           type="button"

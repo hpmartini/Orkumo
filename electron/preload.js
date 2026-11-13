@@ -16,6 +16,8 @@ const serverPort = serverPortArg ? parseInt(serverPortArg.split('=')[1], 10) : n
 contextBridge.exposeInMainWorld('electronAPI', {
   // Port the backend server actually listens on
   serverPort: Number.isInteger(serverPort) ? serverPort : null,
+  // Pairing link of another machine's server (ORKUMO_REMOTE) or null; sync for the same reason
+  remoteLink: ipcRenderer.sendSync('remote-link'),
 
   // Platform information
   getPlatform: () => ipcRenderer.invoke('get-platform'),
@@ -31,6 +33,36 @@ contextBridge.exposeInMainWorld('electronAPI', {
     const handler = (event, url) => callback(url);
     ipcRenderer.on('open-link', handler);
     return () => ipcRenderer.removeListener('open-link', handler);
+  },
+
+  // Quick window (#251): its prompt goes to the main window
+  quickSubmit: (text) => ipcRenderer.send('quick-submit', text),
+  quickHide: () => ipcRenderer.send('quick-hide'),
+  quickExpand: (expanded) => ipcRenderer.send('quick-expand', expanded === true),
+  quickOpenChat: (chatId) => ipcRenderer.send('quick-open-chat', chatId),
+  onQuickHidden: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = () => callback();
+    ipcRenderer.on('quick-hidden', handler);
+    return () => ipcRenderer.removeListener('quick-hidden', handler);
+  },
+  onQuickChat: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = (event, chatId) => callback(chatId);
+    ipcRenderer.on('quick-chat', handler);
+    return () => ipcRenderer.removeListener('quick-chat', handler);
+  },
+  onQuickPrompt: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = (event, text) => callback(text);
+    ipcRenderer.on('quick-prompt', handler);
+    return () => ipcRenderer.removeListener('quick-prompt', handler);
   },
 
   // Native dialogs

@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Module fixture `test/fixtures/premium/with-slot`: a runnable example of a module UI in the `agents-rail` slot, next to the placeholder and the mode fixture (`docs/MODULES.md`, "Development").
+- Chats mode (`/chats`, #280): import the official data exports of claude.ai and ChatGPT (unpacked folder) and read them in one local list: full-text search, filters for provider, project and period, topics, and "Continue in Orkumo" to carry a conversation into a new chat. Import, search and topics run locally, nothing is fetched from either provider; a continued conversation goes to the harness of the new chat
+- Quick window (#251, desktop app): a system-wide shortcut (default `Alt+Shift+Space`, `ORKUMO_QUICK_SHORTCUT` overrides, empty turns it off) toggles a small always-on-top prompt field. Enter starts the default harness (Claude Code or Oh My Pi) in ~ as an agent pane of its own (`POST /api/agents/quick`) and shows its answer in the window; follow-ups are typed into that agent. Cmd+Enter ("In Orkumo öffnen") opens the same agent in the main window, Escape ends it. Other harnesses, or no server, hand the text to the composer in Orkumo
+- Main agent (#252): a title bar button and the palette command "Main agent" open, in every view, a dialog on the background session named `main-orchestrator` (recent output, reply, attach). Keep-alive (on by default, switch in the dialog): a stopped main agent is restarted with `claude respawn`; Orkumo sends no prompt with it
+- Fixed projects (#253): a project group kept via its menu ("Keep as fixed project") or added by directory ("Add fixed project…" in the command palette) stays in the rail's Project grouping without sessions; sessions of its worktrees land in it
+- "Neues Issue": `#` in the empty title lists the repositories, typing filters, Enter picks one (#228)
+
+### Changed
+
+- Agents workspace tiling works like Ghostty (#212): a pane dropped on the edge of another pane splits only that pane, every other pane keeps its place and size (before: a 2-column grid with empty cells). Saved workspaces are migrated
+- A browser pane dragged onto the tab strip becomes its own tab and survives a reload (#212)
+
 ### Removed
 
 - Monaco editor and its editor switcher in the Web IDE panel; VS Code (code-server) is the only integrated editor (#139)
@@ -27,9 +41,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agents view: new agents default to Oh My Pi (setting "Default harness for new agents"; a stored choice wins), so New task / New agent / Chat and the board's "Agent starten" preselect it
 - Agents view: collapse / expand all groups moved out of the grouping menu into two toggle buttons in the filter row: one folds all groups (projects), one opens or closes the details of all agent cards
 - Terminal links: Cmd/Ctrl-click on a file path opens it in VS Code, in the window of the pane's project (git root of its directory) at the clicked line; Cmd/Ctrl+Shift-click keeps the old "default macOS app"; folders still open in Finder. Cmd/Ctrl+Shift-click on a URL (terminal or app link) always opens the system browser
+- Agents list is event-driven instead of polled: the server watches the session stores (`~/.claude/jobs`, `~/.claude/sessions`, `~/.omp/agent/sessions`, `~/.omp/agent/terminal-sessions`, one `fs.watch` each) and runs `claude agents --json` only after a change (300 ms debounce, at most every 2.5 s) plus a 60 s reconcile, only while a client is subscribed (was: every 2.5 s). Session context (git, gh) refetches when a session's state or turn changes, and the server re-reads git/gh only for repos whose sessions changed (others every 5 min). All client polls (peek, chat, status line, board, issues, usage, servers panel, daemon status) pause while the page is hidden. Idle agents view: 441 → 13 processes/min
 
 ### Fixed
 
+- Agents view: a client whose SSE stream ended with both `close` and `error` was counted twice, so the session watcher stopped while another client still listened (that view got no more live updates)
+- Agents rail: Oh My Pi sessions nobody ever prompted (an omp chat or `omp acp` opened and closed, a TUI quit right away) were listed as "omp <id>" cards with age 0s; finished sessions without a user message are no longer listed (running ones still are)
+- Chat and peek: recent prompts were missing. A prompt typed while Claude Code works is stored as a queued-command attachment, not a user message, so the chat (resume history and live view of a running agent) never showed it; it now does, task notifications stay hidden. omp's replayed `<system-reminder>` notes no longer show as prompts, and the omp peek reads back past megabytes of tool output instead of only the newest 512 KB, which often held just the last prompt
+- Chat panes (every harness): messages with images failed with "413 Payload too large" for large screenshots and photos (over 10 MB), and the agent only got the file path, which it first had to open with a tool. Images are now scaled down in the browser before upload (at most 2000 px, 3.75 MB, as Claude Code and omp do with a pasted image) and reach the harness as image content: Claude Code as image blocks, omp/OpenCode as ACP image blocks, Pi as `images`, Codex as `localImage`
+- Oh My Pi chats (and omp terminal panes) started in Orkumo showed only omp's built-in commands, none of the user's skills: omp loads Claude's user skills and plugins only on opt-in. Orkumo now starts omp with a `--config` overlay that opts in `~/.claude/skills` and the enabled Claude plugins (125 skills here, `/skill:<name>`), and the chat's `/` picker no longer cuts the list at 50 entries
+- Agents view: "Open as chat" on an Oh My Pi terminal pane asked to take over the session ("Übernimmt Session") although the pane itself runs it; switching the view now goes straight to the chat. The dialog stays for an omp process running in a terminal outside Orkumo
 - Agents panel and dashboard: Oh My Pi sessions can be stopped and deleted. Stop only closed a pane with the row's id, which never matched a session started via New task (`interactive-…` pane) or running in another terminal; it now ends the omp process on the server and closes the pane that ran it. Delete (was disabled) removes the session file, its artifacts folder and `.bak` copies like omp's own picker, after ending a running process
 - Desktop app: terminals failed with "WebSocket connection error" since #220; the PTY upgrade check refused the packaged renderer's `Origin: file://` (it only accepted `null`, what fetch sends). `file://` now passes inside Electron like `null`
 - Desktop app: Oh My Pi (and other TUIs that query terminal modes: opencode, vim) showed only the `# omp …` header line and never rendered. esbuild's minifier (target below es2021) broke xterm 6's pre-minified `requestMode`, the first DECRQM query threw and stopped the terminal's parser for good (xtermjs/xterm.js#5800, evanw/esbuild#4508). The frontend now builds with `target: 'es2021'`; the dev server was never affected
@@ -38,6 +59,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Chat panes of every harness show context fill and plan limits in the status line (omp and OpenCode via ACP usage updates, Pi via its session stats, Codex via its token usage and rate limits; Claude models in omp/Pi show Claude's plan limits), and linked PRs, board issues and servers in the header like terminal panes
+- PR links (and the board issues behind them) for every session, not only Claude Code jobs: omp, other harnesses and chats get the open PRs of their current branch, on the card, in the terminal pane header and in the chat header
 - Chat pane (UI mode) for every harness, not only Claude Code: Oh My Pi and OpenCode via ACP, Pi via its RPC mode, Codex via `codex app-server`. Pick the harness in "New chat"; idle omp sessions open as chat ("Open as chat", or by default with "Open idle agents as chat"), and "Open in terminal" continues any chat in its harness's TUI (`omp -r`, `pi --session`, `opencode --session`, `codex resume`)
 - Agents servers panel: section "Verwaist" lists listening servers of finished worktrees and jobs (`GET /api/agents/servers/orphans`) with a confirmed Stop (`POST /api/agents/servers/:pid/stop`, orphan pids only); a server now belongs to a session only via its process ancestry or the session's own dir without nested `.claude/worktrees/*` and `.claude/jobs/*` (#243)
 - Issues mode (`/issues`, mode bar after Board): filterable list of the GitHub issues of the active context's repos, read straight from the repos so issues off the board appear too ("Board" badge marks the rest). Search, repo / label / assignee / milestone / author / board filters, open/closed, grouping and sorting in the URL; a row opens the issue modal (`GET /api/issues?context=&state=&refresh=1`)

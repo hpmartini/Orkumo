@@ -3,6 +3,7 @@
  */
 import { API_BASE_URL } from '../utils/apiConfig';
 import { agentApiUrl, getAgentTarget, pinTarget, targetOf } from '../utils/agentTarget';
+import { fitImage } from '../utils/imageFit';
 import type {
   AgentsResponse,
   AgentDispatchRequest,
@@ -94,8 +95,13 @@ export async function fetchAgentsRawJson(
   return response.text();
 }
 
-export async function fetchAgentContexts(): Promise<Record<string, AgentContext>> {
-  const { contexts } = await request<{ contexts: Record<string, AgentContext> }>('/agents/context');
+/** `fresh`: wait for a recompute (after a session changed) instead of the server's cached result */
+export async function fetchAgentContexts({ fresh = false } = {}): Promise<
+  Record<string, AgentContext>
+> {
+  const { contexts } = await request<{ contexts: Record<string, AgentContext> }>(
+    `/agents/context${fresh ? '?fresh=1' : ''}`
+  );
   return contexts;
 }
 
@@ -127,12 +133,13 @@ export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatch
   }).then((result) => pinAll([result], target)[0]);
 }
 
-/** Stores an image on the server for a prompt; returns its local path (#105) */
+/** Stores an image for a prompt and returns its server path; large images are scaled down first */
 export async function uploadAgentImage(file: Blob): Promise<string> {
+  const image = await fitImage(file);
   const data = await request<{ path: string }>('/agents/images', {
     method: 'POST',
-    headers: { 'Content-Type': file.type || 'application/octet-stream' },
-    body: file,
+    headers: { 'Content-Type': image.type || 'application/octet-stream' },
+    body: image,
   });
   return data.path;
 }
@@ -166,6 +173,27 @@ export function stopAgent(id: string): Promise<{ output: string }> {
 /** Ends the agent pane `paneId` runs, also while the pane is closed (closing only detaches) */
 export function stopPane(paneId: string): Promise<{ stopped: number }> {
   return request(`/agents/panes/${encodeURIComponent(paneId)}/stop`, { method: 'POST' }, paneId);
+}
+
+/** Types `text` into the agent pane `paneId` runs and submits it */
+export function sendToPane(paneId: string, text: string): Promise<{ delivered: boolean }> {
+  return request(
+    `/agents/panes/${encodeURIComponent(paneId)}/message`,
+    { method: 'POST', body: JSON.stringify({ text }) },
+    paneId
+  );
+}
+
+export interface QuickAgent {
+  paneId: string;
+  harness: AgentHarness;
+  sessionId: string;
+  cwd: string;
+}
+
+/** Quick window (#251): starts the default harness in ~ with `prompt` as its first message */
+export function startQuickAgent(prompt: string): Promise<QuickAgent> {
+  return request('/agents/quick', { method: 'POST', body: JSON.stringify({ prompt }) });
 }
 
 export function respawnAgent(id: string): Promise<{ output: string }> {
@@ -379,7 +407,10 @@ export interface ChatStatus {
     ahead: number;
     behind: number;
   } | null;
+  /** Claude Code only: prompt cache (expiry badge) */
   cache: AgentCacheInfo | null;
+  /** Tokens in the context window, for every harness that reports them */
+  context: { tokens: number; window: number } | null;
   limits: UsageLimits | null;
 }
 

@@ -19,6 +19,8 @@ interface RailPrefs {
   favoriteSessions: string[];
   /** Agent rows whose details are open */
   expandedSessions: string[];
+  /** Directories of fixed projects (#253): their project groups stay without sessions */
+  fixedProjects: string[];
 }
 
 const EMPTY_MODE: ModePrefs = { collapsed: [], order: [] };
@@ -27,6 +29,7 @@ const EMPTY: RailPrefs = {
   favoriteGroups: [],
   favoriteSessions: [],
   expandedSessions: [],
+  fixedProjects: [],
 };
 
 // ---------------------------------------------------------------------
@@ -40,6 +43,7 @@ export const toggleCollapsed = toggleIn;
 export const toggleFavoriteGroup = toggleIn;
 export const toggleFavoriteSession = toggleIn;
 export const toggleExpandedSession = toggleIn;
+export const toggleFixedProject = toggleIn;
 
 /** Drops ids not in `known`; returns the same array when nothing is dropped */
 export const keepKnown = (list: string[], known: Set<string>): string[] =>
@@ -174,6 +178,7 @@ function load(): RailPrefs {
       favoriteGroups: strings(raw.favoriteGroups),
       favoriteSessions: strings(raw.favoriteSessions),
       expandedSessions: strings(raw.expandedSessions),
+      fixedProjects: strings(raw.fixedProjects),
     };
   } catch {
     return EMPTY;
@@ -271,6 +276,12 @@ export function useRailPreferences(groupBy: AgentGrouping, contextId?: string) {
     toggleFavoriteSession: useCallback(
       (id: string) =>
         update((p) => ({ ...p, favoriteSessions: toggleFavoriteSession(p.favoriteSessions, id) })),
+      [update]
+    ),
+    fixedProjects: prefs.fixedProjects,
+    toggleFixedProject: useCallback(
+      (dir: string) =>
+        update((p) => ({ ...p, fixedProjects: toggleFixedProject(p.fixedProjects, dir) })),
       [update]
     ),
     toggleExpandedSession: useCallback(

@@ -386,6 +386,8 @@ export interface AgentViewSettings {
   chatShowSteps: boolean;
   /** View an opened agent pane starts in; both views show the same process */
   agentOpenView: 'chat' | 'terminal';
+  /** Main agent (#252): name of the session behind the "Main Agent" dialog; keepAlive respawns it when stopped */
+  mainAgent: { name: string; keepAlive: boolean };
   dispatch: AgentDispatchDefaults;
   version: number;
 }
@@ -506,6 +508,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   chatSubmitKey: 'mod+enter',
   chatShowSteps: false,
   agentOpenView: 'chat',
+  mainAgent: { name: 'main-orchestrator', keepAlive: true },
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
 };

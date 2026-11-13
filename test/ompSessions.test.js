@@ -65,12 +65,46 @@ describe('parseSessionHead', () => {
       cwd: '/w',
       startedAt: Date.parse('2026-11-09T13:53:05.245Z'),
       title: 'UPDATE: Build',
+      prompted: true,
     });
     expect(parseSessionHead(sessionFile(RUNNING, '/w', { prompt: 'Antworte\n nur' })).title).toBe(
       'Antworte nur'
     );
     expect(parseSessionHead(line({ type: 'session', id: 'nope', cwd: '/w' }))).toBeNull();
     expect(parseSessionHead('garbage')).toBeNull();
+  });
+});
+
+describe('listOmpSessions - sessions without a prompt', () => {
+  it('leaves out a finished session nobody ever prompted, but not a running one', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omp-empty-'));
+    fs.mkdirSync(path.join(root, '-w'));
+    const empty = (id) => {
+      const file = path.join(root, '-w', `2026-11-09T13-53-05-245Z_${id}.jsonl`);
+      fs.writeFileSync(
+        file,
+        [
+          line({ type: 'title', v: 1, title: '', pad: '   ' }),
+          line({
+            type: 'session',
+            version: 3,
+            id,
+            timestamp: '2026-11-09T13:53:05.245Z',
+            cwd: '/w',
+          }),
+          line({ type: 'model_change', id: 'a', model: 'anthropic/claude-opus-5-5' }),
+        ].join('\n') + '\n'
+      );
+      return file;
+    };
+    empty(FINISHED);
+    const open = empty(RUNNING);
+    const rows = await listOmpSessions({
+      sessionsDir: root,
+      now: Date.now(),
+      running: new Map([[open, 4242]]),
+    });
+    expect(rows.map((r) => r.sessionId)).toEqual([RUNNING]);
   });
 });
 
@@ -161,6 +195,32 @@ describe('omp transcript', () => {
     expect(entries.map((e) => [e.role, e.text])).toEqual([
       ['user', 'hallo'],
       ['assistant', 'Hallo zurück'],
+    ]);
+  });
+
+  it('reads back past megabytes of tool output to the earlier prompts', async () => {
+    const file = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'omp-tail-')), 's.jsonl');
+    const msg = (role, text) =>
+      JSON.stringify({ type: 'message', message: { role, content: [{ type: 'text', text }] } });
+    const output = JSON.stringify({
+      type: 'message',
+      message: { role: 'toolResult', content: [{ type: 'text', text: 'ä'.repeat(400_000) }] },
+    });
+    fs.writeFileSync(
+      file,
+      [
+        msg('user', 'erster Prompt'),
+        output,
+        output,
+        msg('user', 'zweiter Prompt'),
+        output,
+        msg('assistant', 'fertig'),
+      ].join('\n')
+    );
+    expect((await readOmpTranscriptTail(file)).map((e) => e.text)).toEqual([
+      'erster Prompt',
+      'zweiter Prompt',
+      'fertig',
     ]);
   });
 });
