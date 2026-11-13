@@ -19,7 +19,7 @@ import {
   shQuote,
   swapScript,
 } from '../electron/selfUpdate.js';
-import { devVersion } from '../scripts/release/build-local.mjs';
+import { devVersion, latestRcOf } from '../scripts/release/build-local.mjs';
 
 const tmpDirs = [];
 function tmp() {
@@ -86,15 +86,27 @@ describe('version order and channels', () => {
 });
 
 describe('local build version stamp', () => {
-  it('stamps <version>-dev.<sha>, below every rc of that version', () => {
-    expect(devVersion('1.0.0', 'abc1234')).toBe('1.0.0-dev.abc1234');
-    expect(devVersion('1.2.0-rc.3', 'abc1234')).toBe('1.2.0-dev.abc1234');
-    expect(compareVersions(devVersion('1.0.0', 'abc1234'), '1.0.0-rc.1')).toBe(-1);
+  it('stamps <version>-rc.<latest>.dev.<sha>: above the latest rc, below the next one', () => {
+    const local = devVersion('1.0.0', 'abc1234', 14);
+    expect(local).toBe('1.0.0-rc.14.dev.abc1234');
+    expect(devVersion('1.2.0-rc.3', 'abc1234', 3)).toBe('1.2.0-rc.3.dev.abc1234');
+    // the regression: a local build was offered (and swapped to) the older published rc.8
+    expect(isUpdateFor(local, '1.0.0-rc.8')).toBe(false);
+    expect(isUpdateFor(local, '1.0.0-rc.14')).toBe(false);
+    expect(isUpdateFor(local, '1.0.0-rc.15')).toBe(true);
+    expect(isUpdateFor(local, '1.0.0')).toBe(true);
+  });
+  it('finds the latest rc among tags and release names', () => {
+    expect(
+      latestRcOf('1.0.0', ['v1.0.0-rc.8', 'v1.0.0-rc.14', 'v1.0.0-rc7', 'v0.9.0-rc.30', ''])
+    ).toBe(14);
+    expect(latestRcOf('1.0.0', [])).toBe(0);
   });
   it('keeps the version valid for an all-digit sha and without git', () => {
-    expect(devVersion('1.0.0', '0123456')).toBe('1.0.0-dev.g0123456');
+    expect(devVersion('1.0.0', '0123456', 2)).toBe('1.0.0-rc.2.dev.g0123456');
     expect(parseVersion(devVersion('1.0.0', '0123456'))).not.toBeNull();
-    expect(devVersion('1.0.0', '')).toBe('1.0.0-dev.local');
+    expect(devVersion('1.0.0', '')).toBe('1.0.0-rc.0.dev.local');
+    expect(compareVersions(devVersion('1.0.0', ''), '1.0.0-rc.1')).toBe(-1);
   });
 });
 
