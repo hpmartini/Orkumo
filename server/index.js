@@ -661,11 +661,17 @@ const activeProjects = () =>
 /**
  * GET /api/apps
  * Active projects: git main checkouts of the scan directories (worktrees folded in) plus custom
- * ones; disabled projects left out, merged ones folded into their target (`paths`, `mergedIds`)
+ * ones; disabled projects left out, merged ones folded into their target (`paths`, `mergedIds`).
+ * `missingWorktrees`: listed worktrees whose folder is gone (git keeps them until pruned)
  */
 app.get('/api/apps', (req, res) => {
   try {
-    res.json(activeProjects());
+    res.json(
+      activeProjects().map((p) => ({
+        ...p,
+        missingWorktrees: (p.worktrees || []).filter((w) => !fs.existsSync(w)),
+      }))
+    );
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

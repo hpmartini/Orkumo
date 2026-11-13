@@ -130,6 +130,17 @@ describe('project routes', { timeout: 60_000 }, () => {
     expect(list[0]).toMatchObject({ id: id(alpha), worktrees: [alphaWt], paths: [alpha] });
   });
 
+  it('names listed worktrees whose folder is gone in missingWorktrees', async () => {
+    const gone = path.join(root, 'alpha-gone');
+    git(alpha, 'worktree', 'add', '-q', gone);
+    expect((await apps())[0].missingWorktrees).toEqual([]);
+    fs.rmSync(gone, { recursive: true, force: true });
+    const [listed] = await apps();
+    expect(listed.worktrees).toContain(gone);
+    expect(listed.missingWorktrees).toEqual([gone]);
+    git(alpha, 'worktree', 'prune');
+  });
+
   it('keeps context members that name no project; a repo that reappears is back', async () => {
     const stored = () =>
       JSON.parse(fs.readFileSync(path.join(dataDir, 'settings.json'), 'utf8')).contexts.find(
