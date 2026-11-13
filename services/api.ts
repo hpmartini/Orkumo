@@ -80,6 +80,7 @@ export async function fetchApps(): Promise<AppConfig[]> {
     detectedFramework: app.detectedFramework as string,
     paths: app.paths as string[],
     worktrees: app.worktrees as string[],
+    missingWorktrees: app.missingWorktrees as string[],
     mergedIds: app.mergedIds as string[],
     userNamed: app.userNamed as boolean,
     source: app.source as AppConfig['source'],

@@ -3,7 +3,8 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Code2, Loader2, ShieldAlert } from 'lucide-react';
 import type { AgentRepo, AppConfig } from '../../types';
 import { checkCodeFolder, fetchAgentRepos } from '../../services/agentsApi';
-import { codeFolders, codeUrl } from '../../utils/codeTarget';
+import { codeTargets, codeUrl, findCodeTarget } from '../../utils/codeTarget';
+import { FolderPicker, rememberCodeFolder } from './FolderPicker';
 import { WebIDEPanel } from '../CodingView/WebIDEPanel';
 import { WebIDEErrorBoundary } from '../CodingView/WebIDEErrorBoundary';
 
@@ -25,12 +26,16 @@ export const CodeView: React.FC<CodeViewProps> = ({ active, apps }) => {
   const [searchParams] = useSearchParams();
   const requested = active ? searchParams.get('path') : null;
   const [repos, setRepos] = useState<AgentRepo[]>([]);
+  const [home, setHome] = useState<string | null>(null);
   const [folder, setFolder] = useState<FolderState>({ kind: 'none' });
 
   useEffect(() => {
     if (!active) return;
     fetchAgentRepos()
-      .then((data) => setRepos(data.repos))
+      .then((data) => {
+        setRepos(data.repos);
+        setHome(data.home ?? null);
+      })
       .catch(() => {});
   }, [active]);
 
@@ -48,55 +53,41 @@ export const CodeView: React.FC<CodeViewProps> = ({ active, apps }) => {
     const current = () => lastRequested.current === requested;
     setFolder({ kind: 'checking', path: requested });
     checkCodeFolder(requested)
-      .then((path) => current() && setFolder({ kind: 'ok', path }))
+      .then((path) => {
+        if (!current()) return;
+        setFolder({ kind: 'ok', path });
+        // Jumps from agents, issues and PRs count as recent too, not only picks
+        rememberCodeFolder(requested);
+      })
       .catch(
         (err: Error) =>
           current() && setFolder({ kind: 'error', path: requested, message: err.message })
       );
   }, [requested, attempt]);
 
-  const folders = useMemo(() => codeFolders(apps, repos), [apps, repos]);
+  const groups = useMemo(() => codeTargets(apps, repos, home), [apps, repos, home]);
   // The server answers with the real path; the picker may list the symlinked spelling
-  const current = [folder.kind === 'none' ? '' : folder.path, requested ?? ''].find((p) =>
-    folders.some((f) => f.path === p)
-  );
-  const groups = ['Projects', 'Worktrees & agents'] as const;
+  const folderPath = folder.kind === 'none' ? null : folder.path;
+  const current =
+    [folderPath, requested].find((p) => findCodeTarget(groups, p)) ?? requested ?? folderPath;
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-gray-950">
       <div className="flex items-center gap-2 px-3 h-11 border-b border-gray-800 shrink-0">
         <Code2 size={16} className="text-blue-400 shrink-0" />
-        <span className="text-sm font-semibold text-gray-200">Code</span>
-        <select
-          aria-label="Folder"
-          value={current ?? ''}
-          onChange={(e) => e.target.value && navigate(codeUrl(e.target.value))}
-          className="ml-2 min-w-0 max-w-sm bg-gray-900 border border-gray-700 rounded px-2 py-1 text-sm text-gray-200"
-        >
-          <option value="">Choose a project or worktree…</option>
-          {groups.map((group) => (
-            <optgroup key={group} label={group}>
-              {folders
-                .filter((f) => f.group === group)
-                .map((f) => (
-                  <option key={f.path} value={f.path} title={f.path}>
-                    {f.name}
-                  </option>
-                ))}
-            </optgroup>
-          ))}
-        </select>
-        {folder.kind !== 'none' && (
-          <span className="min-w-0 truncate font-mono text-xs text-gray-400" title={folder.path}>
-            {folder.path}
-          </span>
-        )}
+        <span className="text-sm font-semibold text-gray-200 mr-1">Code</span>
+        <FolderPicker
+          groups={groups}
+          current={current}
+          active={active}
+          onPick={(path) => navigate(codeUrl(path))}
+        />
       </div>
 
       <div className="flex-1 min-h-0 flex flex-col">
         {folder.kind === 'none' && (
           <p className="m-auto text-sm text-gray-400">
-            Choose a folder, or jump here from an agent, issue or pull request.
+            Open a project above, or jump here from an agent, issue or pull request.
           </p>
         )}
         {folder.kind === 'checking' && (

@@ -33,6 +33,8 @@ export interface AppConfig {
   paths?: string[];
   /** Linked git worktrees of those checkouts: they belong to the project, never form their own */
   worktrees?: string[];
+  /** Those of `worktrees` whose folder is gone (git lists them until pruned) */
+  missingWorktrees?: string[];
   /** Ids of projects merged into this one; a context naming one of them means this project */
   mergedIds?: string[];
   /** The user chose the name (rename or own project): it wins over the GitHub repo title */
