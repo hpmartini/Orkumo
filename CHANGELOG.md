@@ -38,7 +38,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Project detection: only git repositories are projects; worktrees (also sibling `-wt` folders) belong to their main repository, package.json-only folders and parent folders are no longer projects. The rail's Project grouping uses the server's per-session `projectId`; sessions outside every project share one "No project" group instead of one group per folder
 - The fixed-project picker offers only projects; context members that name no project are ignored (logged once at startup), not removed, so a repo that is temporarily missing returns to its contexts
-- Local `electron:build*` builds are stamped `<version>-dev.<sha>` (via `extraMetadata`, `package.json` untouched), so an installed local build is offered the next GitHub release
+- Local `electron:build*` builds are stamped `<version>-rc.<N>.dev.<sha>` with N the highest known rc (via `extraMetadata`, `package.json` untouched), so an installed local build is offered the next GitHub release and never an older one (a `-dev.<sha>` stamp ranked below every rc and was swapped back to the old rc.8)
 - Agents workspace tiling works like Ghostty (#212): a pane dropped on the edge of another pane splits only that pane, every other pane keeps its place and size (before: a 2-column grid with empty cells). Saved workspaces are migrated
 - A browser pane dragged onto the tab strip becomes its own tab and survives a reload (#212)
 - Switched package manager to bun (`bun install` / `bun run`; node remains the runtime for server, electron and pty scripts)

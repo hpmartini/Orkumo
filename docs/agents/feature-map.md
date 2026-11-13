@@ -70,7 +70,7 @@ Optional `DEVORBIT_CODEX_HOMES=Label=path,Label=path` lists the Codex accounts f
 - `electron/updater.js` picks the mode (off/install/swap/notify), runs the checks (5 s, then every 6 h, while settings `autoUpdate` ≠ false) and sends status over IPC `update:status`; the renderer reads it via `window.electronAPI.updates` (`getStatus`/`check`/`install`/`onStatus`) in `components/UpdatesSection.tsx` (`UpdatesSection` in AdminPanel, `UpdateBanner` in App.tsx).
 - `electron/selfUpdate.js`: macOS self-update without a Developer ID: version/channel order, `releases.atom` + `*-mac.yml` parsing, sha512-verified download, ditto staging, and the detached `updates/swap.sh` that swaps the bundle by rename with rollback (log `updates/swap.log` under userData).
 - `electron/menu.js` builds the application menu as plain data; Settings… sends IPC `open-settings`, which App.tsx answers with `setAdminPanelOpen(true)` (the renderer's own Cmd+, shortcut in `hooks/useKeyboardShortcuts.ts` also fires from text fields and terminals).
-- `scripts/release/build-local.mjs` stamps local electron-builder runs `<version>-dev.<sha>`; `test/selfUpdate.e2e.test.js` and `scripts/review/126/e2e-mac.sh` (case `swap-rc1-to-rc2`) prove the update path against a local fake GitHub.
+- `scripts/release/build-local.mjs` stamps local electron-builder runs `<version>-rc.<N>.dev.<sha>` (N = highest known rc, so an older release is never offered as update); `test/selfUpdate.e2e.test.js` and `scripts/review/126/e2e-mac.sh` (case `swap-rc1-to-rc2`) prove the update path against a local fake GitHub.
 
 ## Exposure
 
