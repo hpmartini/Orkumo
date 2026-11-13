@@ -35,6 +35,7 @@ import {
 } from './updater.js';
 import { buildMenuTemplate } from './menu.js';
 import { channelOf } from './selfUpdate.js';
+import { createRendererSecret, markRendererRequests } from './rendererSecret.js';
 
 // Before anything reads userData (single-instance lock, sessions, data dir)
 app.setPath('userData', path.join(app.getPath('appData'), LEGACY_USER_DATA_DIR));
@@ -56,6 +57,10 @@ let isShuttingDown = false;
 // Map of viewId -> { view: BrowserView, devToolsWindow: BrowserWindow | null }
 const browserViews = new Map();
 const BROWSER_PREVIEW_PARTITION = 'persist:browser-preview';
+// Per launch: marks the main and quick window's requests to our server (electron/rendererSecret.js)
+const RENDERER_SECRET = createRendererSecret();
+const isOwnWindow = (win, webContentsId) =>
+  !!win && !win.isDestroyed() && win.webContents.id === webContentsId;
 
 function destroyBrowserView(viewId) {
   const entry = browserViews.get(viewId);
@@ -577,6 +582,7 @@ async function startBackendServer() {
     ELECTRON_MODE: 'true',
     NODE_PATH: nodePaths,
     DEVORBIT_DATA_PATH: dataPath, // Pass userData path to server for persistent storage
+    DEVORBIT_RENDERER_SECRET: RENDERER_SECRET,
   };
 
   // Store server output for debugging
@@ -1065,7 +1071,14 @@ app.whenReady().then(async () => {
   persistSessionCookies(session.fromPartition(BROWSER_PREVIEW_PARTITION));
   try {
     // Start backend server first; a remote client has none
-    if (!REMOTE_LINK) await startBackendServer();
+    if (!REMOTE_LINK) {
+      await startBackendServer();
+      markRendererRequests(session.defaultSession, {
+        secret: RENDERER_SECRET,
+        port: SERVER_PORT,
+        isTrustedContents: (id) => isOwnWindow(mainWindow, id) || isOwnWindow(quickWindow, id),
+      });
+    }
 
     // Setup IPC handlers
     setupIpcHandlers();

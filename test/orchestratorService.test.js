@@ -32,7 +32,7 @@ describe('ensureOrchestratorWorkspace', () => {
   it('creates the workspace: AGENTS.md, CLAUDE.md link, settings, skills, CLI', () => {
     const { dir, cli, changed } = bootstrap();
     expect(dir).toBe(path.join(dataDir, 'orchestrator'));
-    expect(cli).toBe(path.join(dir, 'bin', 'orkumo'));
+    expect(cli).toBe(path.join(dataDir, 'orchestrator-bin', 'orkumo'));
     const agents = fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8');
     expect(agents).toContain(dir);
     expect(agents).toContain(cli);
@@ -54,15 +54,32 @@ describe('ensureOrchestratorWorkspace', () => {
       expect(skill).toContain('http://127.0.0.1:4555/api');
     }
     expect(fs.statSync(cli).mode & 0o111).toBeTruthy();
-    expect(fs.readFileSync(path.join(dir, 'bin', 'orkumo.mjs'), 'utf8')).toBe(
+    expect(fs.readFileSync(path.join(dataDir, 'orchestrator-bin', 'orkumo.mjs'), 'utf8')).toBe(
       fs.readFileSync(path.join(templatesDir(), 'orkumo.mjs'), 'utf8')
     );
-    expect(JSON.parse(fs.readFileSync(path.join(dir, 'bin', 'orkumo.json'), 'utf8'))).toEqual({
+    expect(
+      JSON.parse(fs.readFileSync(path.join(dataDir, 'orchestrator-bin', 'orkumo.json'), 'utf8'))
+    ).toEqual({
       apiUrl: 'http://127.0.0.1:4555/api',
       tokenFile: path.join(dataDir, 'remote-token'),
       workspace: dir,
     });
-    expect(changed).toEqual(expect.arrayContaining(['AGENTS.md', 'NOTES.md', 'bin/orkumo']));
+    expect(changed).toEqual(
+      expect.arrayContaining(['AGENTS.md', 'NOTES.md', 'orchestrator-bin/orkumo'])
+    );
+    for (const file of [
+      'AGENTS.md',
+      '.claude/settings.json',
+      `.omp/skills/${SKILL_NAME}/SKILL.md`,
+    ]) {
+      expect(fs.statSync(path.join(dir, file)).mode & 0o777).toBe(0o444);
+    }
+    expect(fs.statSync(path.join(dataDir, 'orchestrator-bin', 'orkumo.json')).mode & 0o777).toBe(
+      0o444
+    );
+    expect(fs.statSync(cli).mode & 0o777).toBe(0o555);
+    expect(fs.statSync(path.join(dir, 'NOTES.md')).mode & 0o200).toBeTruthy();
+    expect(fs.existsSync(path.join(dir, 'bin'))).toBe(false);
   });
 
   it("is idempotent and keeps the orchestrators' NOTES.md", () => {
@@ -76,12 +93,34 @@ describe('ensureOrchestratorWorkspace', () => {
 
   it('restores generated files edited or removed by hand', () => {
     const { dir } = bootstrap();
+    fs.chmodSync(path.join(dir, 'AGENTS.md'), 0o644);
     fs.writeFileSync(path.join(dir, 'AGENTS.md'), 'tampered');
     fs.rmSync(path.join(dir, 'CLAUDE.md'));
     fs.writeFileSync(path.join(dir, 'CLAUDE.md'), 'a plain file');
     const { changed } = bootstrap();
     expect(changed).toEqual(['AGENTS.md', 'CLAUDE.md']);
     expect(fs.readlinkSync(path.join(dir, 'CLAUDE.md'))).toBe('AGENTS.md');
+  });
+
+  it('moves the CLI out of an old workspace bin/ and stays idempotent', () => {
+    const old = path.join(dataDir, 'orchestrator', 'bin');
+    fs.mkdirSync(old, { recursive: true });
+    fs.writeFileSync(path.join(old, 'orkumo.json'), '{"apiUrl":"http://evil.example/api"}');
+    const { dir } = bootstrap();
+    expect(fs.existsSync(old)).toBe(false);
+    expect(fs.readdirSync(path.join(dataDir, 'orchestrator-bin')).sort()).toEqual([
+      'orkumo',
+      'orkumo.json',
+      'orkumo.mjs',
+    ]);
+    expect(fs.readdirSync(dir).sort()).toEqual([
+      '.claude',
+      '.omp',
+      'AGENTS.md',
+      'CLAUDE.md',
+      'NOTES.md',
+    ]);
+    expect(bootstrap().changed).toEqual([]);
   });
 
   it('follows a new API address', () => {
@@ -91,7 +130,10 @@ describe('ensureOrchestratorWorkspace', () => {
       dataDir,
     });
     expect(changed).toEqual(
-      expect.arrayContaining(['bin/orkumo.json', `.claude/skills/${SKILL_NAME}/SKILL.md`])
+      expect.arrayContaining([
+        'orchestrator-bin/orkumo.json',
+        `.claude/skills/${SKILL_NAME}/SKILL.md`,
+      ])
     );
   });
 });
@@ -100,7 +142,7 @@ describe('orchestratorBriefing', () => {
   it('points to AGENTS.md and the CLI', () => {
     const text = orchestratorBriefing('/data/orchestrator');
     expect(text).toContain('/data/orchestrator/AGENTS.md');
-    expect(text).toContain('"/data/orchestrator/bin/orkumo" agents');
+    expect(text).toContain('"/data/orchestrator-bin/orkumo" agents');
   });
 });
 
@@ -327,10 +369,10 @@ describe('startAgentPane', () => {
     expect(options).toMatchObject({
       command: 'claude',
       detachOnClose: true,
-      pathPrefix: ['/data/orchestrator/bin'],
-      env: { ORKUMO_CLI: '/data/orchestrator/bin/orkumo', ORKUMO_WORKSPACE: '/data/orchestrator' },
+      pathPrefix: ['/data/orchestrator-bin'],
+      env: { ORKUMO_CLI: '/data/orchestrator-bin/orkumo', ORKUMO_WORKSPACE: '/data/orchestrator' },
     });
-    expect(options.args).toEqual(['--session-id', result.sessionId, 'survey']);
+    expect(options.args).toEqual(['--session-id', result.sessionId, '--', 'survey']);
   });
 
   it('starts a worker omp pane in a project without orchestrator tooling', async () => {

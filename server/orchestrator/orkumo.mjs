@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
  * `orkumo`: CLI of Orkumo orchestrator sessions. The server copies this file to
- * `<data>/orchestrator/bin/orkumo.mjs` (orchestratorService.js) next to a shell wrapper `orkumo`
- * and `orkumo.json` (API address, token file). Self-contained: no imports beyond node builtins.
+ * `<data>/orchestrator-bin/orkumo.mjs` (orchestratorService.js, outside the orchestrator
+ * workspace) next to a shell wrapper `orkumo` and `orkumo.json` (API address, token file).
+ * Self-contained: no imports beyond node builtins.
  * Orchestrators hand out work only through it, so every agent stays visible in Orkumo's rail.
  */
 import fs from 'node:fs';
@@ -31,7 +32,8 @@ export const HELP = `orkumo: hand out and watch work of the agents running in Or
   orkumo projects [--json]                projects Orkumo knows
 
   "-" reads the message or prompt from stdin.
-  ORKUMO_API_URL / ORKUMO_TOKEN override the API address and token.`;
+  ORKUMO_API_URL / ORKUMO_TOKEN override the API address and token; the token is only sent to
+  a loopback address (127.0.0.1, localhost, [::1]).`;
 
 /** Flags each command takes; true = boolean, false = takes a value */
 const COMMANDS = {
@@ -118,11 +120,32 @@ export function loadConfig({ env = process.env, scriptDir } = {}) {
       token = null;
     }
   }
-  return { apiUrl, token, workspace: file.workspace || path.dirname(scriptDir || '.') };
+  return {
+    apiUrl,
+    token,
+    workspace: file.workspace || path.join(path.dirname(scriptDir || '.'), 'orchestrator'),
+  };
+}
+
+/** True for http(s) URLs on 127.0.0.0/8, localhost or [::1] */
+export function isLoopbackUrl(url) {
+  let host;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host);
 }
 
 /** `api(method, route, body?)` against the local Orkumo API; errors become CliErrors */
 export function createApi({ apiUrl, token, fetch = globalThis.fetch }) {
+  // The pairing token unlocks the whole Orkumo API: never hand it to another host
+  if (token && !isLoopbackUrl(apiUrl)) {
+    throw new CliError(
+      `Refusing to send the Orkumo token to ${apiUrl}: only loopback addresses (127.0.0.1, localhost, [::1]) are allowed. Fix ORKUMO_API_URL or orkumo.json.`
+    );
+  }
   return async function api(method, route, body) {
     let res;
     try {
@@ -294,18 +317,38 @@ function realpathNearest(target) {
   }
 }
 
+/** Workspace entries an orchestrator must not change: its instructions, settings and skills */
+const PROTECTED = ['.claude', '.omp', 'AGENTS.md', 'CLAUDE.md'];
+/** Names that point at protected files in a Bash command (also the CLI next to the workspace) */
+const PROTECTED_WORDS = /(^|[\s'"=/])(\.claude|\.omp|AGENTS\.md|CLAUDE\.md|orchestrator-bin|orkumo\.json|orkumo\.mjs)([\s'"/;|&)>]|$)/;
+/** Bash that writes or moves files: redirects, tee, mv/cp/rm/ln/install/chmod, sed -i, dd, truncate */
+const BASH_WRITES = /(>|\btee\b|\b(mv|cp|rm|ln|install|chmod|chown|truncate|dd|rsync|touch|mkdir|patch)\b|\b(sed|perl)\b[^|;&]*\s-[a-zA-Z]*i)/;
+
+const blocked = (workspace, target) =>
+  `Orchestrators only edit NOTES.md and plain files in their workspace (${workspace}), never its .claude, .omp, AGENTS.md or CLAUDE.md, nor anything outside; blocked: ${target}. Delegate the change to an agent with "orkumo send" or "orkumo start".`;
+
 /**
  * PreToolUse hook of Claude Code orchestrators (`orkumo guard`, wired in .claude/settings.json):
- * a message when the edit/write targets a path outside the workspace, null when it may pass.
+ * a message when the call may not pass, null when it may. Edits must target a plain file inside
+ * the workspace (not .claude/.omp/AGENTS.md/CLAUDE.md). Bash commands that look like they write
+ * to those names are denied too: best effort only, a shell can always obfuscate; the hard
+ * boundary is that the CLI and its config live outside the workspace, read-only.
  */
 export function guardDecision(input, workspace) {
   const toolInput = (input && input.tool_input) || {};
+  if (input && input.tool_name === 'Bash') {
+    const command = typeof toolInput.command === 'string' ? toolInput.command : '';
+    return BASH_WRITES.test(command) && PROTECTED_WORDS.test(command)
+      ? blocked(workspace, command)
+      : null;
+  }
   const target = toolInput.file_path || toolInput.notebook_path || toolInput.path;
   if (typeof target !== 'string' || !target) return null;
   const root = realpathNearest(path.resolve(workspace));
   const real = realpathNearest(path.resolve((input && input.cwd) || workspace, target));
-  if (real === root || real.startsWith(root + path.sep)) return null;
-  return `Orchestrators never edit files outside their workspace (${workspace}); blocked: ${target}. Delegate the change to an agent with "orkumo send" or "orkumo start".`;
+  if (!real.startsWith(root + path.sep)) return blocked(workspace, target);
+  const first = path.relative(root, real).split(path.sep)[0];
+  return PROTECTED.includes(first) ? blocked(workspace, target) : null;
 }
 
 /**

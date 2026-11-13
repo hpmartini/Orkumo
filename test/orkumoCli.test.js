@@ -181,16 +181,40 @@ describe('loadConfig', () => {
   });
 
   it('falls back to the default port without a config file', () => {
-    expect(loadConfig({ env: {}, scriptDir: path.join(dir, 'bin') })).toEqual({
+    expect(loadConfig({ env: {}, scriptDir: path.join(dir, 'orchestrator-bin') })).toEqual({
       apiUrl: 'http://127.0.0.1:3099/api',
       token: null,
-      workspace: dir,
+      workspace: path.join(dir, 'orchestrator'),
     });
   });
 
   it('sends the token header when it has one', async () => {
-    const { calls } = await cli(['agents'], {}, { env: { ORKUMO_TOKEN: 'tok' } });
+    const env = { ORKUMO_TOKEN: 'tok', ORKUMO_API_URL: 'http://127.0.0.1:3099/api' };
+    const { calls } = await cli(['agents'], {}, { env });
     expect(calls[0].headers['X-DevOrbit-Token']).toBe('tok');
+  });
+
+  it('sends the token only to loopback addresses', async () => {
+    for (const url of ['http://localhost:1/api', 'http://[::1]:1/api', 'http://127.0.0.2/api']) {
+      const { calls } = await cli(
+        ['agents'],
+        {},
+        { env: { ORKUMO_TOKEN: 't', ORKUMO_API_URL: url } }
+      );
+      expect(calls[0].headers['X-DevOrbit-Token']).toBe('t');
+    }
+    for (const url of [
+      'http://evil.example/api',
+      'http://127.0.0.1.evil.example/api',
+      'nonsense',
+    ]) {
+      const run = await cli(['agents'], {}, { env: { ORKUMO_TOKEN: 't', ORKUMO_API_URL: url } });
+      expect(run.code).toBe(1);
+      expect(run.err).toMatch(/Refusing to send the Orkumo token/);
+      expect(run.calls).toEqual([]);
+    }
+    const tokenless = await cli(['agents'], {}, { env: { ORKUMO_API_URL: 'http://other/api' } });
+    expect(tokenless.calls[0].headers['X-DevOrbit-Token']).toBeUndefined();
   });
 });
 
@@ -419,16 +443,50 @@ describe('guard (PreToolUse hook)', () => {
   });
   afterEach(() => fs.rmSync(ws, { recursive: true, force: true }));
 
-  it('lets writes inside the workspace pass and blocks the rest', () => {
+  it('lets writes to NOTES.md and plain workspace files pass and blocks the rest', () => {
     expect(guardDecision({ tool_input: { file_path: path.join(ws, 'NOTES.md') } }, ws)).toBeNull();
-    expect(guardDecision({ tool_input: { file_path: 'new/plan.md' }, cwd: ws }, ws)).toBeNull();
+    expect(guardDecision({ tool_input: { file_path: 'reports/plan.md' }, cwd: ws }, ws)).toBeNull();
     expect(guardDecision({ tool_input: { file_path: '/p/app/src/x.ts' } }, ws)).toMatch(
-      /never edit files outside/
+      /nor anything outside/
     );
     expect(
       guardDecision({ tool_input: { notebook_path: path.join(ws, '..', 'x.ipynb') } }, ws)
     ).toMatch(/blocked/);
     expect(guardDecision({ tool_input: {} }, ws)).toBeNull();
+  });
+
+  it('blocks its own instructions, settings and CLI', () => {
+    for (const rel of [
+      'AGENTS.md',
+      'CLAUDE.md',
+      '.claude/settings.json',
+      '.omp/skills/x/SKILL.md',
+    ]) {
+      expect(guardDecision({ tool_input: { file_path: path.join(ws, rel) } }, ws)).toMatch(
+        /blocked/
+      );
+    }
+    for (const rel of ['orchestrator-bin/orkumo.json', 'orchestrator-bin/orkumo.mjs']) {
+      const file = path.join(path.dirname(ws), rel);
+      expect(guardDecision({ tool_input: { file_path: file } }, ws)).toMatch(/blocked/);
+    }
+  });
+
+  it('blocks Bash writing into protected paths (best effort)', () => {
+    const bash = (command) => guardDecision({ tool_name: 'Bash', tool_input: { command } }, ws);
+    for (const command of [
+      'echo x > .claude/settings.json',
+      'cat a | tee AGENTS.md',
+      'mv x ../orchestrator-bin/orkumo.mjs',
+      "sed -i '' s/a/b/ CLAUDE.md",
+      'rm -rf .omp',
+      'cp evil.json /data/orchestrator-bin/orkumo.json',
+    ]) {
+      expect(bash(command)).toMatch(/blocked/);
+    }
+    expect(bash('orkumo agents')).toBeNull();
+    expect(bash('cat AGENTS.md')).toBeNull();
+    expect(bash('echo done >> NOTES.md')).toBeNull();
   });
 
   it('blocks a symlink out of the workspace', () => {

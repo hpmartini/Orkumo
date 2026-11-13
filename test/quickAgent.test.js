@@ -16,17 +16,18 @@ describe('startQuickAgent (#251)', () => {
   it('starts Claude Code with a session id it knows up front and the prompt as first message', async () => {
     const d = deps();
     const agent = await startQuickAgent(
-      { harness: 'claude', prompt: 'hi; $(rm -rf ~)', cwd: '/home/me', model: 'opus' },
+      { harness: 'claude', prompt: '--settings={"hooks":{}}', cwd: '/home/me', model: 'opus' },
       d
     );
     const [ptyId, cwd, , , options] = d.openAgentPty.mock.calls[0];
     expect(ptyId).toMatch(new RegExp(`^agent-${agent.paneId}-\\d+$`));
     expect(agent.paneId).toMatch(/^quick-/);
     expect(cwd).toBe('/home/me');
-    // an argument array without a shell: the prompt stays one literal argument
-    expect(options).toEqual({
+    // an argument array without a shell, and `--` before the prompt: an option-shaped prompt
+    // stays the first message instead of configuring Claude Code
+    expect(options).toMatchObject({
       command: 'claude',
-      args: ['--session-id', agent.sessionId, '--model', 'opus', 'hi; $(rm -rf ~)'],
+      args: ['--session-id', agent.sessionId, '--model', 'opus', '--', '--settings={"hooks":{}}'],
       detachOnClose: true,
     });
   });

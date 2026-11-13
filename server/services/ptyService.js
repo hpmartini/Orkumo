@@ -441,12 +441,15 @@ export function killPanePtys(paneId) {
 /**
  * Types `text` into the running agent of pane `paneId` and submits it, like a paste into its
  * terminal: bracketed paste keeps a multi-line message one message, Enter follows separately
- * (a TUI treats an Enter in the same chunk as part of the paste). false when no agent runs there.
+ * (a TUI treats an Enter in the same chunk as part of the paste). Control characters other than
+ * tab / newline are dropped: an ESC would end the paste and send raw keys. false when no agent runs.
  */
 export function typeIntoPanePty(paneId, text) {
   const running = runningPanePty(paneId);
   if (!running) return false;
-  writeToPty(running.sessionId, `\x1b[200~${text}\x1b[201~`);
+  // eslint-disable-next-line no-control-regex
+  const safe = text.replace(/[\x00-\x08\x0b-\x1f\x7f]/g, '');
+  writeToPty(running.sessionId, `\x1b[200~${safe}\x1b[201~`);
   setTimeout(() => writeToPty(running.sessionId, '\r'), 80);
   return true;
 }

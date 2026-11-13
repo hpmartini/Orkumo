@@ -28,6 +28,8 @@ export function quickAgentCommand({ harness, prompt, sessionId, model, permissio
         sessionId,
         ...(model ? ['--model', model] : []),
         ...(permissionMode ? ['--permission-mode', permissionMode] : []),
+        // `--` ends the options: a prompt like `--settings=…` stays the first message
+        '--',
         prompt,
       ],
     };

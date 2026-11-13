@@ -1,5 +1,6 @@
 // WebSocket upgrade origin gate through the real server: the packaged Electron renderer runs on
-// file://, and Chromium sends `Origin: file://` on its WebSocket upgrades (fetches send "null").
+// file://, and Chromium sends `Origin: file://` on its WebSocket upgrades (fetches send "null"),
+// which a sandboxed iframe sends too; Electron main adds the per-launch renderer secret.
 // The upgrades target an unknown module path, so an origin that passes the gate gets 404 from the
 // dispatcher and a refused one 403, without spawning a PTY.
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
@@ -45,7 +46,7 @@ const startServer = async (extraEnv) => {
   return { port, child, dataDir };
 };
 
-const upgradeStatus = (port, origin) =>
+const upgradeStatus = (port, origin, extraHeaders = {}) =>
   new Promise((resolve, reject) => {
     const req = http.request({
       port,
@@ -57,6 +58,7 @@ const upgradeStatus = (port, origin) =>
         'Sec-WebSocket-Version': '13',
         'Sec-WebSocket-Key': 'dGhlIHNhbXBsZSBub25jZQ==',
         Origin: origin,
+        ...extraHeaders,
       },
     });
     req.on('response', (res) => {
@@ -75,9 +77,12 @@ describe('WebSocket upgrade origin gate', { timeout: 30_000 }, () => {
   let electron;
   let browser;
 
+  const SECRET = 'a'.repeat(64);
+  const marked = { 'X-Orkumo-Renderer': SECRET };
+
   beforeAll(async () => {
     [electron, browser] = await Promise.all([
-      startServer({ ELECTRON_MODE: 'true' }),
+      startServer({ ELECTRON_MODE: 'true', DEVORBIT_RENDERER_SECRET: SECRET }),
       startServer({}),
     ]);
   }, 90_000);
@@ -89,12 +94,22 @@ describe('WebSocket upgrade origin gate', { timeout: 30_000 }, () => {
     }
   });
 
-  it('lets the packaged renderer (file://) through in Electron mode', async () => {
-    expect(await upgradeStatus(electron.port, 'file://')).toBe(404);
+  it('lets the packaged renderer (file://) through in Electron mode with the renderer secret', async () => {
+    expect(await upgradeStatus(electron.port, 'file://', marked)).toBe(404);
+    expect(await upgradeStatus(electron.port, 'null', marked)).toBe(404);
   });
 
-  it('refuses file:// outside Electron', async () => {
+  it('refuses file:// and null (sandboxed frames) without the renderer secret', async () => {
+    expect(await upgradeStatus(electron.port, 'file://')).toBe(403);
+    expect(await upgradeStatus(electron.port, 'null')).toBe(403);
+    expect(
+      await upgradeStatus(electron.port, 'file://', { 'X-Orkumo-Renderer': 'b'.repeat(64) })
+    ).toBe(403);
+  });
+
+  it('refuses file:// outside Electron, secret header or not', async () => {
     expect(await upgradeStatus(browser.port, 'file://')).toBe(403);
+    expect(await upgradeStatus(browser.port, 'file://', marked)).toBe(403);
   });
 
   it('refuses a foreign origin even in Electron mode', async () => {
