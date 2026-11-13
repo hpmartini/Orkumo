@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+  <body>
+    <script>
+      // Same probes from this top frame (file://) and from a sandboxed iframe (Origin null) inside it
+      async function probe(base, who) {
+        const status = (p) => p.then((r) => r.status, () => 'blocked');
+        const STOP = '/api/agents/omp-01a1c018-5c63-776e-b0c3-b78121b577b3/stop';
+        const ws = () =>
+          new Promise((resolve) => {
+            const socket = new WebSocket(`ws://${base}/api/pty?sessionId=h1-${who}-${Date.now()}&cwd=/tmp`);
+            socket.onopen = () => {
+              socket.close();
+              resolve('open');
+            };
+            socket.onerror = () => resolve('error');
+          });
+        return {
+          getConfig: await status(fetch(`http://${base}/api/config`)),
+          getChatHistory: await status(fetch(`http://${base}/api/chat-history?limit=1`)),
+          postStop: await status(fetch(`http://${base}${STOP}`, { method: 'POST' })),
+          postJson: await status(
+            fetch(`http://${base}/api/chat-history/import`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ path: '/nonexistent-h1' }),
+            })
+          ),
+          websocket: await ws(),
+        };
+      }
+      const base = new URLSearchParams(location.search).get('base');
+      window.results = (async () => {
+        const top = await probe(base, 'top');
+        const frame = document.createElement('iframe');
+        frame.sandbox = 'allow-scripts';
+        const fromFrame = new Promise((resolve) => (window.onmessage = (e) => resolve(e.data)));
+        frame.srcdoc = `<script>(${probe})(${JSON.stringify(base)}, 'frame').then((r) => parent.postMessage(r, '*'))<\/script>`;
+        document.body.append(frame);
+        return { top, sandboxedIframe: await fromFrame };
+      })();
+    </script>
+  </body>
+</html>

@@ -5,6 +5,7 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { agentViewSettingsSchema, optionalShortString } from './schemas/agentViewSettings.js';
 import http, { createServer } from 'http';
+import { timingSafeEqual } from 'crypto';
 import { WebSocketServer } from 'ws';
 import path from 'path';
 import os from 'os';
@@ -141,17 +142,15 @@ const limiter = rateLimit({
   },
 });
 
-// Browser origins allowed to call the API: loopback on any port (dashboard, Vite, Electron dev),
-// extra origins via CORS_ORIGINS (comma-separated), and file:// only inside Electron: its
-// renderer sends "null" on fetch and "file://" on the PTY WebSocket upgrade.
-// Requests without an Origin header (curl, server-to-server) are not browser-driven and pass.
+// Browser origins allowed to call the API: loopback on any port (dashboard, Vite, Electron dev) and
+// extra origins via CORS_ORIGINS (comma-separated). Requests without an Origin header (curl,
+// server-to-server) are not browser-driven and pass. Opaque origins: isOpaqueRequest below.
 const extraCorsOrigins = (process.env.CORS_ORIGINS || '')
   .split(',')
   .map((o) => o.trim())
   .filter(Boolean);
 const isAllowedOrigin = (origin) => {
   if (!origin) return true;
-  if (origin === 'null' || origin === 'file://') return process.env.ELECTRON_MODE === 'true';
   if (extraCorsOrigins.includes(origin)) return true;
   if (origin === remoteAccess.CAPACITOR_ORIGIN) return remoteAccess.isRemoteEnabled();
   try {
@@ -160,19 +159,59 @@ const isAllowedOrigin = (origin) => {
     return false;
   }
 };
+// The packaged renderer runs on file://: Origin "null" on fetch, "file://" on the WebSocket
+// upgrade, and no Origin but `Sec-Fetch-Site: cross-site` on some requests. Any sandboxed iframe or
+// local file sends the same, so that shape passes only with the per-launch secret Electron main
+// adds to its own windows' requests (electron/rendererSecret.js), or with the pairing token.
+// Read once and dropped from the env, so PTYs and agents do not inherit it.
+const RENDERER_SECRET = Buffer.from(process.env.DEVORBIT_RENDERER_SECRET ?? '');
+delete process.env.DEVORBIT_RENDERER_SECRET;
+const hasRendererSecret = (req) => {
+  const sent = Buffer.from(String(req.headers['x-orkumo-renderer'] ?? ''));
+  return (
+    RENDERER_SECRET.length >= 32 &&
+    sent.length === RENDERER_SECRET.length &&
+    timingSafeEqual(sent, RENDERER_SECRET)
+  );
+};
+const isOpaqueRequest = (req) => {
+  const origin = req.headers.origin;
+  if (origin) return remoteAccess.isOpaqueOrigin(origin);
+  // A link from another site to the dashboard carries no Origin either; that page cannot read it
+  return (
+    req.headers['sec-fetch-site'] === 'cross-site' && req.headers['sec-fetch-mode'] !== 'navigate'
+  );
+};
+// A packaged Electron app paired with this server from another machine (DevHub-pro#8) sends the
+// renderer's opaque shape too; it passes with the pairing token.
+const isPairedElectron = (req) =>
+  (!req.headers.origin || remoteAccess.isOpaqueOrigin(req.headers.origin)) &&
+  remoteAccess.hasValidToken(req);
+const isTrustedOpaque = (req) => hasRendererSecret(req) || isPairedElectron(req);
 // First of all: requests relayed by `tailscale serve` carry a path secret (remoteAccess.getServeSecret)
 app.use((req, res, next) => {
   remoteAccess.takeServePrefix(req);
   next();
 });
-app.use(cors({ origin: (origin, cb) => cb(null, isAllowedOrigin(origin)) }));
-// A packaged Electron app paired with this server from another machine (DevHub-pro#8): its
-// file:// renderer sends no Origin on fetch and "file://" on upgrades, which any local file or
-// sandboxed frame can produce too. So that shape passes only together with the pairing token.
-const isPairedElectron = (req) =>
-  (!req.headers.origin || remoteAccess.isOpaqueOrigin(req.headers.origin)) &&
-  remoteAccess.hasValidToken(req);
-// After cors so preflights are answered; before every route so nothing is reachable without the token.
+// A preflight carries no header values, so the Electron renderer's passes on its origin alone; the
+// real request that follows gets the CORS header only with the secret (or token).
+app.use(
+  cors((req, cb) => {
+    const opaque = isOpaqueRequest(req);
+    const preflight = req.method === 'OPTIONS';
+    let allowed = isAllowedOrigin(req.headers.origin);
+    if (opaque && preflight) allowed = process.env.ELECTRON_MODE === 'true';
+    else if (opaque) allowed = isTrustedOpaque(req);
+    cb(null, { origin: allowed });
+  })
+);
+// After cors so preflights are answered; before every route so no opaque request reaches one.
+app.use((req, res, next) =>
+  isOpaqueRequest(req) && !isTrustedOpaque(req)
+    ? res.status(403).json({ error: 'Cross-origin request refused' })
+    : next()
+);
+// Before every route so nothing is reachable without the token.
 app.use(remoteAccess.requireRemoteToken);
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
@@ -1710,14 +1749,11 @@ app.get('/api/agents/servers/orphans', agentLimiter, async (req, res) => {
 });
 
 // A bodyless POST needs no CORS preflight: routes that end processes refuse cross-site pages.
-// Browsers send Origin on a cross-origin POST; the packaged Electron renderer (file://) sends none
-// but marks it cross-site, so without an Origin that marker only counts outside Electron.
+// Browsers send Origin on a cross-origin POST; opaque ones (file://, sandboxed frames) only get
+// this far as the Electron renderer or a paired app (the gate after cors).
 const sameSiteOnly = (req, res, next) => {
   const origin = req.get('origin');
-  const crossSite = origin
-    ? !isAllowedOrigin(origin)
-    : req.get('sec-fetch-site') === 'cross-site' && process.env.ELECTRON_MODE !== 'true';
-  if (crossSite && !isPairedElectron(req))
+  if (origin && !isOpaqueRequest(req) && !isAllowedOrigin(origin))
     return res.status(403).json({ error: 'Cross-origin request refused' });
   next();
 };
@@ -1837,12 +1873,26 @@ app.post(
   }
 );
 
+// Text typed into an agent: no control characters besides tab / newline: an ESC would end the
+// bracketed paste and send raw keys (Claude Code's `!` bash mode, Shift+Tab permission mode)
+const typedTextSchema = (max) =>
+  z
+    .string()
+    .trim()
+    .min(1)
+    .max(max)
+    // eslint-disable-next-line no-control-regex
+    .refine((t) => !/[\x00-\x08\x0b-\x1f\x7f]/.test(t), 'Text must not contain control characters');
+// A start prompt is a CLI argument as well: no leading `-` (defense in depth next to `--`)
+const startPromptSchema = (max) =>
+  typedTextSchema(max).refine((t) => !t.startsWith('-'), 'Prompt must not start with "-"');
+
 // Quick window (#251): the default harness as an agent pane of its own, shown through its transcript
 app.post(
   '/api/agents/quick',
   agentLimiter,
   sameSiteOnly,
-  validate(z.object({ prompt: z.string().trim().min(1).max(MAX_HARNESS_PROMPT) })),
+  validate(z.object({ prompt: startPromptSchema(MAX_HARNESS_PROMPT) })),
   async (req, res) => {
     if (isRunningInDocker) return res.status(501).json({ error: 'Not available in Docker' });
     const { harness, model, permissionMode } = settingsService.getAgentViewSettings().dispatch;
@@ -1874,7 +1924,7 @@ app.post(
   agentLimiter,
   sameSiteOnly,
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
-  validate(z.object({ text: z.string().trim().min(1).max(100000) })),
+  validate(z.object({ text: typedTextSchema(100000) })),
   (req, res) => {
     if (!typeIntoPanePty(req.params.paneId, req.body.text))
       return res.status(404).json({ error: 'No agent runs in this pane' });
@@ -2507,8 +2557,31 @@ const chatHistoryQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100_000).optional(),
 });
 
+// Security review M3: the history is private, and any page on any loopback port (every local dev
+// app) passes CORS. Readers: the Electron renderer (secret); this machine without an Origin (curl,
+// same-origin GETs, not a cross-site embed); pages from this server's or the Vite dev server's port.
+const ownPagePorts = new Set([String(PORT), String(process.env.VITE_PORT || PORTS.devhub)]);
+const isOwnPageOrigin = (origin) => {
+  try {
+    const url = new URL(origin);
+    return ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname) && ownPagePorts.has(url.port);
+  } catch {
+    return false;
+  }
+};
+const chatHistoryReader = (req, res, next) => {
+  const origin = req.headers.origin;
+  const local =
+    remoteAccess.isLocalRequest(req) &&
+    (origin
+      ? isOwnPageOrigin(origin)
+      : ['same-origin', 'none', undefined].includes(req.headers['sec-fetch-site']));
+  if (local || hasRendererSecret(req)) return next();
+  res.status(403).json({ error: 'Local only' });
+};
+
 // Reads of the local store: search asks per keystroke, so only the general API limit applies
-app.get('/api/chat-history', async (req, res) => {
+app.get('/api/chat-history', chatHistoryReader, async (req, res) => {
   const query = chatHistoryQuerySchema.safeParse(req.query);
   if (!query.success) return res.status(400).json({ error: 'Invalid chat history query' });
   try {
@@ -2518,7 +2591,7 @@ app.get('/api/chat-history', async (req, res) => {
   }
 });
 
-app.get('/api/chat-history/conversation', async (req, res) => {
+app.get('/api/chat-history/conversation', chatHistoryReader, async (req, res) => {
   try {
     const conversation = await chatHistory.get(String(req.query.id ?? ''));
     if (!conversation) return res.status(404).json({ error: 'Unknown conversation' });
@@ -2530,8 +2603,7 @@ app.get('/api/chat-history/conversation', async (req, res) => {
 
 // The path names a folder on this machine, so only this machine may send it. The service
 // opens nothing but conversations*.json / projects.json below it and answers with counts.
-app.post('/api/chat-history/import', agentLimiter, async (req, res) => {
-  if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
+app.post('/api/chat-history/import', agentLimiter, chatHistoryReader, async (req, res) => {
   const body = z.object({ path: z.string().min(1).max(2000) }).safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: 'Invalid import path' });
   try {
@@ -2566,7 +2638,7 @@ const localChatSync = (req, res, next) =>
     ? next()
     : res.status(403).json({ error: 'Local only' });
 
-app.get('/api/chat-history/sync-state', localChatSync, async (req, res) => {
+app.get('/api/chat-history/sync-state', chatHistoryReader, async (req, res) => {
   try {
     res.json(await chatHistory.syncState());
   } catch (error) {
@@ -2732,12 +2804,13 @@ const refuseUpgrade = (socket, status) => {
 };
 
 // Browsers do not apply CORS to WebSockets: a foreign page could open a PTY on localhost. Same-origin
-// pages (the app served through `tailscale serve`) and the CORS origins pass. Same host only in
-// remote mode: without it a DNS-rebound name would pass, with it a non-loopback Host still needs
-// the token or an authorizer (isAuthorized).
+// pages (the app served through `tailscale serve`) and the CORS origins pass; opaque origins (the
+// file:// renderer) as for HTTP. Same host only in remote mode: without it a DNS-rebound name would
+// pass, with it a non-loopback Host still needs the token or an authorizer (isAuthorized).
 const isAllowedUpgradeOrigin = (req) => {
   const origin = req.headers.origin;
-  if (!origin || isAllowedOrigin(origin) || isPairedElectron(req)) return true;
+  if (isOpaqueRequest(req)) return isTrustedOpaque(req);
+  if (!origin || isAllowedOrigin(origin)) return true;
   if (!remoteAccess.isRemoteEnabled()) return false;
   try {
     return new URL(origin).host === req.headers.host;
@@ -3212,8 +3285,14 @@ async function startServer() {
     process.exit(1);
   });
 
-  // Remote access goes through `tailscale serve` → loopback; never expose the remote mode on all interfaces.
-  const host = remoteAccess.isRemoteEnabled() ? '127.0.0.1' : undefined;
+  // Loopback only: the API starts agents and types into their terminals, so it must not be reachable
+  // from the LAN. Remote access goes through `tailscale serve` → loopback. Docker needs every
+  // interface (the published port); DEVORBIT_LISTEN_HOST is the explicit opt-in for anything else.
+  const host = isRunningInDocker
+    ? undefined
+    : remoteAccess.isRemoteEnabled()
+      ? '127.0.0.1'
+      : process.env.DEVORBIT_LISTEN_HOST || '127.0.0.1';
   server.listen(PORT, host, () => {
     // Cold 30-day scan takes seconds; warm the file cache so the first page view is fast.
     getUsage({ days: 30 }).catch((err) => console.warn('Usage warm-up failed:', err.message));

@@ -31,7 +31,14 @@ const FINISHED = new Set(['done', 'failed', 'stopped']);
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
 export const orchestratorDir = (dataDir = getDataPath()) => path.join(dataDir, 'orchestrator');
-export const orchestratorCli = (dir = orchestratorDir()) => path.join(dir, 'bin', 'orkumo');
+/**
+ * CLI wrapper, script and config live next to the workspace, not in it: the guard lets an
+ * orchestrator write inside its workspace, and it must not be able to rewrite its own CLI.
+ */
+export const orchestratorBinDir = (dir = orchestratorDir()) =>
+  path.join(path.dirname(dir), 'orchestrator-bin');
+export const orchestratorCli = (dir = orchestratorDir()) =>
+  path.join(orchestratorBinDir(dir), 'orkumo');
 
 /** Workspace templates: server/orchestrator in the source tree, dist-server/orchestrator in the bundle */
 export function templatesDir() {
@@ -39,7 +46,10 @@ export function templatesDir() {
   return candidates.find((dir) => fs.existsSync(path.join(dir, 'orkumo.mjs'))) ?? candidates[0];
 }
 
-/** Writes `content` only when it differs, so a restart leaves unchanged files (and mtimes) alone */
+/**
+ * Writes `content` only when it differs, so a restart leaves unchanged files (and mtimes) alone.
+ * Read-only files (no owner write bit) are replaced, not written through.
+ */
 function writeIfChanged(file, content, mode) {
   let current = null;
   try {
@@ -52,6 +62,7 @@ function writeIfChanged(file, content, mode) {
     return false;
   }
   fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.rmSync(file, { force: true });
   fs.writeFileSync(file, content, mode ? { mode } : undefined);
   if (mode) fs.chmodSync(file, mode);
   return true;
@@ -78,7 +89,7 @@ function linkClaudeMd(dir) {
 export function claudeSettings({ dir, cli }) {
   return {
     permissions: {
-      allow: ['Bash(orkumo *)', `Bash(${cli} *)`, `Bash("${cli}" *)`, 'Bash("$ORKUMO_CLI" *)'],
+      allow: [`Bash(${cli} *)`, `Bash("${cli}" *)`, 'Bash("$ORKUMO_CLI" *)', 'Bash(orkumo *)'],
       deny: ['Task', 'Agent'],
     },
     // Also reaches sessions Orkumo did not start here (a marked `claude --bg` job in this folder)
@@ -86,8 +97,9 @@ export function claudeSettings({ dir, cli }) {
     hooks: {
       PreToolUse: [
         {
-          // Deny rules cannot say "outside this folder": the guard checks the target path
-          matcher: 'Edit|MultiEdit|Write|NotebookEdit',
+          // Deny rules cannot say "outside this folder": the guard checks the target path, and
+          // (best effort) Bash commands writing into .claude/.omp/AGENTS.md/the CLI
+          matcher: 'Edit|MultiEdit|Write|NotebookEdit|Bash',
           hooks: [{ type: 'command', command: `"${cli}" guard` }],
         },
       ],
@@ -97,9 +109,11 @@ export function claudeSettings({ dir, cli }) {
 
 /**
  * Creates or refreshes the orchestrator workspace (idempotent). Generated files are rewritten
- * from the templates; NOTES.md belongs to the orchestrators and is only created when missing.
+ * from the templates and kept read-only; NOTES.md belongs to the orchestrators and is only
+ * created when missing. The CLI goes to `orchestrator-bin/` next to the workspace.
  * @param {{ apiUrl: string, dataDir?: string, dir?: string, templates?: string, nodeFallback?: string }} opts
- * @returns {{ dir: string, cli: string, changed: string[] }} changed: workspace-relative paths written
+ * @returns {{ dir: string, cli: string, changed: string[] }} changed: workspace-relative paths
+ *   written, `orchestrator-bin/…` for the CLI
  */
 export function ensureOrchestratorWorkspace({
   apiUrl,
@@ -109,6 +123,7 @@ export function ensureOrchestratorWorkspace({
   nodeFallback = process.execPath,
 }) {
   const cli = orchestratorCli(dir);
+  const binDir = orchestratorBinDir(dir);
   const template = (name) => fs.readFileSync(path.join(templates, name), 'utf8');
   const fill = (text) =>
     text
@@ -116,28 +131,35 @@ export function ensureOrchestratorWorkspace({
       .replaceAll('{{CLI}}', cli)
       .replaceAll('{{API_URL}}', apiUrl);
   const changed = [];
-  const write = (rel, content, mode) => {
+  const write = (rel, content, mode = RO) => {
     if (writeIfChanged(path.join(dir, rel), content, mode)) changed.push(rel);
+  };
+  const writeBin = (name, content, mode) => {
+    if (writeIfChanged(path.join(binDir, name), content, mode))
+      changed.push(`orchestrator-bin/${name}`);
   };
 
   fs.mkdirSync(dir, { recursive: true });
+  // Before 2026-11 the CLI lived in <workspace>/bin, writable by the orchestrator
+  fs.rmSync(path.join(dir, 'bin'), { recursive: true, force: true });
   write('AGENTS.md', fill(template('agents.md')));
   if (linkClaudeMd(dir)) changed.push('CLAUDE.md');
   const notes = path.join(dir, 'NOTES.md');
-  if (!fs.existsSync(notes)) write('NOTES.md', template('notes.md'));
+  if (!fs.existsSync(notes)) write('NOTES.md', template('notes.md'), 0o644);
   write('.claude/settings.json', `${JSON.stringify(claudeSettings({ dir, cli }), null, 2)}\n`);
   const skill = fill(template('skill.md'));
   // omp reads project skills from .omp/skills (and Claude's from .claude/skills)
   write(`.claude/skills/${SKILL_NAME}/SKILL.md`, skill);
   write(`.omp/skills/${SKILL_NAME}/SKILL.md`, skill);
-  write('bin/orkumo.mjs', template('orkumo.mjs'), 0o755);
-  write(
-    'bin/orkumo.json',
-    `${JSON.stringify({ apiUrl, tokenFile: path.join(dataDir, 'remote-token'), workspace: dir }, null, 2)}\n`
+  writeBin('orkumo.mjs', template('orkumo.mjs'), 0o555);
+  writeBin(
+    'orkumo.json',
+    `${JSON.stringify({ apiUrl, tokenFile: path.join(dataDir, 'remote-token'), workspace: dir }, null, 2)}\n`,
+    RO
   );
   // node from PATH; else the runtime of this server (Electron's, run as plain node)
-  write(
-    'bin/orkumo',
+  writeBin(
+    'orkumo',
     [
       '#!/bin/sh',
       '# Generated by Orkumo: runs the orkumo CLI (orkumo.mjs next to this file)',
@@ -146,11 +168,12 @@ export function ensureOrchestratorWorkspace({
       `ELECTRON_RUN_AS_NODE=1 exec ${shellQuote(nodeFallback)} "$dir/orkumo.mjs" "$@"`,
       '',
     ].join('\n'),
-    0o755
+    0o555
   );
   return { dir, cli, changed };
 }
 
+const RO = 0o444;
 const shellQuote = (s) => `'${String(s).replace(/'/g, `'\\''`)}'`;
 
 /** Typed into / replied to a session that was just marked as orchestrator */
@@ -352,7 +375,7 @@ export function startAgentPane(opts, deps) {
       paneId: `${opts.orchestrator ? 'orch' : 'work'}-${crypto.randomUUID()}`,
       ...(opts.orchestrator
         ? {
-            pathPrefix: [path.join(dir, 'bin')],
+            pathPrefix: [orchestratorBinDir(dir)],
             env: { ORKUMO_CLI: orchestratorCli(dir), ORKUMO_WORKSPACE: dir },
           }
         : {}),
