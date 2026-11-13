@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
+- Agents header: the "Close" button on other views (board, issues, code …); the activity bar switches views, so it only duplicated the Agents mode
 - Monaco editor and its editor switcher in the Web IDE panel; VS Code (code-server) is the only integrated editor (#139)
 - `/api/files/tree`, `/api/files/read`, `/api/files/write` (only used by Monaco)
 - Agents view: the "Card details" setting (hover / click / always) and the row-menu entry "Keep details open" / "Hide details"; a stored value is dropped on load
