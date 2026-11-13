@@ -295,6 +295,62 @@ export function watchChat(id, onEvent) {
   };
 }
 
+/**
+ * Chat streams: one SSE per client window carries every view it watches, each watch tagged with
+ * the client's `sub` id. A stream per view starved the window's other requests: Chromium allows
+ * 6 HTTP/1.1 connections per host, so with 5 UI views open every fetch queued indefinitely.
+ * client id -> { send(event, data), watches: Map<sub, unsubscribe> }
+ */
+const streamClients = new Map();
+
+function closeStream(clientId) {
+  const client = streamClients.get(clientId);
+  if (!client) return;
+  streamClients.delete(clientId);
+  for (const off of client.watches.values()) off();
+}
+
+/**
+ * Registers the SSE of `clientId`; a reconnect with the same id replaces the old stream.
+ * @param {(event: 'watch'|'message', data: object) => void} send
+ * @returns {() => void} call when the stream closes
+ */
+export function openChatStream(clientId, send) {
+  closeStream(clientId);
+  const client = { send, watches: new Map() };
+  streamClients.set(clientId, client);
+  return () => {
+    if (streamClients.get(clientId) === client) closeStream(clientId);
+  };
+}
+
+/**
+ * Streams view `chatId` on the client's SSE as `sub`: `watch` {sub}, the replay, then live
+ * `message` {sub, event}. Watching an existing `sub` again restarts it with a fresh replay.
+ * Throws 404 for an unknown view, 409 while the client has no stream.
+ */
+export function watchChatStream(clientId, sub, chatId) {
+  const client = streamClients.get(clientId);
+  if (!client) {
+    const error = new Error('No chat stream open for this client');
+    error.status = 409;
+    throw error;
+  }
+  get(chatId);
+  client.watches.get(sub)?.();
+  client.send('watch', { sub });
+  client.watches.set(
+    sub,
+    watchChat(chatId, (event) => client.send('message', { sub, event }))
+  );
+}
+
+export function unwatchChatStream(clientId, sub) {
+  const client = streamClients.get(clientId);
+  client?.watches.get(sub)?.();
+  client?.watches.delete(sub);
+}
+
 export function chatSummary(id) {
   return summary(get(id));
 }
