@@ -10,7 +10,6 @@ import type {
   AgentPrLink,
   AgentContext,
   AgentPullRequest,
-  AgentCardDetails,
   AgentCardElement,
   AgentCardFields,
   AgentCardSlot,
@@ -982,6 +981,15 @@ export function sessionHarness(session: AgentSession): AgentHarness {
   return session.ptyCommand ?? session.harness ?? 'claude';
 }
 
+/** Harnesses whose transcript the server can read, so their panes have a UI view */
+export const UI_VIEW_HARNESSES: Record<AgentHarness, boolean> = {
+  claude: true,
+  omp: true,
+  pi: true,
+  opencode: false,
+  codex: false,
+};
+
 /** How each harness's terminal UI resumes a session (server allowlist: config/harnesses.js) */
 const RESUME_FLAG: Record<AgentHarness, string> = {
   claude: '--resume',
@@ -1045,27 +1053,6 @@ export function cardSlots<T, U = T>(
 }
 
 /**
- * Whether a session card shows its details (#181: one trigger per mode, so at most one card opens transiently).
- * "Keep details open" pins them in every mode. `selectedBy` is how the card got selected while the rail has focus.
- * `click`: the selected card. `hover`: the hovered card; a keyboard selection only while no card is hovered.
- */
-export function cardDetailsVisible(
-  mode: AgentCardDetails,
-  state: {
-    hasDetails: boolean;
-    pinned: boolean;
-    hovered: boolean;
-    anyHovered: boolean;
-    selectedBy: 'click' | 'keyboard' | null;
-  }
-): boolean {
-  if (!state.hasDetails) return false;
-  if (mode === 'always' || state.pinned) return true;
-  if (mode === 'click') return state.selectedBy !== null;
-  return state.hovered || (state.selectedBy === 'keyboard' && !state.anyHovered);
-}
-
-/**
  * PR label for the right edge of a row.
  */
 export function prLabel(
@@ -1112,12 +1099,11 @@ export function shortenPath(cwd: string, max = 40): string {
 }
 
 /**
- * Session id a terminal pane can hand over to a Chat pane and back, or null: Claude Code's
- * UUID (`claude --resume`), or the id the server lists for another harness's session (omp).
- * Harness panes without a listed session, cloud panes and chats have none.
+ * Transcript id of the session a pane runs, or null: Claude Code's UUID (`claude --resume`), or
+ * the id the server lists for another harness's session (omp). The UI view reads that transcript.
+ * Harness panes without a listed session and cloud panes have none.
  */
 export function resumableSessionId(session: AgentSession): string | null {
-  if (session.chat) return null;
   // #220: the chat would start on the picked instance, not on the one this pane runs on
   if (targetOf(session.id) !== getAgentTarget()) return null;
   if (session.sessionId) return session.sessionId;

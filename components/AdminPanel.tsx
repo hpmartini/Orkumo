@@ -538,8 +538,9 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               ))}
             </div>
             <p className="mt-2 text-xs text-gray-500">
-              Links from terminals (Cmd/Ctrl-click), the app and VS Code (desktop app). Pages in the
-              built-in browser keep an &quot;open externally&quot; button.
+              Links from terminals (Cmd/Ctrl-click), the app and VS Code (desktop app);
+              Cmd/Ctrl+Shift-click always opens the system browser. Pages in the built-in browser
+              keep an &quot;open externally&quot; button.
             </p>
           </fieldset>
 

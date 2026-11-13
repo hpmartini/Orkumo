@@ -148,23 +148,6 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                 </select>
               </div>
               <div>
-                <label className={label} htmlFor="agent-card-details">
-                  Card details (issues, PRs, servers)
-                </label>
-                <select
-                  id="agent-card-details"
-                  className={field}
-                  value={settings.cardDetails}
-                  onChange={(e) =>
-                    onUpdate({ cardDetails: e.target.value as AgentViewSettings['cardDetails'] })
-                  }
-                >
-                  <option value="click">On click or keyboard selection</option>
-                  <option value="hover">On hover (keyboard selection while not hovering)</option>
-                  <option value="always">Always</option>
-                </select>
-              </div>
-              <div>
                 <label className={label} htmlFor="agent-card-density">
                   Card density
                 </label>
@@ -200,7 +183,7 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
               </div>
               <div>
                 <label className={label} htmlFor="agent-open-view">
-                  Open idle agents as
+                  Open agents in
                 </label>
                 <select
                   id="agent-open-view"
@@ -212,8 +195,8 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                     })
                   }
                 >
-                  <option value="chat">Chat (resumes the session in the chat view)</option>
-                  <option value="terminal">Terminal</option>
+                  <option value="chat">UI view (switch to the terminal any time)</option>
+                  <option value="terminal">Terminal view</option>
                 </select>
               </div>
             </div>

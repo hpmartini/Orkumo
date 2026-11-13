@@ -3,7 +3,14 @@ import { tabSessionLabel } from '../../utils/sessionCopies';
 import { Group, Panel, Separator } from 'react-resizable-panels';
 import { X, Columns2, Rows2, LayoutGrid, Bot, Maximize2, SquareTerminal } from 'lucide-react';
 import type { AgentSession } from '../../types';
-import { stateGlyph, resumableSessionId } from '../../utils/agentSessions';
+import {
+  stateGlyph,
+  resumableSessionId,
+  sessionHarness,
+  UI_VIEW_HARNESSES,
+} from '../../utils/agentSessions';
+import { getAgentTarget, targetOf } from '../../utils/agentTarget';
+import type { PaneView } from '../../hooks/useAgentWorkspace';
 import {
   AGENT_TAB_MIME,
   browserUrl,
@@ -44,14 +51,14 @@ interface AgentWorkspaceProps {
   renderPaneMeta?: (session: AgentSession) => React.ReactNode;
   /** Parked workspace of another context: terminals stay connected but never count as visible */
   hidden?: boolean;
-  /** Chat panes (#189): key that sends a message */
+  /** UI views (#189): key that sends a message */
   chatSubmitKey?: ChatSubmitKey;
   chatShowSteps?: boolean;
   onToggleChatSteps?: () => void;
-  /** Chat pane "Open in terminal": end the chat, resume its CLI session in a terminal */
-  onOpenChatInTerminal?: (chatId: string, sessionId: string) => void;
-  /** Ends a terminal pane and resumes its CLI session in a Chat pane */
-  onOpenAsChat?: (session: AgentSession, sessionId: string) => void;
+  /** Panes shown in the UI view; the rest show their terminal */
+  views?: Record<string, PaneView>;
+  /** Switches a pane between terminal and UI view; its process is untouched */
+  onSetView?: (sessionId: string, view: PaneView) => void;
 }
 
 /** What is being dragged: a whole tab (moves its active session on split) or one pane */
@@ -225,8 +232,8 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   chatSubmitKey = 'mod+enter',
   chatShowSteps = false,
   onToggleChatSteps,
-  onOpenChatInTerminal,
-  onOpenAsChat,
+  views = {},
+  onSetView,
   hidden = false,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -349,80 +356,80 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   ) => {
     const multi = panes.length > 1;
     const url = browserUrl(session.id);
-    // A harness pane started here (#195): the server row that claimed it knows its session id
-    const holder = resumableSessionId(session)
-      ? session
-      : sessions.find((s) => s.paneId === session.id);
-    const resumable = holder ? resumableSessionId(holder) : null;
+    // A harness pane started here (#195): the server row that claimed it knows its state and session
+    const row = sessions.find((s) => s.paneId === session.id);
+    const viewSessionId = resumableSessionId(session) ?? (row ? resumableSessionId(row) : null);
+    const viewable =
+      url === null &&
+      shellCwd(session.id) === null &&
+      UI_VIEW_HARNESSES[sessionHarness(session)] &&
+      !session.ptyArgs?.includes('--cloud') &&
+      // #220: the transcript lives on the instance the pane runs on
+      targetOf(session.id) === getAgentTarget();
+    const chatView = viewable && views[session.id] === 'chat';
+    const active = session.id === tab.activeSessionId;
+    const focused = visible && focusZone === 'terminal' && active;
+    const dragHeader = multi
+      ? {
+          ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
+          className: drag?.id === session.id ? 'opacity-50' : '',
+        }
+      : undefined;
     return (
       <div className="relative h-full min-h-0">
-        {session.chat ? (
-          <ChatPane
-            session={session}
-            agent={session.viewOf ? sessions.find((x) => x.id === session.viewOf) : undefined}
-            active={session.id === tab.activeSessionId}
-            focused={visible && focusZone === 'terminal' && session.id === tab.activeSessionId}
-            submitKey={chatSubmitKey}
-            showSteps={chatShowSteps}
-            onToggleSteps={() => onToggleChatSteps?.()}
-            onFocus={() => onFocusPane(session.id)}
-            onClose={() => onClosePane(session.id)}
-            onMaximize={multi ? () => onDetach(session.id) : undefined}
-            onOpenInTerminal={(sid) => onOpenChatInTerminal?.(session.id, sid)}
-            headerProps={
-              multi
-                ? {
-                    ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
-                    className: drag?.id === session.id ? 'opacity-50' : '',
-                  }
-                : undefined
-            }
-          />
-        ) : url !== null ? (
+        {url !== null ? (
           <BrowserPane
             url={url}
-            active={session.id === tab.activeSessionId}
+            active={active}
             onFocus={() => onFocusPane(session.id)}
             onClose={() => onClosePane(session.id)}
             onMaximize={multi ? () => onDetach(session.id) : undefined}
-            headerProps={
-              multi
-                ? {
-                    ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
-                    className: drag?.id === session.id ? 'opacity-50' : '',
-                  }
-                : undefined
-            }
+            headerProps={dragHeader}
           />
         ) : (
-          <AgentTerminal
-            session={session}
-            visible={visible}
-            active={session.id === tab.activeSessionId}
-            focused={visible && focusZone === 'terminal' && session.id === tab.activeSessionId}
-            onFocus={() => onFocusPane(session.id)}
-            onClose={() => onClosePane(session.id)}
-            onPeek={() => onPeek(session.id)}
-            onMaximize={multi ? () => onDetach(session.id) : undefined}
-            solo={!multi}
-            meta={renderPaneMeta?.(session)}
-            onOpenLink={onOpenLink && ((link) => onOpenLink(session.id, link))}
-            onOpenAsChat={
-              onOpenAsChat && holder && resumable
-                ? () => onOpenAsChat(holder, resumable)
-                : undefined
-            }
-            headerProps={
-              multi
-                ? {
-                    ...dragProps({ kind: 'pane', id: session.id, sessionId: session.id }),
-                    className: drag?.id === session.id ? 'opacity-50' : '',
-                    title:
-                      'Drag onto a pane edge to rearrange, or onto the tab strip for its own tab',
-                  }
-                : undefined
-            }
-          />
+          // The terminal stays mounted under the UI view: its PTY is the agent
+          <div className={`h-full ${chatView ? 'invisible' : ''}`} aria-hidden={chatView}>
+            <AgentTerminal
+              session={session}
+              visible={visible && !chatView}
+              active={active && !chatView}
+              focused={focused && !chatView}
+              onFocus={() => onFocusPane(session.id)}
+              onClose={() => onClosePane(session.id)}
+              onPeek={() => onPeek(session.id)}
+              onMaximize={multi ? () => onDetach(session.id) : undefined}
+              solo={!multi}
+              meta={renderPaneMeta?.(session)}
+              onOpenLink={onOpenLink && ((link) => onOpenLink(session.id, link))}
+              onShowChat={viewable && onSetView ? () => onSetView(session.id, 'chat') : undefined}
+              headerProps={
+                dragHeader && {
+                  ...dragHeader,
+                  title:
+                    'Drag onto a pane edge to rearrange, or onto the tab strip for its own tab',
+                }
+              }
+            />
+          </div>
+        )}
+        {chatView && (
+          <div className="absolute inset-0">
+            <ChatPane
+              pane={session}
+              agent={row ?? session}
+              sessionId={viewSessionId}
+              active={active}
+              focused={focused}
+              submitKey={chatSubmitKey}
+              showSteps={chatShowSteps}
+              onToggleSteps={() => onToggleChatSteps?.()}
+              onFocus={() => onFocusPane(session.id)}
+              onClose={() => onClosePane(session.id)}
+              onMaximize={multi ? () => onDetach(session.id) : undefined}
+              onShowTerminal={() => onSetView?.(session.id, 'terminal')}
+              headerProps={dragHeader}
+            />
+          </div>
         )}
         {drag && drag.sessionId !== session.id && visible && (
           <SplitOverlay

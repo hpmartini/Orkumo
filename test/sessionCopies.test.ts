@@ -72,11 +72,8 @@ describe('session copies (#236)', () => {
   it('AC-3 resuming a background job or a running interactive process makes a copy', () => {
     expect(resumeMakesCopy(job)).toBe(true);
     expect(resumeMakesCopy(copyOrig)).toBe(true);
-    // Orkumo's own terminal pane (no pid in the client stand-in) and chats hand over instead
+    // Orkumo's own terminal pane (no pid in the client stand-in) hands over instead
     expect(resumeMakesCopy(base({ id: 'interactive-17', ptyArgs: ['--session-id', ORIG] }))).toBe(
-      false
-    );
-    expect(resumeMakesCopy(base({ id: 'chat-1', chat: true, sessionId: ORIG, pid: 4 }))).toBe(
       false
     );
   });
@@ -88,14 +85,11 @@ describe('session copies (#236)', () => {
     expect(transcriptHolder([job], '6f6f')).toBeNull();
   });
 
-  it('AC-5 a pane already running the session is found (terminal by its args, chat by id)', () => {
+  it('AC-5 a terminal pane already running the session is found by its args', () => {
     const term = base({ id: 'interactive-17', ptyArgs: ['--resume', ORIG] });
-    const chat = base({ id: 'chat-9', chat: true, sessionId: RESPAWN });
-    expect(paneHolding([term, chat], new Set(['interactive-17']), ORIG)).toBe('interactive-17');
+    expect(paneHolding([term], new Set(['interactive-17']), ORIG)).toBe('interactive-17');
     expect(paneHolding([term], new Set(), ORIG)).toBeNull();
-    // a chat's process lives as long as its pane, also in a parked workspace
-    expect(paneHolding([term, chat], new Set(), RESPAWN)).toBe('chat-9');
-    expect(paneHolding([term, chat], new Set(['interactive-17']), null)).toBeNull();
+    expect(paneHolding([term], new Set(['interactive-17']), null)).toBeNull();
   });
 
   it('AC-5 tab label: job id for a background job, short transcript id otherwise', () => {
@@ -103,7 +97,7 @@ describe('session copies (#236)', () => {
     expect(tabSessionLabel(base({ id: 'interactive-1', ptyArgs: ['--session-id', ORIG] }))).toBe(
       '7305722f'
     );
-    expect(tabSessionLabel(base({ id: 'chat-1', chat: true, sessionId: RESPAWN }))).toBe(
+    expect(tabSessionLabel(base({ id: 'interactive-2', ptyArgs: ['--resume', RESPAWN] }))).toBe(
       '6f6f9c58'
     );
     expect(tabSessionLabel(base({ id: 'shell:1' }))).toBeNull();

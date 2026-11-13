@@ -10,7 +10,11 @@ vi.mock('child_process', async (orig) => {
   return { ...actual, default: { ...actual, execFile }, execFile };
 });
 
-const { default: router, resolveOpenTarget } = await import('../server/services/fileOpenRoutes.js');
+const {
+  default: router,
+  resolveOpenTarget,
+  projectFolder,
+} = await import('../server/services/fileOpenRoutes.js');
 const remoteAccess = await import('../server/services/remoteAccess.js');
 
 let dir;
@@ -38,6 +42,10 @@ beforeAll(async () => {
     fs.writeFileSync(path.join(dir, 'classic.pdf'), '%PDF');
     fs.writeFileSync(path.join(dir, 'classic.pdf', '..namedfork', 'rsrc'), 'alis');
   }
+  // a git project with a source file one level down
+  fs.mkdirSync(path.join(dir, 'proj', '.git'), { recursive: true });
+  fs.mkdirSync(path.join(dir, 'proj', 'src'));
+  fs.writeFileSync(path.join(dir, 'proj', 'src', 'app.ts'), 'x');
   const app = express();
   // same order as server/index.js: token check before the route
   app.use(remoteAccess.requireRemoteToken);
@@ -57,8 +65,8 @@ afterAll(() => {
 
 beforeEach(() => execFile.mockClear());
 
-const post = (body, headers = {}) =>
-  fetch(base, {
+const post = (body, headers = {}, url = base) =>
+  fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...headers },
     body: JSON.stringify(body),
@@ -127,6 +135,64 @@ describe('POST /api/files/open', () => {
     );
     expect(res.status).toBe(403);
     expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('POST /api/files/open-in-editor', () => {
+  const editor = (body) => post(body, {}, `${base}-in-editor`);
+
+  it('opens the file at line:col in the window of the session’s git project', async () => {
+    const res = await editor({
+      path: 'app.ts',
+      cwd: path.join(dir, 'proj', 'src'),
+      line: 12,
+      col: 3,
+    });
+    expect(res.status).toBe(200);
+    expect((await res.json()).action).toBe('editor');
+    const [cli, args] = execFile.mock.calls[0];
+    expect(cli).toMatch(/(^|\/)code$/);
+    expect(args).toEqual([
+      path.join(dir, 'proj'),
+      '-g',
+      `${path.join(dir, 'proj', 'src', 'app.ts')}:12:3`,
+    ]);
+  });
+
+  it('opens even launchable files in the editor, never in their app', async () => {
+    const res = await editor({ path: path.join(dir, 'run.command') });
+    expect(res.status).toBe(200);
+    expect(execFile.mock.calls[0][1]).toEqual([path.join(dir, 'run.command')]);
+  });
+
+  it('keeps folders in Finder', async () => {
+    const res = await editor({ path: 'folder', cwd: dir });
+    expect((await res.json()).action).toBe('opened');
+    expect(execFile.mock.calls[0].slice(0, 2)).toEqual(['open', [path.join(dir, 'folder')]]);
+  });
+
+  it('applies the same path checks as open', async () => {
+    expect((await editor({ path: '/etc/hosts' })).status).toBe(403);
+    expect((await editor({ path: path.join(dir, 'nope.ts') })).status).toBe(404);
+    expect((await editor({ path: path.join(dir, 'report.pdf'), line: -1 })).status).toBe(400);
+    expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe('projectFolder', () => {
+  it('is the git root above the session directory, else the directory itself', () => {
+    const roots = [dir];
+    expect(projectFolder(path.join(dir, 'proj', 'src'), roots)).toBe(path.join(dir, 'proj'));
+    expect(projectFolder(path.join(dir, 'folder'), roots)).toBe(path.join(dir, 'folder'));
+  });
+
+  it('is null for a root itself, outside the roots or without a usable directory', () => {
+    const roots = [dir];
+    expect(projectFolder(dir, roots)).toBeNull();
+    expect(projectFolder('/etc', roots)).toBeNull();
+    expect(projectFolder(path.join(dir, 'report.pdf'), roots)).toBeNull();
+    expect(projectFolder('rel/dir', roots)).toBeNull();
+    expect(projectFolder(undefined, roots)).toBeNull();
   });
 });
 

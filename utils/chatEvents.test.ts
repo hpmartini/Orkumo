@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   reduceChat,
   initialChatState,
-  pendingPermissions,
   isSubmitKey,
   toolDiff,
   toolSummary,
@@ -12,8 +11,6 @@ import {
 const fold = (events: unknown[], state: ChatState = initialChatState) =>
   events.reduce<ChatState>(reduceChat, state);
 
-const se = (event: object) => ({ type: 'stream_event', event });
-
 describe('chatEvents - reduceChat (AC-2)', () => {
   it('reads session id and model from init', () => {
     const s = fold([{ type: 'system', subtype: 'init', session_id: 'sid', model: 'claude-opus' }]);
@@ -21,22 +18,9 @@ describe('chatEvents - reduceChat (AC-2)', () => {
     expect(s.model).toBe('claude-opus');
   });
 
-  it('builds streaming text from deltas', () => {
-    const s = fold([
-      { type: 'devorbit_user', text: 'hi' },
-      se({ type: 'message_start', message: { id: 'm1' } }),
-      se({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
-      se({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: '# He' } }),
-      se({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'llo' } }),
-    ]);
-    expect(s.busy).toBe(true);
+  it('adds transcript user text as a user message', () => {
+    const s = fold([{ type: 'devorbit_user', text: 'hi', history: true }]);
     expect(s.messages[0]).toEqual({ kind: 'user', key: 'u0', text: 'hi' });
-    expect(s.messages[1]).toMatchObject({
-      kind: 'assistant',
-      key: 'm1',
-      streaming: true,
-      blocks: [{ type: 'text', text: '# Hello' }],
-    });
   });
 
   it('a full assistant turn (replay without deltas) fills blocks in order', () => {
@@ -54,27 +38,6 @@ describe('chatEvents - reduceChat (AC-2)', () => {
         { type: 'text', text: 'Done.' },
       ],
     });
-  });
-
-  it('keeps streamed thinking when the final block arrives redacted', () => {
-    const s = fold([
-      se({ type: 'message_start', message: { id: 'm1' } }),
-      se({
-        type: 'content_block_start',
-        index: 0,
-        content_block: { type: 'thinking', thinking: '' },
-      }),
-      se({
-        type: 'content_block_delta',
-        index: 0,
-        delta: { type: 'thinking_delta', thinking: 'plan' },
-      }),
-      {
-        type: 'assistant',
-        message: { id: 'm1', content: [{ type: 'thinking', thinking: '', signature: 'x' }] },
-      },
-    ]);
-    expect(s.messages[0]).toMatchObject({ blocks: [{ type: 'thinking', text: 'plan' }] });
   });
 
   it('pairs tool_use with its tool_result', () => {
@@ -120,59 +83,18 @@ describe('chatEvents - reduceChat (AC-2)', () => {
     expect(s.messages).toEqual([]);
   });
 
-  it('shows a permission request and records the answer', () => {
-    const request = {
-      type: 'control_request',
-      request_id: 'r1',
-      request: {
-        subtype: 'can_use_tool',
-        tool_name: 'Write',
-        display_name: 'Write',
-        input: { file_path: '/p/a.txt' },
-        description: 'Create a.txt',
-        permission_suggestions: [{ type: 'setMode', mode: 'acceptEdits' }],
-      },
-    };
-    const asked = fold([request, request]);
-    expect(pendingPermissions(asked)).toHaveLength(1);
-    expect(pendingPermissions(asked)[0]).toMatchObject({
-      requestId: 'r1',
-      toolName: 'Write',
-      canAlways: true,
-      decision: null,
-    });
-    const answered = reduceChat(asked, {
-      type: 'devorbit_permission',
-      request_id: 'r1',
-      decision: 'deny',
-    });
-    expect(pendingPermissions(answered)).toHaveLength(0);
-    expect(answered.messages[0]).toMatchObject({ decision: 'deny' });
-  });
-
   it('ends a turn on result and marks errors', () => {
     const s = fold([
       { type: 'devorbit_user', text: 'go' },
-      se({ type: 'message_start', message: { id: 'm1' } }),
+      { type: 'assistant', message: { id: 'm1', content: [{ type: 'text', text: 'x' }] } },
       { type: 'result', subtype: 'error_during_execution', is_error: true, duration_ms: 1200 },
     ]);
-    expect(s.busy).toBe(false);
     expect(s.messages[1]).toMatchObject({ streaming: false });
     expect(s.messages[2]).toMatchObject({
       kind: 'result',
       ok: false,
       subtype: 'error_during_execution',
       durationMs: 1200,
-    });
-  });
-
-  it('reports process exit with stderr', () => {
-    const s = reduceChat(initialChatState, { type: 'devorbit_exit', code: 1, stderr: 'boom' });
-    expect(s.ended).toBe(true);
-    expect(s.messages[0]).toMatchObject({
-      kind: 'notice',
-      tone: 'error',
-      text: 'Session ended (code 1): boom',
     });
   });
 

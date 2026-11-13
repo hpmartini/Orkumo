@@ -1,13 +1,14 @@
+import React from 'react';
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { GroupingPicker } from '../components/AgentsView/ProjectsRail';
+import { FoldButtons, GroupingPicker } from '../components/AgentsView/ProjectsRail';
 import type { AgentGrouping } from '../types';
 
-const renderPicker = (collapseDisabled = false, grouping: AgentGrouping = 'project') => {
-  const handlers = { onGrouping: vi.fn(), onCollapseAll: vi.fn(), onExpandAll: vi.fn() };
-  render(<GroupingPicker grouping={grouping} collapseDisabled={collapseDisabled} {...handlers} />);
-  return { ...handlers, trigger: screen.getByRole('button', { name: /^Group agents by/ }) };
+const renderPicker = (grouping: AgentGrouping = 'project') => {
+  const onGrouping = vi.fn();
+  render(<GroupingPicker grouping={grouping} onGrouping={onGrouping} />);
+  return { onGrouping, trigger: screen.getByRole('button', { name: /^Group agents by/ }) };
 };
 
 afterEach(cleanup);
@@ -15,7 +16,7 @@ afterEach(cleanup);
 describe('GroupingPicker', () => {
   it('shows only the current grouping until hovered, then all four to pick from', async () => {
     const user = userEvent.setup();
-    const { trigger, onGrouping } = renderPicker(false, 'state');
+    const { trigger, onGrouping } = renderPicker('state');
     expect(trigger).toHaveTextContent('Status');
     expect(screen.queryByRole('menuitemradio')).toBeNull();
     await user.hover(trigger);
@@ -55,31 +56,42 @@ describe('GroupingPicker', () => {
     expect(screen.queryByRole('menu')).toBeNull();
     expect(document.activeElement).toBe(trigger);
   });
+});
 
-  it.each(['project', 'state', 'directory'] as const)(
-    'collapses and expands all groups from the menu in grouping %s (#49, #50)',
-    async (grouping) => {
-      const user = userEvent.setup();
-      const { trigger, onCollapseAll, onExpandAll } = renderPicker(false, grouping);
-      await user.click(trigger);
-      await user.click(screen.getByRole('menuitem', { name: 'Collapse all groups' }));
-      expect(onCollapseAll).toHaveBeenCalledTimes(1);
-      expect(onExpandAll).not.toHaveBeenCalled();
-      await user.click(trigger);
-      await user.click(screen.getByRole('menuitem', { name: 'Expand all groups' }));
-      expect(onExpandAll).toHaveBeenCalledTimes(1);
-    }
-  );
+describe('FoldButtons', () => {
+  const renderButtons = (props: Partial<React.ComponentProps<typeof FoldButtons>> = {}) => {
+    const handlers = { onGroups: vi.fn(), onCards: vi.fn() };
+    render(<FoldButtons groupsCollapsed={false} cardsExpanded={false} {...handlers} {...props} />);
+    return handlers;
+  };
 
-  it('disables collapse / expand with an explaining tooltip while a filter is active', async () => {
+  it('collapses groups while one is open and expands them once all are collapsed', async () => {
     const user = userEvent.setup();
-    const { trigger } = renderPicker(true);
-    await user.click(trigger);
-    const collapse = screen.getByRole('menuitem', { name: 'Collapse all groups' });
-    const expand = screen.getByRole('menuitem', { name: 'Expand all groups' });
-    expect(collapse).toBeDisabled();
-    expect(expand).toBeDisabled();
-    expect(collapse).toHaveAttribute('title', 'Clear the filters to collapse groups');
-    expect(expand).toHaveAttribute('title', 'Clear the filters to expand groups');
+    const { onGroups } = renderButtons();
+    await user.click(screen.getByRole('button', { name: 'Collapse all groups' }));
+    expect(onGroups).toHaveBeenLastCalledWith(true);
+    cleanup();
+    const collapsed = renderButtons({ groupsCollapsed: true });
+    await user.click(screen.getByRole('button', { name: 'Expand all groups' }));
+    expect(collapsed.onGroups).toHaveBeenLastCalledWith(false);
+  });
+
+  it('expands all agent cards while none is open and collapses them once one is', async () => {
+    const user = userEvent.setup();
+    const { onCards } = renderButtons();
+    await user.click(screen.getByRole('button', { name: 'Expand all agent cards' }));
+    expect(onCards).toHaveBeenLastCalledWith(true);
+    cleanup();
+    const open = renderButtons({ cardsExpanded: true });
+    await user.click(screen.getByRole('button', { name: 'Collapse all agent cards' }));
+    expect(open.onCards).toHaveBeenLastCalledWith(false);
+  });
+
+  it('disables folding groups with an explaining tooltip while a filter is active', () => {
+    renderButtons({ groupsDisabled: true });
+    const groups = screen.getByRole('button', { name: 'Collapse all groups' });
+    expect(groups).toBeDisabled();
+    expect(groups).toHaveAttribute('title', 'Clear the filters to fold groups');
+    expect(screen.getByRole('button', { name: 'Expand all agent cards' })).toBeEnabled();
   });
 });

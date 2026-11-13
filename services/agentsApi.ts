@@ -163,6 +163,11 @@ export function stopAgent(id: string): Promise<{ output: string }> {
   return request(`/agents/${encodeURIComponent(id)}/stop`, { method: 'POST' });
 }
 
+/** Ends the agent pane `paneId` runs, also while the pane is closed (closing only detaches) */
+export function stopPane(paneId: string): Promise<{ stopped: number }> {
+  return request(`/agents/panes/${encodeURIComponent(paneId)}/stop`, { method: 'POST' }, paneId);
+}
+
 export function respawnAgent(id: string): Promise<{ output: string }> {
   return request(`/agents/${encodeURIComponent(id)}/respawn`, { method: 'POST' });
 }
@@ -334,7 +339,8 @@ export function subscribeToAgents(handlers: {
 }
 
 // ---------------------------------------------------------------------------
-// Chat sessions (#189): a harness CLI behind the Chat pane (server: chatService.js, chatDrivers/)
+// UI view of an agent pane (#189): the server tails the agent's transcript (chatService.js); the
+// pane's PTY stays the agent, input is typed into it
 // ---------------------------------------------------------------------------
 
 export interface ChatSummary {
@@ -344,73 +350,26 @@ export interface ChatSummary {
   name: string;
   sessionId: string | null;
   model: string | null;
-  busy: boolean;
   running: boolean;
   startedAt: number;
-  pendingPermissions: number;
-  /** Agent id when this chat is a live view of an agent running in its own process */
-  view?: string | null;
 }
 
-/** model, permissionMode, continue and skipPermissions are Claude Code options */
-export interface ChatStartRequest {
-  harness?: AgentHarness;
-  cwd: string;
-  model?: string | null;
-  permissionMode?: string | null;
-  resume?: string;
-  continue?: boolean;
-  skipPermissions?: boolean;
-  name?: string;
-}
-
-export const fetchChats = () => {
-  const target = getAgentTarget();
-  return request<{ chats: ChatSummary[] }>('/agents/chat').then((d) => pinAll(d.chats, target));
-};
-
-/** Live chat view of a running agent: no second process, works mid-turn */
-export const viewAgentAsChat = (agentId: string) => {
-  // The live view runs on the agent's instance; its chat id belongs there too
-  const target = targetOf(agentId);
+/** Opens (or reuses) the transcript view of the session pane `paneId` runs */
+export const openTranscriptView = (
+  paneId: string,
+  body: { harness: AgentHarness; sessionId: string; cwd: string; name?: string }
+) => {
+  // The view runs on the pane's instance; its id belongs there too (#220)
+  const target = targetOf(paneId);
   return request<ChatSummary>(
     '/agents/chat/view',
-    { method: 'POST', body: JSON.stringify({ agentId }) },
-    agentId
+    { method: 'POST', body: JSON.stringify(body) },
+    paneId
   ).then((chat) => pinAll([chat], target)[0]);
-};
-
-export const startChat = (body: ChatStartRequest) => {
-  const target = getAgentTarget();
-  return request<ChatSummary>('/agents/chat', { method: 'POST', body: JSON.stringify(body) }).then(
-    (chat) => pinAll([chat], target)[0]
-  );
 };
 
 const chatPath = (id: string, action = '') =>
   `/agents/chat/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
-
-export const sendChatMessage = (id: string, text: string) =>
-  request<ChatSummary>(chatPath(id, 'message'), {
-    method: 'POST',
-    body: JSON.stringify({ text }),
-  });
-
-export const answerChatPermission = (
-  id: string,
-  requestId: string,
-  decision: 'allow' | 'deny' | 'always'
-) =>
-  request<ChatSummary>(chatPath(id, 'permission'), {
-    method: 'POST',
-    body: JSON.stringify({ requestId, decision }),
-  });
-
-export const interruptChat = (id: string) =>
-  request<ChatSummary>(chatPath(id, 'interrupt'), { method: 'POST' });
-
-export const stopChat = (id: string) =>
-  request<{ stopped: boolean }>(chatPath(id), { method: 'DELETE' });
 
 export interface ChatStatus {
   git: {

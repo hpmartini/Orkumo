@@ -19,9 +19,12 @@ import { scanAllDirectories, scanDirectory } from './services/scannerService.js'
 import { migrateDirectorySpelling } from './services/directoryMigration.js';
 import {
   createPtySession,
+  openAgentPty,
+  restoreHeldPtys,
   writeToPty,
   resizePty,
   killPtySession,
+  killPanePtys,
   ptyEvents,
   detectClaudeCLI,
 } from './services/ptyService.js';
@@ -1275,54 +1278,30 @@ app.get('/api/agents/images/:name', (req, res) => {
 });
 
 // ---------------------------------------------------------------------------
-// Chat sessions (#189): an agent harness rendered by the Chat pane (chatService.js, chatDrivers/)
+// Chat views (#189): UI view of an agent pane, a tail of its transcript (chatService.js)
 // ---------------------------------------------------------------------------
 const chatIdSchema = z.string().uuid();
-const chatStartSchema = z.object({
-  harness: z.enum(chatService.CHAT_HARNESSES).optional(),
-  cwd: pathSchema,
-  model: z.string().max(80).optional().nullable(),
-  permissionMode: z.string().max(40).optional().nullable(),
-  resume: z.string().max(80).optional().nullable(),
-  continue: z.boolean().optional(),
-  skipPermissions: z.boolean().optional(),
-  name: z.string().max(80).optional().nullable(),
-});
 
-/** Live chat view of a running agent (no second process); the agent is looked up server-side */
+/** UI view of an agent session; never starts or stops the agent (it runs in its terminal pane) */
 app.post(
   '/api/agents/chat/view',
   agentLimiter,
-  validate(z.object({ agentId: z.string().regex(agentService.SHORT_ID_RE) })),
-  async (req, res) => {
+  validate(
+    z.object({
+      harness: z.enum(chatService.VIEW_HARNESSES),
+      sessionId: z.string().max(80),
+      cwd: pathSchema,
+      name: z.string().max(80).optional().nullable(),
+    })
+  ),
+  (req, res) => {
     try {
-      const agent = await agentService.findSession(req.body.agentId);
-      if (!agent) return res.status(404).json({ error: 'Agent not found' });
-      res.status(201).json(
-        chatService.viewAgent({
-          agentId: agent.id,
-          sessionId: agent.sessionId,
-          cwd: agent.cwd,
-          name: agent.name,
-        })
-      );
+      res.status(201).json(chatService.viewSession(req.body));
     } catch (error) {
       sendAgentError(res, error);
     }
   }
 );
-
-app.get('/api/agents/chat', (req, res) => {
-  res.json({ chats: chatService.listChats() });
-});
-
-app.post('/api/agents/chat', agentLimiter, validate(chatStartSchema), (req, res) => {
-  try {
-    res.status(201).json(chatService.startChat(req.body));
-  } catch (error) {
-    sendAgentError(res, error);
-  }
-});
 
 /** SSE: replays the session's events, then streams live ones */
 app.get('/api/agents/chat/:chatId/stream', validateParams(chatIdSchema), (req, res) => {
@@ -1353,39 +1332,6 @@ app.get('/api/agents/chat/:chatId/stream', validateParams(chatIdSchema), (req, r
   req.on('close', cleanup);
   req.on('error', cleanup);
 });
-
-const chatAction = (fn) => async (req, res) => {
-  try {
-    await fn(req);
-    res.json(chatService.chatSummary(req.params.chatId));
-  } catch (error) {
-    sendAgentError(res, error);
-  }
-};
-
-app.post(
-  '/api/agents/chat/:chatId/message',
-  validateParams(chatIdSchema),
-  validate(z.object({ text: z.string().min(1).max(100000) })),
-  chatAction((req) => chatService.sendMessage(req.params.chatId, req.body.text))
-);
-
-app.post(
-  '/api/agents/chat/:chatId/permission',
-  validateParams(chatIdSchema),
-  validate(
-    z.object({ requestId: z.string().max(200), decision: z.enum(['allow', 'deny', 'always']) })
-  ),
-  chatAction((req) =>
-    chatService.answerPermission(req.params.chatId, req.body.requestId, req.body.decision)
-  )
-);
-
-app.post(
-  '/api/agents/chat/:chatId/interrupt',
-  validateParams(chatIdSchema),
-  chatAction((req) => chatService.interruptChat(req.params.chatId))
-);
 
 /** Status line of a chat: git (branch, untracked, changed), prompt cache, plan limits */
 app.get('/api/agents/chat/:chatId/status', validateParams(chatIdSchema), async (req, res) => {
@@ -1423,10 +1369,6 @@ app.get(
     }
   }
 );
-
-app.delete('/api/agents/chat/:chatId', validateParams(chatIdSchema), async (req, res) => {
-  res.json({ stopped: await chatService.stopChatAndWait(req.params.chatId) });
-});
 
 /**
  * POST /api/agents/cloud-session - validated CLI args for a cloud/remote session PTY
@@ -1653,6 +1595,17 @@ app.post(
     } catch (error) {
       sendAgentError(res, error);
     }
+  }
+);
+
+/** Ends the agent a pane runs, also while the pane is closed (closing only detaches it) */
+app.post(
+  '/api/agents/panes/:paneId/stop',
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
+  (req, res) => {
+    res.json({ stopped: killPanePtys(req.params.paneId) });
   }
 );
 
@@ -2368,51 +2321,15 @@ function handleDockerPtyConnection(clientWs, sessionId, cwd, cols, rows, options
 }
 
 /**
- * Handle PTY connection in local mode - spawn PTY directly
+ * Handle PTY connection in local mode. Shells and `claude attach` are PTYs of this process and end
+ * with their socket; agent panes (`options.detachOnClose`) open their held agent (`openAgentPty`):
+ * a closed socket only detaches, and a new one for the pane reattaches.
  */
-function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) {
-  // This socket's PTY: on close it must not kill a newer PTY that reused the sessionId
-  let ptyPid;
-  try {
-    const result = createPtySession(sessionId, cwd, cols, rows, options);
-
-    if (!result.success) {
-      console.error(`[PTY] Failed to create session ${sessionId}:`, result.error);
-      ws.send(JSON.stringify({ type: 'error', message: result.error }));
-      ws.close();
-      return;
-    }
-    ptyPid = result.pid;
-
-    wsSessionMap.set(ws, sessionId);
-
-    // Send session info
-    ws.send(
-      JSON.stringify({
-        type: 'connected',
-        sessionId,
-        pid: result.pid,
-        shell: result.shell,
-        sessionType: result.type,
-        cwd, // the directory actually used: a missing one falls back to $HOME (#207)
-      })
-    );
-
-    console.log(
-      `[PTY] Session ${sessionId} created successfully, pid=${result.pid}, type=${result.type}`
-    );
-  } catch (err) {
-    console.error(`[PTY] Exception creating session ${sessionId}:`, err);
-    ws.send(JSON.stringify({ type: 'error', message: err.message }));
-    ws.close();
-    return;
-  }
-
-  // Handle incoming messages from client
-  ws.on('message', (message) => {
-    const sid = wsSessionMap.get(ws);
-    if (!sid) return;
-
+async function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) {
+  const send = (msg) => {
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(msg));
+  };
+  const handle = (sid, message) => {
     try {
       const data = JSON.parse(message.toString());
 
@@ -2428,7 +2345,7 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
           break;
 
         case 'ping':
-          ws.send(JSON.stringify({ type: 'pong' }));
+          send({ type: 'pong' });
           break;
 
         default:
@@ -2437,26 +2354,79 @@ function handleLocalPtyConnection(ws, sessionId, cwd, cols, rows, options = {}) 
     } catch (err) {
       writeToPty(sid, message.toString());
     }
+  };
+  // Starting an agent takes a moment: the client's first resize and keys wait for its PTY
+  const early = [];
+  let closed = false;
+  ws.on('message', (message) => {
+    const sid = wsSessionMap.get(ws);
+    if (sid) handle(sid, message);
+    else if (!closed) early.push(message);
   });
 
-  // Handle WebSocket close
-  ws.on('close', () => {
+  // This socket's PTY: on close it must not kill a newer PTY that reused the sessionId
+  let ptyPid;
+  const release = () => {
+    closed = true;
     const sid = wsSessionMap.get(ws);
-    if (sid) {
+    if (!sid) return;
+    wsSessionMap.delete(ws);
+    if (options.detachOnClose) console.log(`[PTY] Session ${sid} detached`);
+    else {
       console.log(`[PTY] Session ${sid} closed`);
-      wsSessionMap.delete(ws);
       killPtySession(sid, ptyPid);
     }
+  };
+  ws.on('close', release);
+  ws.on('error', (err) => {
+    console.error(`[PTY] WebSocket error for session ${wsSessionMap.get(ws)}:`, err);
+    release();
   });
 
-  ws.on('error', (err) => {
-    const sid = wsSessionMap.get(ws);
-    console.error(`[PTY] WebSocket error for session ${sid}:`, err);
-    if (sid) {
-      wsSessionMap.delete(ws);
-      killPtySession(sid, ptyPid);
-    }
+  let result;
+  try {
+    result = options.detachOnClose
+      ? await openAgentPty(sessionId, cwd, cols, rows, options)
+      : createPtySession(sessionId, cwd, cols, rows, options);
+  } catch (err) {
+    result = { success: false, error: err.message };
+  }
+  if (!result.success) {
+    console.error(`[PTY] Failed to create session ${sessionId}:`, result.error);
+    send({ type: 'error', message: result.error });
+    ws.close();
+    return;
+  }
+  ptyPid = result.pid;
+  const sid = result.sessionId;
+  if (closed) {
+    // the socket went away while the PTY started: an agent runs on detached, a shell ends
+    if (!options.detachOnClose) killPtySession(sid, ptyPid);
+    return;
+  }
+  wsSessionMap.set(ws, sid);
+  send({
+    type: 'connected',
+    sessionId: sid,
+    pid: result.pid,
+    shell: result.shell,
+    sessionType: result.type,
+    // the directory actually used: a missing one falls back to $HOME (#207)
+    cwd: result.cwd ?? cwd,
+    reattached: result.reattached === true,
   });
+  if (result.reattached) {
+    if (result.backlog) send({ type: 'output', data: result.backlog });
+    // A TUI redraws on SIGWINCH only when the size changes: nudge it, then the client's size
+    resizePty(sid, cols, Math.max(rows - 1, 1));
+    setTimeout(() => resizePty(sid, cols, rows), 50);
+    console.log(`[PTY] Reattached ${sid} (pid ${result.pid})`);
+  } else {
+    console.log(
+      `[PTY] Session ${sid} created successfully, pid=${result.pid}, type=${result.type}`
+    );
+  }
+  for (const message of early.splice(0)) handle(sid, message);
 }
 
 wss.on('connection', (ws, req) => {
@@ -2614,7 +2584,13 @@ wss.on('connection', (ws, req) => {
   }
 
   const startPty = () => {
-    const options = command ? { command: spawnCommand, args } : {};
+    // Agent panes (`agent-<pane>-<ts>`) outlive their socket, except `claude attach`: detaching
+    // that one is ending it, the background job keeps running on its own
+    const detachOnClose =
+      Boolean(command) &&
+      sessionId.startsWith('agent-') &&
+      !(command === 'claude' && args[0] === 'attach');
+    const options = command ? { command: spawnCommand, args, detachOnClose } : {};
 
     console.log(
       `[PTY] New connection request: sessionId=${sessionId}, cwd=${cwd}, command=${command || 'default shell'}, dockerMode=${isRunningInDocker}`
@@ -2662,6 +2638,8 @@ async function startServer() {
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
   const modules = await moduleHost.load(getModulesDir());
+  // Agents that outlived the previous server: back before a pane can ask for them
+  if (!isRunningInDocker) await restoreHeldPtys();
 
   // A failure to bind is fatal and must be reported as such. Without this the
   // error reaches `uncaughtException` -> cleanup() -> exit code 0, which makes
@@ -2736,7 +2714,7 @@ function cleanup() {
 // Handle process termination signals
 process.on('SIGTERM', cleanup);
 process.on('SIGINT', cleanup);
-// Chat CLIs are children with open pipes: never leave them behind
+// Chat views hold only transcript tailers (no processes): stop their timers on exit
 process.on('exit', chatService.stopAllChats);
 
 // Handle uncaught exceptions and rejections

@@ -1,7 +1,7 @@
 /**
  * Built-in commands of the Claude Code CLI (v2.1.319), as its initialize answer lists them.
- * A chat knows them before the CLI's own answer, which comes only after the first message.
- * shortcut: a snapshot; the live answer replaces it from the first message on, regenerate on CLI updates
+ * The chat view offers them in its `/` picker; the TUI in the pane runs them natively.
+ * shortcut: a snapshot, regenerate on CLI updates
  */
 export const CLI_BUILTINS = [
   'deep-research',

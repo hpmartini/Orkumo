@@ -1,4 +1,11 @@
-import React, { useEffect, useRef, useState, useCallback, useReducer } from 'react';
+import React, {
+  useEffect,
+  useRef,
+  useState,
+  useCallback,
+  useReducer,
+  useSyncExternalStore,
+} from 'react';
 import { Terminal as XTerm, type ITerminalOptions } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
@@ -55,8 +62,8 @@ interface AgentTerminalProps {
   meta?: React.ReactNode;
   /** Cmd/Ctrl-click on a link: open it in the built-in browser instead of externally */
   onOpenLink?: (url: string) => void;
-  /** Present when the session can be resumed in a Chat pane */
-  onOpenAsChat?: () => void;
+  /** Present when the agent has a UI view: switches the pane to it, the process keeps running */
+  onShowChat?: () => void;
 }
 
 /**
@@ -80,13 +87,20 @@ export function buildShellUrl(cwd: string, cols: number, rows: number): string {
   return `${getWsUrl('/api/pty')}?sessionId=shell-${Date.now()}-${Math.random().toString(36).slice(2)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
 }
 
-/** Cmd/Ctrl-click on a file path (#188): the server opens it with the Mac's default app */
-async function openFile(match: FilePathMatch, cwd: string) {
+/**
+ * Cmd/Ctrl-click on a file path: VS Code, in the window of the pane's project; with Shift the
+ * Mac's default app (#188). The server keeps folders and launchable files in Finder.
+ */
+async function openFile(match: FilePathMatch, cwd: string, editor: boolean) {
   try {
-    const res = await fetch(`${API_BASE_URL}/files/open`, {
+    const res = await fetch(`${API_BASE_URL}/files/${editor ? 'open-in-editor' : 'open'}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ path: match.path, cwd }),
+      body: JSON.stringify(
+        editor
+          ? { path: match.path, cwd, line: match.line, col: match.col }
+          : { path: match.path, cwd }
+      ),
     });
     const body = await res.json().catch(() => null);
     if (!res.ok) throw new Error(body?.error || res.statusText);
@@ -118,24 +132,72 @@ interface PaneTerminal {
 }
 const paneTerminals = new Map<string, PaneTerminal>();
 const RELEASE_MS = 2000;
+/** Re-render subscribers of any pane's connection state (the UI view of a pane reads it) */
+const paneListeners = new Set<() => void>();
+const notifyPanes = () => paneListeners.forEach((listener) => listener());
 
 const sendTo = (pane: PaneTerminal | undefined, message: object) => {
   if (pane?.ws?.readyState === WebSocket.OPEN) pane.ws.send(JSON.stringify(message));
 };
+
+const subscribePanes = (listener: () => void) => {
+  paneListeners.add(listener);
+  return () => paneListeners.delete(listener);
+};
+
+/** Whether pane `id`'s PTY is connected, so its UI view can type into it */
+export function usePaneConnected(id: string): boolean {
+  return useSyncExternalStore(subscribePanes, () => paneTerminals.get(id)?.connected ?? false);
+}
+
+/**
+ * Types a message into pane `id`'s agent like a paste followed by Enter (the UI view's input).
+ * xterm's paste wraps it in bracketed-paste markers when the TUI asked for them, so a multi-line
+ * message stays one message. false when the PTY is not connected.
+ */
+export function typeIntoPane(id: string, text: string): boolean {
+  const pane = paneTerminals.get(id);
+  if (!pane?.connected) return false;
+  pane.terminal.paste(text);
+  // A TUI that just received a paste treats an Enter in the same chunk as part of it
+  window.setTimeout(() => sendTo(pane, { type: 'input', data: '\r' }), 80);
+  return true;
+}
+
+/** Sends raw keys to pane `id`'s PTY (Esc, a choice number); false when not connected */
+export function pressKeys(id: string, keys: string): boolean {
+  const pane = paneTerminals.get(id);
+  if (!pane?.connected) return false;
+  sendTo(pane, { type: 'input', data: keys });
+  return true;
+}
+
+/** Last `maxLines` non-empty lines of pane `id`'s visible screen ('' without a terminal) */
+export function paneScreen(id: string, maxLines = 18): string {
+  const terminal = paneTerminals.get(id)?.terminal;
+  if (!terminal) return '';
+  const buffer = terminal.buffer.active;
+  const lines: string[] = [];
+  for (let y = buffer.viewportY; y < buffer.viewportY + terminal.rows; y++) {
+    const line = buffer.getLine(y)?.translateToString(true) ?? '';
+    if (line.trim()) lines.push(line);
+  }
+  return lines.slice(-maxLines).join('\n');
+}
 
 function createPaneTerminal(
   container: HTMLElement,
   options: ITerminalOptions,
   props: Pick<PaneTerminal, 'onClose' | 'onOpenLink' | 'cwd'>
 ): PaneTerminal {
-  // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140). Shared by
-  // plain-text URLs (WebLinksAddon) and OSC 8 hyperlinks, which xterm otherwise opens through
-  // its own confirm() + window.open, a dead end in the desktop app
+  // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140), Cmd/Ctrl+Shift
+  // in the system browser. Shared by plain-text URLs (WebLinksAddon) and OSC 8 hyperlinks, which
+  // xterm otherwise opens through its own confirm() + window.open, a dead end in the desktop app
   const activateLink = (event: MouseEvent, uri: string) => {
     if (!(event.metaKey || event.ctrlKey)) return;
     const open = pane.onOpenLink;
     // after xterm's own mouseup handling: opening the split remounts this pane
-    setTimeout(() => openLink(uri, open));
+    setTimeout(() => openLink(uri, open, event.shiftKey ? 'system' : undefined));
   };
   const terminal = new XTerm({
     ...options,
@@ -160,7 +222,7 @@ function createPaneTerminal(
   terminal.registerLinkProvider(
     createFileLinkProvider(terminal, (event, match) => {
       if (!(event.metaKey || event.ctrlKey)) return;
-      void openFile(match, pane.cwd);
+      void openFile(match, pane.cwd, !event.shiftKey);
     })
   );
   terminal.open(container);
@@ -200,7 +262,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   solo,
   meta,
   onOpenLink,
-  onOpenAsChat,
+  onShowChat,
 }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const [, rerender] = useReducer((n: number) => n + 1, 0);
@@ -267,6 +329,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         held.ws?.close();
         held.terminal.dispose();
         if (paneTerminals.get(id) === held) paneTerminals.delete(id);
+        notifyPanes();
       }, RELEASE_MS);
     };
     // created once per pane; the props it reads are refreshed on every render above
@@ -308,6 +371,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     const update = (state: Partial<Pick<PaneTerminal, 'connected' | 'exited'>>) => {
       Object.assign(current, state);
       current.rerender?.();
+      notifyPanes();
     };
     current.ws?.close();
     update({ connected: false, exited: false });
@@ -353,7 +417,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
             terminal.write(
               shell
                 ? `\x1b[2m# ${data.shell ?? 'shell'} in ${cwd} (PID ${data.pid})\x1b[0m\r\n`
-                : `\x1b[2m# ${session.ptyCommand ?? 'claude'} ${(session.ptyArgs ?? ['attach', session.id]).join(' ')} (PID ${data.pid})\x1b[0m\r\n`
+                : `\x1b[2m# ${data.reattached ? 'reattached: ' : ''}${session.ptyCommand ?? 'claude'} ${(session.ptyArgs ?? ['attach', session.id]).join(' ')} (PID ${data.pid})\x1b[0m\r\n`
             );
             break;
           }
@@ -443,16 +507,13 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
   ];
   const agentActions = [
     { label: 'Peek', title: 'Peek (recent output)', icon: <Eye size={12} />, run: onPeek },
-    ...(onOpenAsChat
+    ...(onShowChat
       ? [
           {
-            label: 'Open as chat',
-            title:
-              session.kind === 'background' || session.displayState === 'working'
-                ? 'Open as chat: a live view of this agent, it keeps running'
-                : 'Open as chat: ends this terminal and resumes the session in the chat UI',
+            label: 'UI view',
+            title: 'Show this agent in the UI view (same process, it keeps running)',
             icon: <MessageSquare size={12} />,
-            run: onOpenAsChat,
+            run: onShowChat,
           },
         ]
       : []),
@@ -605,7 +666,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
         <button
           onClick={onClose}
           className={`p-1.5 rounded text-gray-400 hover:text-red-300 hover:bg-gray-800 shrink-0 ${paneBtnFocus}`}
-          title="Close"
+          title={shell ? 'Close (ends the shell)' : 'Close (the agent keeps running)'}
           aria-label={`Close ${session.name}`}
         >
           <X size={12} />

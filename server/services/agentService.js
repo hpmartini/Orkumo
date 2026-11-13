@@ -753,6 +753,8 @@ export async function listSessions(options = {}) {
   }
 
   const pins = await readPins();
+  // A terminal started in an Orkumo pane: its row names the pane, so the pane finds its session
+  const panes = agentPanes();
   const sessions = await Promise.all(
     raw.map(async (entry) => {
       if (entry.kind !== 'background' || !entry.id) {
@@ -767,6 +769,7 @@ export async function listSessions(options = {}) {
           name: entry.name || path.basename(entry.cwd || '') || 'interactive',
           status: entry.status || null,
           pid: entry.pid || null,
+          paneId: (entry.pid && panes.get(entry.pid)) || null,
           state: null,
           waitingFor: entry.waitingFor || null,
           detail: entry.status === 'busy' ? 'working in a terminal' : 'interactive session',
@@ -827,10 +830,7 @@ export async function listSessions(options = {}) {
       return session;
     })
   );
-  // Dynamic import: chatService imports this module; a Chat pane holds its omp session like a pane
-  const { listChats } = await import('./chatService.js');
-  const chats = new Map(listChats().flatMap((c) => (c.sessionId ? [[c.sessionId, c.id]] : [])));
-  const omp = await listOmpSessions({ panes: agentPanes(), chats }).catch(() => []);
+  const omp = await listOmpSessions({ panes }).catch(() => []);
   const scope = options.cwd ? path.resolve(options.cwd) : null;
   return [
     ...sessions,
@@ -1171,7 +1171,7 @@ function replyViaAttach(id, cwd, message, { raw = false } = {}) {
     // the output to go quiet (1.2 s), type, press Enter, give the session 2.5 s to accept the
     // input and then detach. On a very slow machine a reply could land mid-render; the
     // --resume fallback in replySession covers that case when the PTY path throws.
-    const sendMessage = () => {
+    const typeReply = () => {
       if (sent) return;
       sent = true;
       // Multi-line replies use Shift+Enter (CSI u) so they stay in one prompt
@@ -1192,7 +1192,7 @@ function replyViaAttach(id, cwd, message, { raw = false } = {}) {
       if (sent) return;
       // Wait until output goes quiet (prompt rendered) before typing
       clearTimeout(quietTimer);
-      quietTimer = setTimeout(sendMessage, 1200);
+      quietTimer = setTimeout(typeReply, 1200);
       if (/nothing to resume|no such session|not found/i.test(output)) {
         finish(new Error(output.replace(ANSI_ESCAPE_RE, '').trim().slice(-300)));
       }

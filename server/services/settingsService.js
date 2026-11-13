@@ -37,7 +37,6 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
-  cardDetails: 'click', // 'hover' | 'click' | 'always': when a session card shows its details
   cardDensity: 'comfortable', // 'comfortable' | 'compact'
   // Card element -> slot (#159); mirrors DEFAULT_AGENT_CARD_FIELDS in types.ts
   cardFields: {
@@ -56,7 +55,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   disabled: false, // Mirrors the CLI `disableAgentView` setting
   chatSubmitKey: 'mod+enter', // 'enter' | 'mod+enter': key that sends a chat message (#189)
   dispatch: {
-    harness: 'claude', // default harness of new agents (#195)
+    harness: 'omp', // default harness of new agents (#195); Claude Code stays one pick away
     model: null,
     effort: null,
     permissionMode: null,
@@ -134,14 +133,9 @@ function readSettings() {
       loadedSettings.board = {};
     }
 
-    // Migrate once (#242): `hover` saved before #181 is the inherited old default, not a choice
-    if (!loadedSettings.agentView.cardDetailsMigrated) {
-      if (loadedSettings.agentView.cardDetails === 'hover') {
-        loadedSettings.agentView.cardDetails = 'click';
-      }
-      loadedSettings.agentView.cardDetailsMigrated = true;
-      fs.writeFileSync(SETTINGS_FILE, JSON.stringify(loadedSettings, null, 2));
-    }
+    // Migrate: card details open only via the card chevron; drop the old setting and its #242 marker
+    delete loadedSettings.agentView.cardDetails;
+    delete loadedSettings.agentView.cardDetailsMigrated;
 
     return { ...defaultSettings, ...loadedSettings };
   } catch (error) {

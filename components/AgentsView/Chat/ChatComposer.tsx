@@ -1,4 +1,4 @@
-import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { isSubmitKey, type ChatCommand, type ChatSubmitKey } from '../../../utils/chatEvents';
 import {
   browseHistory,
@@ -22,7 +22,8 @@ const KIND_LABEL: Record<ChatSuggestion['kind'], string> = {
 };
 
 interface ChatComposerProps {
-  chatId: string;
+  /** Transcript view id for `@` file completion; null until the view is open */
+  chatId: string | null;
   value: string;
   onChange: (value: string) => void;
   onSubmit: () => void;
@@ -82,7 +83,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const fileQuery = query?.trigger === '@' ? query.query : null;
 
   useEffect(() => {
-    if (fileQuery === null) return;
+    if (fileQuery === null || !chatId) return;
     let cancelled = false;
     const timer = setTimeout(() => {
       fetchChatFiles(chatId, fileQuery)
@@ -199,7 +200,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     }
   };
 
-  const listId = `chat-suggestions-${chatId}`;
+  const domId = useId();
+  const listId = `chat-suggestions-${domId}`;
 
   return (
     <div className="relative flex-1 min-w-0">
@@ -258,7 +260,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         </div>
       )}
       <textarea
-        id={`chat-input-${chatId}`}
+        id={`chat-input-${domId}`}
         ref={inputRef}
         value={value}
         disabled={disabled}
@@ -274,7 +276,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         onBlur={() => setDismissed(queryKey)}
         placeholder={
           disabled
-            ? 'Session ended'
+            ? 'Terminal not connected'
             : submitKey === 'enter'
               ? 'Message · Enter sends · / commands · @ files'
               : 'Message · Cmd/Ctrl+Enter sends · / commands · @ files'

@@ -19,17 +19,18 @@ if (!existsSync(outdir)) {
 async function bundle() {
   try {
     const result = await esbuild.build({
-      entryPoints: ['server/index.js'],
+      // ptyHolder runs as its own process next to index.js (server/services/heldPty.js)
+      entryPoints: {
+        index: 'server/index.js',
+        ptyHolder: 'server/services/ptyHolder.js',
+      },
       bundle: true,
       platform: 'node',
       target: 'node20',
       format: 'esm',
-      outfile: path.join(outdir, 'index.js'),
+      outdir,
       // Only keep native modules external - they'll be loaded from app.asar.unpacked
-      external: [
-        'node-pty',
-        'pidusage',
-      ],
+      external: ['node-pty', 'pidusage'],
       // Better debugging
       sourcemap: true,
       // Minify for smaller size
@@ -53,7 +54,7 @@ const __dirname = dirname(__filename);
     });
 
     console.log('Server bundled successfully!');
-    console.log(`Output: ${path.join(outdir, 'index.js')}`);
+    console.log(`Output: ${path.join(outdir, 'index.js')}, ${path.join(outdir, 'ptyHolder.js')}`);
 
     if (result.warnings.length > 0) {
       console.log('Warnings:', result.warnings);

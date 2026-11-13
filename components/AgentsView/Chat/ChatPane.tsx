@@ -11,57 +11,39 @@ import { ListTree, Maximize2, MessageSquare, Send, Square, SquareTerminal, X } f
 import type { AgentSession } from '../../../types';
 import {
   initialChatState,
-  pendingPermissions,
   reduceChat,
   type ChatState,
   type ChatSubmitKey,
 } from '../../../utils/chatEvents';
 import { promptWithImages } from '../../../utils/composer';
-import {
-  answerChatPermission,
-  fetchAgentLogs,
-  interruptChat,
-  sendChatMessage,
-  subscribeToChat,
-  uploadAgentImage,
-} from '../../../services/agentsApi';
+import { openTranscriptView, subscribeToChat, uploadAgentImage } from '../../../services/agentsApi';
 import { ImageAttachments, imageDropHandlers } from '../../ImageAttachments';
 import { ChatMessageView } from './ChatMessages';
 import { ChatComposer } from './ChatComposer';
 import { ChatActivity } from './ChatActivity';
 import { ChatStatusLine } from './ChatStatusLine';
-import { splitAtBuiltin, splitImages } from '../../../utils/chatComposer';
+import { splitImages } from '../../../utils/chatComposer';
 import { extractNumberedChoices } from '../../../utils/agentInput';
-import { renderTerminalScreen } from '../../../utils/terminalScreen';
-import { harnessLabel, sessionHarness, terminalResumeArgs } from '../../../utils/agentSessions';
+import { harnessLabel, sessionHarness } from '../../../utils/agentSessions';
+import { paneScreen, pressKeys, typeIntoPane, usePaneConnected } from '../AgentTerminal';
 
-/** Rendered screen tail of an agent that waits on a question or permission (not in its transcript) */
-function useAgentPrompt(agentId: string | null): string | null {
+/** How often the screen of an agent that asks something is read for its question */
+const PROMPT_POLL_MS = 1000;
+
+/** Screen tail of pane `paneId` while its agent waits on a question or permission (not in its transcript) */
+function usePanePrompt(paneId: string, prompting: boolean): string | null {
   const [text, setText] = useState('');
   useEffect(() => {
-    if (!agentId) return;
-    let cancelled = false;
-    const load = () =>
-      fetchAgentLogs(agentId, 60)
-        .then((logs) => (logs.source === 'logs' ? renderTerminalScreen(logs.text) : ''))
-        .then((screen) => {
-          if (cancelled) return;
-          // the TUI pads its screen with empty rows above the bottom rule
-          const lines = screen.split('\n').filter((line) => line.trim());
-          setText(lines.slice(-18).join('\n'));
-        })
-        .catch(() => {
-          // keep the last text; the terminal still has the prompt
-        });
-    load();
-    const timer = setInterval(load, 3000);
+    if (!prompting) return;
+    const read = () => setText(paneScreen(paneId));
+    read();
+    const timer = setInterval(read, PROMPT_POLL_MS);
     return () => {
-      cancelled = true;
       clearInterval(timer);
       setText('');
     };
-  }, [agentId]);
-  return agentId ? text : null;
+  }, [paneId, prompting]);
+  return prompting ? text : null;
 }
 
 type Action = { type: 'reset' } | { type: 'event'; event: unknown };
@@ -79,9 +61,12 @@ const keepFocus = (e: React.MouseEvent) => {
 };
 
 interface ChatPaneProps {
-  session: AgentSession;
-  /** Live view: the agent this chat shows (its state comes from the agent list) */
+  /** Terminal pane whose agent this view shows; input is typed into its PTY */
+  pane: AgentSession;
+  /** Listed session behind the pane (state, prompts); the pane itself for a background job */
   agent?: AgentSession;
+  /** Transcript the view reads; null until the server lists the pane's session */
+  sessionId: string | null;
   active: boolean;
   focused: boolean;
   submitKey: ChatSubmitKey;
@@ -89,18 +74,22 @@ interface ChatPaneProps {
   showSteps: boolean;
   onToggleSteps: () => void;
   onFocus: () => void;
-  /** Closing the pane ends the chat process */
+  /** Closes the pane, exactly like closing its terminal */
   onClose: () => void;
   onMaximize?: () => void;
-  /** Ends the chat and continues the same CLI session in a terminal tab */
-  onOpenInTerminal: (sessionId: string) => void;
+  /** Back to the terminal view of the same process */
+  onShowTerminal: () => void;
   headerProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
-/** Chat UI for a harness session (#189): Claude Code, or another harness through its driver */
+/**
+ * UI view of an agent pane (#189): renders the agent's transcript and types into the pane's
+ * terminal. The terminal process is the agent; this view never starts or stops a process.
+ */
 export const ChatPane: React.FC<ChatPaneProps> = ({
-  session,
+  pane,
   agent,
+  sessionId,
   active,
   focused,
   submitKey,
@@ -109,11 +98,13 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   onFocus,
   onClose,
   onMaximize,
-  onOpenInTerminal,
+  onShowTerminal,
   headerProps,
 }) => {
   const [state, dispatch] = useReducer(reducer, initialChatState);
-  const [gone, setGone] = useState(false);
+  const [chatId, setChatId] = useState<string | null>(null);
+  // Bumped when the server forgot the view (restart, orphan timeout): opens it again
+  const [generation, setGeneration] = useState(0);
   const [text, setText] = useState('');
   const [images, setImages] = useState<File[]>([]);
   const [sending, setSending] = useState(false);
@@ -123,20 +114,37 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   const stickToBottom = useRef(true);
   const lastScrollTop = useRef(0);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const connected = usePaneConnected(pane.id);
+  const harness = sessionHarness(pane);
+  const harnessName = harnessLabel(harness);
 
-  useEffect(
-    () =>
-      subscribeToChat(session.id, {
-        onOpen: () => {
-          setGone(false);
-          stickToBottom.current = true;
-          dispatch({ type: 'reset' });
-        },
-        onEvent: (event) => dispatch({ type: 'event', event }),
-        onGone: () => setGone(true),
-      }),
-    [session.id]
-  );
+  // The server view outlives this component (split remounts, view switches): with nobody
+  // watching it stops itself after the orphan timeout, so a remount never races a stop
+  useEffect(() => {
+    if (!sessionId) return;
+    let cancelled = false;
+    openTranscriptView(pane.id, { harness, sessionId, cwd: pane.cwd, name: pane.name })
+      .then((view) => !cancelled && setChatId(view.id))
+      .catch((e: Error) => !cancelled && setError(e.message));
+    return () => {
+      cancelled = true;
+      setChatId(null);
+    };
+    // the name only labels the view
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pane.id, pane.cwd, harness, sessionId, generation]);
+
+  useEffect(() => {
+    if (!chatId) return;
+    return subscribeToChat(chatId, {
+      onOpen: () => {
+        stickToBottom.current = true;
+        dispatch({ type: 'reset' });
+      },
+      onEvent: (event) => dispatch({ type: 'event', event }),
+      onGone: () => setGeneration((g) => g + 1),
+    });
+  }, [chatId]);
 
   // Follow the stream unless the user scrolled up to read. Message heights settle late
   // (content-visibility, markdown, images), so every size change re-pins to the bottom.
@@ -179,49 +187,33 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     [state.messages]
   );
 
-  const onAnswer = useCallback(
-    (requestId: string, decision: 'allow' | 'deny' | 'always') => {
-      answerChatPermission(session.id, requestId, decision).catch((e: Error) =>
-        setError(e.message)
-      );
-    },
-    [session.id]
-  );
-
-  const ended = state.ended || gone;
-  const live = Boolean(session.viewOf);
-  // A live view has no process events of its own: busy and prompts come from the agent's state
+  // Busy and questions come from the agent's state: a prompt is on its screen, not in its transcript.
+  // A terminal session only reports `status` (busy / idle / waiting), a background job its state.
   const prompting =
-    live &&
-    (agent?.displayState === 'waiting' ||
-      (agent?.displayState === 'needs-input' && agent?.status === 'waiting'));
-  const busy = live ? agent?.displayState === 'working' : state.busy;
-  const waiting = pendingPermissions(state).length > 0 || prompting;
-  const prompt = useAgentPrompt(prompting ? session.viewOf! : null);
-
+    agent?.displayState === 'waiting' ||
+    ((agent?.displayState === 'needs-input' || agent?.displayState === 'interactive') &&
+      agent?.status === 'waiting');
+  const busy =
+    agent?.displayState === 'working' ||
+    (agent?.displayState === 'interactive' && agent?.status === 'busy');
+  const prompt = usePanePrompt(pane.id, prompting);
   const choices = prompt ? extractNumberedChoices(prompt) : [];
-  const answerPrompt = async (answer: string) => {
-    setSending(true);
-    setError(null);
-    try {
-      await sendChatMessage(session.id, answer);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Sending failed');
-    } finally {
-      setSending(false);
-    }
+  const notConnected = 'The terminal is not connected: switch to the terminal view and reattach';
+
+  const answerPrompt = (answer: string) => {
+    setError(pressKeys(pane.id, answer) ? null : notConnected);
   };
 
   const submit = async () => {
-    if (sending || ended || (!text.trim() && images.length === 0)) return;
+    if (sending || !connected || (!text.trim() && images.length === 0)) return;
     setSending(true);
     setError(null);
     try {
       const paths = await Promise.all(images.map(uploadAgentImage));
-      const builtins = new Set(state.commands.filter((c) => c.builtin).map((c) => c.name));
-      const [first, ...rest] = splitAtBuiltin(text, builtins);
-      await sendChatMessage(session.id, promptWithImages(first, paths));
-      for (const turn of rest) await sendChatMessage(session.id, turn);
+      if (!typeIntoPane(pane.id, promptWithImages(text, paths))) {
+        setError(notConnected);
+        return;
+      }
       setText('');
       setImages([]);
       stickToBottom.current = true;
@@ -233,21 +225,18 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     }
   };
 
-  const stopTurn = () => interruptChat(session.id).catch((e: Error) => setError(e.message));
+  // Esc, like the key in the TUI
+  const stopTurn = () => {
+    setError(pressKeys(pane.id, '\x1b') ? null : notConnected);
+  };
 
-  const status = ended
-    ? 'ended'
-    : waiting
-      ? 'needs permission'
+  const status = !connected
+    ? 'terminal disconnected'
+    : prompting
+      ? 'needs input'
       : busy
         ? 'working…'
-        : live
-          ? 'live view'
-          : 'ready';
-  const resumeId = state.sessionId ?? session.sessionId;
-  const harness = sessionHarness(session);
-  const harnessName = harnessLabel(harness);
-  const terminalCommand = [harness, ...terminalResumeArgs(harness, '<id>')].join(' ');
+        : 'ready';
 
   return (
     <div
@@ -259,7 +248,9 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             : 'border-gray-800'
       }`}
       onMouseDown={onFocus}
-      data-agent-pane={session.id}
+      data-agent-pane={pane.id}
+      data-chat-pane
+      data-pane-active={active}
       {...imageDropHandlers((files) => setImages((prev) => [...prev, ...files]))}
     >
       <div
@@ -269,20 +260,20 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         } ${headerProps?.className ?? ''}`}
       >
         <MessageSquare size={13} aria-hidden className="text-blue-300 shrink-0" />
-        <span className="font-medium text-gray-200 truncate min-w-0">{session.name}</span>
+        <span className="font-medium text-gray-200 truncate min-w-0">{pane.name}</span>
         {harness !== 'claude' && (
           <span className="shrink-0 px-1 rounded border border-gray-700 text-[10px] text-gray-400">
             {harnessName}
           </span>
         )}
         <span className="text-gray-500 font-mono truncate min-w-0 hidden lg:inline">
-          {session.cwd}
+          {pane.cwd}
         </span>
         {state.model && (
           <span className="text-gray-500 truncate min-w-0 hidden sm:inline">{state.model}</span>
         )}
         <span
-          className={`shrink-0 ${waiting ? 'text-amber-300' : busy ? 'text-blue-300' : 'text-gray-500'}`}
+          className={`shrink-0 ${prompting || !connected ? 'text-amber-300' : busy ? 'text-blue-300' : 'text-gray-500'}`}
         >
           {status}
         </span>
@@ -300,7 +291,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         >
           <ListTree size={13} />
         </button>
-        {busy && !ended && (
+        {busy && connected && (
           <button
             type="button"
             onClick={stopTurn}
@@ -314,16 +305,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         )}
         <button
           type="button"
-          disabled={!resumeId}
-          onClick={() => resumeId && onOpenInTerminal(resumeId)}
+          onClick={onShowTerminal}
           onMouseDown={keepFocus}
           className={iconBtn}
-          title={
-            live
-              ? "Open the agent's terminal (the live view closes, the agent keeps running)"
-              : `Open in terminal: ends the chat and resumes the session with ${terminalCommand}`
-          }
-          aria-label="Open in terminal"
+          title="Terminal view (same process, it keeps running)"
+          aria-label="Terminal view"
         >
           <SquareTerminal size={14} />
         </button>
@@ -334,7 +320,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             onMouseDown={keepFocus}
             className={iconBtn}
             title="Own tab"
-            aria-label="Move chat to its own tab"
+            aria-label="Move to its own tab"
           >
             <Maximize2 size={13} />
           </button>
@@ -344,8 +330,8 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           onClick={onClose}
           onMouseDown={keepFocus}
           className={iconBtn}
-          title={live ? 'Close the live view (the agent keeps running)' : 'End chat and close'}
-          aria-label="End chat and close"
+          title="Close (the agent keeps running)"
+          aria-label={`Close ${pane.name}`}
         >
           <X size={14} />
         </button>
@@ -354,7 +340,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       <div
         ref={listRef}
         role="log"
-        aria-label={`Chat ${session.name}`}
+        aria-label={`Chat ${pane.name}`}
         className="flex-1 min-h-0 overflow-y-auto px-3 sm:px-4 py-2"
         onScroll={(e) => {
           const el = e.currentTarget;
@@ -366,9 +352,11 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         }}
       >
         <div ref={contentRef}>
-          {state.messages.length === 0 && !ended && (
+          {state.messages.length === 0 && (
             <div className="h-full flex items-center justify-center text-sm text-gray-500">
-              Ask {harnessName} anything. Markdown works; paste or drop images.
+              {sessionId
+                ? `Ask ${harnessName} anything. Markdown works; paste or drop images.`
+                : `Waiting for ${harnessName} to report its session; the terminal view works meanwhile.`}
             </div>
           )}
           {state.messages.map((m) => (
@@ -377,7 +365,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
               key={m.key}
               className="[content-visibility:auto] [contain-intrinsic-size:auto_60px]"
             >
-              <ChatMessageView message={m} showSteps={showSteps} onAnswer={onAnswer} />
+              <ChatMessageView message={m} showSteps={showSteps} />
             </div>
           ))}
         </div>
@@ -390,7 +378,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             className="mb-2 rounded-md border border-amber-400/40 bg-amber-500/10 p-2"
           >
             <div className="text-xs font-medium text-amber-200">
-              The agent is asking: answer below (e.g. 1, 2) or in its terminal
+              The agent is asking: pick an answer or type it below
             </div>
             <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-xs text-gray-200 font-mono">
               {prompt || '…'}
@@ -401,7 +389,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
                   <button
                     key={c.number}
                     type="button"
-                    disabled={sending}
+                    disabled={!connected}
                     onClick={() => answerPrompt(String(c.number))}
                     className="rounded border border-amber-400/40 bg-gray-900 px-2 py-1 text-xs text-gray-100 hover:bg-amber-500/20 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50"
                   >
@@ -412,12 +400,9 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             )}
           </div>
         )}
-        <ChatActivity
-          chatId={session.id}
-          messages={state.messages}
-          sub={state.sub}
-          busy={Boolean(busy) && !ended}
-        />
+        {chatId && (
+          <ChatActivity chatId={chatId} messages={state.messages} sub={state.sub} busy={busy} />
+        )}
         {error && (
           <div role="alert" className="mb-1 text-xs text-red-300">
             {error}
@@ -425,13 +410,13 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         )}
         <div className="flex items-end gap-2">
           <ChatComposer
-            chatId={session.id}
+            chatId={chatId}
             value={text}
             onChange={setText}
             onSubmit={submit}
             onStop={stopTurn}
-            busy={Boolean(busy)}
-            disabled={ended}
+            busy={busy}
+            disabled={!connected}
             submitKey={submitKey}
             history={history}
             commands={state.commands}
@@ -441,7 +426,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           <button
             type="button"
             onClick={submit}
-            disabled={sending || ended}
+            disabled={sending || !connected}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
             aria-label="Send message"
           >
@@ -449,8 +434,8 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             <span className="hidden sm:inline">Send</span>
           </button>
         </div>
-        <ImageAttachments images={images} onChange={setImages} disabled={sending || ended} />
-        <ChatStatusLine chatId={session.id} turns={turns} visible={active && !ended} />
+        <ImageAttachments images={images} onChange={setImages} disabled={sending || !connected} />
+        {chatId && <ChatStatusLine chatId={chatId} turns={turns} visible={active} />}
       </div>
     </div>
   );

@@ -7,7 +7,8 @@ import { AgentsView } from '../components/AgentsView/AgentsView';
 import { summarizeSessions } from '../utils/agentSessions';
 import { DEFAULT_AGENT_VIEW_SETTINGS, type AgentSession } from '../types';
 
-// Interactive terminals are hidden in the rail by default; Claude app sessions are not interactive
+// Terminal sessions no Orkumo pane runs are hidden in the rail by default, of every harness;
+// Claude app sessions are not interactive
 
 const base = { pinned: false, order: null, links: [], state: null, startedAt: 1 };
 const SESSIONS: AgentSession[] = [
@@ -53,6 +54,18 @@ const SESSIONS: AgentSession[] = [
     name: 'Fix omp resume',
     state: 'done',
     displayState: 'completed',
+  },
+  {
+    ...base,
+    id: 'omp-02b2b647-401a-7036-94eb-69d3a3ca1b37',
+    sessionId: '02b2b647-401a-7036-94eb-69d3a3ca1b37',
+    kind: 'interactive',
+    ptyCommand: 'omp',
+    ptyArgs: ['-r', '02b2b647-401a-7036-94eb-69d3a3ca1b37'],
+    cwd: '/home/dev/alpha',
+    name: 'omp in a pane',
+    paneId: 'interactive-1794214000000',
+    displayState: 'working',
   },
 ];
 
@@ -118,16 +131,17 @@ afterEach(() => {
 });
 
 describe('interactive sessions switch', () => {
-  it('hides interactive terminals by default but keeps Claude app sessions', () => {
+  it('hides terminals no Orkumo pane runs by default but keeps Claude app sessions', () => {
     renderView();
     expect(toggle().getAttribute('aria-checked')).toBe('false');
     expect(rowNames()).toContain('alpha-worker');
     expect(rowNames()).toContain('Issues abarbeiten');
-    // an omp session (#195) is an agent of its own harness, never hidden as a terminal
-    expect(rowNames()).toContain('Fix omp resume');
+    // omp (#195) too: a session another agent started, or one that ended, is hidden
+    expect(rowNames()).not.toContain('Fix omp resume');
     expect(rowNames()).not.toContain('terminal-beta');
-    expect(rowNames()).not.toMatch(/^Interactive/m);
-    expect(screen.getByText('1 hidden')).toBeTruthy();
+    // a session an Orkumo pane runs (also detached) stays
+    expect(rowNames()).toContain('omp in a pane');
+    expect(screen.getByText('2 hidden')).toBeTruthy();
   });
 
   it('shows them when switched on and remembers the choice', () => {
@@ -135,6 +149,7 @@ describe('interactive sessions switch', () => {
     fireEvent.click(toggle());
     expect(toggle().getAttribute('aria-checked')).toBe('true');
     expect(rowNames()).toContain('terminal-beta');
+    expect(rowNames()).toContain('Fix omp resume');
     cleanup();
     renderView();
     expect(toggle().getAttribute('aria-checked')).toBe('true');

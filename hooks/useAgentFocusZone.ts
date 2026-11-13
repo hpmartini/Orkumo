@@ -10,7 +10,8 @@ type Closest = { closest(selector: string): unknown } | null | undefined;
  * drive the list). With it, focus on other controls (tabs, toolbar, peek reply) is 'other'.
  */
 export function zoneOf(el: Closest, rail?: { contains(n: unknown): boolean } | null): FocusZone {
-  if (el?.closest('.xterm')) return 'terminal';
+  // A pane's UI view counts as its terminal: keys typed there are the agent's
+  if (el?.closest('.xterm, [data-chat-pane]')) return 'terminal';
   if (el?.closest('[role="dialog"], [data-focus-zone="palette"]')) return 'palette';
   if (rail && el && (el as { tagName?: string }).tagName !== 'BODY' && !rail.contains(el))
     return 'other';
@@ -36,8 +37,11 @@ export function focusChord(
 
 export const FOCUS_CHORD_LABEL = 'F6';
 
-const ACTIVE_TEXTAREA =
-  '[role="tabpanel"]:not(.hidden) [data-agent-pane][data-pane-active="true"] .xterm-helper-textarea';
+/** The active pane's input: its terminal, or the composer of its UI view */
+const ACTIVE_TEXTAREA = [
+  '[role="tabpanel"]:not(.hidden) [data-agent-pane][data-pane-active="true"] .xterm-helper-textarea',
+  '[role="tabpanel"]:not(.hidden) [data-chat-pane][data-pane-active="true"] textarea',
+].join(', ');
 
 /**
  * Tracks the focus zone from real DOM focus and provides keyboard switching between

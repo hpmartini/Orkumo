@@ -157,6 +157,8 @@ interface AgentFilterBarProps {
   onToggleLink: (key: string) => void;
   /** Rendered first in the row (the grouping picker) */
   leading?: React.ReactNode;
+  /** Rendered after the search (collapse / expand all) */
+  trailing?: React.ReactNode;
 }
 
 /** Whether the quick-filter chips are expanded (collapsed by default) */
@@ -252,7 +254,8 @@ const SearchPanel: React.FC<{
 };
 
 /**
- * One row above the list: grouping (`leading`), sort, filter chips toggle, search and the count.
+ * One row above the list: grouping (`leading`), sort, filter chips toggle, search, `trailing`
+ * and the count.
  */
 export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
   sort,
@@ -270,6 +273,7 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
   query,
   onQuery,
   leading,
+  trailing,
 }) => {
   const [open, setOpen] = useState(false);
   const [chipsOpen, setChipsOpenState] = useState(() => {
@@ -427,6 +431,7 @@ export const AgentFilterBar: React.FC<AgentFilterBarProps> = ({
             />
           )}
         </div>
+        {trailing}
         <span className="flex-1" />
         <span className="shrink-0 text-gray-500 tabular-nums whitespace-nowrap" aria-live="polite">
           {filtered ? `${shown} of ${total}` : `${total} ${total === 1 ? 'agent' : 'agents'}`}

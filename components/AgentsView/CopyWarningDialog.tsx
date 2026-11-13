@@ -15,9 +15,8 @@ export const CopyWarningDialog: React.FC<{
   const dialogRef = useRef<HTMLFormElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
   const trapTab = useDialogA11y(true, dialogRef, () => cancelRef.current);
-  const what = holder.chat
-    ? 'a chat'
-    : holder.kind === 'background'
+  const what =
+    holder.kind === 'background'
       ? `background job ${holder.id}`
       : holder.pid
         ? `a terminal (PID ${holder.pid})`
