@@ -17,12 +17,56 @@ export type ChatBlock =
     };
 
 export type ChatMessage =
-  | { kind: 'user'; key: string; text: string }
-  | { kind: 'assistant'; key: string; blocks: ChatBlock[]; streaming: boolean }
+  /** `ts`: when the prompt was sent (ms), if the transcript says */
+  | { kind: 'user'; key: string; text: string; ts?: number }
+  | {
+      kind: 'assistant';
+      key: string;
+      blocks: ChatBlock[];
+      streaming: boolean;
+      /** Model that wrote this message, if the transcript names it */
+      model?: string;
+    }
   | { kind: 'result'; key: string; ok: boolean; subtype: string; durationMs: number | null }
   | { kind: 'notice'; key: string; text: string; tone: 'info' | 'error' }
   /** The CLI's "※ recap" summary (system/away_summary) */
   | { kind: 'recap'; key: string; text: string };
+
+export type AssistantMessage = Extract<ChatMessage, { kind: 'assistant' }>;
+export type ResultMessage = Extract<ChatMessage, { kind: 'result' }>;
+
+/** One answer card: the assistant messages of one turn and the result that ended it */
+export interface ChatAnswer {
+  kind: 'answer';
+  key: string;
+  parts: AssistantMessage[];
+  result: ResultMessage | null;
+}
+
+/** What the chat renders: answers grouped, everything else as it came */
+export type ChatItem = Exclude<ChatMessage, { kind: 'assistant' }> | ChatAnswer;
+
+/**
+ * Group consecutive assistant messages into one answer per turn. A `result` closes the answer
+ * before it; a user message, recap or notice starts a new one.
+ */
+export function groupAnswers(messages: ChatMessage[]): ChatItem[] {
+  const items: ChatItem[] = [];
+  let open: ChatAnswer | null = null;
+  for (const m of messages) {
+    if (m.kind === 'assistant') {
+      if (open) open.parts.push(m);
+      else items.push((open = { kind: 'answer', key: m.key, parts: [m], result: null }));
+    } else if (m.kind === 'result' && open) {
+      open.result = m;
+      open = null;
+    } else {
+      items.push(m);
+      open = null;
+    }
+  }
+  return items;
+}
 
 export interface ChatCommand {
   name: string;
@@ -126,6 +170,17 @@ function attachToolResult(state: ChatState, block: Json): ChatState {
   };
 }
 
+/** Turn length from the last prompt's time to the result's `ts` (omp records no duration) */
+function turnTime(state: ChatState, ts: unknown): number | null {
+  if (typeof ts !== 'number') return null;
+  for (let i = state.messages.length - 1; i >= 0; i--) {
+    const m = state.messages[i];
+    if (m.kind === 'result') return null;
+    if (m.kind === 'user') return typeof m.ts === 'number' && ts >= m.ts ? ts - m.ts : null;
+  }
+  return null;
+}
+
 /** Fold one server event into the chat. Unknown or malformed events leave the state unchanged. */
 export function reduceChat(state: ChatState, event: unknown): ChatState {
   if (!isObj(event) || typeof event.type !== 'string') return state;
@@ -190,7 +245,13 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
           filled++;
         }
         // Replayed history never gets a `result`, so it must not keep the typing cursor
-        return { ...m, blocks, streaming: event.history === true ? false : m.streaming };
+        const model = str(msg.model) || m.model;
+        return {
+          ...m,
+          blocks,
+          streaming: event.history === true ? false : m.streaming,
+          ...(model ? { model } : {}),
+        };
       });
       return { ...next, filled: { ...next.filled, [id]: filled } };
     }
@@ -223,7 +284,12 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
         ...state,
         messages: [
           ...state.messages,
-          { kind: 'user', key: `u${state.messages.length}`, text: str(event.text) },
+          {
+            kind: 'user',
+            key: `u${state.messages.length}`,
+            text: str(event.text),
+            ...(typeof event.ts === 'number' ? { ts: event.ts } : {}),
+          },
         ],
       };
 
@@ -242,7 +308,8 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
             key: `r${state.messages.length}`,
             ok,
             subtype,
-            durationMs: typeof event.duration_ms === 'number' ? event.duration_ms : null,
+            durationMs:
+              typeof event.duration_ms === 'number' ? event.duration_ms : turnTime(state, event.ts),
           },
         ],
       };

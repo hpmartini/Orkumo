@@ -1,5 +1,7 @@
 /**
- * API client for the chat history (#280, `/api/chat-history`): imported claude.ai / ChatGPT exports.
+ * API client for the chat history (#280, `/api/chat-history`): claude.ai / ChatGPT conversations,
+ * synced by the desktop app (electron/chatSync.js, `window.electronAPI.chatSync`) or imported
+ * from a data export. The sync's ingest route is for the Electron main process only.
  */
 import { request } from './boardApi';
 

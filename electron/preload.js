@@ -23,6 +23,30 @@ contextBridge.exposeInMainWorld('electronAPI', {
   getPlatform: () => ipcRenderer.invoke('get-platform'),
   getAppVersion: () => ipcRenderer.invoke('get-app-version'),
 
+  // Updates (electron/updater.js): status pushes plus manual check / restart to update
+  updates: {
+    getStatus: () => ipcRenderer.invoke('update:get-status'),
+    check: () => ipcRenderer.invoke('update:check'),
+    install: () => ipcRenderer.invoke('update:install'),
+    onStatus: (callback) => {
+      if (typeof callback !== 'function') {
+        throw new TypeError('Callback must be a function');
+      }
+      const handler = (event, status) => callback(status);
+      ipcRenderer.on('update:status', handler);
+      return () => ipcRenderer.removeListener('update:status', handler);
+    },
+  },
+  // Menu "Settings…" (Cmd+,)
+  onOpenSettings: (callback) => {
+    if (typeof callback !== 'function') {
+      throw new TypeError('Callback must be a function');
+    }
+    const handler = () => callback();
+    ipcRenderer.on('open-settings', handler);
+    return () => ipcRenderer.removeListener('open-settings', handler);
+  },
+
   // External links
   openExternal: (url) => ipcRenderer.invoke('open-external', url),
   // window.open from the app or the Web-IDE, routed back for the link setting (#140)
@@ -68,6 +92,19 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Native dialogs
   showMessageBox: (options) => ipcRenderer.invoke('show-message-box', options),
   showOpenDialog: (options) => ipcRenderer.invoke('show-open-dialog', options),
+
+  // Chats mode (#280): the sync runs in main, only its status comes here
+  chatSync: {
+    run: () => ipcRenderer.invoke('chat-sync'),
+    onProgress: (callback) => {
+      if (typeof callback !== 'function') {
+        throw new TypeError('Callback must be a function');
+      }
+      const handler = (_event, progress) => callback(progress);
+      ipcRenderer.on('chat-sync-progress', handler);
+      return () => ipcRenderer.removeListener('chat-sync-progress', handler);
+    },
+  },
 
   // BrowserView API for embedded browser preview with real Chrome DevTools
   browserView: {

@@ -16,7 +16,11 @@ fs.mkdirSync(project);
 
 const CLAUDE_ID = '22222222-2222-4222-8222-222222222222';
 const OMP_ID = '01a1c9b5-7087-7460-91a2-36fa4563f9ca';
-const noPicker = { listCommands: async () => [], listAgents: async () => [] };
+const noPicker = {
+  listCommands: async () => [],
+  listAgents: async () => [],
+  listOmpCommands: () => new Promise(() => {}),
+};
 const ctx = { allowedDirs: [root], pollMs: 20, ...noPicker };
 
 const jsonl = (records) => records.map((r) => `${JSON.stringify(r)}\n`).join('');
@@ -223,6 +227,31 @@ describe('viewSession - omp / pi session file', () => {
     fs.writeFileSync(file, jsonl(records));
     return { dir, file };
   }
+
+  it('offers omp the TUI snapshot first, then the probed list', async () => {
+    const { dir } = sessionsDir('omp');
+    const s = viewSession(
+      { harness: 'omp', sessionId: OMP_ID, cwd: project },
+      {
+        ...ctx,
+        transcriptDir: dir,
+        listOmpCommands: async (cwd, onSnapshot) => {
+          onSnapshot([{ name: 'goal', builtin: true }]);
+          await sleep(10);
+          return [
+            { name: 'goal', builtin: true },
+            { name: 'skill:goal-contract', description: 'contract', builtin: false },
+          ];
+        },
+      }
+    );
+    const { seen } = collect(s.id);
+    const lists = () =>
+      seen.filter((e) => e.type === 'devorbit_commands').map((e) => e.commands.map((c) => c.name));
+    await vi.waitFor(() => expect(lists().at(-1)).toEqual(['goal', 'skill:goal-contract']));
+    expect(lists()[0]).toEqual(['goal']);
+    stopChat(s.id);
+  });
 
   it('translates user, assistant (thinking, text, tool calls), tool results and turn ends', async () => {
     const { dir, file } = sessionsDir('omp');

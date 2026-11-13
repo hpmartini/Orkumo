@@ -53,6 +53,17 @@ function claudeHistoryEvents(lines) {
       events.push({ type: 'system', subtype: 'away_summary', content: rec.content });
       continue;
     }
+    // Claude Code notes the end of a longer turn with its duration: the answer card's footer
+    if (rec.type === 'system' && rec.subtype === 'turn_duration') {
+      const ms = Number(rec.durationMs);
+      events.push({
+        type: 'result',
+        subtype: 'success',
+        is_error: false,
+        duration_ms: Number.isFinite(ms) ? ms : null,
+      });
+      continue;
+    }
     // A prompt typed while the agent works is no user message: Claude Code stores it as a
     // queued-command attachment when it hands it to the running turn (task notifications too)
     const queued = rec.type === 'attachment' ? rec.attachment : null;
@@ -218,6 +229,12 @@ const TURN_END = {
 const modelOf = (rec) =>
   str(rec.model) || (str(rec.modelId) && [rec.provider, rec.modelId].filter(str).join('/'));
 
+/** `{ ts }` (ms) of a record that carries its time, else nothing */
+const stamp = (rec) => {
+  const ts = Date.parse(str(rec.timestamp));
+  return Number.isFinite(ts) ? { ts } : {};
+};
+
 /**
  * Session JSONL lines → view events. Shown: user text, assistant text/thinking/tool calls, tool
  * results, model changes and turn ends. Skipped: system/developer prompts, custom and internal
@@ -241,7 +258,7 @@ function sessionHistoryEvents(lines) {
       );
       // omp records its injected `<system-reminder …>` notes as user messages too: not prompts
       if (text.trim() && !text.trimStart().startsWith('<system-reminder'))
-        events.push({ type: 'devorbit_user', text, history: true });
+        events.push({ type: 'devorbit_user', text, history: true, ...stamp(rec) });
     } else if (msg.role === 'assistant') {
       const content = assistantBlocks(msg.content);
       if (msg.stopReason === 'error' && str(msg.errorMessage))
@@ -254,7 +271,9 @@ function sessionHistoryEvents(lines) {
           history: true,
         });
       const subtype = TURN_END[msg.stopReason];
-      if (subtype) events.push({ type: 'result', subtype, is_error: subtype !== 'success' });
+      // `ts` on both ends lets the client time the turn (omp records no duration)
+      if (subtype)
+        events.push({ type: 'result', subtype, is_error: subtype !== 'success', ...stamp(rec) });
     } else if (msg.role === 'toolResult') {
       events.push({
         type: 'user',

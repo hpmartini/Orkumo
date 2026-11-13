@@ -10,6 +10,7 @@ import {
   GitBranchPlus,
   Kanban,
   MoreHorizontal,
+  Network,
   Pin,
   Smartphone,
   SquareTerminal,
@@ -45,6 +46,8 @@ import {
   sessionHarness,
   harnessLabel,
   appOriginLabel,
+  isOrchestrator,
+  ORCHESTRATORS_GROUP_KEY,
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
 import type { AgentConfigLike } from './types';
@@ -62,6 +65,9 @@ const HARNESS_BADGE: Record<AgentHarness, string> = {
   codex: 'border-emerald-500/60 text-emerald-200',
   pi: 'border-amber-500/60 text-amber-200',
 };
+
+/** Synthetic sections at the top (orchestrators, favorites): not reorderable, no project actions */
+const SYNTHETIC_GROUPS = new Set<string>([ORCHESTRATORS_GROUP_KEY, FAVORITES_GROUP_KEY]);
 
 /** Drag payload of a group header (separate from the workspace tab drag) */
 export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
@@ -133,6 +139,8 @@ interface AgentListProps {
   /** Board issue keys ("owner/name#12") per session id, derived from the GitHub project */
   issuesByAgent?: Map<string, string[]>;
   onOpenIssue?: (issueKey: string) => void;
+  /** `agentView.orchestrators`: marked sessions get the Orchestrator badge */
+  orchestratorIds?: readonly string[];
 }
 
 /** Selected row/header: filled while the rail has focus, outline only while it does not */
@@ -232,6 +240,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   onMoveGroup,
   issuesByAgent,
   onOpenIssue,
+  orchestratorIds,
 }) => {
   // One card per group (its header plus rows); ungrouped items form a single card
   const clusters = items.reduce<number[][]>((acc, item, i) => {
@@ -306,10 +315,10 @@ export const AgentList: React.FC<AgentListProps> = ({
   const [drag, setDrag] = useState<string | null>(null);
   const [dropKey, setDropKey] = useState<string | null>(null);
   const groupKeys = items.filter((i) => i.type === 'group').map((i) => i.group.key as string);
-  const reorderableKeys = groupKeys.filter((k) => k !== FAVORITES_GROUP_KEY);
+  const reorderableKeys = groupKeys.filter((k) => !SYNTHETIC_GROUPS.has(k));
   const isFavGroup = (key: string) => !!favoriteGroupKeys?.has(key);
   const canReorder = (key: string) =>
-    !!onMoveGroup && key !== FAVORITES_GROUP_KEY && key !== 'all' && reorderableKeys.length > 1;
+    !!onMoveGroup && !SYNTHETIC_GROUPS.has(key) && key !== 'all' && reorderableKeys.length > 1;
   // Favorites sort first, so a group only moves within its own favorite/other block
   const canDropOn = (target: string) =>
     !!drag && drag !== target && canReorder(target) && isFavGroup(drag) === isFavGroup(target);
@@ -458,8 +467,8 @@ export const AgentList: React.FC<AgentListProps> = ({
       : [];
   const groupMenuActions = (group: SessionGroup): AgentRowAction[] => {
     const key: string = group.key;
-    // The synthetic Favorites section only collapses
-    if (key === FAVORITES_GROUP_KEY) return groupActions(group).filter((a) => a.id === 'toggle');
+    // The synthetic Orchestrators / Favorites sections only collapse
+    if (SYNTHETIC_GROUPS.has(key)) return groupActions(group).filter((a) => a.id === 'toggle');
     const [toggle, ...rest] = groupActions(group);
     const up = neighbour(key, -1);
     const down = neighbour(key, 1);
@@ -523,7 +532,7 @@ export const AgentList: React.FC<AgentListProps> = ({
           const headKey = head?.type === 'group' ? (head.group.key as string) : null;
           const prevHead = clusterIndex > 0 ? items[clusters[clusterIndex - 1][0]] : null;
           const isFavCluster = (key: string | null) =>
-            key !== null && (key === FAVORITES_GROUP_KEY || isFavGroup(key));
+            key !== null && (SYNTHETIC_GROUPS.has(key) || isFavGroup(key));
           // Favourites sort first; a rule marks where the rest begins
           const afterFavorites =
             prevHead?.type === 'group' &&
@@ -565,9 +574,12 @@ export const AgentList: React.FC<AgentListProps> = ({
                     const collapsed = collapsedKeys.has(item.group.key);
                     const groupKey: string = item.group.key;
                     const isFavSection = groupKey === FAVORITES_GROUP_KEY;
+                    const isOrchSection = groupKey === ORCHESTRATORS_GROUP_KEY;
                     // Same for every agent of a project, so shown once here
                     const groupIssues =
-                      (grouping === 'project' || grouping === 'directory') && !isFavSection
+                      (grouping === 'project' || grouping === 'directory') &&
+                      !isFavSection &&
+                      !isOrchSection
                         ? item.group.sessions
                             .map((s) => contexts[s.id]?.issues)
                             .find((i) => i && i.open > 0) || null
@@ -688,14 +700,20 @@ export const AgentList: React.FC<AgentListProps> = ({
                             {groupIssues.open}
                           </a>
                         )}
-                        {isFavSection || groupFav ? (
+                        {isOrchSection ? (
+                          <Network
+                            size={11}
+                            className="shrink-0 text-indigo-300"
+                            aria-label="Orchestrators"
+                          />
+                        ) : isFavSection || groupFav ? (
                           <Star
                             size={11}
                             className="shrink-0 fill-amber-400 text-amber-400"
                             aria-label="Favorite"
                           />
                         ) : null}
-                        {!isFavSection && (
+                        {!isFavSection && !isOrchSection && (
                           // Project actions (code, board, new issue, favorite, …) live in the group menu
                           <button
                             onClick={(e) => {
@@ -749,7 +767,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                     parseWorkflowName(session.name, lookup?.workflowName)?.title || session.name;
                   // Project groups already name the repo in their header
                   const showProject =
-                    grouping !== 'project' || (item.group.key as string) === FAVORITES_GROUP_KEY;
+                    grouping !== 'project' || SYNTHETIC_GROUPS.has(item.group.key as string);
                   const cacheWarning = isCacheWarning(ctx?.cache, now);
                   const actions = rowActions(session);
                   const extra =
@@ -964,6 +982,16 @@ export const AgentList: React.FC<AgentListProps> = ({
                           >
                             {displayName}
                           </span>
+                          {isOrchestrator(session, orchestratorIds) && (
+                            <span
+                              className="shrink-0 flex items-center gap-0.5 leading-4 px-1 rounded border text-[10px] font-medium text-indigo-200 border-indigo-400/60 bg-indigo-400/10"
+                              title="Orchestrator: watches and distributes the other agents' work, does none itself"
+                              data-testid="orchestrator-badge"
+                            >
+                              <Network size={9} aria-hidden />
+                              Orchestrator
+                            </span>
+                          )}
                           {slot.title.length > 0 && (
                             <span className="flex items-center gap-1 shrink-0 text-[11px] text-gray-400">
                               {slot.title}

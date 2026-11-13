@@ -26,10 +26,41 @@ export interface AppConfig {
   addresses?: string[];
   detectedFramework?: string;
   isFavorite?: boolean;
-  isArchived?: boolean;
   // Docker Compose specific fields
   dockerComposeFile?: string; // Path to compose file (docker-compose.yml, compose.yaml, etc.)
   dockerServices?: DockerService[]; // List of services defined in compose file
+  /** Main checkouts this project covers: its own path plus those of projects merged into it */
+  paths?: string[];
+  /** Linked git worktrees of those checkouts: they belong to the project, never form their own */
+  worktrees?: string[];
+  /** Ids of projects merged into this one; a context naming one of them means this project */
+  mergedIds?: string[];
+  /** The user chose the name (rename or own project): it wins over the GitHub repo title */
+  userNamed?: boolean;
+  source?: ProjectSource;
+}
+
+/** detected = a git main checkout the scan found, custom = added by the user */
+export type ProjectSource = 'detected' | 'custom';
+export type ProjectState = 'active' | 'disabled' | 'merged';
+
+/** A project in the project settings (GET /api/projects), disabled and merged ones included */
+export interface ProjectEntry {
+  id: string;
+  name: string;
+  /** Name before a rename */
+  detectedName: string;
+  path: string;
+  paths: string[];
+  worktrees: string[];
+  source: ProjectSource;
+  state: ProjectState;
+  /** Final target of a merge */
+  mergedInto: string | null;
+  userNamed: boolean;
+  detectedFramework?: string;
+  /** Agent sessions running in it, from the server's last agent contexts; null when unknown */
+  sessionCount: number | null;
 }
 
 export interface SystemStats {
@@ -232,6 +263,11 @@ export interface AgentContext {
     /** Absolute path of the linked worktree; null for the main checkout */
     worktreePath: string | null;
   } | null;
+  /**
+   * Detected or custom project the session runs in (repo root, else worktree / cwd), before
+   * merges and disabling, which the client applies; null when no project contains it
+   */
+  projectId?: string | null;
   /** Model of the session's latest assistant turn (e.g. "claude-opus-5-5"); null when unknown */
   model: string | null;
   /** Prompt-cache stats from the session transcript; null when there is no local transcript */
@@ -388,6 +424,8 @@ export interface AgentViewSettings {
   agentOpenView: 'chat' | 'terminal';
   /** Main agent (#252): name of the session behind the "Main Agent" dialog; keepAlive respawns it when stopped */
   mainAgent: { name: string; keepAlive: boolean };
+  /** Orchestrator sessions (row id, transcript uuid or pane id): own rail group and badge */
+  orchestrators: string[];
   dispatch: AgentDispatchDefaults;
   version: number;
 }
@@ -509,6 +547,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   chatShowSteps: false,
   agentOpenView: 'chat',
   mainAgent: { name: 'main-orchestrator', keepAlive: true },
+  orchestrators: [],
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
 };

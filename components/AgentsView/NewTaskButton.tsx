@@ -1,17 +1,20 @@
 import React, { useState } from 'react';
-import { Bot, ChevronDown, CircleDot, MessageSquare, Plus } from 'lucide-react';
+import { Bot, ChevronDown, CircleDot, MessageSquare, Network, Plus } from 'lucide-react';
 import { usePopover } from './PullRequestsPanel';
 
 export type NewKind = 'task' | 'agent' | 'chat' | 'issue';
+/** Dropdown entries: the dialog kinds plus "New orchestrator", which starts right away */
+export type NewMenuKind = NewKind | 'orchestrator';
 
-const ENTRIES: { kind: NewKind; label: string; hint: string; icon: typeof Plus }[] = [
+const ENTRIES: { kind: NewMenuKind; label: string; hint: string; icon: typeof Plus }[] = [
   { kind: 'task', label: 'New task', hint: 'N', icon: Plus },
   { kind: 'agent', label: 'New agent', hint: 'interactive, attached', icon: Bot },
   { kind: 'chat', label: 'New chat', hint: 'agent in the UI view', icon: MessageSquare },
   { kind: 'issue', label: 'New issue', hint: 'GitHub', icon: CircleDot },
+  { kind: 'orchestrator', label: 'New orchestrator', hint: 'coordinates agents', icon: Network },
 ];
 
-const NewMenu: React.FC<{ onPick: (kind: NewKind) => void; onClose: () => void }> = ({
+const NewMenu: React.FC<{ onPick: (kind: NewMenuKind) => void; onClose: () => void }> = ({
   onPick,
   onClose,
 }) => {
@@ -54,8 +57,8 @@ const NewMenu: React.FC<{ onPick: (kind: NewKind) => void; onClose: () => void }
   );
 };
 
-/** [New task | ⌄]: the main part starts a task, the chevron offers agent, chat and issue */
-export const NewTaskButton: React.FC<{ onNew: (kind: NewKind) => void }> = ({ onNew }) => {
+/** [New task | ⌄]: the main part starts a task, the chevron offers agent, chat, issue and orchestrator */
+export const NewTaskButton: React.FC<{ onNew: (kind: NewMenuKind) => void }> = ({ onNew }) => {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative flex shrink-0">
@@ -73,8 +76,8 @@ export const NewTaskButton: React.FC<{ onNew: (kind: NewKind) => void }> = ({ on
         data-popover-trigger
         aria-haspopup="menu"
         aria-expanded={open}
-        aria-label="More: new agent, chat or issue"
-        title="New agent, chat or issue"
+        aria-label="More: new agent, chat, issue or orchestrator"
+        title="New agent, chat, issue or orchestrator"
         className="flex items-center px-1 py-0.5 rounded-r border-l border-blue-800 text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white"
       >
         <ChevronDown size={13} aria-hidden />

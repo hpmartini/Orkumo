@@ -8,6 +8,13 @@ import os from 'os';
 import path from 'path';
 import * as agentService from './agentService.js';
 import { listChats } from './chatService.js';
+import {
+  mainCheckoutOf,
+  projectCatalog,
+  projectIdFor,
+  scanAllDirectories,
+} from './scannerService.js';
+import { settingsService } from './settingsService.js';
 
 const GH_TTL_MS = 60_000;
 const CONCURRENCY = 4;
@@ -95,8 +102,7 @@ export function resolveRepoIdentity({ top, gitDir, commonDir }) {
       worktreePath: null,
     };
   }
-  const common = path.resolve(commonDir);
-  const root = path.basename(common) === '.git' ? path.dirname(common) : common;
+  const root = mainCheckoutOf(commonDir);
   const name = path.basename(root).replace(/\.git$/, '');
   return { name, root, isWorktree: true, worktreeName: path.basename(top), worktreePath: top };
 }
@@ -689,6 +695,38 @@ function cachedGitInfo(dir, key) {
   return { promise: entry.promise, changed: true };
 }
 
+// The project scan is synchronous (~0.3s warm): reused across context computes for this long
+const PROJECTS_TTL_MS = 30_000;
+let projectsCache = null; // { at, list }
+
+/**
+ * Every detected and custom project, disabled and merged ones included: a session's projectId is
+ * the base project it runs in; the client maps merges and hides disabled ones (GET /api/apps),
+ * so an override applies without waiting for the next compute.
+ */
+function baseProjects() {
+  if (!projectsCache || Date.now() - projectsCache.at > PROJECTS_TTL_MS) {
+    let list = [];
+    try {
+      list = projectCatalog(scanAllDirectories(), settingsService.getSettings());
+    } catch (error) {
+      console.warn('[Agents] Project scan for contexts failed:', error.message);
+    }
+    projectsCache = { at: Date.now(), list };
+  }
+  return projectsCache.list;
+}
+
+/** Sessions per base project id in the last computed contexts; null before the first compute */
+export function cachedProjectSessionCounts() {
+  const contexts = contextCache?.value?.contexts;
+  if (!contexts) return null;
+  const counts = {};
+  for (const c of Object.values(contexts))
+    if (c.projectId) counts[c.projectId] = (counts[c.projectId] || 0) + 1;
+  return counts;
+}
+
 /**
  * @returns {Promise<{contexts: Record<string, import('../../types').AgentContext>, orphans: object[]}>}
  */
@@ -727,6 +765,7 @@ async function computeAgentContexts() {
   );
 
   const { resolved, owner, orphans } = await scanOwnership(listed);
+  const projects = sessions.length ? baseProjects() : [];
   // eslint-disable-next-line no-unused-vars -- cwd is stripped from the response
   const publicServer = ({ cwd, ...server }) => server;
   const contexts = {};
@@ -738,6 +777,7 @@ async function computeAgentContexts() {
         (await sessionModel(s)) ?? modelFromFlags(s.respawnFlags) ?? s.chatModel ?? null;
       contexts[s.id] = {
         repo,
+        projectId: projectIdFor(projects, { root: repo?.root, dirs: [s.worktree, s.cwd] }),
         model,
         cache: await sessionCache(s, model).catch(() => null),
         issues: remote?.issues || null,

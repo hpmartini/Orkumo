@@ -42,6 +42,11 @@ export const agentViewSettingsSchema = z
     mainAgent: z
       .object({ name: z.string().trim().min(1).max(100), keepAlive: z.boolean() })
       .optional(),
+    // Orchestrator sessions: row id, transcript uuid or pane id (orchestratorService.js)
+    orchestrators: z
+      .array(z.string().regex(/^[\w.:-]{1,200}$/))
+      .max(200)
+      .optional(),
     dispatch: z
       .object({
         harness: z.enum(['claude', 'omp', 'opencode', 'codex', 'pi']).optional(),

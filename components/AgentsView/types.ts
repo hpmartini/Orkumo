@@ -7,5 +7,9 @@ export interface AgentConfigLike {
   addresses?: string[];
   status?: string;
   isFavorite?: boolean;
-  isArchived?: boolean;
+  /** Project fields for the rail's Project grouping (see ProjectApp in utils/agentSessions.ts) */
+  paths?: string[];
+  worktrees?: string[];
+  mergedIds?: string[];
+  userNamed?: boolean;
 }

@@ -6,7 +6,7 @@
  */
 
 import * as esbuild from 'esbuild';
-import { existsSync, mkdirSync } from 'fs';
+import { cpSync, existsSync, mkdirSync } from 'fs';
 import path from 'path';
 
 const outdir = path.resolve('dist-server');
@@ -52,6 +52,10 @@ const __dirname = dirname(__filename);
 `.trim(),
       },
     });
+
+    // Orchestrator workspace templates and the `orkumo` CLI are copied at runtime, not imported
+    // (orchestratorService.js templatesDir looks next to the bundle)
+    cpSync('server/orchestrator', path.join(outdir, 'orchestrator'), { recursive: true });
 
     console.log('Server bundled successfully!');
     console.log(`Output: ${path.join(outdir, 'index.js')}, ${path.join(outdir, 'ptyHolder.js')}`);

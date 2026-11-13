@@ -29,10 +29,19 @@ Orkumo is now available as a native desktop application using Electron! This pro
 
 ### Download Pre-built Binaries
 
-Download the latest release for your platform from the [Releases](https://github.com/hpmartini/Orkumo/releases) page:
+Download the latest release for your platform from the [Releases](https://github.com/hpmartini/Orkumo/releases) page (pre-releases `vX.Y.Z-rc.N` count):
 
-- **macOS**: Download `.dmg` file (supports both Intel and Apple Silicon)
+- **macOS**: `Orkumo-<version>-arm64.dmg` (Apple Silicon) or `Orkumo-<version>.dmg` (Intel)
 - **Linux**: Download `.AppImage`, `.deb`, or `.rpm` based on your distribution
+
+**macOS, once:** the builds are not notarized, so Gatekeeper blocks the first start ("damaged" / "cannot be opened"). Install by hand once; every later version arrives by itself (see [Updates](#updates)):
+
+1. Quit a running Orkumo.
+2. Open the dmg and drag Orkumo into Applications (replace the old one). Or: `gh release download -R hpmartini/Orkumo <tag> -p 'Orkumo-*-arm64.dmg'`.
+3. `xattr -cr /Applications/Orkumo.app`
+4. Start Orkumo.
+
+Install as a user who may write to `/Applications` (admin), and from the Applications folder, not from inside the dmg: otherwise the app can only point to the release page.
 
 Prefer Docker? Each release also ships GHCR images and a compose file, see [README: Docker from a release](README.md#docker-from-a-release-no-checkout-no-build).
 
@@ -96,6 +105,7 @@ bun run electron:build:all
 - **Quit**: `Cmd/Ctrl + Q`
 - **Minimize**: `Cmd/Ctrl + M`
 - **Full Screen**: `Cmd/Ctrl + F`
+- **Settings**: `Cmd + ,` (macOS app menu "Orkumo"; on Linux `Ctrl + ,` in File)
 
 ### Development Mode
 
@@ -112,19 +122,24 @@ When running in development mode (`bun run electron:dev`):
 
 ### Updates
 
-Five seconds after start the app checks [GitHub Releases](https://github.com/hpmartini/Orkumo/releases) (`electron/updater.js`, #126). What happens next depends on the installation:
+Orkumo checks [GitHub Releases](https://github.com/hpmartini/Orkumo/releases) 5 s after start and every 6 h (`electron/updater.js`, #126), downloads a newer version in the background and shows a small banner, bottom right: "Orkumo X is ready", **Restart to update**. A plain quit installs it as well. There are no dialogs: a failed background check only shows in Settings → Updates and the log.
 
-| Installation                                                                            | Behaviour                                               |
-| --------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Linux AppImage                                                                          | asks, downloads, installs on restart                    |
-| macOS, signed with a Developer ID                                                       | asks, downloads, installs on restart (Squirrel.Mac)     |
-| macOS ad-hoc signed (CI without Apple secrets), `.deb`/`.rpm`, `electron-builder --dir` | only reports the new version and opens its release page |
+| Installation                                                                            | Behaviour                                                                                                                |
+| --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Linux AppImage                                                                          | downloads, installs on restart (electron-updater)                                                                        |
+| macOS, signed with a Developer ID                                                       | downloads, installs on restart (Squirrel.Mac)                                                                            |
+| macOS ad-hoc (CI) or self-signed (local build), in a folder the user may write to       | downloads the zip, checks its sha512 against the release's `latest-mac.yml`, swaps the bundle (`electron/selfUpdate.js`) |
+| macOS app in a read-only place (started from the dmg, App Translocation), `.deb`/`.rpm` | banner with a link to the release page                                                                                   |
 
-A failed background check is only logged, never shown. An rc installation is offered newer rcs and the final release of the same or a later version.
+**By hand:** app menu "Orkumo" → **Check for Updates…** (the banner shows the result), or Settings (`Cmd + ,`) → **Updates**: version and channel, last check, **Check now**, status (up to date / downloading x % / ready / error with reason), **Restart to update**, and the switch for automatic updates (`autoUpdate` in `settings.json`; off: no timed checks, no install on quit). In the browser the section only shows the version.
 
-**Tag schema:** `vX.Y.Z` or `vX.Y.Z-rc.N` (e.g. `v1.0.0-rc.8`). electron-updater treats the first prerelease part as channel, so `v1.0.0-rc7` would be its own channel `rc7` and never receive an update. `-rc.N` releases are flagged as pre-release, final ones are not: rc installs find the final release via `/releases/latest`, which only skips flagged prereleases.
+**Channels:** final installs get final releases; rc installs get newer `-rc.N` and final releases; local builds (`-dev.<sha>`, see below) get both, so a local build moves on to the next GitHub release. Only `vX.Y.Z` and `vX.Y.Z-rc.N` tags count: `v1.0.0-rc7` (old form) would outrank every `-rc.N` and is ignored.
 
-`ORKUMO_DISABLE_UPDATES=1` turns the check off. `ORKUMO_UPDATE_FEED=http://host:port` points it at a fake GitHub (e2e tests in `scripts/review/126/`).
+**macOS swap:** the zip goes to `~/Library/Application Support/devorbit-dashboard/updates/`, must match size and sha512 of the release's `latest-mac.yml`, is unpacked with `ditto` into `updates/staging/`, checked (bundle id, version, `codesign --verify --deep`) and freed of quarantine. **Restart to update** starts a detached helper (`updates/swap.sh`, log `updates/swap.log`) that waits for Orkumo to exit, moves the update next to the app, renames `Orkumo.app` to `.Orkumo.app.update-backup` and the update into place, relaunches it with `open` and deletes the backup; a failed step renames the old app back and starts it. Renaming instead of copying keeps agents running: their PTY holders use the old binary. The signature does not matter (ad-hoc and self-signed swap alike), but every ad-hoc build has a new code identity, so macOS may ask again for permissions granted to Orkumo (Accessibility, Automation, keychain).
+
+**Local builds** (`bun run electron:build*`, `scripts/release/build-local.mjs`) are stamped `<version>-dev.<sha>` via electron-builder's `extraMetadata`, below every rc of that version; `package.json` stays untouched. CI stamps `vX.Y.Z-rc.N` from the tag.
+
+`ORKUMO_DISABLE_UPDATES=1` turns updates off. `ORKUMO_UPDATE_FEED=http://host:port` (loopback only) points them at a fake GitHub (`scripts/review/126/`, `test/selfUpdate.e2e.test.js`).
 
 ### Releases
 
@@ -142,7 +157,7 @@ Every merge to `main` becomes a pre-release, built by Woodpecker (`.woodpecker/r
 - Repository setting "Trusted" → Security: `release-docker` runs `tonistiigi/binfmt` and `plugin-docker-buildx` privileged.
 - A macOS agent with the local backend for `release-mac` (labels `backend=local`, `platform=darwin/arm64` are automatic): install `woodpecker-agent` from the [Woodpecker releases](https://github.com/woodpecker-ci/woodpecker/releases), run it as your user with `WOODPECKER_SERVER`, `WOODPECKER_AGENT_SECRET` and `WOODPECKER_BACKEND=local`; `node`, `bun` and `gh` must be on its `PATH`. While no Mac agent is online the macOS workflow waits and the draft stays unpublished. Every other workflow is pinned to `backend: docker`, so the Mac never runs containers.
 
-**macOS signing:** the Woodpecker build is ad-hoc (`CSC_IDENTITY_AUTO_DISCOVERY=false`), so macOS apps fall back to the update notice. Signing with a Developer ID plus notarization (`electron/notarize.js`) needs `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` in `release-mac`'s environment and `-c.mac.hardenedRuntime=true -c.mac.entitlements=electron/entitlements.mac.plist -c.mac.entitlementsInherit=electron/entitlements.mac.plist` on its `electron-builder` calls.
+**macOS signing:** the Woodpecker build is ad-hoc (`CSC_IDENTITY_AUTO_DISCOVERY=false`); macOS apps update themselves by bundle swap (see Updates), so `release-mac` must upload both zips and the merged `latest-mac.yml`. With a Developer ID plus notarization (`electron/notarize.js`) Squirrel.Mac takes over and the one-time `xattr -cr` goes away; it needs `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` in `release-mac`'s environment and `-c.mac.hardenedRuntime=true -c.mac.entitlements=electron/entitlements.mac.plist -c.mac.entitlementsInherit=electron/entitlements.mac.plist` on its `electron-builder` calls.
 
 ## Architecture
 

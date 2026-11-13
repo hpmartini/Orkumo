@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -10,6 +11,10 @@ export default defineConfig(({ mode }) => {
   // Port configuration from environment or defaults
   const VITE_PORT = parseInt(env.VITE_PORT || String(PORTS.devhub), 10);
   const SERVER_PORT = parseInt(env.SERVER_PORT || String(PORTS.server), 10);
+  // Shown in Settings → Updates in the browser, which has no Electron app version to ask
+  const APP_VERSION = JSON.parse(
+    fs.readFileSync(path.resolve(__dirname, 'package.json'), 'utf8')
+  ).version;
 
   return {
     // Use relative paths for Electron file:// protocol
@@ -34,6 +39,7 @@ export default defineConfig(({ mode }) => {
       },
     },
     plugins: [react()],
+    define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

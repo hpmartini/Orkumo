@@ -1,8 +1,9 @@
 /**
- * Chat history (#280): the official data exports of claude.ai and ChatGPT as one local,
- * searchable list. Nothing is fetched from either provider and nothing leaves this machine:
- * the user unpacks an export, this module reads its `conversations*.json` (and Claude's
- * `projects.json`), normalises both shapes and keeps them in `<data>/chat-history/`.
+ * Chat history (#280): claude.ai and ChatGPT conversations as one local, searchable list.
+ * Two ways in, one shape: the official data exports the user unpacks (`importFrom`), and the
+ * provider APIs the desktop app reads through its built-in browser's login (electron/chatSync.js,
+ * posted here via `ingest`). The detail responses of those APIs have the export's shape, so one
+ * parser serves both. This module itself fetches nothing and sees no login: only conversations.
  *
  * Neither provider publishes a schema (Anthropic help article 9450526, OpenAI help article
  * 7260999 only describe how to request the ZIP); the shapes read here are the ones the exports
@@ -10,8 +11,9 @@
  * chatgpt.go). Every field is optional to the parser: a conversation it cannot read is counted
  * as skipped with a reason, never dropped silently.
  *
- * Store: one JSON line per conversation. In memory only metadata and a lower-cased haystack
- * per conversation; messages are read from the file by offset when a conversation is opened.
+ * Store: one JSON line per conversation, appended on change (the last line of an id wins) and
+ * compacted once stale lines outweigh live ones. In memory only metadata and a lower-cased
+ * haystack per conversation; messages are read from the file by offset when one is opened.
  */
 import fs from 'fs';
 import fsp from 'fs/promises';
@@ -101,7 +103,7 @@ function chatgptText(content) {
   return typeof content.text === 'string' ? content.text.trim() : '';
 }
 
-function parseChatgpt(raw) {
+function parseChatgpt(raw, projectNames) {
   const id = raw?.conversation_id || raw?.id;
   if (typeof id !== 'string' || !id) return { reason: 'no id' };
   const mapping = raw.mapping && typeof raw.mapping === 'object' ? raw.mapping : {};
@@ -127,7 +129,8 @@ function parseChatgpt(raw) {
     .map((m) => ({ role: m.author.role, text: chatgptText(m.content), at: ms(m.create_time) }))
     .filter((m) => m.text);
   if (messages.length === 0) return { reason: 'no messages' };
-  // Chats of a ChatGPT project carry the project as gizmo `g-p-…`; its name is not in the export
+  // Chats of a ChatGPT project carry the project as gizmo `g-p-…`; the export lacks its name,
+  // the sync brings it from the sidebar
   const project =
     typeof raw.gizmo_id === 'string' && raw.gizmo_id.startsWith('g-p-') ? raw.gizmo_id : null;
   return {
@@ -138,7 +141,9 @@ function parseChatgpt(raw) {
       createdAt: ms(raw.create_time) ?? messages[0].at,
       updatedAt: ms(raw.update_time) ?? messages[messages.length - 1].at ?? ms(raw.create_time),
       project,
-      projectName: project ? `Project ${project.slice(4, 12)}` : null,
+      projectName: project
+        ? (projectNames.get(project) ?? `Project ${project.slice(4, 12)}`)
+        : null,
       messages,
     },
   };
@@ -166,14 +171,23 @@ export function parseExport(json, projectNames = new Map()) {
   const provider = detectExport(json);
   if (provider !== 'claude' && provider !== 'chatgpt')
     return { provider: null, found: 0, conversations: [], skipped: {} };
+  return parseAs(provider, json, projectNames);
+}
+
+/**
+ * Conversations of a known provider: an export file's entries or the API's detail responses
+ * (same shapes), so a sync batch is not guessed from its first entry.
+ */
+export function parseAs(provider, list, projectNames = new Map()) {
   const conversations = [];
   const skipped = {};
-  for (const raw of json) {
-    const result = provider === 'claude' ? parseClaude(raw, projectNames) : parseChatgpt(raw);
+  for (const raw of list) {
+    const result =
+      provider === 'claude' ? parseClaude(raw, projectNames) : parseChatgpt(raw, projectNames);
     if (result.conversation) conversations.push(result.conversation);
     else skipped[result.reason] = (skipped[result.reason] ?? 0) + 1;
   }
-  return { provider, found: json.length, conversations, skipped };
+  return { provider, found: list.length, conversations, skipped };
 }
 
 // ---------------------------------------------------------------------------
@@ -236,8 +250,13 @@ export function assignTopics(entries, minSize = 2) {
  */
 export function createChatHistory(dir = path.join(getDataPath(), 'chat-history')) {
   const file = path.join(dir, 'conversations.jsonl');
+  // Where each provider's sync stopped (electron/chatSync.js); no login, only positions
+  const stateFile = path.join(dir, 'sync-state.json');
   /** @type {null | object[]} metadata + `hay`, `offset`, `length` per conversation */
   let index = null;
+  // Bytes in the file, and lines no entry points at any more (replaced conversations)
+  let size = 0;
+  let stale = 0;
 
   const entryOf = (c, offset, length) => ({
     id: c.id,
@@ -267,46 +286,187 @@ export function createChatHistory(dir = path.join(getDataPath(), 'chat-history')
     index ? Promise.resolve(index) : (loading ??= readStore().finally(() => (loading = null)));
 
   async function readStore() {
-    const entries = [];
+    const byId = new Map();
     let buffer;
     try {
       buffer = await fsp.readFile(file);
     } catch {
+      size = stale = 0;
       return (index = []);
     }
     let offset = 0;
+    let lines = 0;
     while (offset < buffer.length) {
       let end = buffer.indexOf(10, offset);
       if (end < 0) end = buffer.length;
       if (end > offset) {
         try {
           const c = JSON.parse(buffer.toString('utf8', offset, end));
-          entries.push(entryOf(c, offset, end - offset));
+          // appended later = newer: the last line of an id wins
+          byId.set(c.id, entryOf(c, offset, end - offset));
           // a large store takes a moment to parse: let other requests through meanwhile
-          if (entries.length % 250 === 0) await setImmediate();
+          if (++lines % 250 === 0) await setImmediate();
         } catch {
           // a torn line (crash while writing) costs that one conversation
         }
       }
       offset = end + 1;
     }
-    return (index = retopic(entries));
+    size = buffer.length;
+    stale = lines - byId.size;
+    // a torn last line must not swallow the next append
+    if (size > 0 && buffer[size - 1] !== 10) {
+      await fsp.appendFile(file, '\n');
+      size++;
+    }
+    return (index = retopic([...byId.values()]));
   }
 
-  async function read(entry) {
+  let writing = Promise.resolve();
+  /** Writers one after the other: an import and a sync batch must not interleave their appends */
+  const exclusive = (fn) => {
+    const run = writing.then(fn);
+    writing = run.catch(() => {});
+    return run;
+  };
+
+  /** Lines appended to the store (stream: an import can be hundreds of MB) */
+  async function append(conversations) {
+    await fsp.mkdir(dir, { recursive: true });
+    const out = fs.createWriteStream(file, { flags: 'a' });
+    const entries = [];
+    let offset = size;
+    for (const c of conversations) {
+      const line = Buffer.from(`${JSON.stringify(c)}\n`, 'utf8');
+      entries.push(entryOf(c, offset, line.length - 1));
+      offset += line.length;
+      if (!out.write(line)) await new Promise((r) => out.once('drain', r));
+    }
+    await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
+    size = offset;
+    return entries;
+  }
+
+  /** Rewrites the file with the live lines only, byte for byte */
+  async function compact() {
+    const tmp = `${file}.tmp`;
+    const out = fs.createWriteStream(tmp);
+    const moved = [];
+    let offset = 0;
+    for (const entry of index) {
+      const line = Buffer.concat([await readRaw(entry), Buffer.from('\n')]);
+      moved.push([entry, offset, line.length - 1]);
+      offset += line.length;
+      if (!out.write(line)) await new Promise((r) => out.once('drain', r));
+    }
+    await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
+    await fsp.rename(tmp, file);
+    // in place and right after the rename: entries a running list() holds point at the new file
+    for (const [entry, at, length] of moved) Object.assign(entry, { offset: at, length });
+    size = offset;
+    stale = 0;
+  }
+
+  /**
+   * Stores conversations; one already stored (same id, e.g. imported from an export and now
+   * synced) is replaced. A replacement without a project name keeps the name it had.
+   * @returns {Promise<{ added: number, updated: number }>}
+   */
+  function upsert(conversations) {
+    return exclusive(async () => {
+      const old = await load();
+      const byId = new Map(old.map((e) => [e.id, e]));
+      const incoming = new Map();
+      for (const c of conversations) {
+        const before = byId.get(c.id);
+        incoming.set(
+          c.id,
+          before && c.projectName == null && c.project != null && c.project === before.project
+            ? { ...c, projectName: before.projectName }
+            : c
+        );
+      }
+      if (incoming.size === 0) return { added: 0, updated: 0 };
+      const updated = [...incoming.keys()].filter((id) => byId.has(id)).length;
+      const fresh = await append(incoming.values());
+      stale += updated;
+      index = retopic([...old.filter((e) => !incoming.has(e.id)), ...fresh]);
+      if (stale >= index.length) await compact();
+      return { added: incoming.size - updated, updated };
+    });
+  }
+
+  async function readState() {
+    try {
+      const saved = JSON.parse(await fsp.readFile(stateFile, 'utf8'));
+      return saved && typeof saved === 'object' ? saved : {};
+    } catch {
+      return {};
+    }
+  }
+
+  /**
+   * What a sync needs to fetch only what changed, per provider: where the last complete sync
+   * stopped (`lastUpdatedAt`, ms), Claude's organisation, and the last activity of every stored
+   * conversation by its provider id (imported ones count: they are not fetched again).
+   */
+  async function syncState() {
+    const saved = await readState();
+    const all = await load();
+    const state = {};
+    for (const provider of ['claude', 'chatgpt']) {
+      const known = {};
+      for (const e of all)
+        if (e.provider === provider) known[e.id.slice(provider.length + 1)] = e.updatedAt ?? 0;
+      const mark = saved[provider]?.lastUpdatedAt;
+      state[provider] = {
+        lastUpdatedAt: Number.isFinite(mark) ? mark : null,
+        ...(provider === 'claude' && typeof saved.claude?.orgId === 'string'
+          ? { orgId: saved.claude.orgId }
+          : {}),
+        known,
+      };
+    }
+    return state;
+  }
+
+  /**
+   * A batch of a sync: the providers' detail responses (export shape), the project names of
+   * that provider and, with the last batch of a complete sync, where it stopped.
+   * @param {{ provider: 'claude'|'chatgpt', conversations: object[],
+   *   projects?: { id: string, name: string }[], state?: { lastUpdatedAt?: number, orgId?: string } }} batch
+   */
+  async function ingest({ provider, conversations, projects = [], state }) {
+    const parsed = parseAs(provider, conversations, new Map(projects.map((p) => [p.id, p.name])));
+    const result = await upsert(parsed.conversations);
+    if (state)
+      await exclusive(async () => {
+        const saved = await readState();
+        saved[provider] = { ...saved[provider], ...state };
+        await fsp.mkdir(dir, { recursive: true });
+        await fsp.writeFile(`${stateFile}.tmp`, JSON.stringify(saved));
+        await fsp.rename(`${stateFile}.tmp`, stateFile);
+      });
+    return {
+      found: parsed.found,
+      skipped: parsed.skipped,
+      ...result,
+      counts: counts(await load()),
+    };
+  }
+
+  async function readRaw(entry) {
+    const { offset, length } = entry;
     const handle = await fsp.open(file, 'r');
     try {
-      const { buffer } = await handle.read(
-        Buffer.alloc(entry.length),
-        0,
-        entry.length,
-        entry.offset
-      );
-      return JSON.parse(buffer.toString('utf8'));
+      const { buffer } = await handle.read(Buffer.alloc(length), 0, length, offset);
+      return buffer;
     } finally {
       await handle.close();
     }
   }
+
+  const read = async (entry) => JSON.parse((await readRaw(entry)).toString('utf8'));
 
   /**
    * Read an unpacked export: a folder (searched two levels deep) or one json file. A
@@ -357,25 +517,7 @@ export function createChatHistory(dir = path.join(getDataPath(), 'chat-history')
         ...(result.provider || json === null ? {} : { error: 'Unknown format' }),
       });
     }
-    if (incoming.size > 0) {
-      const old = await load();
-      await fsp.mkdir(dir, { recursive: true });
-      const tmp = `${file}.tmp`;
-      const out = fs.createWriteStream(tmp);
-      const entries = [];
-      let offset = 0;
-      const write = (c) => {
-        const line = Buffer.from(`${JSON.stringify(c)}\n`, 'utf8');
-        entries.push(entryOf(c, offset, line.length - 1));
-        offset += line.length;
-        if (!out.write(line)) return new Promise((r) => out.once('drain', r));
-      };
-      for (const entry of old) if (!incoming.has(entry.id)) await write(await read(entry));
-      for (const c of incoming.values()) await write(c);
-      await new Promise((resolve, reject) => out.end((err) => (err ? reject(err) : resolve())));
-      await fsp.rename(tmp, file);
-      index = retopic(entries);
-    }
+    if (incoming.size > 0) await upsert([...incoming.values()]);
     return { files: report, counts: counts(await load()) };
   }
 
@@ -447,7 +589,7 @@ export function createChatHistory(dir = path.join(getDataPath(), 'chat-history')
     return { ...metaOf(entry), messages: (await read(entry)).messages };
   }
 
-  return { importFrom, list, get };
+  return { importFrom, upsert, ingest, syncState, list, get };
 }
 
 /** What a client gets of an index entry (not the haystack and file position) */

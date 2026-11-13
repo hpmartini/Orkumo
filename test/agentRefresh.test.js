@@ -27,10 +27,12 @@ describe('agentRefresh - isRelevantChange', () => {
     expect(isRelevantChange('sessions', 'notes.txt')).toBe(false);
   });
 
-  it('omp: session files and cwd folders, not artifacts below a session', () => {
+  it('omp: session files, cwd folders and subagent transcripts, not other artifacts', () => {
     expect(isRelevantChange('omp', '-Users-hape-x/2026_abc.jsonl')).toBe(true);
     expect(isRelevantChange('omp', '-Users-hape-x')).toBe(true);
     expect(isRelevantChange('omp', '-Users-hape-x/2026_abc/artifact.txt')).toBe(false);
+    expect(isRelevantChange('omp', '-Users-hape-x/2026_abc/WorkingFix.jsonl')).toBe(true);
+    expect(isRelevantChange('omp', '-Users-hape-x/2026_abc/local/x.jsonl')).toBe(false);
     expect(isRelevantChange('ompTerminals', 'ttys002')).toBe(true);
   });
 
@@ -140,18 +142,14 @@ describe('agentRefresh - createRefreshScheduler', () => {
     scheduler.stop();
   });
 
-  it('notifyAfter: one trailing run after the last call', async () => {
-    const { run, scheduler } = setup();
+  it('a non-finite reconcileMs never reconciles', async () => {
+    const { run, scheduler } = setup({ reconcileMs: Infinity });
     scheduler.start();
-    await vi.advanceTimersByTimeAsync(5_000);
-    run.mockClear();
-    scheduler.notifyAfter(16_000);
-    await vi.advanceTimersByTimeAsync(10_000);
-    scheduler.notifyAfter(16_000); // re-armed
-    await vi.advanceTimersByTimeAsync(15_999 + 300);
-    expect(run).not.toHaveBeenCalled();
-    await vi.advanceTimersByTimeAsync(1);
+    await vi.advanceTimersByTimeAsync(10 * 60_000);
     expect(run).toHaveBeenCalledTimes(1);
+    scheduler.notify();
+    await vi.advanceTimersByTimeAsync(300);
+    expect(run).toHaveBeenCalledTimes(2);
     scheduler.stop();
   });
 
@@ -160,7 +158,6 @@ describe('agentRefresh - createRefreshScheduler', () => {
     scheduler.start();
     await vi.advanceTimersByTimeAsync(0);
     scheduler.notify();
-    scheduler.notifyAfter(1_000);
     scheduler.stop();
     scheduler.notify();
     scheduler.refreshSoon();

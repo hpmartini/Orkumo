@@ -20,6 +20,37 @@ const BACKLOG_CHARS = 512 * 1024;
 // Event emitter for PTY events
 export const ptyEvents = new EventEmitter();
 
+/** An agent PTY that printed this recently counts as working (TUI spinners repaint several times a second) */
+export const PTY_ACTIVE_MS = 3000;
+/** Output this soon after input or a resize is its echo or repaint, not the agent working */
+const ECHO_MS = 300;
+
+/**
+ * Stamps `outputAt` on an agent pane's PTY; emits `activity` `{ sessionId, active }` when its output
+ * starts and once it has been quiet for `PTY_ACTIVE_MS`, so listeners need not poll.
+ */
+function noteOutput(session) {
+  const now = Date.now();
+  if (now - (session.inputAt ?? 0) < ECHO_MS) return;
+  session.outputAt = now;
+  if (session.activityTimer) return;
+  ptyEvents.emit('activity', { sessionId: session.id, active: true });
+  const settle = () => {
+    const left = session.outputAt + PTY_ACTIVE_MS - Date.now();
+    if (left > 0) {
+      session.activityTimer = setTimeout(settle, left);
+      session.activityTimer.unref?.();
+      return;
+    }
+    session.activityTimer = null;
+    if (ptySessions.get(session.id) === session) {
+      ptyEvents.emit('activity', { sessionId: session.id, active: false });
+    }
+  };
+  session.activityTimer = setTimeout(settle, PTY_ACTIVE_MS);
+  session.activityTimer.unref?.();
+}
+
 /**
  * Detect the best available shell - called lazily to ensure env is fully set up
  * @returns {string} Path to shell binary
@@ -135,7 +166,8 @@ function spawnSpec(cwd, options = {}) {
   const ptyEnv = {
     ...ptyBaseEnv(),
     ...options.env,
-    PATH: enhancedPath,
+    // options.pathPrefix: dirs searched first (orchestrator panes find the `orkumo` CLI)
+    PATH: [...(options.pathPrefix || []), enhancedPath].join(':'),
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     HOME: homeDir,
@@ -184,6 +216,7 @@ function addSession(session) {
       if (session.backlog.length > BACKLOG_CHARS)
         session.backlog = session.backlog.slice(-BACKLOG_CHARS);
     }
+    if (paneIdOf(sessionId)) noteOutput(session);
     ptyEvents.emit('data', { sessionId, data });
   });
 
@@ -372,6 +405,7 @@ export function writeToPty(sessionId, data) {
   const session = ptySessions.get(sessionId);
   if (session && session.pty) {
     session.pty.write(data);
+    session.inputAt = Date.now();
     return true;
   }
   return false;
@@ -389,6 +423,7 @@ export function resizePty(sessionId, cols, rows) {
     session.pty.resize(cols, rows);
     session.cols = cols;
     session.rows = rows;
+    session.inputAt = Date.now();
     return true;
   }
   return false;
@@ -445,6 +480,7 @@ export function getAllPtySessions() {
     cwd: session.cwd,
     pid: session.pty?.pid,
     createdAt: session.createdAt,
+    outputAt: session.outputAt ?? null,
   }));
 }
 

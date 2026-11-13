@@ -114,7 +114,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
   const choices = useMemo(
     () =>
       apps
-        .filter((a) => !a.isArchived && a.name.toLowerCase().includes(query.trim().toLowerCase()))
+        .filter((a) => a.name.toLowerCase().includes(query.trim().toLowerCase()))
         .sort((a, b) => a.name.localeCompare(b.name)),
     [apps, query]
   );
@@ -330,7 +330,8 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                     )}
                   </ul>
                   <div className="mt-1 flex items-center gap-2 text-gray-400">
-                    <span>{selected.size} ausgewählt</span>
+                    {/* Stored ids of missing repos stay selected but are not counted */}
+                    <span>{apps.filter((a) => selected.has(a.id)).length} ausgewählt</span>
                     <button
                       type="button"
                       onClick={onOpenSettings}

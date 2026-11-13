@@ -1,4 +1,4 @@
-import { AppConfig, KeyboardShortcuts } from '../types';
+import { AppConfig, KeyboardShortcuts, ProjectEntry } from '../types';
 import { API_BASE_URL } from '../utils/apiConfig';
 import type { LinkTarget } from '../utils/links';
 
@@ -78,8 +78,58 @@ export async function fetchApps(): Promise<AppConfig[]> {
     port: app.port as number,
     addresses: app.addresses as string[],
     detectedFramework: app.detectedFramework as string,
+    paths: app.paths as string[],
+    worktrees: app.worktrees as string[],
+    mergedIds: app.mergedIds as string[],
+    userNamed: app.userNamed as boolean,
+    source: app.source as AppConfig['source'],
   }));
 }
+
+// ============================================
+// Project configuration (disable, rename, merge, own projects)
+// ============================================
+
+/** JSON body of a mutation; a failure throws the server's message (it names the recovery) */
+async function sendJson<T>(url: string, method: string, body?: unknown): Promise<T> {
+  const response = await fetch(url, {
+    method,
+    headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data.error || `Request failed (${response.status})`);
+  return data as T;
+}
+
+/** Every detected and custom project with its state, disabled and merged ones included */
+export async function fetchProjects(): Promise<ProjectEntry[]> {
+  const response = await fetchWithRetry(`${API_BASE}/projects`);
+  if (!response.ok) throw new Error('Failed to load projects');
+  return (await response.json()).projects;
+}
+
+/** Disabled projects are hidden from the rail, palette and context pickers */
+export const setProjectDisabled = (id: string, disabled: boolean) =>
+  sendJson(`${API_BASE}/settings/archive/${encodeURIComponent(id)}`, 'PUT', { value: disabled });
+
+/** Rename a detected project; an empty name restores the detected one */
+export const renameDetectedProject = (id: string, name: string) =>
+  sendJson(`${API_BASE}/settings/name/${encodeURIComponent(id)}`, 'PUT', { name });
+
+/** Fold a project into another active project; `into` null undoes the merge */
+export const mergeProject = (id: string, into: string | null) =>
+  sendJson(`${API_BASE}/settings/project-merge/${encodeURIComponent(id)}`, 'PUT', { into });
+
+/** Add an own project; every path must be a git root no other project holds */
+export const createCustomProject = (input: { name?: string; paths: string[] }) =>
+  sendJson<{ project: { id: string } }>(`${API_BASE}/settings/projects/custom`, 'POST', input);
+
+export const updateCustomProject = (id: string, patch: { name?: string; paths?: string[] }) =>
+  sendJson(`${API_BASE}/settings/projects/custom/${encodeURIComponent(id)}`, 'PUT', patch);
+
+export const deleteCustomProject = (id: string) =>
+  sendJson(`${API_BASE}/settings/projects/custom/${encodeURIComponent(id)}`, 'DELETE');
 
 /**
  * Configuration API
@@ -147,6 +197,8 @@ export interface AppSettings {
   keyboardShortcuts?: KeyboardShortcuts;
   /** Where clicked links open (#140); missing on old servers means built-in */
   linkTarget?: LinkTarget;
+  /** Desktop app: check and download updates automatically; missing means on */
+  autoUpdate?: boolean;
   version: number;
 }
 
@@ -214,6 +266,21 @@ export async function updateLinkTarget(
   });
   if (!response.ok) {
     throw new Error('Failed to update link target');
+  }
+  return response.json();
+}
+
+/**
+ * Turn automatic app updates on or off (desktop app; electron/updater.js reads it)
+ */
+export async function updateAutoUpdate(autoUpdate: boolean): Promise<{ autoUpdate: boolean }> {
+  const response = await fetch(`${API_BASE}/settings/auto-update`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ autoUpdate }),
+  });
+  if (!response.ok) {
+    throw new Error('Failed to save the auto-update setting');
   }
   return response.json();
 }

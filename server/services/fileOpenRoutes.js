@@ -10,7 +10,7 @@ import { isLoopbackOrigin } from './remoteAccess.js';
 /**
  * POST /api/files/open - open a file path clicked in the terminal (#188) with its default macOS app.
  * Runs on the host, so: only existing paths under home or temp, and anything that could launch
- * code is revealed in Finder (`open -R`) instead of opened.
+ * code is revealed in Finder (`open -R`) instead of opened; `reveal: true` always reveals.
  * POST /api/files/open-in-editor - the same path in VS Code, in the window of the session's project.
  */
 const router = express.Router();
@@ -119,6 +119,9 @@ const editorSchema = openSchema.extend({
   col: z.number().int().positive().max(100_000).optional(),
 });
 
+/** `reveal: true` shows the file in Finder instead of opening it ("Reveal in Finder") */
+const revealSchema = openSchema.extend({ reveal: z.boolean().optional() });
+
 /** Loopback, macOS, valid body; otherwise answers the request and returns null */
 function parseRequest(req, res, schema) {
   if (!isLoopbackOrigin(req.headers.origin)) {
@@ -191,10 +194,11 @@ export function editorArgs(file, folder, line, col) {
 }
 
 router.post('/open', openLimiter, (req, res) => {
-  const body = parseRequest(req, res, openSchema);
+  const body = parseRequest(req, res, revealSchema);
   if (!body) return;
   const target = resolveOrReply(res, body.path, body.cwd);
-  if (target) openWithDefaultApp(res, target);
+  // `reveal` only ever downgrades opening to showing the file in Finder
+  if (target) openWithDefaultApp(res, body.reveal ? { ...target, reveal: true } : target);
 });
 
 router.post('/open-in-editor', openLimiter, (req, res) => {

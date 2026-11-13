@@ -28,7 +28,17 @@ export const DirectoryPicker: React.FC<{
   onPick: (path: string) => void;
   /** Placeholder of the filter field when the directory is not a dispatch target */
   label?: string;
-}> = ({ choices, current, home, onCancel, onPick, label = 'Directory for new sessions…' }) => {
+  /** false: only the listed choices, no free path (fixed projects must be projects) */
+  allowPath?: boolean;
+}> = ({
+  choices,
+  current,
+  home,
+  onCancel,
+  onPick,
+  label = 'Directory for new sessions…',
+  allowPath = true,
+}) => {
   const [query, setQuery] = useState('');
   const [custom, setCustom] = useState(current || '');
   const [collapsed, setCollapsed] = useState(loadCollapsed);
@@ -160,23 +170,25 @@ export const DirectoryPicker: React.FC<{
             <div className="px-4 py-4 text-sm text-gray-500">No matches.</div>
           )}
         </div>
-        <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-800">
-          <input
-            value={custom}
-            onChange={(e) => setCustom(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' && custom.trim()) onPick(custom.trim());
-            }}
-            placeholder="/absolute/path"
-            className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono text-gray-100 outline-none focus:border-blue-500"
-          />
-          <button
-            onClick={() => custom.trim() && onPick(custom.trim())}
-            className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs"
-          >
-            Use path
-          </button>
-        </div>
+        {allowPath && (
+          <div className="flex items-center gap-2 px-4 py-2 border-t border-gray-800">
+            <input
+              value={custom}
+              onChange={(e) => setCustom(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && custom.trim()) onPick(custom.trim());
+              }}
+              placeholder="/absolute/path"
+              className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs font-mono text-gray-100 outline-none focus:border-blue-500"
+            />
+            <button
+              onClick={() => custom.trim() && onPick(custom.trim())}
+              className="px-3 py-1 rounded bg-blue-600 hover:bg-blue-500 text-white text-xs"
+            >
+              Use path
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ import {
 import { isElectron, isNativeApp } from './utils/apiConfig';
 import { Bot, Rocket } from 'lucide-react';
 import { PassThroughToaster } from './components/PassThroughToaster';
+import { UpdateBanner } from './components/UpdatesSection';
 import {
   ToolVersions,
   ErrorBoundary,
@@ -36,6 +37,7 @@ import {
 import type { PaletteCommand } from './utils/commandPalette';
 import { codeUrl } from './utils/codeTarget';
 import { fetchConfig } from './services/api';
+import { PROJECT_SETTINGS_EVENT } from './components/ProjectsSettings';
 import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
@@ -80,8 +82,12 @@ function AppContent() {
   const contextAppIds = contexts.active?.appIds;
   const contextApps = useMemo(() => {
     if (!contextAppIds) return apps;
+    // Ids naming no project are ignored, not dropped: the repo comes back when it reappears;
+    // a member merged into another project brings that project
     const members = new Set(contextAppIds);
-    return apps.filter((app) => members.has(app.id));
+    return apps.filter(
+      (app) => members.has(app.id) || !!app.mergedIds?.some((id) => members.has(id))
+    );
   }, [apps, contextAppIds]);
   // A context without own project list spans everything, like its other views
   const dashboardScope = useMemo(
@@ -100,6 +106,16 @@ function AppContent() {
   const [editingContext, setEditingContext] = useState<string | null>(null);
 
   const [adminPanelOpen, setAdminPanelOpen] = useState(false);
+  /** Project the settings open at (rail group menu "Project settings…") */
+  const [adminProjectId, setAdminProjectId] = useState<string | null>(null);
+  useEffect(() => {
+    const open = (event: Event & { detail?: { projectId?: string } }) => {
+      setAdminProjectId(event.detail?.projectId ?? null);
+      setAdminPanelOpen(true);
+    };
+    window.addEventListener(PROJECT_SETTINGS_EVENT, open);
+    return () => window.removeEventListener(PROJECT_SETTINGS_EVENT, open);
+  }, []);
 
   const navigateRef = useRef(navigate);
   useEffect(() => {
@@ -143,6 +159,9 @@ function AppContent() {
       offOpenLink?.();
     };
   }, []);
+
+  // Menu "Settings…" (Cmd+,); only opens, so the renderer's own Cmd+, firing too is harmless
+  useEffect(() => window.electronAPI?.onOpenSettings?.(() => setAdminPanelOpen(true)), []);
 
   const handleSelectDashboard = () => navigate('/dashboard');
   const handleSelectContextDashboard = () => navigate('/dashboard?scope=context');
@@ -229,17 +248,16 @@ function AppContent() {
       )
     ),
     command('context.new', 'New context', 'Context', () => setEditingContext('new')),
-    ...contextApps
-      .filter((a) => !a.isArchived)
-      .map(
-        (a): PaletteCommand => ({
-          id: `project.${a.id}`,
-          title: a.name,
-          group: 'Project',
-          scope: 'project',
-          run: () => handleSelectApp(a.id),
-        })
-      ),
+    // Disabled projects never reach the client (GET /api/apps leaves them out)
+    ...contextApps.map(
+      (a): PaletteCommand => ({
+        id: `project.${a.id}`,
+        title: a.name,
+        group: 'Project',
+        scope: 'project',
+        run: () => handleSelectApp(a.id),
+      })
+    ),
   ];
   useRegisterCommands('app', paletteCommands);
   const palette = useCommandPalette();
@@ -320,6 +338,8 @@ function AppContent() {
                 apps={apps}
                 onExit={handleSelectDashboard}
                 onOpenView={openAgentsView}
+                // Chats mode lists its conversations in the rail column (#280)
+                railOutlet={activeTab === 'chats'}
                 nav={{
                   onOpenDashboard: handleSelectDashboard,
                   onOpenContextDashboard: handleSelectContextDashboard,
@@ -433,7 +453,7 @@ function AppContent() {
                   />
                 </div>
 
-                {/* Imported claude.ai / ChatGPT conversations (#280) */}
+                {/* claude.ai / ChatGPT conversations, synced from the built-in browser's login or imported (#280) */}
                 {activeTab === 'chats' && (
                   <div className="absolute inset-0 z-10 flex flex-col min-h-0">
                     <ChatHistoryPage />
@@ -478,12 +498,19 @@ function AppContent() {
       {/* Admin Panel Modal */}
       <AdminPanel
         isOpen={adminPanelOpen}
-        onClose={() => setAdminPanelOpen(false)}
+        focusProjectId={adminProjectId}
+        onClose={() => {
+          setAdminPanelOpen(false);
+          setAdminProjectId(null);
+        }}
         onConfigChange={() => {
           refreshApps();
           loadProjectDirs();
         }}
       />
+
+      {/* Desktop app: update progress and "Restart to update" (electron/updater.js) */}
+      <UpdateBanner />
 
       <ModuleSlot modules={modules} />
     </div>

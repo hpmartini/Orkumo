@@ -38,12 +38,9 @@ describe('codeTarget', () => {
     expect(linkedAgentFolder(['b'], sessions, { b: ctx('/b/wt') })).toBe('/b/wt');
   });
 
-  it('codeFolders lists projects first, one entry per path, no archived apps', () => {
+  it('codeFolders lists projects first, one entry per path', () => {
     const folders = codeFolders(
-      [
-        { name: 'Zeta', path: '/z' },
-        { name: 'Old', path: '/o', isArchived: true },
-      ],
+      [{ name: 'Zeta', path: '/z' }],
       [
         { name: 'z', path: '/z' },
         { name: 'wt', path: '/z/.claude/worktrees/wt' },

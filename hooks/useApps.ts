@@ -74,13 +74,12 @@ export function useApps(): UseAppsReturn {
       // Store settings in state
       setSettings(fetchedSettings);
 
-      // Enrich app data with backend settings
+      // Names and disabled projects are applied by the server (project overrides); favorites
+      // and ports stay client-side enrichment
       setApps(
         data.map((app) => ({
           ...app,
-          name: fetchedSettings.customNames[app.id] ?? app.name,
           isFavorite: fetchedSettings.favorites.includes(app.id),
-          isArchived: fetchedSettings.archived.includes(app.id),
           port: fetchedSettings.customPorts[app.id] ?? app.port,
           addresses: fetchedSettings.customPorts[app.id]
             ? [`http://localhost:${fetchedSettings.customPorts[app.id]}`]

@@ -98,14 +98,19 @@ export function useKeyboardShortcuts({
     (event: KeyboardEvent) => {
       if (!enabled) return;
 
-      // Don't trigger shortcuts when typing in input fields
+      // Typing in a field (inputs, the composer, a terminal's hidden textarea) keeps plain keys;
+      // a Cmd chord never types (Cmd+, from a terminal opens the settings). Off macOS Ctrl stays
+      // with a terminal, where it is readline's
       const target = event.target as HTMLElement;
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const chord = isMac ? event.metaKey : event.ctrlKey && !target.closest?.('.xterm');
       if (
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable ||
-        // Plain-key shortcuts must not fire from buttons inside an open dialog (palette, composer)
-        target.closest?.('[role="dialog"][aria-modal="true"]')
+        !chord &&
+        (target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.isContentEditable ||
+          // Plain-key shortcuts must not fire from buttons inside an open dialog (palette, composer)
+          target.closest?.('[role="dialog"][aria-modal="true"]'))
       ) {
         return;
       }

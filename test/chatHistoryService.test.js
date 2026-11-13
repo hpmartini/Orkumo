@@ -6,13 +6,18 @@ import {
   assignTopics,
   createChatHistory,
   detectExport,
+  parseAs,
   parseExport,
   NO_TOPIC,
 } from '../server/services/chatHistoryService.js';
+import { gizmoProjects, stripChatgpt, stripClaude } from '../electron/chatSync.js';
 
 // Invented data in the shape of the official exports; no real conversation, account or project
 const FIXTURES = path.join(__dirname, 'fixtures/chat-exports');
 const json = (file) => JSON.parse(fs.readFileSync(path.join(FIXTURES, file), 'utf8'));
+// Invented data in the shape of the providers' web API detail responses (electron/chatSync.js)
+const api = (file) =>
+  JSON.parse(fs.readFileSync(path.join(__dirname, 'fixtures/chat-api', file), 'utf8'));
 
 let dir;
 beforeEach(() => (dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-history-'))));
@@ -235,4 +240,154 @@ describe('store', () => {
     expect(hit.items.map((i) => i.title)).toEqual(['Verlauf 3210']);
     expect(warmMs).toBeLessThan(1000);
   }, 60000);
+});
+
+describe('desktop sync: API responses and ingest (#280)', () => {
+  const CLAUDE_ID = 'claude:11111111-0000-4000-8000-000000000002';
+  const GPT_ID = 'chatgpt:33333333-0000-4000-8000-000000000002';
+  const lines = () =>
+    fs.readFileSync(path.join(dir, 'conversations.jsonl'), 'utf8').split('\n').filter(Boolean);
+
+  it('reads a claude.ai detail response: current branch, files, no tool blocks', () => {
+    const raw = api('claude-conversation.json');
+    for (const input of [raw, stripClaude(raw)]) {
+      const { conversations, skipped } = parseAs('claude', [input]);
+      expect(skipped).toEqual({});
+      expect(conversations[0]).toMatchObject({
+        id: CLAUDE_ID,
+        title: 'Fahrrad Kette wechseln',
+        updatedAt: Date.parse('2026-04-02T10:00:00Z'),
+        project: '22222222-0000-4000-8000-000000000002',
+      });
+      expect(conversations[0].messages.map((m) => [m.role, m.text])).toEqual([
+        ['user', 'Wie wechsle ich die Kette am Fahrrad?\n[File: kette.jpg]'],
+        ['assistant', 'Mit einem Kettennieter: Glied öffnen, neue Kette einfädeln.'],
+        ['user', 'Und wie lang muss die neue Kette sein?\n[File: notiz.txt]'],
+        ['assistant', 'Großes Blatt, größtes Ritzel, plus zwei Glieder.'],
+      ]);
+    }
+    // only what the parser reads goes to the server
+    expect(JSON.stringify(stripClaude(raw))).not.toMatch(/preview_url|extracted_content|thinking/);
+  });
+
+  it('reads a ChatGPT detail response: shown path, no tool calls, project name from the sidebar', () => {
+    const raw = api('chatgpt-conversation.json');
+    const projects = gizmoProjects(api('chatgpt-sidebar.json'));
+    expect(projects).toEqual([{ id: 'g-p-0123456789abcdef0123456789abcdef', name: 'Werkstatt' }]);
+    const names = new Map(projects.map((p) => [p.id, p.name]));
+    for (const input of [raw, stripChatgpt(raw)]) {
+      const [conversation] = parseAs('chatgpt', [input], names).conversations;
+      expect(conversation).toMatchObject({
+        id: GPT_ID,
+        updatedAt: 1775120400123,
+        projectName: 'Werkstatt',
+      });
+      expect(conversation.messages.map((m) => m.text)).toEqual([
+        'Wie flicke ich einen Reifen?',
+        'Loch suchen, anrauen, Flicken drauf.',
+        '[image_asset_pointer]\nHier ein Foto vom Ventil',
+        'Ein Sclaverand-Ventil: Mutter oben aufdrehen.',
+      ]);
+    }
+    expect(JSON.stringify(stripChatgpt(raw))).not.toMatch(/safe_urls|file-service|request_id/);
+  });
+
+  it('a synced conversation replaces the imported one with the same id', async () => {
+    const history = createChatHistory(dir);
+    await history.importFrom(FIXTURES);
+    const result = await history.ingest({
+      provider: 'claude',
+      conversations: [stripClaude(api('claude-conversation.json'))],
+      projects: [{ id: '22222222-0000-4000-8000-000000000002', name: 'Werkstatt' }],
+    });
+    expect(result).toMatchObject({
+      found: 1,
+      added: 0,
+      updated: 1,
+      counts: { claude: 3, chatgpt: 3 },
+    });
+    const merged = await history.get(CLAUDE_ID);
+    expect(merged.messages).toHaveLength(4);
+    expect(merged.projectName).toBe('Werkstatt');
+    // newest first: the synced change moved it to the top
+    expect((await history.list()).items[0].id).toBe(CLAUDE_ID);
+
+    // after a restart the last line of an id wins
+    const reread = createChatHistory(dir);
+    expect((await reread.list()).total).toBe(6);
+    expect((await reread.get(CLAUDE_ID)).messages).toHaveLength(4);
+  });
+
+  it('keeps a project name the replacement lacks; appends, compacts once stale outweighs live', async () => {
+    const history = createChatHistory(dir);
+    const chat = (n, patch = {}) => ({
+      id: `claude:c${n}`,
+      provider: 'claude',
+      title: `Chat ${n}`,
+      createdAt: 1,
+      updatedAt: 1000 + n,
+      project: 'p1',
+      projectName: 'Backstube',
+      messages: [{ role: 'user', text: `Frage ${n}`, at: null }],
+      ...patch,
+    });
+    expect(await history.upsert([chat(1), chat(2), chat(3)])).toEqual({ added: 3, updated: 0 });
+    expect(await history.upsert([chat(1, { projectName: null, updatedAt: 5000 })])).toEqual({
+      added: 0,
+      updated: 1,
+    });
+    expect((await history.get('claude:c1')).projectName).toBe('Backstube');
+    expect(lines()).toHaveLength(4); // appended, the old line of c1 is stale
+
+    await history.upsert([chat(2, { title: 'Neu 2' }), chat(3, { title: 'Neu 3' })]);
+    // 3 stale vs 3 live: rewritten with the live lines only, still readable
+    expect(lines()).toHaveLength(3);
+    expect((await history.get('claude:c2')).title).toBe('Neu 2');
+    expect((await history.get('claude:c1')).messages[0].text).toBe('Frage 1');
+    expect((await createChatHistory(dir).list()).items.map((i) => i.id)).toEqual([
+      'claude:c1',
+      'claude:c3',
+      'claude:c2',
+    ]);
+  });
+
+  it('serialises concurrent writers', async () => {
+    const history = createChatHistory(dir);
+    const one = (n) => ({
+      id: `chatgpt:x${n}`,
+      provider: 'chatgpt',
+      title: `T${n}`,
+      createdAt: n,
+      updatedAt: n,
+      project: null,
+      projectName: null,
+      messages: [{ role: 'user', text: `m${n}`, at: null }],
+    });
+    await Promise.all(Array.from({ length: 20 }, (_, n) => history.upsert([one(n)])));
+    const fresh = createChatHistory(dir);
+    expect((await fresh.list()).total).toBe(20);
+    for (let n = 0; n < 20; n++) expect((await fresh.get(`chatgpt:x${n}`)).title).toBe(`T${n}`);
+  });
+
+  it('sync state: stop mark and org per provider, last activity of every stored conversation', async () => {
+    const history = createChatHistory(dir);
+    await history.importFrom(FIXTURES);
+    const before = await history.syncState();
+    expect(before.claude.lastUpdatedAt).toBeNull();
+    expect(before.claude.known['11111111-0000-4000-8000-000000000001']).toBe(
+      Date.parse('2026-01-05T08:10:00Z')
+    );
+    expect(before.chatgpt.known['33333333-0000-4000-8000-000000000001']).toBe(1767600600000);
+    expect(Object.keys(before.chatgpt.known)).toHaveLength(3);
+
+    await history.ingest({
+      provider: 'claude',
+      conversations: [],
+      state: { lastUpdatedAt: 42, orgId: 'org-1' },
+    });
+    await history.ingest({ provider: 'claude', conversations: [], state: { lastUpdatedAt: 43 } });
+    const after = await createChatHistory(dir).syncState();
+    expect(after.claude).toMatchObject({ lastUpdatedAt: 43, orgId: 'org-1' });
+    expect(after.chatgpt.lastUpdatedAt).toBeNull();
+  });
 });

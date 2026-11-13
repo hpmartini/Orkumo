@@ -40,14 +40,23 @@ import {
 } from '../types';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 import { RemotePairingSection } from './RemotePairingSection';
+import { UpdatesSection } from './UpdatesSection';
+import { ProjectsSettings } from './ProjectsSettings';
 
 interface AdminPanelProps {
   isOpen: boolean;
   onClose: () => void;
   onConfigChange: () => void;
+  /** Open at this project in the Projects section (rail group menu "Project settings…") */
+  focusProjectId?: string | null;
 }
 
-export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfigChange }) => {
+export const AdminPanel: React.FC<AdminPanelProps> = ({
+  isOpen,
+  onClose,
+  onConfigChange,
+  focusProjectId,
+}) => {
   const [config, setConfig] = useState<Config | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -504,6 +513,15 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
             </div>
           </div>
 
+          {/* Projects: detected git repos plus own ones; rename, disable, merge */}
+          <div className="pt-4 border-t border-gray-700">
+            <ProjectsSettings
+              focusProjectId={focusProjectId}
+              refreshKey={config ? `${config.directories.join('|')}:${config.scanDepth}` : ''}
+              onChange={onConfigChange}
+            />
+          </div>
+
           {/* Links Section (#140) */}
           <fieldset className="pt-4 border-t border-gray-700">
             <legend className="flex items-center gap-2 mb-3 text-sm font-medium text-gray-300">
@@ -827,6 +845,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({ isOpen, onClose, onConfi
               Click a shortcut to edit it, then press your desired key combination.
             </p>
           </div>
+
+          <UpdatesSection />
         </div>
 
         {/* Footer */}

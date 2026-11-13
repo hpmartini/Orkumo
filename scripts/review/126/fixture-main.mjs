@@ -1,20 +1,30 @@
-// Minimal Electron app for the #126 update e2e: wires electron/updater.js exactly like electron/main.js,
-// but answers dialogs automatically and writes every step to $ORKUMO_E2E_LOG.
-import { app } from 'electron';
-import { setImmediate } from 'node:timers';
+// Minimal Electron app for the #126 update e2e: wires electron/updater.js like electron/main.js and writes
+// every step to $ORKUMO_E2E_LOG. A fixture relaunched by the macOS swap (`open`, without this shell's env)
+// reads the same variables from e2e-env.json next to its bundle.
+// ORKUMO_E2E_SWAP=1 allows the macOS bundle swap; without it an ad-hoc fixture stays in notify mode.
+import { app, net } from 'electron';
 import electronUpdater from 'electron-updater';
 import fs from 'node:fs';
+import path from 'node:path';
 import {
   setupUpdater,
   resolveUpdateMode,
   hasUpdateConfigFile,
   isDeveloperIdSigned,
   appBundlePath,
+  canSwapBundle,
 } from '../../../electron/updater.js';
 
-const logFile = process.env.ORKUMO_E2E_LOG;
+const bundle = appBundlePath(process.execPath);
+const envFile = path.join(path.dirname(bundle), 'e2e-env.json');
+const env =
+  !process.env.ORKUMO_E2E_LOG && fs.existsSync(envFile)
+    ? { ...process.env, ...JSON.parse(fs.readFileSync(envFile, 'utf8')) }
+    : process.env;
+if (env.ORKUMO_E2E_DATA) app.setPath('userData', env.ORKUMO_E2E_DATA);
+
 const write = (line) => {
-  if (logFile) fs.appendFileSync(logFile, `${line}\n`);
+  if (env.ORKUMO_E2E_LOG) fs.appendFileSync(env.ORKUMO_E2E_LOG, `${line}\n`);
 };
 const log = {
   log: (...a) => write(a.join(' ')),
@@ -23,39 +33,44 @@ const log = {
 
 app.whenReady().then(async () => {
   write(`version ${app.getVersion()}`);
-  const fakeDialog = {
-    showMessageBox: async (...args) => {
-      const options = args.at(-1);
-      write(`dialog ${options.type} "${options.title}" "${options.message}"`);
-      return { response: 0 };
-    },
-  };
-  const fakeShell = { openExternal: async (url) => write(`openExternal ${url}`) };
   const mode = resolveUpdateMode({
     isDev: !app.isPackaged,
     platform: process.platform,
-    env: process.env,
+    env,
     hasUpdateConfig: hasUpdateConfigFile(process.resourcesPath),
-    macSigned: () => isDeveloperIdSigned(appBundlePath(process.execPath)),
+    macSigned: () => isDeveloperIdSigned(bundle),
+    canSwap: () => env.ORKUMO_E2E_SWAP === '1' && canSwapBundle(bundle),
   });
-  const updater = electronUpdater.autoUpdater;
-  updater.on('update-downloaded', () => write('downloaded'));
-  const check = setupUpdater({
-    autoUpdater: updater,
-    dialog: fakeDialog,
-    shell: fakeShell,
-    getWindow: () => null,
+  const updater = setupUpdater({
     mode,
+    autoUpdater: electronUpdater.autoUpdater,
+    currentVersion: app.getVersion(),
+    env,
     log,
+    fetch: (url, init) => net.fetch(url, init),
+    updatesDir: path.join(app.getPath('userData'), 'updates'),
+    bundlePath: bundle,
+    bundleId: 'com.devorbit.update-fixture',
+    onStatus: (s) =>
+      write(
+        ['status', s.state, s.version, s.releaseUrl, s.error && `error=${s.error}`]
+          .filter(Boolean)
+          .join(' ')
+      ),
+    quit: () => app.quit(),
   });
-  if (!check) return app.exit(0);
-  const result = await check();
-  write(`check-done available=${Boolean(result?.isUpdateAvailable)}`);
-  // install mode with an update: download + quitAndInstall end the process; otherwise done
-  // no timers: a windowless app gets App Nap on macOS and its timers may not fire for minutes
-  if (mode !== 'install' || !result?.isUpdateAvailable) {
-    for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r)); // let the dialog handler finish
-    write('exiting');
-    app.exit(0);
+  const status = await updater.check();
+  write(`check-done state=${status.state}`);
+  // install/swap with a downloaded update: Restart ends the process (Squirrel/AppImage or the swap helper)
+  if (status.state === 'ready') {
+    write('installing');
+    const result = updater.install();
+    if (!result.success) {
+      write(`install-failed ${result.error}`);
+      app.exit(1);
+    }
+    return;
   }
+  write('exiting');
+  app.exit(0);
 });

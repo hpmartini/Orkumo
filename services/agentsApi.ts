@@ -426,6 +426,26 @@ export const fetchChatShell = (id: string, shellId: string) =>
     chatPath(id, `shells/${encodeURIComponent(shellId)}`)
   );
 
+/** A file the chat's agent created or edited, or one of omp's session documents (`local://`) */
+export interface ChatArtifact {
+  path: string;
+  name: string;
+  kind: 'file' | 'document';
+  action: 'created' | 'edited';
+  size: number | null;
+  mtime: number | null;
+  exists: boolean;
+}
+
+export const fetchChatArtifacts = (id: string) =>
+  request<{ artifacts: ChatArtifact[] }>(chatPath(id, 'artifacts')).then((d) => d.artifacts);
+
+/** Text of a listed artifact; throws with the server's reason (binary, too large, outside) */
+export const fetchChatArtifactContent = (id: string, path: string) =>
+  request<{ path: string; content: string; size: number; mtime: number }>(
+    `${chatPath(id, 'artifacts/content')}?path=${encodeURIComponent(path)}`
+  );
+
 /** Preview URL of an image stored by uploadAgentImage; null for any other path */
 export function agentImageUrl(path: string): string | null {
   const name = path.split('/').pop() ?? '';

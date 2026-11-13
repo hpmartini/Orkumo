@@ -7,6 +7,10 @@ import {
   parseSessionHead,
   parseOmpPids,
   parseLsof,
+  runningSessionFiles,
+  currentHolders,
+  turnSignal,
+  readTurnState,
   listOmpSessions,
   findOmpSessionFile,
   readOmpTranscriptTail,
@@ -141,6 +145,192 @@ describe('running omp processes', () => {
   });
 });
 
+describe('running omp processes - subagents and failed scans', () => {
+  it('maps an open subagent transcript to its parent session; a session file of its own wins', () => {
+    const app = `${dir}/-PROJECTS-app`;
+    const lsof = [
+      'p100',
+      'n/dev/ttys044',
+      `n${app}/x_${RUNNING}/WorkingDetection.jsonl`,
+      `n${app}/x_${RUNNING}/WorkingDetection/Nested.jsonl`,
+      'p200',
+      `n${app}/x_${ELSEWHERE}/SkillsDetection.jsonl`,
+      `n${app}/x_${ELSEWHERE}.jsonl`,
+      'p300',
+      'n/dev/ttys050',
+    ].join('\n');
+    expect(parseLsof(lsof, dir)).toEqual(
+      new Map([
+        // the subagent's file never becomes the holder: the parent runs in this process
+        [100, { file: `${app}/x_${RUNNING}.jsonl`, tty: 'ttys044' }],
+        [200, { file: `${app}/x_${ELSEWHERE}.jsonl`, tty: null }],
+        [300, { file: null, tty: 'ttys050' }],
+      ])
+    );
+  });
+
+  it('keeps the previous holders when ps or lsof fails', async () => {
+    const root = path.join(os.tmpdir(), 'omp-holders-test');
+    const file = path.join(root, '-w', `x_${RUNNING}.jsonl`);
+    const ok = async (command) => (command === 'ps' ? '42 omp\n7 launchd\n' : `p42\nn${file}\n`);
+    expect(await currentHolders(root, { exec: ok })).toEqual(new Map([[file, 42]]));
+    const lsofFails = async (command) => (command === 'ps' ? '42 omp\n' : null);
+    expect(await runningSessionFiles(root, { exec: lsofFails })).toBeNull();
+    expect(await currentHolders(root, { exec: lsofFails })).toEqual(new Map([[file, 42]]));
+    expect(await currentHolders(root, { exec: async () => null })).toEqual(new Map([[file, 42]]));
+    // a scan that answers "no omp runs" is not a failure
+    const none = async (command) => (command === 'ps' ? '7 launchd\n' : null);
+    expect(await currentHolders(root, { exec: none })).toEqual(new Map());
+  });
+});
+
+describe('omp turn state from the session tail', () => {
+  const message = (role, extra = {}) => ({
+    type: 'message',
+    message: { role, content: [{ type: 'text', text: 'x' }], ...extra },
+  });
+  const custom = (customType) => ({ type: 'custom', customType, data: {} });
+  const notice = (customType, attribution = 'agent') => ({
+    type: 'custom_message',
+    customType,
+    attribution,
+    content: 'x',
+  });
+
+  it('classifies the records that open or end a turn and ignores bookkeeping', () => {
+    expect(turnSignal(message('assistant', { stopReason: 'toolUse' }))).toBe('working');
+    expect(turnSignal(message('user'))).toBe('working');
+    expect(turnSignal(message('toolResult'))).toBe('working');
+    expect(turnSignal(custom('tool_execution_start'))).toBe('working');
+    expect(turnSignal(notice('skill-prompt', 'user'))).toBe('working');
+    expect(turnSignal(notice('async-result'))).toBe('working');
+    for (const stopReason of ['stop', 'aborted', 'error', 'length']) {
+      expect(turnSignal(message('assistant', { stopReason }))).toBe('idle');
+    }
+    expect(turnSignal(custom('session_exit'))).toBe('idle');
+    expect(turnSignal(message('assistant'))).toBe('unknown');
+    for (const record of [
+      { type: 'title', title: 'x' },
+      { type: 'title_change', title: 'x' },
+      { type: 'model_usage', purpose: 'title' },
+      custom('date-cwd-reminder'),
+      custom('system-prompt-digest'),
+      notice('eval-state-context'),
+      notice('mid-run-todo-nudge'),
+    ]) {
+      expect(turnSignal(record)).toBeNull();
+    }
+  });
+
+  let root;
+  const stamp = Date.now();
+  const write = (file, records, mtime) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, records.map(line).join('\n') + '\n');
+    fs.utimesSync(file, mtime / 1000, mtime / 1000);
+    return file;
+  };
+  const session = (id, records, mtime) =>
+    write(
+      path.join(root, '-w', `2026-11-09T13-53-05-245Z_${id}.jsonl`),
+      [
+        { type: 'title', v: 1, title: `t ${id.slice(0, 4)}` },
+        { type: 'session', version: 3, id, timestamp: '2026-11-09T13:53:05.245Z', cwd: '/w' },
+        message('user'),
+        ...records,
+      ],
+      mtime
+    );
+  const ids = Array.from({ length: 7 }, (_, i) => `01a1d0${i}0-bafe-7128-b415-8612c599aa56`);
+  const [TOOL, AFTER_STOP, EXITED, SUBAGENT, STALE_SUB, PANE, HUGE] = ids;
+  const running = new Map();
+
+  beforeAll(() => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'omp-turns-'));
+    const tenMinAgo = stamp - 10 * 60_000;
+    const add = (id, records, mtime) => running.set(session(id, records, mtime), running.size + 1);
+    // a long tool run: nothing written for 10 minutes
+    add(
+      TOOL,
+      [message('assistant', { stopReason: 'toolUse' }), custom('tool_execution_start')],
+      tenMinAgo
+    );
+    // the turn ended; title, usage and reminders written just now are no work
+    add(
+      AFTER_STOP,
+      [
+        message('assistant', { stopReason: 'stop' }),
+        { type: 'model_usage', purpose: 'title' },
+        { type: 'title_change', title: 'x' },
+        custom('date-cwd-reminder'),
+        notice('eval-state-context'),
+      ],
+      stamp
+    );
+    add(EXITED, [message('assistant', { stopReason: 'stop' }), custom('session_exit')], stamp);
+    // parent idle, its subagent mid-turn and written since
+    add(SUBAGENT, [message('assistant', { stopReason: 'stop' })], tenMinAgo);
+    write(
+      path.join(root, '-w', `2026-11-09T13-53-05-245Z_${SUBAGENT}`, 'Worker.jsonl'),
+      [message('user'), message('assistant', { stopReason: 'toolUse' })],
+      stamp
+    );
+    // a subagent left mid-turn before the parent's last write (killed): no work
+    add(STALE_SUB, [message('assistant', { stopReason: 'stop' })], stamp);
+    write(
+      path.join(root, '-w', `2026-11-09T13-53-05-245Z_${STALE_SUB}`, 'Worker.jsonl'),
+      [message('user')],
+      tenMinAgo
+    );
+    add(PANE, [message('assistant', { stopReason: 'stop' })], tenMinAgo);
+    // a tool result far larger than one read chunk ends the file
+    add(
+      HUGE,
+      [
+        message('assistant', { stopReason: 'toolUse' }),
+        { type: 'message', message: { role: 'toolResult', content: 'y'.repeat(300_000) } },
+      ],
+      tenMinAgo
+    );
+  });
+  afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
+
+  it('reads the open turn from the tail, cached per size and mtime', async () => {
+    const file = [...running.keys()].find((f) => f.includes(HUGE));
+    const { size, mtimeMs } = fs.statSync(file);
+    expect(await readTurnState(file, size, mtimeMs)).toBe('working');
+    const done = [...running.keys()].find((f) => f.includes(AFTER_STOP));
+    const stat = fs.statSync(done);
+    expect(await readTurnState(done, stat.size, stat.mtimeMs)).toBe('idle');
+  });
+
+  it('marks running sessions working by turn, subagent or pane output', async () => {
+    const pid = (id) => running.get([...running.keys()].find((f) => f.includes(id)));
+    const rows = await listOmpSessions({
+      sessionsDir: root,
+      now: stamp + 1000,
+      running,
+      panes: new Map([[pid(PANE), { paneId: 'pane-1', active: true }]]),
+    });
+    const state = Object.fromEntries(rows.map((r) => [r.sessionId, r.displayState]));
+    expect(state).toEqual({
+      [TOOL]: 'working',
+      [AFTER_STOP]: 'idle',
+      [EXITED]: 'idle',
+      [SUBAGENT]: 'working',
+      [STALE_SUB]: 'idle',
+      [PANE]: 'working',
+      [HUGE]: 'working',
+    });
+    expect(rows.find((r) => r.sessionId === PANE)).toMatchObject({
+      paneId: 'pane-1',
+      status: 'busy',
+    });
+    // a subagent's transcript is no session of its own
+    expect(rows).toHaveLength(7);
+  });
+});
+
 describe('listOmpSessions', () => {
   const list = () =>
     listOmpSessions({
@@ -150,7 +340,7 @@ describe('listOmpSessions', () => {
         [files[RUNNING], 94286],
         [files[ELSEWHERE], 17119],
       ]),
-      panes: new Map([[94286, 'interactive-1794214000000']]),
+      panes: new Map([[94286, { paneId: 'interactive-1794214000000', active: false }]]),
     });
 
   it('lists running and recent sessions as resumable omp rows, newest first', async () => {

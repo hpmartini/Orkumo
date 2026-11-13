@@ -6,6 +6,7 @@
  *   ~/.claude/jobs/<id>/state.json, order, pins.json   background jobs (state, detail, name, PRs)
  *   ~/.claude/sessions/<pid>.json                       running sessions (busy / idle, waitingFor)
  *   ~/.omp/agent/sessions/<cwd>/<id>.jsonl              Oh My Pi sessions (written on every message)
+ *   ~/.omp/agent/sessions/<cwd>/<id>/<agent>.jsonl      their subagents (activity of the parent)
  *   ~/.omp/agent/terminal-sessions/<tty>                which omp session a terminal runs
  *
  * Transcripts under ~/.claude/projects are not watched: nothing in the list comes from them that the
@@ -33,8 +34,12 @@ export function isRelevantChange(kind, filename) {
     case 'sessions':
       return parts.length === 1 && /^\d+\.json/.test(parts[0]);
     case 'omp':
-      // <cwd folder>/<session>.jsonl; artifact folders below a session are not the session
-      return parts.length === 1 || (parts.length === 2 && parts[1].endsWith('.jsonl'));
+      // <cwd folder>/<session>.jsonl, and a subagent's <cwd>/<session>/<agent>.jsonl (the
+      // parent works while it does); other artifacts below a session are not the session
+      return (
+        parts.length === 1 ||
+        ((parts.length === 2 || parts.length === 3) && parts[parts.length - 1].endsWith('.jsonl'))
+      );
     case 'ompTerminals':
       return true;
     default:
@@ -49,11 +54,9 @@ export function isRelevantChange(kind, filename) {
  * - `notify()`: a change happened; runs after `debounceMs`, but never sooner than `minGapMs` after
  *   the previous run started. Further changes before that run join it (no starvation by a session
  *   that writes continuously).
- * - `notifyAfter(ms)`: one trailing run `ms` after the last call (state that turns over by time,
- *   like an omp session that counts as busy for a while after its last write).
  * - `refreshSoon()`: after a mutating command; runs within `soonMs` regardless of `minGapMs`.
  * - A run requested while one is in flight runs once more after it.
- * - Every run re-arms the reconcile timer (`reconcileMs`).
+ * - Every run re-arms the reconcile timer (`reconcileMs`; none when it is not finite).
  *
  * @param {{ run: () => Promise<void> | void, debounceMs?: number, minGapMs?: number,
  *   reconcileMs?: number, soonMs?: number }} options
@@ -69,7 +72,6 @@ export function createRefreshScheduler({
   let timer = null;
   let dueAt = Infinity;
   let reconcileTimer = null;
-  let settleTimer = null;
   let running = false;
   let again = false;
   let againSoon = false;
@@ -78,8 +80,7 @@ export function createRefreshScheduler({
   const clearAll = () => {
     clearTimeout(timer);
     clearTimeout(reconcileTimer);
-    clearTimeout(settleTimer);
-    timer = reconcileTimer = settleTimer = null;
+    timer = reconcileTimer = null;
     dueAt = Infinity;
   };
 
@@ -112,10 +113,12 @@ export function createRefreshScheduler({
     } finally {
       running = false;
       if (active) {
-        reconcileTimer = setTimeout(() => {
-          reconcileTimer = null;
-          arm(0);
-        }, reconcileMs);
+        if (Number.isFinite(reconcileMs)) {
+          reconcileTimer = setTimeout(() => {
+            reconcileTimer = null;
+            arm(0);
+          }, reconcileMs);
+        }
         if (againSoon) arm(soonMs);
         else if (again) notify();
       }
@@ -138,14 +141,6 @@ export function createRefreshScheduler({
       clearAll();
     },
     notify,
-    notifyAfter(ms) {
-      if (!active) return;
-      clearTimeout(settleTimer);
-      settleTimer = setTimeout(() => {
-        settleTimer = null;
-        notify();
-      }, ms);
-    },
     refreshSoon() {
       if (running) againSoon = true;
       else arm(soonMs);

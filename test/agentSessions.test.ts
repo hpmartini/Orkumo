@@ -356,16 +356,20 @@ describe('groupSessions (project)', () => {
     expect(groups[0].cwd).toBe('/code/api');
   });
 
-  it('puts unmatched sessions into trailing clusters named after their directory', () => {
+  it('puts every session outside all projects into one trailing "No project" group', () => {
     const sessions = [
       session({ id: 'x', cwd: '/tmp/scratch' }),
-      session({ id: 'y', cwd: '/tmp/scratch' }),
+      session({ id: 'y', cwd: '/Users/me/LABORATORY' }),
+      session({ id: 'd', cwd: '/var/folders/T/tmp.a/projects/demo' }),
       session({ id: 'z', cwd: '/code/api' }),
     ];
     const groups = groupSessions(sessions, 'project', { apps });
-    expect(groups.map((g) => g.key)).toEqual(['project:api', 'project:dir:/tmp/scratch']);
+    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
+      ['project:api', 'api', 1],
+      ['project:none', 'No project', 3],
+    ]);
     expect(groups[1].appId).toBeUndefined();
-    expect(groups[1].sessions).toHaveLength(2);
+    expect(groups[1].cwd).toBeUndefined();
     // header rows are navigable items
     expect(flattenGroups(groups, new Set(), true).map((i) => i.type)).toEqual([
       'group',
@@ -373,23 +377,8 @@ describe('groupSessions (project)', () => {
       'group',
       'session',
       'session',
+      'session',
     ]);
-  });
-
-  it('groups unmatched worktree sessions with their main repo before contexts load', () => {
-    const sessions = [
-      session({ id: 'm', cwd: '/tmp/proj' }),
-      session({ id: 'w1', cwd: '/tmp/proj/.claude/worktrees/feat' }),
-      session({ id: 'w2', cwd: '/tmp/proj', worktree: '/tmp/proj/.worktrees/fix' }),
-    ];
-    const groups = groupSessions(sessions, 'project', { apps });
-    expect(groups).toHaveLength(1);
-    expect(groups[0]).toMatchObject({
-      key: 'project:dir:/tmp/proj',
-      title: 'proj',
-      cwd: '/tmp/proj',
-    });
-    expect(groups[0].sessions).toHaveLength(3);
   });
 
   it('groups a worktree with its Orkumo app', () => {
@@ -403,8 +392,8 @@ describe('groupSessions (project)', () => {
     ]);
   });
 
-  const repoCtx = (root: string, slug: string | null) =>
-    ({ repo: { name: root.split('/').pop(), root, slug } }) as unknown as NonNullable<
+  const repoCtx = (root: string, slug: string | null, projectId?: string | null) =>
+    ({ repo: { name: root.split('/').pop(), root, slug }, projectId }) as unknown as NonNullable<
       SessionLookup['contexts']
     >[string];
 
@@ -427,41 +416,52 @@ describe('groupSessions (project)', () => {
     ]);
   });
 
-  it('groups unmatched subfolder sessions by repo root once contexts load', () => {
-    const sessions = [
-      session({ id: 'r', cwd: '/tmp/proj' }),
-      session({ id: 's', cwd: '/tmp/proj/sub' }),
-    ];
-    // Before contexts: path-based keys, stable and deterministic
-    expect(groupSessions(sessions, 'project').map((g) => g.key)).toEqual([
-      'project:dir:/tmp/proj',
-      'project:dir:/tmp/proj/sub',
-    ]);
-    const lookup: SessionLookup = {
-      contexts: { r: repoCtx('/tmp/proj', null), s: repoCtx('/tmp/proj', null) },
-    };
-    const groups = groupSessions(sessions, 'project', { lookup });
-    expect(groups.map((g) => [g.key, g.title, g.sessions.length])).toEqual([
-      ['project:dir:/tmp/proj', 'proj', 2],
-    ]);
-  });
-
-  it('groups a worktree outside the repo with its main checkout once contexts load', () => {
+  it('groups sibling worktrees with their main repo through its worktree list', () => {
+    const proj = { id: 'p', name: 'proj', path: '/code/proj', worktrees: ['/code/proj-wt/bun'] };
     const sessions = [
       session({ id: 'm', cwd: '/code/proj' }),
-      session({ id: 'w', cwd: '/w/x' }),
-      session({ id: 'c', cwd: '/code/proj/.claude/worktrees/feat' }),
+      // a deleted sibling worktree: no repo root anymore, its path is still listed
+      session({ id: 'w', cwd: '/code/proj-wt/bun' }),
+    ];
+    expect(
+      groupSessions(sessions, 'project', { apps: [proj] }).map((g) => [g.key, g.sessions.length])
+    ).toEqual([['project:p', 2]]);
+  });
+
+  it("prefers the server's projectId; merged ids map to their target, disabled ones to none", () => {
+    const target = { id: 't', name: 'target', path: '/code/t', mergedIds: ['m'] };
+    const sessions = [
+      // a worktree outside every listed path, placed by its repo root on the server
+      session({ id: 'a', cwd: '/w/x' }),
+      session({ id: 'b', cwd: '/code/merged' }),
+      session({ id: 'c', cwd: '/code/t/inside-disabled-repo' }),
     ];
     const lookup: SessionLookup = {
       contexts: {
-        m: repoCtx('/code/proj', null),
-        w: repoCtx('/code/proj', null),
-        c: repoCtx('/code/proj', null),
+        a: repoCtx('/code/t', null, 't'),
+        b: repoCtx('/code/merged', null, 'm'),
+        c: repoCtx('/code/t/inside-disabled-repo', null, 'disabled'),
       },
     };
     expect(
-      groupSessions(sessions, 'project', { lookup }).map((g) => [g.key, g.title, g.sessions.length])
-    ).toEqual([['project:dir:/code/proj', 'proj', 3]]);
+      groupSessions(sessions, 'project', { apps: [target], lookup }).map((g) => [
+        g.key,
+        g.title,
+        g.sessions.map((s) => s.id),
+      ])
+    ).toEqual([
+      ['project:t', 'target', ['a', 'b']],
+      ['project:none', 'No project', ['c']],
+    ]);
+  });
+
+  it('falls back to the repo root when the server placed a session in no project', () => {
+    const own = { id: 'own', name: 'Own', path: '/x/own', userNamed: true };
+    const sessions = [session({ id: 'a', cwd: '/elsewhere/wt' })];
+    const lookup: SessionLookup = { contexts: { a: repoCtx('/x/own', 'me/other', null) } };
+    expect(
+      groupSessions(sessions, 'project', { apps: [own], lookup }).map((g) => [g.key, g.title])
+    ).toEqual([['project:own', 'Own']]);
   });
 
   it('titles by the GitHub repo name, folder in parentheses only when it differs', () => {
@@ -469,10 +469,12 @@ describe('groupSessions (project)', () => {
     const lookup: SessionLookup = {
       contexts: { a: repoCtx('/x/web', 'me/Web'), b: repoCtx('/x/old', 'me/new-name') },
     };
-    expect(groupSessions(sessions, 'project', { lookup }).map((g) => g.title)).toEqual([
-      'new-name (old)',
-      'Web',
-    ]);
+    const xApps = [
+      { id: 'web', name: 'web', path: '/x/web' },
+      { id: 'old', name: 'old', path: '/x/old' },
+    ];
+    const titles = groupSessions(sessions, 'project', { apps: xApps, lookup }).map((g) => g.title);
+    expect(titles).toEqual(['new-name (old)', 'Web']);
   });
 });
 
@@ -581,6 +583,26 @@ describe('sessionsInContext (#133)', () => {
   it('keeps sessions whose most specific app is a member', () => {
     expect(sessionsInContext(all, apps, ['repo', 'other'])).toEqual([inRoot, inWorktree]);
     expect(sessionsInContext(all, apps, ['web'])).toEqual([inWeb]);
+  });
+
+  it('ignores members that name no project, and counts them again once the project is back', () => {
+    const withoutOther = apps.filter((a) => a.id !== 'other');
+    expect(sessionsInContext(all, withoutOther, ['other', 'web'])).toEqual([inWeb]);
+    expect(sessionsInContext(all, apps, ['other', 'web'])).toEqual([inWeb, inWorktree]);
+  });
+
+  it('a context naming a project merged into another keeps the target’s sessions', () => {
+    const merged = [
+      {
+        id: 'repo',
+        name: 'repo',
+        path: '/p/repo',
+        paths: ['/p/repo', '/p/old'],
+        mergedIds: ['old'],
+      },
+    ];
+    const inOld = session({ cwd: '/p/old/src' });
+    expect(sessionsInContext([inRoot, inOld, outside], merged, ['old'])).toEqual([inRoot, inOld]);
   });
 });
 

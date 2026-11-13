@@ -11,7 +11,8 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ImageAddon } from '@xterm/addon-image';
 import { openLink } from '../../utils/links';
-import { createFileLinkProvider, type FilePathMatch } from '../../utils/fileLinks';
+import { createFileLinkProvider } from '../../utils/fileLinks';
+import { openFile } from '../../utils/openFile';
 import '@xterm/xterm/css/xterm.css';
 import {
   RefreshCw,
@@ -85,29 +86,6 @@ export function buildAttachUrl(
 /** PTY WebSocket URL for a plain shell in `cwd` (#207): no command, so the server starts its default shell */
 export function buildShellUrl(cwd: string, cols: number, rows: number): string {
   return `${getWsUrl('/api/pty')}?sessionId=shell-${Date.now()}-${Math.random().toString(36).slice(2)}&cwd=${encodeURIComponent(cwd)}&cols=${cols}&rows=${rows}`;
-}
-
-/**
- * Cmd/Ctrl-click on a file path: VS Code, in the window of the pane's project; with Shift the
- * Mac's default app (#188). The server keeps folders and launchable files in Finder.
- */
-async function openFile(match: FilePathMatch, cwd: string, editor: boolean) {
-  try {
-    const res = await fetch(`${API_BASE_URL}/files/${editor ? 'open-in-editor' : 'open'}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(
-        editor
-          ? { path: match.path, cwd, line: match.line, col: match.col }
-          : { path: match.path, cwd }
-      ),
-    });
-    const body = await res.json().catch(() => null);
-    if (!res.ok) throw new Error(body?.error || res.statusText);
-    if (body?.action === 'revealed') toast(`Startbare Datei, im Finder gezeigt: ${match.path}`);
-  } catch (err) {
-    toast.error(`Datei öffnen fehlgeschlagen: ${err instanceof Error ? err.message : err}`);
-  }
 }
 
 /**
@@ -222,7 +200,12 @@ function createPaneTerminal(
   terminal.registerLinkProvider(
     createFileLinkProvider(terminal, (event, match) => {
       if (!(event.metaKey || event.ctrlKey)) return;
-      void openFile(match, pane.cwd, !event.shiftKey);
+      // VS Code; with Shift the Mac's default app (#188)
+      void openFile(match.path, pane.cwd, {
+        editor: !event.shiftKey,
+        line: match.line,
+        col: match.col,
+      });
     })
   );
   terminal.open(container);

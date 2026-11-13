@@ -1,0 +1,17 @@
+{
+  "items": [
+    {
+      "gizmo": {
+        "gizmo": {
+          "id": "g-p-0123456789abcdef0123456789abcdef",
+          "organization_id": "org-x",
+          "display": { "name": "Werkstatt", "description": "" }
+        },
+        "files": []
+      },
+      "conversations": { "items": [] }
+    },
+    { "gizmo": { "gizmo": { "id": "g-abc", "display": { "name": "Ein Custom GPT" } } } }
+  ],
+  "cursor": null
+}
