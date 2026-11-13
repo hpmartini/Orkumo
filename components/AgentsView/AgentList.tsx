@@ -20,7 +20,6 @@ import type {
   AgentSession,
   AgentGrouping,
   AgentContext,
-  AgentCardDetails,
   AgentCardDensity,
   AgentCardElement,
   AgentHarness,
@@ -37,7 +36,6 @@ import {
   formatAge,
   dirName,
   displayRepo,
-  cardDetailsVisible,
   cardSlots,
   CARD_ELEMENTS,
   isWorkflowSession,
@@ -54,9 +52,6 @@ import { moduleIcon } from '../moduleIcon';
 import { IssuePill, PrPill, ServerLinks, SubagentsBadge } from './SessionLinks';
 import { CacheBadge } from './CacheBadge';
 import { cacheCountdown, isCacheWarning } from '../../utils/agentCache';
-
-/** Pointer has to rest this long on a card before its details open (hover mode) */
-const HOVER_DETAILS_DELAY_MS = 200;
 
 /** Harness badge colours (#195): Claude stays quiet, the others stand out */
 const HARNESS_BADGE: Record<AgentHarness, string> = {
@@ -90,8 +85,6 @@ interface AgentListProps {
   onFocusOpen?: (id: string) => void;
   now: number;
   grouping: AgentGrouping;
-  /** When session cards show their details; in `hover`, "Keep details open" pins them (#242) */
-  cardDetails?: AgentCardDetails;
   cardDensity?: AgentCardDensity;
   /** Which card slot each detail element sits in (#159) */
   cardFields?: AgentCardFields;
@@ -130,6 +123,8 @@ interface AgentListProps {
   favoriteSessionIds?: Set<string>;
   /** Rows whose details (PRs, issues, servers) are open */
   expandedSessionIds?: Set<string>;
+  /** Chevron on the card's left: open or close its details */
+  onToggleExpanded?: (id: string) => void;
   onToggleFavoriteGroup?: (key: string) => void;
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
@@ -208,7 +203,6 @@ export const AgentList: React.FC<AgentListProps> = ({
   onFocusOpen,
   now,
   grouping,
-  cardDetails = 'click',
   cardDensity = 'comfortable',
   cardFields = DEFAULT_AGENT_CARD_FIELDS,
   lookup,
@@ -231,6 +225,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   favoriteGroupKeys,
   favoriteSessionIds,
   expandedSessionIds,
+  onToggleExpanded,
   onToggleFavoriteGroup,
   onToggleFavoriteSession,
   onMoveGroup,
@@ -245,34 +240,15 @@ export const AgentList: React.FC<AgentListProps> = ({
   }, []);
   const listRef = useRef<HTMLDivElement>(null);
   const [menu, setMenu] = useState<{ index: number; x: number; y: number } | null>(null);
-  // Hovered card; set after a short delay so sweeping the pointer across the list does not flicker
-  const [hoveredId, setHoveredId] = useState<string | null>(null);
-  const hoverTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
-  const hoverCard = (id: string | null) => {
-    clearTimeout(hoverTimer.current);
-    if (id === null) setHoveredId(null);
-    // Touch screens emulate mouseenter on tap: there the selection and pinning decide
-    else if (window.matchMedia?.('(hover: hover)').matches)
-      hoverTimer.current = setTimeout(() => setHoveredId(id), HOVER_DETAILS_DELAY_MS);
-  };
-  useEffect(() => () => clearTimeout(hoverTimer.current), []);
-  // Card selected by a click (#181): in hover mode a click must not open details, a keyboard selection may
+  // Card selected by a click: only a keyboard-moved selection gets the cursor ring
   const [clickedId, setClickedId] = useState<string | null>(null);
   const selectedItem = items[selectedIndex];
   const selectedId = selectedItem?.type === 'session' ? selectedItem.session.id : null;
   useEffect(() => {
-    if (selectedId === clickedId) return;
-    // Keyboard moved the selection: forget the click and the hovered card so only the selection opens
-    setClickedId(null);
-    clearTimeout(hoverTimer.current);
-    setHoveredId(null);
+    // Keyboard moved the selection: forget the click so the ring shows
+    if (selectedId !== clickedId) setClickedId(null);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a selection change counts
   }, [selectedId]);
-  // Touch screens have no hover: there hover mode behaves like click mode
-  const detailsMode =
-    cardDetails === 'hover' && !window.matchMedia?.('(hover: hover)').matches
-      ? 'click'
-      : cardDetails;
   const comfortable = cardDensity === 'comfortable';
   // One width for the whole list so names stay aligned; wide only when some card fills the column
   const leftElements = CARD_ELEMENTS.filter(({ key }) => cardFields[key] === 'left').map(
@@ -913,21 +889,8 @@ export const AgentList: React.FC<AgentListProps> = ({
                   const row2 = comfortable ? slot.row2 : [...slot.row2, ...slot.row3];
                   const row3 = comfortable ? slot.row3 : [];
                   const hasDetails = slot.details.length > 0;
-                  const pinned = hasDetails && !!expandedSessionIds?.has(session.id);
-                  const expanded = cardDetailsVisible(detailsMode, {
-                    hasDetails,
-                    pinned,
-                    hovered: hoveredId === session.id,
-                    anyHovered: hoveredId !== null,
-                    selectedBy:
-                      selected && railFocused
-                        ? clickedId === session.id
-                          ? 'click'
-                          : 'keyboard'
-                        : null,
-                  });
-                  // Transient details float over the cards below instead of pushing them down
-                  const overlay = expanded && !pinned && cardDetails !== 'always';
+                  // Details open only via the chevron on the left
+                  const expanded = hasDetails && !!expandedSessionIds?.has(session.id);
                   return (
                     <div
                       key={session.id}
@@ -943,11 +906,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                       }}
                       onDoubleClick={() => onActivate(item)}
                       onContextMenu={(e) => openMenu(index, e)}
-                      onMouseEnter={() => hoverCard(session.id)}
-                      onMouseLeave={() => hoverCard(null)}
-                      className={`group relative flex items-start gap-2 px-3 ${comfortable ? 'py-2.5' : 'py-1.5'} text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 ${
-                        overlay ? 'z-20' : ''
-                      } text-gray-300 hover:bg-gray-800 ${
+                      className={`group relative flex items-start gap-2 px-3 ${comfortable ? 'py-2.5' : 'py-1.5'} text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 text-gray-300 hover:bg-gray-800 ${
                         // #210: shown in the workspace = strong, attached in a tab = medium (left bar), a click alone = nothing
                         isActive
                           ? 'outline outline-2 -outline-offset-2 outline-blue-400 bg-blue-400/15 text-white'
@@ -967,6 +926,23 @@ export const AgentList: React.FC<AgentListProps> = ({
                       }`}
                       title={`${session.name}\n${session.id} · ${session.cwd}${session.waitingFor ? ` · waiting for ${session.waitingFor}` : ''}`}
                     >
+                      {hasDetails ? (
+                        <button
+                          aria-expanded={expanded}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            onToggleExpanded?.(session.id);
+                          }}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          className="shrink-0 w-4 h-5 -mx-1 flex items-center justify-center text-gray-400 hover:text-white rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+                          aria-label={`${expanded ? 'Hide' : 'Show'} details of ${session.name}`}
+                          title={expanded ? 'Hide details' : 'Show details'}
+                        >
+                          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                        </button>
+                      ) : (
+                        <span className="shrink-0 w-4 -mx-1" aria-hidden="true" />
+                      )}
                       <div
                         className={`${leftWide ? 'w-11' : 'w-4'} shrink-0 flex flex-col items-center gap-1 text-[10px]`}
                       >
@@ -1044,13 +1020,10 @@ export const AgentList: React.FC<AgentListProps> = ({
                         {expanded && (
                           <div
                             data-card-details
-                            data-overlay={overlay || undefined}
                             className={`flex flex-wrap items-center gap-x-3 text-[11px] text-gray-400 ${
-                              overlay
-                                ? `absolute inset-x-0 top-full -mt-px py-2 pr-3 gap-y-1.5 bg-gray-800 border-b border-x border-gray-600 rounded-b-lg shadow-lg shadow-black/50 ${leftWide ? 'pl-16' : 'pl-9'}`
-                                : comfortable
-                                  ? 'mt-2 pt-2 gap-y-1.5 border-t border-gray-700/60'
-                                  : 'mt-1.5 gap-y-1'
+                              comfortable
+                                ? 'mt-2 pt-2 gap-y-1.5 border-t border-gray-700/60'
+                                : 'mt-1.5 gap-y-1'
                             }`}
                           >
                             {slot.details}

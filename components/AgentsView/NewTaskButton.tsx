@@ -7,7 +7,7 @@ export type NewKind = 'task' | 'agent' | 'chat' | 'issue';
 const ENTRIES: { kind: NewKind; label: string; hint: string; icon: typeof Plus }[] = [
   { kind: 'task', label: 'New task', hint: 'N', icon: Plus },
   { kind: 'agent', label: 'New agent', hint: 'interactive, attached', icon: Bot },
-  { kind: 'chat', label: 'New chat', hint: 'chat UI instead of terminal', icon: MessageSquare },
+  { kind: 'chat', label: 'New chat', hint: 'agent in the UI view', icon: MessageSquare },
   { kind: 'issue', label: 'New issue', hint: 'GitHub', icon: CircleDot },
 ];
 

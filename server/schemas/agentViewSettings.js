@@ -11,7 +11,6 @@ export const agentViewSettingsSchema = z
     collapsedGroups: z.array(z.string().max(500)).max(200).optional(),
     notifications: z.boolean().optional(),
     desktopNotifications: z.boolean().optional(),
-    cardDetails: z.enum(['hover', 'click', 'always']).optional(),
     cardDensity: z.enum(['comfortable', 'compact']).optional(),
     cardFields: z
       .object(

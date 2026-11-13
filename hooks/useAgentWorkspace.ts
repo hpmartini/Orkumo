@@ -20,6 +20,10 @@ import {
 export const STORAGE_KEY = 'devOrbitAgentWorkspace.v2';
 /** Pre-tabs/panes shape `{openIds, activeId}`; read once as a migration source */
 export const LEGACY_STORAGE_KEY = 'devOrbitAgentWorkspace';
+export const VIEWS_STORAGE_KEY = 'devOrbitPaneViews';
+
+/** How an agent pane shows its one process: the terminal itself, or the UI view of its transcript */
+export type PaneView = 'terminal' | 'chat';
 
 function load(): Workspace {
   try {
@@ -27,6 +31,17 @@ function load(): Workspace {
     return raw ? migrateWorkspace(JSON.parse(raw)) : EMPTY_WORKSPACE;
   } catch {
     return EMPTY_WORKSPACE;
+  }
+}
+
+function loadViews(): Record<string, PaneView> {
+  try {
+    const raw = JSON.parse(localStorage.getItem(VIEWS_STORAGE_KEY) ?? '{}');
+    return Object.fromEntries(
+      Object.entries(raw ?? {}).filter((entry): entry is [string, PaneView] => entry[1] === 'chat')
+    );
+  } catch {
+    return {};
   }
 }
 
@@ -50,6 +65,8 @@ export function useAgentWorkspace(contextId?: string) {
     setState({ contextId, workspace: load(), parked });
   }
   const { workspace, parked } = state;
+  /** Panes shown in the UI view; every other pane shows its terminal */
+  const [views, setViews] = useState(loadViews);
 
   useEffect(() => {
     try {
@@ -79,10 +96,39 @@ export function useAgentWorkspace(contextId?: string) {
         apply((ws) => setTabLayout(ws, tabId, layout)),
       /** Only call once the session list has loaded, so a reload keeps tabs while loading */
       prune: (existing: ReadonlySet<string>) => apply((ws) => pruneMissing(ws, existing)),
+      /** Switches what pane `id` shows; the process behind it is never touched */
+      setView: (id: string, view: PaneView) =>
+        setViews((prev) => {
+          if ((prev[id] ?? 'terminal') === view) return prev;
+          const next = { ...prev };
+          if (view === 'chat') next[id] = view;
+          else delete next[id];
+          return next;
+        }),
     };
   }, []);
 
   const openIds = useMemo(() => new Set(workspace.tabs.flatMap((t) => t.panes)), [workspace.tabs]);
 
-  return { workspace, parked, openIds, ...actions };
+  // A closed pane forgets its view; panes of parked workspaces keep theirs
+  useEffect(() => {
+    const open = new Set([
+      ...openIds,
+      ...Object.values(parked).flatMap((ws) => ws.tabs.flatMap((t) => t.panes)),
+    ]);
+    setViews((prev) => {
+      const kept = Object.entries(prev).filter(([id]) => open.has(id));
+      return kept.length === Object.keys(prev).length ? prev : Object.fromEntries(kept);
+    });
+  }, [openIds, parked]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(VIEWS_STORAGE_KEY, JSON.stringify(views));
+    } catch {
+      // storage unavailable: panes come back in the terminal view
+    }
+  }, [views]);
+
+  return { workspace, parked, openIds, views, ...actions };
 }

@@ -53,21 +53,14 @@ export function transcriptHolder(
   );
 }
 
-/**
- * Pane that already runs transcript `sessionId`: a chat (its process lives until its pane closes)
- * or an open terminal pane. null when none does.
- */
+/** Open terminal pane that already runs transcript `sessionId`, or null */
 export function paneHolding(
   panes: AgentSession[],
   openIds: Set<string>,
   sessionId: string | null | undefined
 ): string | null {
   if (!sessionId) return null;
-  return (
-    panes.find((p) =>
-      p.chat ? p.sessionId === sessionId : openIds.has(p.id) && resumableSessionId(p) === sessionId
-    )?.id ?? null
-  );
+  return panes.find((p) => openIds.has(p.id) && resumableSessionId(p) === sessionId)?.id ?? null;
 }
 
 /**
@@ -75,19 +68,19 @@ export function paneHolding(
  * `claude attach`), an interactive session while its process still runs.
  */
 export function resumeMakesCopy(session: AgentSession): boolean {
-  if (session.chat) return false;
   return session.kind === 'background' || session.pid != null;
 }
 
 /**
- * What opening a rail row does: a background job attaches (never a resume), a session a pane
- * already runs focuses that pane (also a Chat pane on another harness's session), a Claude app
- * session opens its claude.ai page (a resume would fork it), another harness attaches, anything
- * else resumes its transcript.
+ * What opening a rail row does: a session an Orkumo pane runs focuses that pane, or reattaches it
+ * when the pane was closed (closing only detaches); a background job attaches (never a resume), a
+ * Claude app session opens its claude.ai page (a resume would fork it), another harness attaches,
+ * anything else resumes its transcript.
  */
 export type OpenPlan =
   | { type: 'attach' }
   | { type: 'focus'; paneId: string }
+  | { type: 'reattach'; paneId: string }
   | { type: 'app'; url: string | null }
   | { type: 'resume'; sessionId: string | null };
 
@@ -97,9 +90,11 @@ export function openPlan(
   openIds: Set<string>
 ): OpenPlan {
   if (session.kind === 'app') return { type: 'app', url: session.app?.url ?? null };
-  // A harness session (#195) the server matched to an open pane: that pane runs it
-  if (session.paneId && openIds.has(session.paneId))
-    return { type: 'focus', paneId: session.paneId };
+  // The server matched the session to a pane of ours whose PTY still runs it
+  if (session.paneId)
+    return openIds.has(session.paneId)
+      ? { type: 'focus', paneId: session.paneId }
+      : { type: 'reattach', paneId: session.paneId };
   if (session.kind !== 'interactive') return { type: 'attach' };
   const sessionId = resumableSessionId(session);
   const held = paneHolding(panes, openIds, sessionId);
@@ -110,6 +105,6 @@ export function openPlan(
 /** Session id shown on a workspace tab: the job id for background jobs, else the transcript id */
 export function tabSessionLabel(session: AgentSession): string | null {
   if (session.kind === 'background' && !session.ptyArgs) return session.id;
-  const id = resumableSessionId(session) ?? (session.chat ? session.sessionId : null);
+  const id = resumableSessionId(session);
   return id ? id.slice(0, 8) : null;
 }

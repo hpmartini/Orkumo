@@ -1,5 +1,5 @@
 /**
- * File paths in terminal output as Cmd/Ctrl-clickable links (#188).
+ * File paths in terminal output as Cmd/Ctrl-clickable links (#188): VS Code, with Shift the default app.
  * Detection is pure; the xterm link provider maps matches back to buffer cells (wide chars, soft wraps).
  */
 import type { ILink, ILinkProvider, Terminal } from '@xterm/xterm';

@@ -1,6 +1,6 @@
 import React from 'react';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, fireEvent, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { render, screen, fireEvent, within } from '@testing-library/react';
 import { AgentList } from '../components/AgentsView/AgentList';
 import {
   DEFAULT_AGENT_CARD_FIELDS,
@@ -66,7 +66,8 @@ function renderList(
     issues?: string[];
     workflowIssue?: string;
     onOpenIssue?: (key: string) => void;
-    cardDetails?: 'hover' | 'click' | 'always';
+    /** Details open (default), as after a click on the chevron */
+    expanded?: boolean;
   } = {}
 ) {
   const group: SessionGroup = {
@@ -87,7 +88,7 @@ function renderList(
       openIds={new Set()}
       now={2000}
       grouping={opts.grouping ?? 'state'}
-      cardDetails={opts.cardDetails ?? 'always'}
+      expandedSessionIds={new Set(opts.expanded === false ? [] : [s.id])}
       cardFields={opts.cardFields}
       lookup={{
         workflowName: /^WF (\S+)#(\d+)(?: +(.*))?$/,
@@ -110,7 +111,6 @@ const card = () => screen.getByRole('option');
 describe('AgentList harness badge (#195, AC-6)', () => {
   it.each([
     [session({}), 'Claude Code'],
-    [session({ chat: true, kind: 'interactive' }), 'Claude Code'],
     [session({ kind: 'interactive', ptyArgs: ['--session-id', 'x'] }), 'Claude Code'],
     [session({ kind: 'interactive', ptyCommand: 'omp', ptyArgs: [] }), 'Oh My Pi'],
     [session({ kind: 'interactive', ptyCommand: 'opencode', ptyArgs: [] }), 'OpenCode'],
@@ -128,7 +128,8 @@ describe('AgentList harness badge (#195, AC-6)', () => {
     expect(within(card()).queryByLabelText(/Harness:/)).toBeNull();
   });
 });
-const leftColumn = () => card().firstElementChild as HTMLElement;
+// The details chevron (or its spacer) comes first, then the glyph column
+const leftColumn = () => card().children[1] as HTMLElement;
 
 describe('AgentList workflow card (#159, AC-3)', () => {
   it('shows the title without prefix and issue + PR pills under the glyph', () => {
@@ -224,105 +225,58 @@ describe('AgentList card fields (#159, AC-7)', () => {
   });
 });
 
-describe('AgentList card details trigger (#181)', () => {
-  // Three cards that all have details (a linked issue each)
-  const sessions = ['a', 'b', 'c'].map((id) => session({ id, name: `agent ${id}` }));
-  const group = { key: 'g', title: 'Group', sessions, hidden: 0 } as unknown as SessionGroup;
-  const items = sessions.map((s) => ({ type: 'session', session: s, group }) as NavItem);
+describe('AgentList card details chevron', () => {
+  it('details open only through the chevron on the left', () => {
+    const s = session({ id: 'a', name: 'agent a' });
+    const onSelectIndex = vi.fn();
+    const onActivate = vi.fn();
+    const onToggleExpanded = vi.fn();
+    const props = {
+      items: [
+        {
+          type: 'session',
+          session: s,
+          group: { key: 'g', title: 'Group', sessions: [s], hidden: 0 },
+        } as unknown as NavItem,
+      ],
+      selectedIndex: -1,
+      onSelectIndex,
+      onActivate,
+      onTogglePeek: () => {},
+      peekId: null,
+      openIds: new Set<string>(),
+      now: 2000,
+      grouping: 'state' as const,
+      contexts: { a: ctx },
+      servers: new Map(),
+      rowActions: () => [],
+      groupActions: () => [],
+      collapsedKeys: new Set<string>(),
+      issuesByAgent: new Map([['a', ['hpmartini/Orkumo#1']]]),
+      onOpenIssue: () => {},
+      onToggleExpanded,
+    };
+    const details = () => card().querySelector('[data-card-details]');
+    const { rerender } = render(<AgentList {...props} />);
+    const chevron = within(card()).getByRole('button', { name: 'Show details of agent a' });
+    expect(card().firstElementChild).toBe(chevron);
+    expect(chevron.getAttribute('aria-expanded')).toBe('false');
+    expect(details()).toBeNull();
 
-  function List({ mode, initial = -1 }: { mode: 'hover' | 'click'; initial?: number }) {
-    const [selected, setSelected] = React.useState(initial);
-    return (
-      <>
-        <button onClick={() => setSelected((i) => i + 1)}>arrow-down</button>
-        <AgentList
-          items={items}
-          selectedIndex={selected}
-          onSelectIndex={setSelected}
-          onActivate={() => {}}
-          onTogglePeek={() => {}}
-          peekId={null}
-          openIds={new Set()}
-          now={2000}
-          grouping="state"
-          cardDetails={mode}
-          contexts={Object.fromEntries(sessions.map((s) => [s.id, ctx]))}
-          servers={new Map()}
-          rowActions={() => []}
-          groupActions={() => []}
-          collapsedKeys={new Set()}
-          issuesByAgent={new Map(sessions.map((s) => [s.id, [`hpmartini/Orkumo#${s.id}1`]]))}
-          onOpenIssue={() => {}}
-          onOpenPrs={() => {}}
-        />
-      </>
-    );
-  }
+    fireEvent.click(card());
+    expect(details()).toBeNull();
+    onSelectIndex.mockClear();
 
-  const cardOf = (id: string) => document.querySelector(`[data-session-id="${id}"]`) as HTMLElement;
-  const openCards = () =>
-    [...document.querySelectorAll('[data-session-id]')]
-      .filter((el) => el.querySelector('[data-card-details]'))
-      .map((el) => el.getAttribute('data-session-id'));
-  const hover = (id: string) => {
-    fireEvent.mouseEnter(cardOf(id));
-    act(() => vi.advanceTimersByTime(250));
-  };
-  // Pointer device: the component only reacts to hover where `(hover: hover)` matches
-  const setHoverDevice = (matches: boolean) =>
-    vi.stubGlobal('matchMedia', (q: string) => ({ matches, media: q }) as MediaQueryList);
+    fireEvent.click(chevron);
+    fireEvent.doubleClick(chevron);
+    expect(onToggleExpanded).toHaveBeenCalledWith('a');
+    expect(onSelectIndex).not.toHaveBeenCalled();
+    expect(onActivate).not.toHaveBeenCalled();
 
-  beforeEach(() => {
-    window.Element.prototype.scrollIntoView = () => {}; // jsdom lacks it; the list scrolls the selection into view
-    vi.useFakeTimers();
-    setHoverDevice(true);
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllGlobals();
-  });
-
-  it('hover mode: a clicked card stays closed once the pointer moves to a card above or below (AC-1)', () => {
-    render(<List mode="hover" />);
-    hover('b');
-    fireEvent.click(cardOf('b'));
-    expect(openCards()).toEqual(['b']);
-    for (const other of ['a', 'c']) {
-      fireEvent.mouseLeave(cardOf('b'));
-      hover(other);
-      expect(openCards()).toEqual([other]);
-      fireEvent.mouseLeave(cardOf(other));
-      expect(openCards()).toEqual([]);
-      hover('b');
-    }
-  });
-
-  it('hover mode: keyboard selection opens while no card is hovered', () => {
-    render(<List mode="hover" initial={0} />);
-    fireEvent.click(screen.getByText('arrow-down'));
-    expect(openCards()).toEqual(['b']);
-    hover('c');
-    expect(openCards()).toEqual(['c']);
-  });
-
-  it('click mode: hover opens nothing, click and keyboard selection open the selected card (AC-2)', () => {
-    render(<List mode="click" />);
-    hover('a');
-    expect(openCards()).toEqual([]);
-    fireEvent.click(cardOf('a'));
-    expect(openCards()).toEqual(['a']);
-    hover('c');
-    expect(openCards()).toEqual(['a']);
-    fireEvent.click(screen.getByText('arrow-down'));
-    expect(openCards()).toEqual(['b']);
-  });
-
-  it('touch device: hover mode falls back to click', () => {
-    setHoverDevice(false);
-    render(<List mode="hover" />);
-    fireEvent.mouseEnter(cardOf('c'));
-    fireEvent.click(cardOf('c'));
-    expect(openCards()).toEqual(['c']);
+    rerender(<AgentList {...props} expandedSessionIds={new Set(['a'])} />);
+    const open = within(card()).getByRole('button', { name: 'Hide details of agent a' });
+    expect(open.getAttribute('aria-expanded')).toBe('true');
+    expect(within(details() as HTMLElement).getByText('#1')).toBeTruthy();
   });
 });
 
@@ -360,12 +314,14 @@ describe('AgentList card highlights (#210)', () => {
           railFocused={railFocused}
           now={2000}
           grouping="state"
-          cardDetails="click"
           contexts={Object.fromEntries(
             sessions.map((s) => [
               s.id,
               s.id === cacheWarnId
-                ? ({ ...ctx, cache: { lastActivityAt: 2000, ttlMs: 5 * 60_000 } } as unknown as AgentContext)
+                ? ({
+                    ...ctx,
+                    cache: { lastActivityAt: 2000, ttlMs: 5 * 60_000 },
+                  } as unknown as AgentContext)
                 : ctx,
             ])
           )}
@@ -386,14 +342,18 @@ describe('AgentList card highlights (#210)', () => {
       .className.split(/\s+/)
       .filter((c) => HIGHLIGHT.test(c))
       .sort();
-  const STRONG = ['-outline-offset-2', 'bg-blue-400/15', 'outline', 'outline-2', 'outline-blue-400'];
+  const STRONG = [
+    '-outline-offset-2',
+    'bg-blue-400/15',
+    'outline',
+    'outline-2',
+    'outline-blue-400',
+  ];
   const MEDIUM = ['bg-blue-400/10', 'shadow-[inset_3px_0_0_0_#60a5fa]'];
 
   beforeEach(() => {
     window.Element.prototype.scrollIntoView = () => {};
-    vi.stubGlobal('matchMedia', (q: string) => ({ matches: true, media: q }) as MediaQueryList);
   });
-  afterEach(() => vi.unstubAllGlobals());
 
   it('open card carries the strong level (AC-1)', () => {
     render(<List />);

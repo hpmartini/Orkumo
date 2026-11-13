@@ -8,6 +8,8 @@ import {
   ChevronsUpDown,
   Code2,
   Layers,
+  ListChevronsDownUp,
+  ListChevronsUpDown,
 } from 'lucide-react';
 import type { AgentGrouping } from '../../types';
 import type { AgentConfigLike } from './types';
@@ -40,18 +42,11 @@ const PROJECTS_COLLAPSED_KEY = 'devOrbitAgentProjectsCollapsed';
 /** Pointer may cross the gap between trigger and menu without the menu closing */
 const HOVER_CLOSE_MS = 150;
 
-/**
- * Grouping of the agent list: shows only the current grouping; hovering (or clicking) opens
- * the other groupings plus collapse / expand all.
- */
+/** Grouping of the agent list: shows only the current grouping; hovering (or clicking) opens the others */
 export const GroupingPicker: React.FC<{
   grouping: AgentGrouping;
   onGrouping: (grouping: AgentGrouping) => void;
-  onCollapseAll: () => void;
-  onExpandAll: () => void;
-  /** A quick filter forces every group open: the buttons would have no visible effect */
-  collapseDisabled?: boolean;
-}> = ({ grouping, onGrouping, onCollapseAll, onExpandAll, collapseDisabled }) => {
+}> = ({ grouping, onGrouping }) => {
   const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
   const closeTimer = useRef<number | undefined>(undefined);
@@ -135,35 +130,56 @@ export const GroupingPicker: React.FC<{
                 {mode.label}
               </button>
             ))}
-            <div role="separator" className="my-1 border-t border-gray-700" />
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => run(onCollapseAll)}
-              disabled={collapseDisabled}
-              className={item}
-              title={
-                collapseDisabled ? 'Clear the filters to collapse groups' : 'Collapse all groups'
-              }
-              aria-label="Collapse all groups"
-            >
-              <ChevronsDownUp size={12} aria-hidden /> Collapse all groups
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              onClick={() => run(onExpandAll)}
-              disabled={collapseDisabled}
-              className={item}
-              title={collapseDisabled ? 'Clear the filters to expand groups' : 'Expand all groups'}
-              aria-label="Expand all groups"
-            >
-              <ChevronsUpDown size={12} aria-hidden /> Expand all groups
-            </button>
           </div>
         </div>
       )}
     </div>
+  );
+};
+
+const foldButton =
+  'shrink-0 p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-30 disabled:hover:bg-transparent disabled:cursor-not-allowed';
+
+/**
+ * Filter row toggles: collapse / expand all groups (projects) and all agent cards. Each button
+ * names the action it does next.
+ */
+export const FoldButtons: React.FC<{
+  /** Every shown group is collapsed: the groups button expands */
+  groupsCollapsed: boolean;
+  onGroups: (collapse: boolean) => void;
+  /** A quick filter forces every group open: folding would have no visible effect */
+  groupsDisabled?: boolean;
+  /** Some shown card has its details open: the cards button collapses */
+  cardsExpanded: boolean;
+  onCards: (expand: boolean) => void;
+  cardsDisabled?: boolean;
+}> = ({ groupsCollapsed, onGroups, groupsDisabled, cardsExpanded, onCards, cardsDisabled }) => {
+  const groupsLabel = groupsCollapsed ? 'Expand all groups' : 'Collapse all groups';
+  const cardsLabel = cardsExpanded ? 'Collapse all agent cards' : 'Expand all agent cards';
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => onGroups(!groupsCollapsed)}
+        disabled={groupsDisabled}
+        title={groupsDisabled ? 'Clear the filters to fold groups' : groupsLabel}
+        aria-label={groupsLabel}
+        className={foldButton}
+      >
+        {groupsCollapsed ? <ChevronsUpDown size={13} /> : <ChevronsDownUp size={13} />}
+      </button>
+      <button
+        type="button"
+        onClick={() => onCards(!cardsExpanded)}
+        disabled={cardsDisabled}
+        title={cardsLabel}
+        aria-label={cardsLabel}
+        className={foldButton}
+      >
+        {cardsExpanded ? <ListChevronsDownUp size={13} /> : <ListChevronsUpDown size={13} />}
+      </button>
+    </>
   );
 };
 

@@ -260,13 +260,9 @@ export interface AgentSession {
   ptyArgs?: string[];
   /** Harness session listed by the server: id of the Orkumo pane whose process runs it */
   paneId?: string | null;
-  /** Chat session (#189): rendered by the Chat pane, id is the server chat id */
-  chat?: boolean;
-  /** Chat pane that is a live view of this agent id (no own process) */
-  viewOf?: string | null;
   /** PTY command for ptyArgs (default `claude`; another harness, #195) */
   ptyCommand?: AgentHarness;
-  /** Chat session: the harness it runs (default `claude`) */
+  /** Harness of a server-listed session (default `claude`) */
   harness?: AgentHarness;
   cwd: string;
   startedAt: number;
@@ -338,7 +334,6 @@ export type AgentLayout = 'tabs' | 'columns' | 'rows' | 'grid';
 /** CLI an agent runs with (#195); everything from `claude agents` / chats is `claude` */
 export type AgentHarness = 'claude' | 'omp' | 'opencode' | 'codex' | 'pi';
 
-export type AgentCardDetails = 'hover' | 'click' | 'always';
 export type AgentCardDensity = 'comfortable' | 'compact';
 /** Detail elements of an agent card (#159); each sits in one AgentCardSlot */
 export type AgentCardElement =
@@ -382,7 +377,6 @@ export interface AgentViewSettings {
   collapsedGroups: string[];
   notifications: boolean;
   desktopNotifications: boolean;
-  cardDetails: AgentCardDetails;
   cardDensity: AgentCardDensity;
   cardFields: AgentCardFields;
   disabled: boolean;
@@ -390,7 +384,7 @@ export interface AgentViewSettings {
   chatSubmitKey: 'enter' | 'mod+enter';
   /** Chat pane: thinking and tool calls inline in the transcript (else only in the work panel) */
   chatShowSteps: boolean;
-  /** Clicking an idle agent with a known session opens it as chat or in the terminal */
+  /** View an opened agent pane starts in; both views show the same process */
   agentOpenView: 'chat' | 'terminal';
   dispatch: AgentDispatchDefaults;
   version: number;
@@ -469,7 +463,7 @@ export interface AgentNotification {
 }
 
 export const DEFAULT_AGENT_DISPATCH_DEFAULTS: AgentDispatchDefaults = {
-  harness: 'claude',
+  harness: 'omp',
   model: null,
   effort: null,
   permissionMode: null,
@@ -506,7 +500,6 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
-  cardDetails: 'click',
   cardDensity: 'comfortable',
   cardFields: DEFAULT_AGENT_CARD_FIELDS,
   disabled: false,

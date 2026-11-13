@@ -22,8 +22,7 @@ import type {
   AgentPastSession,
 } from '../../types';
 import { useAgentSessions } from '../../hooks/useAgentSessions';
-import { useAgentWorkspace } from '../../hooks/useAgentWorkspace';
-import { useChatSessions } from '../../hooks/useChatSessions';
+import { useAgentWorkspace, type PaneView } from '../../hooks/useAgentWorkspace';
 import { getAgentTarget, pinTarget, targetOf, useAgentTarget } from '../../utils/agentTarget';
 import { useAgentContexts } from '../../hooks/useAgentContexts';
 import { useWorkflowProvider } from '../../hooks/useWorkflowProvider';
@@ -47,6 +46,7 @@ import {
   replyToAgent,
   respawnAgent,
   stopAgent,
+  stopPane,
   openCloudSession,
   uploadAgentImage,
   fetchHarnesses,
@@ -86,14 +86,14 @@ import {
   AgentSort,
   NavItem,
   SessionGroup,
-  resumableSessionId,
   harnessLabel,
   sessionHarness,
   terminalResumeArgs,
+  UI_VIEW_HARNESSES,
   isOmpStoreSession,
 } from '../../utils/agentSessions';
 import { AgentList, AgentRowAction } from './AgentList';
-import { GroupingPicker, ProjectsSection, RailNavProps } from './ProjectsRail';
+import { FoldButtons, GroupingPicker, ProjectsSection, RailNavProps } from './ProjectsRail';
 import { NewTaskButton } from './NewTaskButton';
 import { ModeSwitcher } from '../ModeSwitcher';
 import { AgentsRailSlot } from '../ModuleSlot';
@@ -149,27 +149,15 @@ interface AgentsViewProps {
 }
 
 const noop = () => {};
-/** Agents between turns: these can move into the Chat pane without cutting off work */
-/** Mid-turn agents and live jobs open as a live view of the running process, not a resume */
-const opensAsLiveView = (session: AgentSession) =>
-  session.displayState === 'working' ||
-  session.displayState === 'waiting' ||
-  (session.kind === 'background' &&
-    (session.displayState === 'idle' || session.displayState === 'needs-input'));
-
-const CHAT_OPENABLE = new Set<AgentSession['displayState']>([
-  'idle',
-  'completed',
-  'failed',
-  'stopped',
-]);
-
 const DISPATCH_CWD_STORAGE_KEY = 'devOrbitAgentDispatchCwd';
 const SORT_STORAGE_KEY = 'devOrbitAgentSort';
 const INTERACTIVE_STORAGE_KEY = 'devOrbitAgentInteractive';
-/** Terminal session started outside Orkumo: hidden in the rail unless switched on */
-const isHiddenInteractive = (s: AgentSession) =>
-  s.kind === 'interactive' && sessionHarness(s) === 'claude';
+/**
+ * Terminal session no Orkumo pane runs (started elsewhere, often by another agent, or ended):
+ * hidden in the rail unless switched on. `panes`: this view's own pane rows, never hidden.
+ */
+const isHiddenInteractive = (s: AgentSession, panes: Set<string>) =>
+  s.kind === 'interactive' && !s.paneId && !panes.has(s.id);
 
 function loadSort(): AgentSort {
   try {
@@ -241,13 +229,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     attach: attachPane,
     closePane,
     prune: pruneMissing,
+    views: paneViews,
+    setView: setPaneView,
     ...workspaceActions
   } = useAgentWorkspace(contextId);
   const { openShell } = workspaceActions;
   const [expandedCompleted, setExpandedCompleted] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
-  // chat: the picked session continues in a Chat pane instead of a background agent (#189)
+  // chat: the picked session opens in the UI view (#189)
   const [resumePicker, setResumePicker] = useState<{
     open: boolean;
     query: string;
@@ -258,7 +248,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   });
   const [composerOpen, setComposerOpen] = useState(false);
   // 'agent' = New agent (#105): interactive session in agentCwd, attached right away
-  // 'chat' = New chat (#189): stream-json session in a Chat pane
+  // 'chat' = New chat (#189): the same agent, shown in the UI view
   const [composerMode, setComposerMode] = useState<'task' | 'agent' | 'chat'>('task');
   const [agentCwd, setAgentCwd] = useState<string | null>(null);
   // Harness of the next agent (#195), preset from the default on every open
@@ -283,18 +273,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
   // Cloud/remote PTY tabs live client-side only (not in the `claude agents` list)
   const [cloudSessions, setCloudSessions] = useState<AgentSession[]>([]);
-  const chats = useChatSessions();
   // #220: panes opened on another instance stay renderable (and unpruned) after the picker
-  // switches; `seen` keeps the last known copy of every session and chat
+  // switches; `seen` keeps the last known copy of every session
   const agentTarget = useAgentTarget();
   const [seen, setSeen] = useState<ReadonlyMap<string, AgentSession>>(new Map());
   useEffect(() => {
     setSeen((prev) => {
       const next = new Map(prev);
-      [...sessions, ...chats.chats].forEach((s) => next.set(s.id, s));
+      sessions.forEach((s) => next.set(s.id, s));
       return next;
     });
-  }, [sessions, chats.chats]);
+  }, [sessions]);
   const foreignPanes = useMemo(
     () => [...seen.values()].filter((s) => targetOf(s.id) !== agentTarget),
     [seen, agentTarget]
@@ -303,7 +292,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     localStorage.getItem(DISPATCH_CWD_STORAGE_KEY)
   );
   const [now, setNow] = useState(Date.now());
-  // Terminal sessions started outside Orkumo crowd the rail: hidden until switched on
+  // Terminal sessions no Orkumo pane runs (often started by other agents) crowd the rail: hidden until switched on
   const [showInteractive, toggleInteractive] = useStoredToggle(INTERACTIVE_STORAGE_KEY);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const ctrlCRef = useRef<number>(0);
@@ -322,6 +311,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       ...sessions,
       ...cloudSessions.filter((s) => sessionHarness(s) !== 'claude' && !claimed.has(s.id)),
     ];
+  }, [sessions, cloudSessions]);
+  // After a reload the client rows of panes are gone while their agents still run (closing or
+  // reloading only detaches): the server rows that name a pane stand in for it, so it reattaches
+  const paneStandIns = useMemo(() => {
+    const known = new Set(cloudSessions.map((s) => s.id));
+    return sessions.flatMap((s): AgentSession[] => {
+      if (s.kind !== 'interactive' || !s.paneId || known.has(s.paneId)) return [];
+      pinTarget(s.paneId, targetOf(s.id));
+      return [
+        {
+          ...s,
+          id: s.paneId,
+          paneId: null,
+          // only used if the agent ended meanwhile: the pane then resumes its session
+          ptyArgs: s.ptyArgs ?? (s.sessionId ? ['--resume', s.sessionId] : []),
+        },
+      ];
+    });
   }, [sessions, cloudSessions]);
   const visibleSessions = useMemo(
     () => applySessionFilter(listedSessions, filter),
@@ -427,13 +434,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     () => collectLinkEntries(contextSessions, issuesByAgent, lookup, issueTitles),
     [contextSessions, issuesByAgent, lookup, issueTitles]
   );
-  // One row per agent; interactive terminals only when switched on (harness agents #195 are Orkumo's own)
+  // One row per agent; terminal sessions no Orkumo pane runs only when switched on
   const agentRows = useMemo(() => collapseCopies(contextSessions), [contextSessions]);
+  const paneRowIds = useMemo(() => new Set(cloudSessions.map((s) => s.id)), [cloudSessions]);
   const railSessions = useMemo(
-    () => (showInteractive ? agentRows : agentRows.filter((s) => !isHiddenInteractive(s))),
-    [agentRows, showInteractive]
+    () =>
+      showInteractive ? agentRows : agentRows.filter((s) => !isHiddenInteractive(s, paneRowIds)),
+    [agentRows, showInteractive, paneRowIds]
   );
-  const interactiveCount = useMemo(() => agentRows.filter(isHiddenInteractive).length, [agentRows]);
+  const interactiveCount = useMemo(
+    () => agentRows.filter((s) => isHiddenInteractive(s, paneRowIds)).length,
+    [agentRows, paneRowIds]
+  );
   const shownSessions = useMemo(
     () =>
       applyTextQuery(
@@ -459,7 +471,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const totals = useMemo(() => summarizeContext(sessions, lookup), [sessions, lookup]);
   // An active quick filter must not hide its matches inside collapsed groups
   const rail = useRailPreferences(settings.grouping, contextId);
-  const { expandedSessions, toggleExpandedSession } = rail;
   const {
     arrange,
     toggleCollapsed,
@@ -644,20 +655,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // previous instance's list for one render, so only a list of the picked target counts
   const listIsCurrent = listTarget === agentTarget;
   useEffect(() => {
-    if (loading || !listIsCurrent || sessions.length === 0 || !chats.loaded) return;
+    if (loading || !listIsCurrent || sessions.length === 0) return;
     pruneMissing(
-      new Set([...sessions, ...cloudSessions, ...chats.chats, ...foreignPanes].map((s) => s.id))
+      new Set([...sessions, ...cloudSessions, ...paneStandIns, ...foreignPanes].map((s) => s.id))
     );
-  }, [
-    sessions,
-    cloudSessions,
-    chats.chats,
-    foreignPanes,
-    chats.loaded,
-    loading,
-    listIsCurrent,
-    pruneMissing,
-  ]);
+  }, [sessions, cloudSessions, paneStandIns, foreignPanes, loading, listIsCurrent, pruneMissing]);
 
   // Forget open row details of removed sessions; a scoped (--cwd) or failed list is incomplete
   const { pruneExpandedSessions } = rail;
@@ -772,27 +774,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [targetCwd, attach]
   );
 
-  const { isChat, stop: stopChatSession } = chats;
-  const closeAnyPane = useCallback(
+  /**
+   * A pane whose agent ended (Stop, Delete): gone from the workspace and from the rail. Closing a
+   * pane or tab only detaches (the server keeps an agent PTY running) and its row reopens it.
+   */
+  const dropPane = useCallback(
     (id: string) => {
       setCloudSessions((prev) => prev.filter((s) => s.id !== id));
-      // A closed chat pane ends its process (no orphan, #189)
-      if (isChat(id)) stopChatSession(id);
       closePane(id);
     },
-    [closePane, isChat, stopChatSession]
-  );
-  const closeTab = useCallback(
-    (tabId: string) => {
-      const panes = workspace.tabs.find((t) => t.id === tabId)?.panes ?? [];
-      panes.filter(isChat).forEach(stopChatSession);
-      // A harness agent has no session outside its pane: closing the pane ends it, so drop its card
-      setCloudSessions((prev) =>
-        prev.filter((s) => !panes.includes(s.id) || sessionHarness(s) === 'claude')
-      );
-      workspaceActions.closeTab(tabId);
-    },
-    [workspace.tabs, isChat, stopChatSession, workspaceActions]
+    [closePane]
   );
 
   // ---------------------------------------------------------------------
@@ -823,9 +814,29 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [toggleCollapsed, filterActive, showHint]
   );
 
+  /** The view a newly opened pane of `session` starts in: the UI view if preferred and readable */
+  const preferredView = useCallback(
+    (session: AgentSession): PaneView =>
+      settings.agentOpenView === 'chat' &&
+      UI_VIEW_HARNESSES[sessionHarness(session)] &&
+      !session.ptyArgs?.includes('--cloud')
+        ? 'chat'
+        : 'terminal',
+    [settings.agentOpenView]
+  );
+
+  /** Attaches pane `id` in `view`; a pane that is already open keeps the view it shows */
+  const attachIn = useCallback(
+    (id: string, view: PaneView) => {
+      if (!openIdSet.has(id)) setPaneView(id, view);
+      attach(id);
+    },
+    [openIdSet, setPaneView, attach]
+  );
+
   /**
    * Opens an interactive PTY in `cwd`: `claude` (for ~ and folders whose trust prompt is pending)
-   * or another harness (#195), which gets `ptyArgs` as is.
+   * or another harness (#195), which gets `ptyArgs` as is. `view`: how the pane shows it.
    */
   const openInteractiveClaude = useCallback(
     (
@@ -833,10 +844,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       name: string,
       ptyArgs: string[] = [],
       command: AgentHarness = 'claude',
-      target = getAgentTarget()
+      target = getAgentTarget(),
+      view: PaneView = 'terminal'
     ) => {
       const id = `interactive-${Date.now()}`;
-      // A known session id lets "Open as chat" resume this terminal's session later
+      // A known session id lets the UI view read this terminal's transcript
       if (command === 'claude' && ptyArgs.length === 0)
         ptyArgs = ['--session-id', crypto.randomUUID()];
       pinTarget(id, target);
@@ -859,122 +871,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         },
       ]);
       setComposerOpen(false);
-      attach(id);
+      attachIn(id, view);
     },
-    [attach]
-  );
-
-  /** Starts a Chat pane session; Claude Code gets the dispatch defaults (model, permission mode) */
-  const openChat = useCallback(
-    async (
-      cwd: string | null,
-      extra: { harness?: AgentHarness; resume?: string; continue?: boolean; name?: string },
-      message = ''
-    ) => {
-      if (!cwd) {
-        showHint('Pick a directory first', 'error');
-        return;
-      }
-      setDispatching(true);
-      try {
-        const claude = (extra.harness ?? 'claude') === 'claude';
-        const id = await chats.open(
-          {
-            cwd,
-            ...(claude && {
-              model: settings.dispatch.model,
-              permissionMode: settings.dispatch.permissionMode,
-              skipPermissions: settings.dispatch.skipPermissions || undefined,
-            }),
-            ...extra,
-            // Session titles (an omp row is named after its first prompt) can exceed the 80 allowed
-            name: extra.name?.replace(/\s+/g, ' ').trim().slice(0, 80) || undefined,
-          },
-          message
-        );
-        setInput('');
-        setComposerImages([]);
-        setComposerOpen(false);
-        attach(id);
-      } catch (err) {
-        showHint(err instanceof Error ? err.message : 'Chat start failed', 'error', 6000);
-      } finally {
-        setDispatching(false);
-      }
-    },
-    [chats, settings.dispatch, showHint, attach]
-  );
-
-  /** "Open in terminal": the chat process ends first, then the harness's terminal resumes it */
-  const openChatInTerminal = useCallback(
-    async (chatId: string, sessionId: string) => {
-      const chat = chats.chats.find((c) => c.id === chatId);
-      closePane(chatId);
-      await stopChatSession(chatId);
-      if (chat?.viewOf) {
-        // A live view has no process of its own: the agent's terminal is the agent itself
-        attach(chat.viewOf);
-        return;
-      }
-      const harness = chat ? sessionHarness(chat) : 'claude';
-      // The chat's session lives on the chat's instance, not on the one picked now
-      openInteractiveClaude(
-        chat?.cwd || homeDir || '',
-        chat?.name || harness,
-        terminalResumeArgs(harness, sessionId),
-        harness,
-        targetOf(chatId)
-      );
-    },
-    [chats.chats, closePane, stopChatSession, openInteractiveClaude, homeDir, attach]
-  );
-
-  /**
-   * "Open as chat": a running background agent, and any agent mid-turn, opens as a live view of
-   * its own process (chat is just another view). An idle local terminal or a finished job hands
-   * its session to a chat process instead. Another harness's session (omp) has no live view:
-   * its process (pane or other terminal) ends first, then the chat resumes the session.
-   */
-  const openAgentInChat = useCallback(
-    async (session: AgentSession, sessionId: string) => {
-      const harness = sessionHarness(session);
-      if (harness !== 'claude') {
-        if (session.displayState === 'working') {
-          showHint(`${harnessLabel(harness)} is mid-turn: open it as chat once it is idle`, 'info');
-          return;
-        }
-        try {
-          // Waits until the process holding the session is gone; closing the pane alone does not
-          if (session.pid != null) await stopAgent(session.id);
-        } catch (err) {
-          showHint(`Takeover failed: ${err instanceof Error ? err.message : err}`, 'error', 6000);
-          return;
-        }
-        closeAnyPane(session.paneId || session.id);
-        await openChat(session.cwd, {
-          harness,
-          resume: sessionId,
-          name: session.name || undefined,
-        });
-        return;
-      }
-      if (opensAsLiveView(session)) {
-        try {
-          // A background pane only detaches; a local terminal stays open, it is the agent
-          if (session.kind === 'background') closeAnyPane(session.id);
-          attach(await chats.openView(session.id));
-        } catch (err) {
-          showHint(err instanceof Error ? err.message : 'Chat view failed', 'error', 6000);
-        }
-        return;
-      }
-      // For a local terminal, closing the pane kills its PTY (server side, on WebSocket close)
-      closeAnyPane(session.id);
-      // shortcut: fixed grace for the killed claude to exit; replace with a PTY-exit ack if a resume ever races
-      if (session.kind !== 'background') await new Promise((r) => setTimeout(r, 500));
-      await openChat(session.cwd, { resume: sessionId, name: session.name || undefined });
-    },
-    [showHint, closeAnyPane, openChat, chats, attach]
+    [attachIn]
   );
 
   /**
@@ -994,83 +893,64 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     []
   );
 
-  /**
-   * "Open idle agents as chat" (default): an interactive agent between turns opens in the Chat
-   * pane. false = open it the usual way. A background job always attaches: as a chat it would
-   * be a second process on its session (#236).
-   */
-  const openAsChat = useCallback(
-    (session: AgentSession): boolean => {
-      if (settings.agentOpenView !== 'chat' || session.kind === 'background') return false;
-      const sessionId = resumableSessionId(session);
-      if (!sessionId) return false;
-      const running = chats.chats.find((c) => c.sessionId === sessionId);
-      if (running) {
-        attach(running.id);
-        return true;
-      }
-      if (sessionHarness(session) !== 'claude') {
-        // No live view for other harnesses: mid-turn it stays in its terminal
-        if (!CHAT_OPENABLE.has(session.displayState)) return false;
-        // Its process in another terminal ends first: a takeover, ask (#236)
-        const elsewhere = session.pid != null && !session.paneId;
-        guardCopy(elsewhere ? session : null, () => void openAgentInChat(session, sessionId), true);
-        return true;
-      }
-      // A prompt is not in the transcript and `claude logs` only exists for jobs: keep the terminal
-      const prompting =
-        session.displayState === 'waiting' ||
-        (session.displayState === 'needs-input' && session.status === 'waiting');
-      if (prompting) return false;
-      const viewable = session.displayState === 'working' || session.displayState === 'needs-input';
-      if (!CHAT_OPENABLE.has(session.displayState) && !viewable) return false;
-      // A live view starts no process; a resume on a held transcript does (#236)
-      guardCopy(!opensAsLiveView(session) && resumeMakesCopy(session) ? session : null, () => {
-        void openAgentInChat(session, sessionId);
-      });
-      return true;
-    },
-    [settings.agentOpenView, openAgentInChat, guardCopy, chats.chats, attach]
-  );
-
   const allPanes = useMemo(
-    () => [...sessions, ...cloudSessions, ...chats.chats, ...foreignPanes],
-    [sessions, cloudSessions, chats.chats, foreignPanes]
+    () => [...sessions, ...cloudSessions, ...paneStandIns, ...foreignPanes],
+    [sessions, cloudSessions, paneStandIns, foreignPanes]
   );
 
-  /** Opens a rail session the way its kind needs (rail Enter / double-click, peek's open button) */
+  /**
+   * Opens a rail session the way its kind needs (rail Enter / double-click, peek's open button),
+   * in the preferred view ("Open agents in": UI view or terminal). Either view is the same process.
+   */
   const openSession = useCallback(
     (session: AgentSession) => {
       const plan = openPlan(session, allPanes, openIdSet);
       // A Claude app session runs on claude.ai: a resume here would fork it (#236)
       if (plan.type === 'app') return plan.url ? openInSystemBrowser(plan.url) : undefined;
+      const view = preferredView(session);
       if (plan.type === 'attach') {
-        if (openAsChat(session)) return;
         // A harness session running in another terminal: omp has no attach, so taking it over
         // ends that process and resumes the session here (a second process would write in parallel)
         const elsewhere = session.ptyArgs && session.pid != null && !session.paneId;
-        if (!elsewhere) return attach(session.id);
+        if (!elsewhere) return attachIn(session.id, view);
         return guardCopy(
           session,
           () =>
             void stopAgent(session.id).then(
-              () => attach(session.id),
+              () => attachIn(session.id, view),
               (err) => showHint(`Takeover failed: ${err.message}`, 'error', 6000)
             ),
           true
         );
       }
       if (plan.type === 'focus') return focusOpen(plan.paneId);
-      if (openAsChat(session)) return;
+      // Its agent still runs detached in that pane's PTY: reopening reattaches, never a second one
+      if (plan.type === 'reattach') return attachIn(plan.paneId, view);
       // Interactive and remote-control sessions keep their transcript locally: continue it here
       const { sessionId } = plan;
       if (sessionId)
         guardCopy(resumeMakesCopy(session) ? session : null, () =>
-          openInteractiveClaude(session.cwd, session.name, ['--resume', sessionId])
+          openInteractiveClaude(
+            session.cwd,
+            session.name,
+            ['--resume', sessionId],
+            'claude',
+            undefined,
+            view
+          )
         );
       else showHint('Interactive sessions run in their own terminal', 'info');
     },
-    [attach, showHint, openInteractiveClaude, openAsChat, allPanes, openIdSet, focusOpen, guardCopy]
+    [
+      attachIn,
+      showHint,
+      openInteractiveClaude,
+      preferredView,
+      allPanes,
+      openIdSet,
+      focusOpen,
+      guardCopy,
+    ]
   );
 
   const activateItem = useCallback(
@@ -1094,7 +974,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         name?: string | null;
         idle?: boolean;
       },
-      attachAfter = false
+      attachAfter = false,
+      view: PaneView = 'terminal'
     ) => {
       const cwd = extra.cwd || targetCwd;
       if (!cwd) {
@@ -1121,7 +1002,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           'success'
         );
         refresh();
-        if (attachAfter) attach(result.id);
+        if (attachAfter) attachIn(result.id, view);
       } catch (err) {
         const message = err instanceof Error ? err.message : 'Dispatch failed';
         if (isUntrustedWorkspaceError(message)) {
@@ -1139,7 +1020,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         setDispatching(false);
       }
     },
-    [targetCwd, settings.dispatch, showHint, refresh, attach, openInteractiveClaude]
+    [targetCwd, settings.dispatch, showHint, refresh, attachIn, openInteractiveClaude]
   );
 
   const handleCommand = useCallback(
@@ -1201,37 +1082,58 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   const handleSubmit = useCallback(
     async ({ attach: attachAfter }: { attach: boolean }) => {
-      if (composerMode === 'chat') {
+      // New chat (#189) starts the same agent as New agent, only shown in the UI view
+      const chat = composerMode === 'chat';
+      const view: PaneView = chat && UI_VIEW_HARNESSES[composerHarness] ? 'chat' : 'terminal';
+      if (chat) {
         const harness = composerHarness;
         if (harnessInstalled[harness] === false) {
           showHint(`${harnessLabel(harness)} is not installed on this machine`, 'error');
           return;
         }
+        if (!composerCwd) {
+          showHint('Pick a project directory first', 'error');
+          return;
+        }
+        const cwd = composerCwd;
+        const name = `${harness} · ${cwd.split('/').filter(Boolean).pop() || cwd}`;
         // `/resume [id]` and `/continue` pick up an earlier session; anything else is the first message
         const resume = input.trim().match(/^\/resume(?:\s+(\S+))?$/);
         if (resume) {
           if (resume[1]) {
             const id = resume[1];
             guardCopy(transcriptHolder(sessions, id), () => {
-              void openChat(composerCwd, { harness, resume: id });
+              if (harness === 'claude') void doDispatch({ resume: id, cwd }, true, view);
+              else
+                openInteractiveClaude(
+                  cwd,
+                  name,
+                  terminalResumeArgs(harness, id),
+                  harness,
+                  undefined,
+                  view
+                );
             });
           } else if (harness === 'claude') setResumePicker({ open: true, query: '', chat: true });
           else showHint(`${harnessLabel(harness)}: give the session id, /resume <id>`, 'error');
           return;
         }
         if (input.trim() === '/continue') {
-          if (harness === 'claude') await openChat(composerCwd, { continue: true });
+          if (harness === 'claude')
+            openInteractiveClaude(cwd, name, ['--continue'], 'claude', undefined, view);
           else showHint('/continue is Claude Code only: use /resume <id>', 'error');
           return;
         }
-        const paths = await uploadComposerImages();
-        if (!paths) return;
-        await openChat(composerCwd, { harness }, promptWithImages(input, paths));
-        return;
+        if (view === 'terminal')
+          showHint(`${harnessLabel(harness)} has no UI view yet: it opens in the terminal`, 'info');
       }
       if (composerHarness !== 'claude') {
         // Other harnesses (#195) run interactively in a terminal pane; the server checks the args
-        const cwd = composerMode === 'agent' ? agentCwd || targetCwd : targetCwd;
+        const cwd = chat
+          ? composerCwd
+          : composerMode === 'agent'
+            ? agentCwd || targetCwd
+            : targetCwd;
         if (!cwd) {
           showHint('Pick a project directory first', 'error');
           return;
@@ -1255,13 +1157,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           cwd,
           `${composerHarness} · ${cwd.split('/').filter(Boolean).pop() || cwd}`,
           prompt ? ['--', prompt] : [],
-          composerHarness
+          composerHarness,
+          undefined,
+          view
         );
         setInput('');
         setComposerImages([]);
         return;
       }
-      if (composerMode === 'agent') {
+      if (composerMode === 'agent' || chat) {
         // The CLI refuses `--bg` in ~ (trusted one session at a time): run it interactively there
         if (homeDir && composerCwd === homeDir) {
           if (input.trim() || composerImages.length > 0) {
@@ -1272,13 +1176,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             );
             return;
           }
-          openInteractiveClaude(homeDir, 'claude · ~');
+          openInteractiveClaude(homeDir, 'claude · ~', [], 'claude', undefined, view);
           return;
         }
         const paths = await uploadComposerImages();
         if (!paths) return;
         const prompt = promptWithImages(input, paths);
-        await doDispatch({ prompt: prompt || undefined, idle: true, cwd: composerCwd }, true);
+        await doDispatch({ prompt: prompt || undefined, idle: true, cwd: composerCwd }, true, view);
         return;
       }
       const parsed = parseDispatchInput(input, { subagents, repos });
@@ -1352,7 +1256,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       handleCommand,
       doDispatch,
       openInteractiveClaude,
-      openChat,
     ]
   );
 
@@ -1411,14 +1314,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           return;
         }
         toast.success(`Deleted ${session.name}`);
-        closePane(session.paneId ?? session.id);
+        dropPane(session.paneId ?? session.id);
         if (peekId === session.id) setPeekId(null);
         refresh();
       } catch (err) {
         toast.error(err instanceof Error ? err.message : 'Delete failed');
       }
     },
-    [closePane, peekId, refresh]
+    [dropPane, peekId, refresh]
   );
 
   const deleteSession = useCallback(
@@ -1722,9 +1625,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       // An omp session from omp's store (#195) runs wherever its pid is, maybe in another terminal:
       // the server ends that process, then the pane that ran it here (its id is `paneId`) closes
       const omp = isOmpStoreSession(session);
-      // Any other harness agent is its pane: stopping it closes the pane, which ends the process
-      const harnessPane =
-        !omp && session.kind === 'interactive' && sessionHarness(session) !== 'claude';
+      // An agent running in a pane of ours, maybe detached (pane closed): Stop ends that pane's PTY
+      const heldPane =
+        !omp && session.kind === 'interactive'
+          ? session.paneId || (sessionHarness(session) !== 'claude' ? session.id : null)
+          : null;
       const appUrl = session.app?.url;
       return [
         { id: 'attach', label: 'Attach in tab', disabled: !bg, onSelect: () => attach(session.id) },
@@ -1776,17 +1681,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             if (slug) navigate(modeUrl(m.id)(slug, session.id));
           },
         })),
-        // Replaces the card chevron (#159); only hover needs it, a click already keeps them open (#242).
-        // A card pinned earlier keeps its "Hide details" so it can still be unpinned.
-        ...(settings.cardDetails === 'hover' || expandedSessions.has(session.id)
-          ? [
-              {
-                id: 'details',
-                label: expandedSessions.has(session.id) ? 'Hide details' : 'Keep details open',
-                onSelect: () => toggleExpandedSession(session.id),
-              },
-            ]
-          : []),
         {
           id: 'pin',
           label: session.pinned ? 'Unpin' : 'Pin (keep running while idle)',
@@ -1797,12 +1691,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         {
           id: 'stop',
           label: 'Stop',
-          disabled: omp ? session.pid == null : !harnessPane && (!bg || !alive),
+          disabled: omp ? session.pid == null : !heldPane && (!bg || !alive),
           onSelect: () => {
-            if (harnessPane) return closeAnyPane(session.id);
+            if (heldPane)
+              return void stopPane(heldPane)
+                .then(() => {
+                  dropPane(heldPane);
+                  refresh();
+                })
+                .catch((err) => toast.error(err.message));
             stopAgent(session.id)
               .then(() => {
-                if (omp && session.paneId) closeAnyPane(session.paneId);
+                if (omp && session.paneId) dropPane(session.paneId);
                 refresh();
               })
               .catch((err) => toast.error(err.message));
@@ -1836,7 +1736,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     },
     [
       attach,
-      closeAnyPane,
+      dropPane,
       togglePeek,
       handlePin,
       handleRename,
@@ -1845,11 +1745,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       contexts,
       navigate,
       issuesByAgent,
-      expandedSessions,
-      toggleExpandedSession,
       openShell,
       scopedModes,
-      settings.cardDetails,
     ]
   );
 
@@ -1954,6 +1851,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [rail.collapseAll, groups]
   );
   const expandAllGroups = useCallback(() => rail.expandAll(), [rail.expandAll]);
+  // Filter row toggles: their state follows what the rail shows
+  const groupsCollapsed = useMemo(() => {
+    const keys = items.flatMap((item) => (item.type === 'group' ? [item.group.key] : []));
+    return keys.length > 0 && keys.every((key) => rail.collapsed.has(key));
+  }, [items, rail.collapsed]);
+  const cardsExpanded = useMemo(
+    () => shownSessions.some((s) => rail.expandedSessions.has(s.id)),
+    [shownSessions, rail.expandedSessions]
+  );
 
   const paletteCommands = useMemo<PaletteCommand[]>(() => {
     const newTask: PaletteCommand = {
@@ -2054,7 +1960,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }
     }
     if (activeTab) {
-      list.push(cmd('tab.close', 'Close current tab', 'Workspace', () => closeTab(activeTab.id)));
+      list.push(
+        cmd('tab.close', 'Close current tab', 'Workspace', () =>
+          workspaceActions.closeTab(activeTab.id)
+        )
+      );
     }
     list.push(
       cmd('panel.prs', 'Show pull requests', 'Panels', () => {
@@ -2348,9 +2258,21 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 <GroupingPicker
                   grouping={settings.grouping}
                   onGrouping={(grouping) => updateSettings({ grouping })}
-                  onCollapseAll={collapseAllGroups}
-                  onExpandAll={expandAllGroups}
-                  collapseDisabled={filterActive}
+                />
+              }
+              trailing={
+                <FoldButtons
+                  groupsCollapsed={groupsCollapsed}
+                  onGroups={(collapse) => (collapse ? collapseAllGroups() : expandAllGroups())}
+                  groupsDisabled={filterActive}
+                  cardsExpanded={cardsExpanded}
+                  onCards={(expand) =>
+                    rail.setSessionsExpanded(
+                      shownSessions.map((s) => s.id),
+                      expand
+                    )
+                  }
+                  cardsDisabled={shownSessions.length === 0}
                 />
               }
               sort={sort}
@@ -2390,7 +2312,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 onFocusOpen={focusOpen}
                 now={now}
                 grouping={settings.grouping}
-                cardDetails={settings.cardDetails}
                 cardDensity={settings.cardDensity}
                 cardFields={settings.cardFields}
                 lookup={lookup}
@@ -2414,6 +2335,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 favoriteGroupKeys={rail.favoriteGroups}
                 favoriteSessionIds={rail.favoriteSessions}
                 expandedSessionIds={rail.expandedSessions}
+                onToggleExpanded={rail.toggleExpandedSession}
                 onToggleFavoriteGroup={rail.toggleFavoriteGroup}
                 onToggleFavoriteSession={rail.toggleFavoriteSession}
                 onMoveGroup={rail.moveGroup}
@@ -2446,7 +2368,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               hint={
                 interactiveCount > 0
                   ? `${interactiveCount} ${showInteractive ? 'shown' : 'hidden'}`
-                  : 'terminals outside Orkumo'
+                  : 'not running in Orkumo'
               }
               checked={showInteractive}
               onToggle={toggleInteractive}
@@ -2506,35 +2428,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                         workspace={ws}
                         onActivateTab={live ? workspaceActions.activateTab : noop}
                         onFocusPane={live ? workspaceActions.focusPane : noop}
-                        onClosePane={live ? closeAnyPane : noop}
-                        onCloseTab={live ? closeTab : noop}
+                        onClosePane={live ? closePane : noop}
+                        onCloseTab={live ? workspaceActions.closeTab : noop}
                         chatSubmitKey={settings.chatSubmitKey}
                         chatShowSteps={settings.chatShowSteps}
                         onToggleChatSteps={() =>
                           updateSettings({ chatShowSteps: !settings.chatShowSteps })
                         }
-                        onOpenChatInTerminal={
-                          live
-                            ? (chatId, sid) =>
-                                guardCopy(
-                                  chats.chats.find((c) => c.id === chatId) ?? null,
-                                  () => void openChatInTerminal(chatId, sid),
-                                  true
-                                )
-                            : undefined
-                        }
-                        onOpenAsChat={
-                          live
-                            ? (s, sid) =>
-                                guardCopy(
-                                  // a live view starts no process, so it makes no copy (#236)
-                                  !opensAsLiveView(s) && resumeMakesCopy(s) ? s : null,
-                                  () => void openAgentInChat(s, sid),
-                                  // another harness's process is ended before the chat resumes
-                                  sessionHarness(s) !== 'claude'
-                                )
-                            : undefined
-                        }
+                        views={paneViews}
+                        onSetView={live ? setPaneView : noop}
                         onMoveTab={live ? workspaceActions.moveTab : noop}
                         onSplit={live ? workspaceActions.split : noop}
                         onDetach={live ? workspaceActions.detach : noop}
@@ -2676,7 +2578,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         onResume={(past: AgentPastSession) => {
           setResumePicker({ open: false, query: '' });
           guardCopy(transcriptHolder(sessions, past.sessionId), () => {
-            if (resumePicker.chat) openChat(past.cwd || composerCwd, { resume: past.sessionId });
+            if (resumePicker.chat)
+              void doDispatch(
+                { resume: past.sessionId, cwd: past.cwd || composerCwd },
+                true,
+                'chat'
+              );
             else doDispatch({ resume: past.sessionId, cwd: past.cwd || targetCwd });
           });
         }}

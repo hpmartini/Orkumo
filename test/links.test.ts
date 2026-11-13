@@ -132,6 +132,26 @@ describe('interceptAnchorClick', () => {
     unregister();
   });
 
+  it('sends Cmd/Ctrl+Shift-clicks to the system browser despite the built-in target', () => {
+    const shell = vi.fn();
+    const unregister = registerShellBrowser(shell);
+    const openExternal = vi.fn().mockResolvedValue({ success: true });
+    window.electronAPI = { openExternal } as unknown as typeof window.electronAPI;
+    const a = document.createElement('a');
+    a.href = 'https://example.org/pr/2';
+    a.target = '_blank';
+    for (const mod of ['metaKey', 'ctrlKey'] as const) {
+      const event = new MouseEvent('click', { cancelable: true, [mod]: true, shiftKey: true });
+      Object.defineProperty(event, 'target', { value: a });
+      interceptAnchorClick(event);
+      expect(event.defaultPrevented).toBe(true);
+    }
+    expect(openExternal).toHaveBeenCalledTimes(2);
+    expect(openExternal).toHaveBeenCalledWith('https://example.org/pr/2');
+    expect(shell).not.toHaveBeenCalled();
+    unregister();
+  });
+
   it('leaves same-tab anchors and mailto alone', () => {
     const shell = vi.fn();
     const unregister = registerShellBrowser(shell);

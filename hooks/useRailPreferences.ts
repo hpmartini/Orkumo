@@ -69,6 +69,13 @@ export const collapseAll = (collapsed: string[], keys: string[]): string[] => [
 export const expandAll = (collapsed: string[], keys?: string[]): string[] =>
   keys ? collapsed.filter((k) => !keys.includes(k)) : [];
 
+/** Opens (`open`) or closes the details of the given agent rows */
+export const setExpanded = (expanded: string[], ids: string[], open: boolean): string[] => {
+  if (open) return [...new Set([...expanded, ...ids])];
+  const close = new Set(ids);
+  return expanded.filter((id) => !close.has(id));
+};
+
 /**
  * Orders groups: favorites first, then by the manual order. Groups missing from the order
  * (new ones) stay at the end of their block in their original order.
@@ -272,6 +279,11 @@ export function useRailPreferences(groupBy: AgentGrouping, contextId?: string) {
           ...p,
           expandedSessions: toggleExpandedSession(p.expandedSessions, id),
         })),
+      [update]
+    ),
+    setSessionsExpanded: useCallback(
+      (ids: string[], open: boolean) =>
+        update((p) => ({ ...p, expandedSessions: setExpanded(p.expandedSessions, ids, open) })),
       [update]
     ),
     /** Forgets open details of sessions that no longer exist; call only with a complete session list */

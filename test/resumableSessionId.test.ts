@@ -18,9 +18,8 @@ describe('resumableSessionId', () => {
   it('is null when nothing identifies the session or it runs elsewhere', () => {
     expect(resumableSessionId(s({ ptyArgs: [] }))).toBeNull();
     expect(resumableSessionId(s({ ptyArgs: ['--cloud', 'x', '--resume', ID] }))).toBeNull();
-    // #220: a pane of another instance than the picked one hands over nothing (the chat would start here)
+    // #220: a pane of another instance than the picked one hands over nothing (a resume would start here)
     pinTarget('peer-job', '/modules/mesh/peer/darkbook');
     expect(resumableSessionId(s({ id: 'peer-job', sessionId: ID }))).toBeNull();
-    expect(resumableSessionId(s({ chat: true, sessionId: ID }))).toBeNull();
   });
 });

@@ -1,13 +1,5 @@
 import React from 'react';
-import {
-  Brain,
-  ChevronRight,
-  History,
-  ShieldQuestion,
-  Wrench,
-  CheckCircle2,
-  XCircle,
-} from 'lucide-react';
+import { Brain, ChevronRight, History, Wrench, CheckCircle2, XCircle } from 'lucide-react';
 import { toolDiff, toolSummary, type ChatBlock, type ChatMessage } from '../../../utils/chatEvents';
 import { splitImages } from '../../../utils/chatComposer';
 import { agentImageUrl } from '../../../services/agentsApi';
@@ -113,78 +105,6 @@ export const AssistantBlock: React.FC<{ block: ChatBlock }> = ({ block }) => {
   return <ToolBlock block={block} />;
 };
 
-type PermissionMessage = Extract<ChatMessage, { kind: 'permission' }>;
-
-const PermissionCard: React.FC<{
-  message: PermissionMessage;
-  onAnswer: (requestId: string, decision: 'allow' | 'deny' | 'always') => void;
-}> = ({ message, onAnswer }) => {
-  const diff = toolDiff(message.toolName, message.input);
-  const btn = `px-2.5 py-1 rounded-md text-xs font-medium ${focusRing} disabled:opacity-50`;
-  return (
-    <div
-      role="group"
-      aria-label={`Permission request: ${message.toolName}`}
-      className="my-2 rounded-md border border-amber-600/60 bg-amber-950/30 p-2.5"
-    >
-      <div className="flex items-center gap-1.5 text-xs text-amber-100">
-        <ShieldQuestion size={14} aria-hidden />
-        <span className="font-medium">{message.toolName}</span>
-        <span className="font-mono text-amber-200/80 truncate min-w-0">
-          {toolSummary(message.input)}
-        </span>
-      </div>
-      {message.description && (
-        <div className="mt-1 text-xs text-gray-300">{message.description}</div>
-      )}
-      {diff ? (
-        <DiffView lines={diff} />
-      ) : (
-        <pre className="mt-1 max-h-40 overflow-auto rounded bg-gray-950 p-2 text-xs font-mono text-gray-300">
-          {JSON.stringify(message.input, null, 2)}
-        </pre>
-      )}
-      {message.decision ? (
-        <div className="mt-2 text-xs text-gray-400">
-          {message.decision === 'deny'
-            ? 'Denied'
-            : message.decision === 'always'
-              ? 'Always allowed'
-              : 'Allowed'}
-        </div>
-      ) : (
-        <div className="mt-2 flex flex-wrap gap-2">
-          <button
-            type="button"
-            autoFocus
-            onClick={() => onAnswer(message.requestId, 'allow')}
-            className={`${btn} bg-emerald-600 hover:bg-emerald-500 text-white`}
-          >
-            Allow
-          </button>
-          {message.canAlways && (
-            <button
-              type="button"
-              onClick={() => onAnswer(message.requestId, 'always')}
-              className={`${btn} bg-gray-700 hover:bg-gray-600 text-gray-100`}
-              title="Allow and apply the rule the CLI suggests for this session"
-            >
-              Always allow
-            </button>
-          )}
-          <button
-            type="button"
-            onClick={() => onAnswer(message.requestId, 'deny')}
-            className={`${btn} bg-red-700 hover:bg-red-600 text-white`}
-          >
-            Deny
-          </button>
-        </div>
-      )}
-    </div>
-  );
-};
-
 const UserMessage: React.FC<{ text: string }> = ({ text }) => {
   const { text: body, images } = splitImages(text);
   const previews = images.map((p) => ({ path: p, url: agentImageUrl(p) }));
@@ -220,8 +140,7 @@ const UserMessage: React.FC<{ text: string }> = ({ text }) => {
 export const ChatMessageView: React.FC<{
   message: ChatMessage;
   showSteps: boolean;
-  onAnswer: (requestId: string, decision: 'allow' | 'deny' | 'always') => void;
-}> = React.memo(({ message, showSteps, onAnswer }) => {
+}> = React.memo(({ message, showSteps }) => {
   switch (message.kind) {
     case 'user':
       return <UserMessage text={message.text} />;
@@ -250,8 +169,6 @@ export const ChatMessageView: React.FC<{
         </div>
       );
     }
-    case 'permission':
-      return <PermissionCard message={message} onAnswer={onAnswer} />;
     case 'result':
       return (
         <div className="my-2 flex items-center gap-1.5 text-[11px] text-gray-500">

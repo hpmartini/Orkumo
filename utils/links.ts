@@ -66,11 +66,15 @@ export function openInSystemBrowser(url: string, onRefused?: (url: string) => vo
 }
 
 /**
- * Open a link per the configured target. `builtin` overrides the shell panel
- * (agent terminals open a split pane next to themselves instead).
+ * Open a link per the configured target, or per `target` (Cmd/Ctrl+Shift-click: 'system').
+ * `builtin` overrides the shell panel (agent terminals open a split pane next to themselves instead).
  */
-export function openLink(url: string, builtin?: (url: string) => void): LinkRoute {
-  let route = routeLink(url, linkTarget);
+export function openLink(
+  url: string,
+  builtin?: (url: string) => void,
+  target: LinkTarget = linkTarget
+): LinkRoute {
+  let route = routeLink(url, target);
   if (route === 'builtin' && !window.electronAPI?.browserView && refusesFraming(url))
     route = 'system';
   const openBuiltin = builtin ?? shellBrowser;
@@ -84,14 +88,16 @@ export function openLink(url: string, builtin?: (url: string) => void): LinkRout
  * so the individual components keep plain anchors (copy link, middle-click) without their own logic.
  */
 export function interceptAnchorClick(event: MouseEvent) {
-  // modifier clicks keep the browser's own "open in new tab/window"
   if (event.defaultPrevented || event.button !== 0) return;
-  if (event.metaKey || event.ctrlKey || event.shiftKey) return;
+  // Cmd/Ctrl+Shift goes straight to the system browser; other modifier clicks keep the
+  // browser's own "open in new tab/window"
+  const system = (event.metaKey || event.ctrlKey) && event.shiftKey;
+  if (!system && (event.metaKey || event.ctrlKey || event.shiftKey)) return;
   const anchor = (event.target as HTMLElement | null)?.closest?.<HTMLAnchorElement>('a[href]');
   // mailto: and friends keep the browser's default handling
   if (!anchor || anchor.target !== '_blank' || !/^https?:/i.test(anchor.href)) return;
   event.preventDefault();
-  openLink(anchor.href);
+  openLink(anchor.href, undefined, system ? 'system' : undefined);
 }
 
 /**

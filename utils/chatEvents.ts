@@ -19,17 +19,6 @@ export type ChatBlock =
 export type ChatMessage =
   | { kind: 'user'; key: string; text: string }
   | { kind: 'assistant'; key: string; blocks: ChatBlock[]; streaming: boolean }
-  | {
-      kind: 'permission';
-      key: string;
-      requestId: string;
-      toolName: string;
-      input: Record<string, unknown>;
-      description: string;
-      reason: string;
-      canAlways: boolean;
-      decision: 'allow' | 'deny' | 'always' | null;
-    }
   | { kind: 'result'; key: string; ok: boolean; subtype: string; durationMs: number | null }
   | { kind: 'notice'; key: string; text: string; tone: 'info' | 'error' }
   /** The CLI's "※ recap" summary (system/away_summary) */
@@ -46,10 +35,6 @@ export interface ChatState {
   messages: ChatMessage[];
   sessionId: string | null;
   model: string | null;
-  /** A turn is running (user sent, no result yet) */
-  busy: boolean;
-  /** CLI process has exited */
-  ended: boolean;
   /** Assistant message id → index of the next block a full `assistant` event fills */
   filled: Record<string, number>;
   /** Slash commands (built-ins, skills) and agents the CLI reported */
@@ -63,8 +48,6 @@ export const initialChatState: ChatState = {
   messages: [],
   sessionId: null,
   model: null,
-  busy: false,
-  ended: false,
   filled: {},
   commands: [],
   agents: [],
@@ -124,46 +107,6 @@ function setBlock(blocks: ChatBlock[], index: number, block: ChatBlock): ChatBlo
   return next;
 }
 
-function reduceStreamEvent(state: ChatState, ev: Json): ChatState {
-  if (ev.type === 'message_start' && isObj(ev.message)) {
-    const id = str(ev.message.id);
-    return id ? updateAssistant(state, id, (m) => ({ ...m, streaming: true })) : state;
-  }
-  const current = [...state.messages]
-    .reverse()
-    .find((m): m is Extract<ChatMessage, { kind: 'assistant' }> => m.kind === 'assistant');
-  if (!current) return state;
-  const index = typeof ev.index === 'number' ? ev.index : -1;
-  if (ev.type === 'content_block_start' && index >= 0) {
-    const block = toBlock(ev.content_block);
-    return block
-      ? updateAssistant(state, current.key, (m) => ({
-          ...m,
-          blocks: setBlock(m.blocks, index, block),
-        }))
-      : state;
-  }
-  if (ev.type === 'content_block_delta' && index >= 0 && isObj(ev.delta)) {
-    const delta = ev.delta;
-    const piece =
-      delta.type === 'text_delta'
-        ? str(delta.text)
-        : delta.type === 'thinking_delta'
-          ? str(delta.thinking)
-          : '';
-    if (!piece) return state;
-    return updateAssistant(state, current.key, (m) => {
-      const block = m.blocks[index];
-      if (!block || block.type === 'tool') return m;
-      return { ...m, blocks: setBlock(m.blocks, index, { ...block, text: block.text + piece }) };
-    });
-  }
-  if (ev.type === 'message_stop') {
-    return updateAssistant(state, current.key, (m) => ({ ...m, streaming: false }));
-  }
-  return state;
-}
-
 function attachToolResult(state: ChatState, block: Json): ChatState {
   const toolId = str(block.tool_use_id);
   return {
@@ -182,12 +125,6 @@ function attachToolResult(state: ChatState, block: Json): ChatState {
     ),
   };
 }
-
-let noticeSeq = 0;
-const notice = (state: ChatState, text: string, tone: 'info' | 'error'): ChatState => ({
-  ...state,
-  messages: [...state.messages, { kind: 'notice', key: `n${++noticeSeq}`, text, tone }],
-});
 
 /** Fold one server event into the chat. Unknown or malformed events leave the state unchanged. */
 export function reduceChat(state: ChatState, event: unknown): ChatState {
@@ -220,9 +157,6 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
           : state.commands,
         agents: Array.isArray(event.agents) ? (event.agents as ChatState['agents']) : state.agents,
       };
-
-    case 'stream_event':
-      return isObj(event.event) ? reduceStreamEvent(state, event.event) : state;
 
     case 'assistant': {
       const msg = event.message;
@@ -287,53 +221,11 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
     case 'devorbit_user':
       return {
         ...state,
-        // Transcript history of a resumed chat is not a turn in flight
-        busy: event.history ? state.busy : true,
         messages: [
           ...state.messages,
           { kind: 'user', key: `u${state.messages.length}`, text: str(event.text) },
         ],
       };
-
-    case 'control_request': {
-      const req = event.request;
-      if (!isObj(req) || req.subtype !== 'can_use_tool') return state;
-      const requestId = str(event.request_id);
-      if (
-        !requestId ||
-        state.messages.some((m) => m.kind === 'permission' && m.requestId === requestId)
-      )
-        return state;
-      return {
-        ...state,
-        messages: [
-          ...state.messages,
-          {
-            kind: 'permission',
-            key: `p${requestId}`,
-            requestId,
-            toolName: str(req.display_name) || str(req.tool_name),
-            input: isObj(req.input) ? req.input : {},
-            description: str(req.description),
-            reason: str(req.decision_reason),
-            canAlways:
-              Array.isArray(req.permission_suggestions) && req.permission_suggestions.length > 0,
-            decision: null,
-          },
-        ],
-      };
-    }
-
-    case 'devorbit_permission': {
-      const decision = event.decision;
-      if (decision !== 'allow' && decision !== 'deny' && decision !== 'always') return state;
-      return {
-        ...state,
-        messages: state.messages.map((m) =>
-          m.kind === 'permission' && m.requestId === event.request_id ? { ...m, decision } : m
-        ),
-      };
-    }
 
     case 'result': {
       const ok = event.is_error !== true;
@@ -343,7 +235,6 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
       );
       return {
         ...state,
-        busy: false,
         messages: [
           ...messages,
           {
@@ -357,25 +248,10 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
       };
     }
 
-    case 'devorbit_exit': {
-      const code = typeof event.code === 'number' ? event.code : null;
-      const stderr = str(event.stderr);
-      const ended = { ...state, busy: false, ended: true };
-      return code && code !== 0
-        ? notice(ended, `Session ended (code ${code})${stderr ? `: ${stderr}` : ''}`, 'error')
-        : notice(ended, 'Session ended', 'info');
-    }
-
     default:
       return state;
   }
 }
-
-/** Permission request still waiting for an answer (blocks the turn) */
-export const pendingPermissions = (state: ChatState) =>
-  state.messages.filter(
-    (m): m is Extract<ChatMessage, { kind: 'permission' }> => m.kind === 'permission' && !m.decision
-  );
 
 export type ChatSubmitKey = 'enter' | 'mod+enter';
 

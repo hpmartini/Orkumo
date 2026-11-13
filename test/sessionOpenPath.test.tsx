@@ -92,7 +92,7 @@ describe('opening a background job (#236)', () => {
     expect(openPlan(app, [], new Set())).toEqual({ type: 'app', url });
   });
 
-  it('an omp session opens the pane that runs it, else resumes with `omp -r <id>`', () => {
+  it('an omp session opens or reattaches the pane that runs it, else resumes with `omp -r <id>`', () => {
     const id = '01a1c095-7edd-72eb-9c97-4afdcd01f56e';
     const omp: AgentSession = {
       ...job,
@@ -107,21 +107,13 @@ describe('opening a background job (#236)', () => {
       type: 'focus',
       paneId: 'interactive-1794214000000',
     });
-    // pane closed (its process ended with it): the row attaches, i.e. runs its ptyArgs
-    expect(openPlan(omp, [], new Set())).toEqual({ type: 'attach' });
-    // a Chat pane resumed the session: focus it, never a takeover that would end the chat
-    const chat: AgentSession = {
-      ...job,
-      id: 'c1',
-      kind: 'interactive',
-      chat: true,
-      harness: 'omp',
-      sessionId: id,
-    };
-    expect(openPlan({ ...omp, paneId: null, pid: 4242 }, [chat], new Set(['c1']))).toEqual({
-      type: 'focus',
-      paneId: 'c1',
+    // pane closed, its PTY still runs the agent (closing only detaches): reattach that pane
+    expect(openPlan(omp, [], new Set())).toEqual({
+      type: 'reattach',
+      paneId: 'interactive-1794214000000',
     });
+    // no pane of ours runs it: the row attaches, i.e. runs its ptyArgs
+    expect(openPlan({ ...omp, paneId: null }, [], new Set())).toEqual({ type: 'attach' });
   });
 });
 
