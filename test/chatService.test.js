@@ -5,8 +5,18 @@ import path from 'path';
 
 vi.mock('node-pty', () => ({ spawn: vi.fn() }));
 
-const { viewSession, stopChat, stopAllChats, watchChat, listChats, chatSummary, shellOutputFile } =
-  await import('../server/services/chatService.js');
+const {
+  viewSession,
+  stopChat,
+  stopAllChats,
+  watchChat,
+  listChats,
+  chatSummary,
+  shellOutputFile,
+  openChatStream,
+  watchChatStream,
+  unwatchChatStream,
+} = await import('../server/services/chatService.js');
 const { reduceChat, initialChatState } = await import('../utils/chatEvents.ts');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-test-'));
@@ -343,6 +353,69 @@ describe('orphan timer', () => {
     await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
     expect(listChats().map((c) => c.id)).toEqual([s.id]);
     off();
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    expect(listChats()).toEqual([]);
+  });
+});
+
+describe('chat streams (one SSE per client window)', () => {
+  const CLIENT = '33333333-3333-4333-8333-333333333333';
+  const status = (fn) => {
+    try {
+      fn();
+    } catch (error) {
+      return error.status;
+    }
+    return 'no error';
+  };
+
+  it('carries several views tagged by sub, re-watches with a fresh replay, survives a reconnect', async () => {
+    const { dir } = claudeProjects([claudeUser('hi')]);
+    const opts = { ...ctx, transcriptDir: dir, pollMs: 60_000 };
+    const a = viewSession({ harness: 'claude', sessionId: CLAUDE_ID, cwd: project }, opts);
+    const b = viewSession({ harness: 'pi', sessionId: OMP_ID, cwd: project }, opts);
+    await vi.waitFor(() => {
+      const { seen, off } = collect(a.id);
+      off();
+      expect(seen.some((e) => e.type === 'devorbit_user')).toBe(true);
+    });
+    // orphan timers armed from here on are fake
+    vi.useFakeTimers();
+
+    expect(status(() => watchChatStream(CLIENT, 's1', a.id))).toBe(409);
+    const sent = [];
+    const closeFirst = openChatStream(CLIENT, (event, data) => sent.push([event, data]));
+    expect(status(() => watchChatStream(CLIENT, 's1', 'missing'))).toBe(404);
+
+    watchChatStream(CLIENT, 's1', a.id);
+    watchChatStream(CLIENT, 's2', b.id);
+    const replayA = sent.filter(([e, d]) => e === 'message' && d.sub === 's1');
+    expect(sent[0]).toEqual(['watch', { sub: 's1' }]);
+    expect(replayA.filter(([, d]) => d.event.type === 'devorbit_user')).toHaveLength(1);
+    expect(sent).toContainEqual(['watch', { sub: 's2' }]);
+
+    // same sub again: one watcher, one fresh replay
+    sent.length = 0;
+    watchChatStream(CLIENT, 's1', a.id);
+    expect(sent).toEqual([['watch', { sub: 's1' }], ...replayA]);
+    const firstStreamTotal = sent.length;
+
+    // EventSource reconnects with the same id; the old request's close must not end the new one
+    const again = [];
+    const closeSecond = openChatStream(CLIENT, (event, data) => again.push([event, data]));
+    closeFirst();
+    watchChatStream(CLIENT, 's1', a.id);
+    watchChatStream(CLIENT, 's2', b.id);
+    expect(again.slice(0, replayA.length + 1)).toEqual([['watch', { sub: 's1' }], ...replayA]);
+    expect(again).toContainEqual(['watch', { sub: 's2' }]);
+
+    unwatchChatStream(CLIENT, 's1');
+    await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
+    expect(listChats().map((c) => c.id)).toEqual([b.id]); // a unwatched -> orphan stop
+    expect(sent).toHaveLength(firstStreamTotal); // the replaced stream got nothing more
+
+    // closing the stream releases its watches
+    closeSecond();
     await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
     expect(listChats()).toEqual([]);
   });

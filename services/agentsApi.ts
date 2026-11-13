@@ -454,25 +454,121 @@ export function agentImageUrl(path: string): string | null {
     : null;
 }
 
+type ChatHandlers = {
+  onOpen: () => void;
+  onEvent: (event: unknown) => void;
+  onGone: () => void;
+};
+type ChatWatch = { chatId: string; handlers: ChatHandlers };
+
+/** Chat SSE of this window to one instance; `subs` are the views it carries */
+interface ChatStream {
+  client: string;
+  source: EventSource | null;
+  ready: boolean;
+  attempts: number;
+  retry: ReturnType<typeof setTimeout> | null;
+  subs: Map<string, ChatWatch>;
+}
+
 /**
- * Chat event stream. Every (re)connect replays the whole history first, so `onOpen` resets
- * the client state. EventSource reconnects on its own; `onGone` fires once the chat is gone.
+ * One chat SSE per agent target (instance), shared by every view of the window. A stream per
+ * view held one of Chromium's 6 HTTP/1.1 connections per host each: with 5 UI views and the
+ * agents stream open, every other request (context switch, deletes, polls) queued forever.
  */
-export function subscribeToChat(
-  id: string,
-  handlers: { onOpen: () => void; onEvent: (event: unknown) => void; onGone: () => void }
-): () => void {
-  const source = new EventSource(apiUrl(chatPath(id, 'stream')));
-  source.onopen = handlers.onOpen;
+const chatStreams = new Map<string, ChatStream>();
+
+const parseData = (e: Event): unknown => {
+  try {
+    return JSON.parse((e as MessageEvent).data);
+  } catch {
+    return null; // malformed line: skip
+  }
+};
+
+function setChatWatch(
+  stream: ChatStream,
+  sub: string,
+  watch: ChatWatch,
+  method: 'POST' | 'DELETE'
+) {
+  return request(chatPath(watch.chatId, 'watch'), {
+    method,
+    body: JSON.stringify({ client: stream.client, sub }),
+  });
+}
+
+function startChatWatch(stream: ChatStream, sub: string, watch: ChatWatch) {
+  setChatWatch(stream, sub, watch, 'POST').catch((err: { status?: number }) => {
+    // 409: the stream reconnected meanwhile, its `ready` watches again
+    if (err.status === 404 && stream.subs.get(sub) === watch) watch.handlers.onGone();
+  });
+}
+
+function connectChatStream(target: string, stream: ChatStream) {
+  const source = new EventSource(
+    `${API_BASE}${target}/agents/chat/events?client=${encodeURIComponent(stream.client)}`
+  );
+  stream.source = source;
+  source.addEventListener('ready', () => {
+    stream.ready = true;
+    stream.attempts = 0;
+    stream.subs.forEach((watch, sub) => startChatWatch(stream, sub, watch));
+  });
+  source.addEventListener('watch', (e) => {
+    const data = parseData(e) as { sub?: string } | null;
+    if (data?.sub) stream.subs.get(data.sub)?.handlers.onOpen();
+  });
   source.onmessage = (e) => {
-    try {
-      handlers.onEvent(JSON.parse(e.data));
-    } catch {
-      // malformed line: skip
-    }
+    const data = parseData(e) as { sub?: string; event?: unknown } | null;
+    if (data?.sub) stream.subs.get(data.sub)?.handlers.onEvent(data.event);
   };
   source.onerror = () => {
-    if (source.readyState === EventSource.CLOSED) handlers.onGone();
+    stream.ready = false;
+    // A dropped stream reconnects on its own; a refused one (CLOSED) gets a new EventSource
+    if (source.readyState !== EventSource.CLOSED) return;
+    const delay = Math.min(1000 * 2 ** stream.attempts, 30000);
+    stream.attempts += 1;
+    stream.retry = setTimeout(() => connectChatStream(target, stream), delay);
   };
-  return () => source.close();
+}
+
+/**
+ * Chat event stream of view `id`. Every (re)watch replays the whole history first, so `onOpen`
+ * resets the client state; the shared stream re-watches after it reconnects. `onGone` fires
+ * once the view is gone (e.g. the server restarted).
+ */
+export function subscribeToChat(id: string, handlers: ChatHandlers): () => void {
+  const target = targetOf(id);
+  let stream = chatStreams.get(target);
+  if (!stream) {
+    stream = {
+      client: crypto.randomUUID(),
+      source: null,
+      ready: false,
+      attempts: 0,
+      retry: null,
+      subs: new Map(),
+    };
+    chatStreams.set(target, stream);
+    connectChatStream(target, stream);
+  }
+  const sub = crypto.randomUUID();
+  const watch = { chatId: id, handlers };
+  stream.subs.set(sub, watch);
+  if (stream.ready) startChatWatch(stream, sub, watch);
+
+  const own = stream;
+  return () => {
+    if (own.subs.get(sub) !== watch) return;
+    own.subs.delete(sub);
+    if (own.subs.size === 0) {
+      // Closing the stream ends its watches on the server
+      own.source?.close();
+      clearTimeout(own.retry ?? undefined);
+      chatStreams.delete(target);
+    } else if (own.ready) {
+      setChatWatch(own, sub, watch, 'DELETE').catch(() => {});
+    }
+  };
 }

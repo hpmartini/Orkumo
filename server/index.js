@@ -1554,35 +1554,63 @@ app.post(
   }
 );
 
-/** SSE: replays the session's events, then streams live ones */
-app.get('/api/agents/chat/:chatId/stream', validateParams(chatIdSchema), (req, res) => {
-  let unsubscribe;
-  try {
-    chatService.chatSummary(req.params.chatId);
-  } catch (error) {
-    return sendAgentError(res, error);
-  }
+/**
+ * SSE of one client window for all its chat views (chatService `openChatStream`): `ready` once
+ * registered (the client then watches its views), per watch `watch` {sub}, replay and live
+ * `message` {sub, event}. One connection per window, whatever the number of views.
+ */
+const chatClientSchema = z.object({ client: z.string().uuid() });
+app.get('/api/agents/chat/events', (req, res) => {
+  const query = chatClientSchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Invalid client id' });
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.setHeader('X-Accel-Buffering', 'no');
-  const send = (data) => {
+  const send = (event, data) => {
     try {
-      res.write(`data: ${JSON.stringify(data)}\n\n`);
+      res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
     } catch {
       // client gone
     }
   };
-  unsubscribe = chatService.watchChat(req.params.chatId, send);
+  const close = chatService.openChatStream(query.data.client, send);
+  send('ready', {});
   const heartbeat = setInterval(() => res.write(': ping\n\n'), SSE_HEARTBEAT_INTERVAL);
   const cleanup = () => {
     clearInterval(heartbeat);
-    unsubscribe?.();
-    unsubscribe = null;
+    close();
   };
   req.on('close', cleanup);
   req.on('error', cleanup);
 });
+
+const chatWatchSchema = chatClientSchema.extend({ sub: z.string().uuid() }).strict();
+
+/** Streams a view on the client's chat SSE (404: view gone, 409: no stream for this client) */
+app.post(
+  '/api/agents/chat/:chatId/watch',
+  validateParams(chatIdSchema),
+  validate(chatWatchSchema),
+  (req, res) => {
+    try {
+      chatService.watchChatStream(req.body.client, req.body.sub, req.params.chatId);
+      res.status(204).end();
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.delete(
+  '/api/agents/chat/:chatId/watch',
+  validateParams(chatIdSchema),
+  validate(chatWatchSchema),
+  (req, res) => {
+    chatService.unwatchChatStream(req.body.client, req.body.sub);
+    res.status(204).end();
+  }
+);
 
 /** Status line of a chat: git (branch, untracked, changed), prompt cache, context fill, plan limits */
 app.get('/api/agents/chat/:chatId/status', validateParams(chatIdSchema), async (req, res) => {
