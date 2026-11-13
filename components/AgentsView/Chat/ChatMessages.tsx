@@ -1,9 +1,24 @@
 import React from 'react';
-import { Brain, ChevronRight, History, Wrench, CheckCircle2, XCircle } from 'lucide-react';
-import { toolDiff, toolSummary, type ChatBlock, type ChatMessage } from '../../../utils/chatEvents';
+import {
+  Brain,
+  ChevronRight,
+  History,
+  Wrench,
+  CheckCircle2,
+  XCircle,
+  Sparkles,
+} from 'lucide-react';
+import {
+  toolDiff,
+  toolSummary,
+  type ChatAnswer,
+  type ChatBlock,
+  type ChatItem,
+  type ResultMessage,
+} from '../../../utils/chatEvents';
 import { splitImages } from '../../../utils/chatComposer';
 import { agentImageUrl } from '../../../services/agentsApi';
-import { ChatMarkdown } from './ChatMarkdown';
+import { ChatMarkdown, CopyButton } from './ChatMarkdown';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-blue-400';
 
@@ -137,62 +152,177 @@ const UserMessage: React.FC<{ text: string }> = ({ text }) => {
   );
 };
 
-export const ChatMessageView: React.FC<{
-  message: ChatMessage;
+/** 12.3 s · 4 min 12 s · 1 h 5 min */
+export function formatDuration(ms: number): string {
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)} s`;
+  const min = Math.floor(s / 60);
+  if (min < 60) return `${min} min ${Math.round(s % 60)} s`;
+  return `${Math.floor(min / 60)} h ${min % 60} min`;
+}
+
+function resultLabel(result: ResultMessage): string {
+  if (result.ok) return 'Done';
+  return result.subtype === 'error_during_execution' ? 'Interrupted' : `Error (${result.subtype})`;
+}
+
+const ResultMark: React.FC<{ result: ResultMessage }> = ({ result }) => (
+  <>
+    {result.ok ? (
+      <CheckCircle2 size={12} aria-hidden className="text-emerald-500" />
+    ) : (
+      <XCircle size={12} aria-hidden className="text-red-400" />
+    )}
+    <span className={result.ok ? 'text-gray-400' : 'text-red-300'}>{resultLabel(result)}</span>
+    {result.durationMs !== null && (
+      <span className="tabular-nums">· {formatDuration(result.durationMs)}</span>
+    )}
+  </>
+);
+
+const Working: React.FC = () => (
+  <span className="flex items-center gap-1.5 text-blue-300" role="status">
+    <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse motion-reduce:animate-none" />
+    Working…
+  </span>
+);
+
+interface AnswerCardProps {
+  answer: ChatAnswer | null;
   showSteps: boolean;
-}> = React.memo(({ message, showSteps }) => {
-  switch (message.kind) {
+  /** The agent is still on this turn */
+  live: boolean;
+  /** Harness name for the header ("Claude Code", "omp") */
+  harness: string;
+  /** Session model, when the messages do not name theirs */
+  model: string | null;
+}
+
+/**
+ * One turn's answer: the assistant messages between a prompt and its result in one card,
+ * left-aligned (the prompt sits right). Text renders as markdown; thinking and tool calls stay
+ * collapsible inside while steps are shown. `answer` null: the agent works on a prompt and has
+ * not written yet.
+ */
+const AnswerCard: React.FC<AnswerCardProps> = ({ answer, showSteps, live, harness, model }) => {
+  const parts = answer?.parts ?? [];
+  const blocks = parts.flatMap((m) => m.blocks).filter(Boolean);
+  const visible = showSteps ? blocks : blocks.filter((b) => b.type === 'text');
+  const hasBody = visible.some((b) => b.type !== 'text' || b.text);
+  const steps = blocks.filter((b) => b.type === 'tool').length;
+  const text = blocks
+    .filter((b): b is Extract<ChatBlock, { type: 'text' }> => b.type === 'text' && !!b.text)
+    .map((b) => b.text)
+    .join('\n\n');
+  const named = [...parts].reverse().find((m) => m.model)?.model;
+  const shownModel = (named ?? model ?? '').replace(/^.*\//, '');
+  const result = answer?.result ?? null;
+  const working = live || parts.some((m) => m.streaming);
+  return (
+    <article
+      className="my-3 rounded-lg border border-gray-800 bg-gray-900/40"
+      aria-label={`Answer from ${harness}`}
+      aria-busy={working || undefined}
+    >
+      <header
+        className={`flex items-center gap-1.5 h-7 px-3 text-[11px] text-gray-500 min-w-0 ${hasBody ? 'border-b border-gray-800/80' : ''}`}
+      >
+        <Sparkles size={12} aria-hidden className="shrink-0 text-blue-300" />
+        <span className="shrink-0 font-medium text-gray-300">{harness}</span>
+        {shownModel && <span className="truncate font-mono">{shownModel}</span>}
+        <span className="flex-1" />
+        {!showSteps && steps > 0 && (
+          <span className="shrink-0" title="Tool calls of this answer (show steps to see them)">
+            {steps} {steps === 1 ? 'step' : 'steps'}
+          </span>
+        )}
+      </header>
+      {hasBody && (
+        <div className="px-3 py-2.5">
+          {visible.map((b, i) => (
+            <AssistantBlock key={i} block={b} />
+          ))}
+        </div>
+      )}
+      {(working || result || text) && (
+        <footer
+          className={`flex items-center gap-1.5 h-7 px-3 text-[11px] text-gray-500 ${hasBody ? 'border-t border-gray-800/80' : ''}`}
+        >
+          {working ? <Working /> : result ? <ResultMark result={result} /> : null}
+          <span className="flex-1" />
+          {text && !working && <CopyButton text={text} label="Copy answer" />}
+        </footer>
+      )}
+    </article>
+  );
+};
+
+const sameAnswer = (a: ChatAnswer | null, b: ChatAnswer | null) =>
+  a === b ||
+  (!!a &&
+    !!b &&
+    a.result === b.result &&
+    a.parts.length === b.parts.length &&
+    a.parts.every((m, i) => m === b.parts[i]));
+
+/** Answers are regrouped on every event: memoized on their parts, not the group object */
+const MemoAnswerCard = React.memo(
+  AnswerCard,
+  (prev, next) =>
+    prev.showSteps === next.showSteps &&
+    prev.live === next.live &&
+    prev.harness === next.harness &&
+    prev.model === next.model &&
+    sameAnswer(prev.answer, next.answer)
+);
+
+export const ChatItemView: React.FC<{
+  item: ChatItem | null;
+  showSteps: boolean;
+  live?: boolean;
+  harness: string;
+  model: string | null;
+}> = ({ item, showSteps, live = false, harness, model }) => {
+  if (!item || item.kind === 'answer')
+    return (
+      <MemoAnswerCard
+        answer={item}
+        showSteps={showSteps}
+        live={live}
+        harness={harness}
+        model={model}
+      />
+    );
+  return <PlainItem item={item} />;
+};
+
+const PlainItem: React.FC<{ item: Exclude<ChatItem, ChatAnswer> }> = React.memo(({ item }) => {
+  switch (item.kind) {
     case 'user':
-      return <UserMessage text={message.text} />;
+      return <UserMessage text={item.text} />;
     case 'recap':
       return (
         <div className="my-3 flex gap-2 rounded-md border border-gray-800 bg-gray-900/60 px-3 py-2 text-sm text-gray-300">
           <History size={14} aria-hidden className="mt-0.5 shrink-0 text-gray-500" />
           <div>
             <span className="text-gray-500">recap: </span>
-            {message.text}
+            {item.text}
           </div>
         </div>
       );
-    case 'assistant': {
-      const blocks = showSteps ? message.blocks : message.blocks.filter((b) => b?.type === 'text');
-      if (!blocks.some((b) => b && (b.type !== 'text' || b.text)) && !message.streaming)
-        return null;
-      return (
-        <div className="my-3">
-          {blocks.map((b, i) => (
-            <AssistantBlock key={i} block={b} />
-          ))}
-          {message.streaming && (
-            <span className="inline-block w-1.5 h-4 align-middle bg-gray-400 animate-pulse motion-reduce:animate-none" />
-          )}
-        </div>
-      );
-    }
     case 'result':
+      // A result without an answer before it (an interrupted turn that wrote nothing)
       return (
         <div className="my-2 flex items-center gap-1.5 text-[11px] text-gray-500">
-          {message.ok ? (
-            <CheckCircle2 size={12} aria-hidden className="text-emerald-500" />
-          ) : (
-            <XCircle size={12} aria-hidden className="text-red-400" />
-          )}
-          {message.ok
-            ? 'Done'
-            : message.subtype === 'error_during_execution'
-              ? 'Interrupted'
-              : `Error (${message.subtype})`}
-          {message.durationMs !== null && ` · ${(message.durationMs / 1000).toFixed(1)} s`}
+          <ResultMark result={item} />
         </div>
       );
     case 'notice':
       return (
-        <div
-          className={`my-2 text-xs ${message.tone === 'error' ? 'text-red-300' : 'text-gray-400'}`}
-        >
-          {message.text}
+        <div className={`my-2 text-xs ${item.tone === 'error' ? 'text-red-300' : 'text-gray-400'}`}>
+          {item.text}
         </div>
       );
   }
 });
-ChatMessageView.displayName = 'ChatMessageView';
+PlainItem.displayName = 'PlainItem';

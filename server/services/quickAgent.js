@@ -39,7 +39,9 @@ export function quickAgentCommand({ harness, prompt, sessionId, model, permissio
 
 /**
  * Starts a quick agent and waits until its transcript has a session id.
- * @param {{ prompt: string, harness: string, cwd: string, model?: string|null, permissionMode?: string|null }} opts
+ * @param {{ prompt: string, harness: string, cwd: string, model?: string|null, permissionMode?: string|null,
+ *   paneId?: string, env?: object, pathPrefix?: string[] }} opts - paneId, env and pathPrefix: orchestrator
+ *   panes (orchestratorService.js) name their pane and find the `orkumo` CLI on PATH
  * @param {{ openAgentPty: Function, killPanePtys: Function, findOmpSession: (paneId: string) => Promise<string|null>,
  *   resolveBinary: (id: string) => string|null, ompArgs: (bin: string) => string[] }} deps
  * @returns {Promise<{ paneId: string, harness: string, sessionId: string, cwd: string }>}
@@ -48,13 +50,15 @@ export async function startQuickAgent(opts, deps) {
   if (!QUICK_HARNESSES.includes(opts.harness)) {
     throw httpError(400, 'The quick window answers with Claude Code or Oh My Pi');
   }
-  const paneId = `quick-${crypto.randomUUID()}`;
+  const paneId = opts.paneId ?? `quick-${crypto.randomUUID()}`;
   const claudeSession = opts.harness === 'claude' ? crypto.randomUUID() : null;
   const { command, args } = quickAgentCommand({ ...opts, sessionId: claudeSession }, deps);
   const result = await deps.openAgentPty(`agent-${paneId}-${Date.now()}`, opts.cwd, 100, 30, {
     command,
     args,
     detachOnClose: true,
+    ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.pathPrefix ? { pathPrefix: opts.pathPrefix } : {}),
   });
   if (!result.success) throw httpError(500, result.error || 'The agent did not start');
   if (claudeSession)

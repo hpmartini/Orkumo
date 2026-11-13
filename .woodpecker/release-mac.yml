@@ -1,6 +1,7 @@
 # macOS-Installer (dmg, zip) für arm64 und x64. Läuft auf einem Woodpecker-Agent mit local backend auf einem Mac
 # (Einrichtung: DESKTOP.md, "Releases"); ohne diesen Agent bleibt der Workflow in der Warteschlange und der Draft
-# unveröffentlicht. Ohne Developer-ID-Zertifikat ad-hoc signiert: die App meldet Updates nur (electron/updater.js).
+# unveröffentlicht. Ohne Developer-ID-Zertifikat ad-hoc signiert: die App tauscht ihr Bundle selbst aus
+# (electron/selfUpdate.js); zip + latest-mac.yml mit sha512 müssen daher am Release hängen.
 when:
   - event: push
     branch: main

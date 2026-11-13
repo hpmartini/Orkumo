@@ -129,12 +129,18 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+// Only git repos are projects: the rail's Project grouping needs them
+const APPS = [
+  { id: 'alpha', name: 'alpha', path: '/home/dev/alpha' },
+  { id: 'beta', name: 'beta', path: '/home/dev/beta' },
+];
+
 describe.each(MODES)('AgentsView rail in grouping "$grouping" (#50)', ({ grouping, group }) => {
   const renderView = () => {
     hoisted.grouping = grouping;
     render(
       <MemoryRouter>
-        <AgentsView active apps={[]} onExit={() => {}} nav={nav} onOpenView={() => {}} />
+        <AgentsView active apps={APPS} onExit={() => {}} nav={nav} onOpenView={() => {}} />
       </MemoryRouter>
     );
   };

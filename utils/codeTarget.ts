@@ -44,12 +44,12 @@ export interface CodeFolder {
 
 /** Folder picker entries: scanned projects first, then repos/worktrees/agent dirs; one per path */
 export function codeFolders(
-  apps: { name: string; path: string; isArchived?: boolean }[],
+  apps: { name: string; path: string }[],
   repos: Pick<AgentRepo, 'name' | 'path'>[]
 ): CodeFolder[] {
   const seen = new Map<string, CodeFolder>();
   for (const app of apps) {
-    if (!app.isArchived && !seen.has(app.path))
+    if (!seen.has(app.path))
       seen.set(app.path, { name: app.name, path: app.path, group: 'Projects' });
   }
   for (const repo of repos) {

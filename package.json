@@ -40,10 +40,10 @@
     "electron:dev": "cross-env NODE_ENV=development concurrently \"bun run client\" \"bun run code-server\" \"node scripts/wait-for-vite.js && electron .\"",
     "bundle:server": "node scripts/bundle-server.js",
     "electron:rebuild": "electron-rebuild",
-    "electron:build": "bun run build && bun run bundle:server && bun run electron:rebuild && electron-builder",
-    "electron:build:mac": "bun run build && bun run bundle:server && bun run electron:rebuild && electron-builder --mac --x64 --arm64",
-    "electron:build:linux": "bun run build && electron-builder --linux --x64 --arm64",
-    "electron:build:all": "bun run build && electron-builder --mac --linux --x64 --arm64",
+    "electron:build": "bun run build && bun run bundle:server && bun run electron:rebuild && node scripts/release/build-local.mjs",
+    "electron:build:mac": "bun run build && bun run bundle:server && bun run electron:rebuild && node scripts/release/build-local.mjs --mac --x64 --arm64",
+    "electron:build:linux": "bun run build && node scripts/release/build-local.mjs --linux --x64 --arm64",
+    "electron:build:all": "bun run build && node scripts/release/build-local.mjs --mac --linux --x64 --arm64",
     "prepare": "husky"
   },
   "dependencies": {

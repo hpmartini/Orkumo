@@ -11,14 +11,17 @@ const SETTINGS_FILE = getDataFilePath('settings.json');
  */
 const defaultSettings = {
   favorites: [], // Array of app IDs that are favorited (order matters for manual sort)
-  archived: [], // Array of app IDs that are archived
+  archived: [], // Array of app IDs that are archived (= disabled projects: hidden everywhere)
   customPorts: {}, // Map of appId -> port number
   customNames: {}, // Map of appId -> custom name
+  projectMerges: {}, // Map of source project id -> target project id (source folds into target)
+  customProjects: [], // User-defined projects: [{ id: 'custom-<uuid>', name, paths: [git roots] }]
   preferredIDEs: {}, // Map of appId -> preferred IDE id
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
   apiKeys: {}, // Map of provider -> API key (e.g. { provider: "key" })
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides
   linkTarget: 'builtin', // Where clicked links open (#140): 'builtin' | 'system'
+  autoUpdate: true, // Desktop app: check/download updates automatically (read by electron/updater.js)
   agentView: {}, // Claude Code agent view preferences (grouping, layout, dispatch defaults)
   board: {}, // Agent task board: GitHub project source + slice favorites/order/hidden
   contexts: projectContexts.DEFAULT_CONTEXTS, // Project contexts (#97), see projectContexts.js
@@ -39,6 +42,8 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   desktopNotifications: false,
   // Main agent (#252): session name behind the "Main Agent" dialog; keepAlive respawns it when stopped
   mainAgent: { name: 'main-orchestrator', keepAlive: true },
+  // Orchestrator sessions (orchestratorService.js): row id, transcript uuid or pane id
+  orchestrators: [],
   cardDensity: 'comfortable', // 'comfortable' | 'compact'
   // Card element -> slot (#159); mirrors DEFAULT_AGENT_CARD_FIELDS in types.ts
   cardFields: {
@@ -296,6 +301,61 @@ class SettingsService {
   }
 
   /**
+   * Fold a project into another (`projectMerges`), or undo it with `into` null.
+   * The route checks that both exist and the target is active.
+   */
+  setProjectMerge(id, into) {
+    const settings = readSettings();
+    const merges = { ...settings.projectMerges };
+    if (into) merges[id] = into;
+    else delete merges[id];
+    settings.projectMerges = merges;
+    writeSettings(settings);
+    return merges;
+  }
+
+  /**
+   * Add a user-defined project; paths are validated git roots
+   * @param {{name: string, paths: string[]}} input
+   */
+  addCustomProject({ name, paths }) {
+    const settings = readSettings();
+    const project = { id: `custom-${randomUUID()}`, name: name.trim(), paths };
+    settings.customProjects = [...settings.customProjects, project];
+    writeSettings(settings);
+    return project;
+  }
+
+  /** @returns {object|null} the updated project, null when there is none with this id */
+  updateCustomProject(id, { name, paths }) {
+    const settings = readSettings();
+    const current = settings.customProjects.find((p) => p.id === id);
+    if (!current) return null;
+    const next = {
+      ...current,
+      ...(name ? { name: name.trim() } : {}),
+      ...(paths ? { paths } : {}),
+    };
+    settings.customProjects = settings.customProjects.map((p) => (p.id === id ? next : p));
+    writeSettings(settings);
+    return next;
+  }
+
+  /** Drops the project and every override naming it; projects merged into it come back */
+  deleteCustomProject(id) {
+    const settings = readSettings();
+    if (!settings.customProjects.some((p) => p.id === id)) return false;
+    settings.customProjects = settings.customProjects.filter((p) => p.id !== id);
+    settings.projectMerges = Object.fromEntries(
+      Object.entries(settings.projectMerges).filter(([from, to]) => from !== id && to !== id)
+    );
+    settings.archived = settings.archived.filter((a) => a !== id);
+    settings.favorites = settings.favorites.filter((f) => f !== id);
+    writeSettings(settings);
+    return true;
+  }
+
+  /**
    * Bulk import settings (for migration from localStorage)
    * @param {object} importData - Settings to import
    * @returns {object} Merged settings
@@ -458,6 +518,18 @@ class SettingsService {
     settings.linkTarget = target;
     writeSettings(settings);
     return target;
+  }
+
+  /**
+   * Desktop app: check and download updates automatically (electron/updater.js reads settings.json)
+   * @param {boolean} enabled - validated by the route
+   * @returns {boolean}
+   */
+  setAutoUpdate(enabled) {
+    const settings = readSettings();
+    settings.autoUpdate = enabled;
+    writeSettings(settings);
+    return enabled;
   }
 
   /**

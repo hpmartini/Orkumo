@@ -103,6 +103,12 @@ describe('POST /api/files/open', () => {
     expect(execFile.mock.calls[0][1][0]).toBe('-R');
   });
 
+  it('reveals even a plain document in Finder on request', async () => {
+    const res = await post({ path: path.join(dir, 'report.pdf'), reveal: true });
+    expect((await res.json()).action).toBe('revealed');
+    expect(execFile.mock.calls[0][1]).toEqual(['-R', path.join(dir, 'report.pdf')]);
+  });
+
   it('rejects a missing file with 404 and runs nothing', async () => {
     const res = await post({ path: path.join(dir, 'nope.pdf') });
     expect(res.status).toBe(404);

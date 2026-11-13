@@ -41,8 +41,9 @@ function isInside(child, parent) {
 
 /**
  * Validate that a path is safe to scan
+ * @returns {string} the path's real, on-disk spelling
  */
-function validatePath(dirPath) {
+export function validatePath(dirPath) {
   const absolutePath = path.resolve(dirPath);
   const normalizedPath = path.normalize(absolutePath);
   console.log(

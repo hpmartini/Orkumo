@@ -76,6 +76,6 @@ if [ -n "$after" ] && [ "$after" = "$want" ]; then echo "  ok: installed.AppImag
 echo "--- deb.log"; sed 's/^/    /' "$work/deb.log"
 grep -q '^deb package-type deb$' "$work/docker.out" && echo '  ok: installed from .deb (package-type deb)' || { echo '  .deb not installed'; fail=1; }
 check deb.log 'mode=notify'
-check deb.log 'openExternal https://github\.com/hpmartini/Orkumo/releases/tag/v1\.0\.0-rc\.2'
+check deb.log 'status available 1\.0\.0-rc\.2 https://github\.com/hpmartini/Orkumo/releases/tag/v1\.0\.0-rc\.2'
 if [ $fail = 0 ]; then echo "PASS linux"; else echo "FAIL linux"; fi
 exit $fail

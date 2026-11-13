@@ -15,7 +15,13 @@ import {
   addDirectory,
   removeDirectory,
 } from './services/configService.js';
-import { scanAllDirectories, scanDirectory } from './services/scannerService.js';
+import {
+  scanAllDirectories,
+  scanDirectory,
+  applyProjectOverrides,
+  projectCatalog,
+  validateProjectRoot,
+} from './services/scannerService.js';
 import { migrateDirectorySpelling } from './services/directoryMigration.js';
 import {
   createPtySession,
@@ -31,6 +37,7 @@ import {
 } from './services/ptyService.js';
 import { startQuickAgent } from './services/quickAgent.js';
 import { listOmpSessions } from './services/ompSessions.js';
+import * as orchestrator from './services/orchestratorService.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
@@ -50,6 +57,7 @@ import fileOpenRoutes from './services/fileOpenRoutes.js';
 import { usageRouter, getUsage } from './services/usageService.js';
 import {
   getAgentContexts,
+  cachedProjectSessionCounts,
   getKnownServerPids,
   getOrphanServers,
   stopOrphanServer,
@@ -469,6 +477,22 @@ app.put(
 );
 
 /**
+ * PUT /api/settings/auto-update
+ * Desktop app: check and download updates automatically (electron/updater.js)
+ */
+app.put(
+  '/api/settings/auto-update',
+  validate(z.object({ autoUpdate: z.boolean() }).strict()),
+  (req, res) => {
+    try {
+      res.json({ autoUpdate: settingsService.setAutoUpdate(req.body.autoUpdate) });
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  }
+);
+
+/**
  * PUT /api/settings/archive/:id
  * Toggle or set archive status for an app
  */
@@ -591,19 +615,183 @@ app.delete('/api/ides/custom/:id', validateParams(ideIdSchema), (req, res) => {
 // Scanning Endpoints
 // ============================================
 
+/** Projects the app works with: the scan under the user's overrides (disabled, merged, renamed, custom) */
+const activeProjects = () =>
+  applyProjectOverrides(scanAllDirectories(), settingsService.getSettings());
+
 /**
  * GET /api/apps
- * Scan all configured directories and return discovered apps
+ * Active projects: git main checkouts of the scan directories (worktrees folded in) plus custom
+ * ones; disabled projects left out, merged ones folded into their target (`paths`, `mergedIds`)
  */
 app.get('/api/apps', (req, res) => {
   try {
-    const apps = scanAllDirectories();
-
-    res.json(apps);
+    res.json(activeProjects());
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ---- Project configuration (settings: archived, customNames, projectMerges, customProjects) ----
+
+/** Every project with its state for the settings list; sessionCount from the last agent contexts */
+const projectList = () => projectCatalog(scanAllDirectories(), settingsService.getSettings());
+
+/**
+ * Canonical git roots for a custom project; 400 when one is no git root, 409 when a project
+ * already holds it (the message names where to undo that)
+ */
+function customProjectPaths(paths, exceptId) {
+  const catalog = projectList();
+  const roots = [];
+  for (const input of paths) {
+    let dir;
+    try {
+      dir = validateProjectRoot(input);
+    } catch (error) {
+      throw Object.assign(error, { status: 400 });
+    }
+    if (roots.some((r) => r.toLowerCase() === dir.toLowerCase())) continue;
+    const holder = catalog.find(
+      (p) => p.id !== exceptId && p.paths.some((x) => x.toLowerCase() === dir.toLowerCase())
+    );
+    if (holder) {
+      const target = catalog.find((p) => p.id === holder.mergedInto);
+      const hint =
+        holder.state === 'disabled'
+          ? ' Enable it under "Disabled" instead.'
+          : holder.state === 'merged'
+            ? ` It is merged into "${target?.name}"; undo that under "Merged" instead.`
+            : ' Rename or merge that project instead.';
+      throw Object.assign(new Error(`${dir} already is the project "${holder.name}".${hint}`), {
+        status: 409,
+      });
+    }
+    roots.push(dir);
+  }
+  return roots;
+}
+
+const sendProjectError = (res, error) =>
+  res.status(error.status || 500).json({ error: error.message });
+
+/**
+ * GET /api/projects
+ * Every detected and custom project with state ('active' | 'disabled' | 'merged'), mergedInto,
+ * source ('detected' | 'custom'), worktrees and sessionCount (null before agent contexts exist)
+ */
+app.get('/api/projects', (req, res) => {
+  try {
+    const counts = cachedProjectSessionCounts();
+    res.json({
+      projects: projectList().map((p) => ({
+        ...p,
+        sessionCount: counts ? counts[p.id] || 0 : null,
+      })),
+    });
+  } catch (error) {
+    sendProjectError(res, error);
+  }
+});
+
+/**
+ * PUT /api/settings/project-merge/:id { into: id | null }
+ * Fold a project into another active project, or undo it
+ */
+app.put(
+  '/api/settings/project-merge/:id',
+  validateParams(idSchema),
+  validate(z.object({ into: idSchema.nullable() }).strict()),
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const { into } = req.body;
+      const catalog = projectList();
+      const source = catalog.find((p) => p.id === id);
+      if (!source) return res.status(404).json({ error: 'Unknown project' });
+      if (into) {
+        const target = catalog.find((p) => p.id === into);
+        if (!target || target.id === id || target.state !== 'active') {
+          return res.status(400).json({ error: 'Merge into an active project other than itself' });
+        }
+      }
+      res.json({ projectMerges: settingsService.setProjectMerge(id, into) });
+    } catch (error) {
+      sendProjectError(res, error);
+    }
+  }
+);
+
+const customProjectSchema = z
+  .object({
+    name: z.string().trim().max(100).optional(),
+    paths: z.array(pathSchema).min(1).max(20),
+  })
+  .strict();
+
+/**
+ * POST /api/settings/projects/custom { name?, paths }
+ * Add an own project: each path must be a git root no other project holds
+ */
+app.post('/api/settings/projects/custom', validate(customProjectSchema), (req, res) => {
+  try {
+    const paths = customProjectPaths(req.body.paths);
+    const name = req.body.name || path.basename(paths[0]);
+    res.json({ project: settingsService.addCustomProject({ name, paths }) });
+  } catch (error) {
+    sendProjectError(res, error);
+  }
+});
+
+/**
+ * PUT /api/settings/projects/custom/:id { name?, paths? }
+ */
+app.put(
+  '/api/settings/projects/custom/:id',
+  validateParams(idSchema),
+  validate(customProjectSchema.partial()),
+  (req, res) => {
+    try {
+      const { id } = req.params;
+      const paths = req.body.paths && customProjectPaths(req.body.paths, id);
+      const project = settingsService.updateCustomProject(id, { name: req.body.name, paths });
+      if (!project) return res.status(404).json({ error: 'Unknown custom project' });
+      res.json({ project });
+    } catch (error) {
+      sendProjectError(res, error);
+    }
+  }
+);
+
+/**
+ * DELETE /api/settings/projects/custom/:id
+ * Projects merged into it come back as they were
+ */
+app.delete('/api/settings/projects/custom/:id', validateParams(idSchema), (req, res) => {
+  try {
+    if (!settingsService.deleteCustomProject(req.params.id)) {
+      return res.status(404).json({ error: 'Unknown custom project' });
+    }
+    res.json({ success: true });
+  } catch (error) {
+    sendProjectError(res, error);
+  }
+});
+
+/**
+ * Context members that name no project (a worktree or non-git folder the old scan listed, a repo on
+ * an unmounted volume) are only logged, once at startup: every reader ignores unknown ids, and the
+ * stored member comes back into its context when the repo reappears
+ */
+function logUnknownContextApps() {
+  const settings = settingsService.getSettings();
+  const known = new Set(projectCatalog(scanAllDirectories(), settings).map((p) => p.id));
+  for (const c of settingsService.getContexts().contexts) {
+    const unknown = (c.appIds || []).filter((id) => !known.has(id));
+    if (unknown.length)
+      console.log(`[Projects] Context "${c.name}": no project for ${unknown.join(', ')} (ignored)`);
+  }
+}
 
 /**
  * POST /api/scan
@@ -688,7 +876,7 @@ app.get('/api/claude-cli/status', async (req, res) => {
  */
 app.get('/api/system/versions', async (req, res) => {
   try {
-    res.json(await getToolVersions(scanAllDirectories()));
+    res.json(await getToolVersions(activeProjects()));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -1389,6 +1577,25 @@ app.get(
   }
 );
 
+/** Artifacts of a chat: files its tools created / edited and omp's `local://` documents */
+app.get('/api/agents/chat/:chatId/artifacts', validateParams(chatIdSchema), (req, res) => {
+  try {
+    res.json({ artifacts: chatService.chatArtifacts(req.params.chatId) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** Text of one listed artifact (?path=), project dirs or the session's documents, <= 1 MB */
+app.get('/api/agents/chat/:chatId/artifacts/content', validateParams(chatIdSchema), (req, res) => {
+  try {
+    const file = typeof req.query.path === 'string' ? req.query.path : '';
+    res.json(chatService.chatArtifactContent(req.params.chatId, file));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 /**
  * POST /api/agents/cloud-session - validated CLI args for a cloud/remote session PTY
  * (`claude --cloud <id|url>` or `claude --teleport`). The client opens the PTY via /api/pty.
@@ -1674,6 +1881,168 @@ app.post(
     res.json({ delivered: true });
   }
 );
+
+// ---------------------------------------------------------------------------
+// Orchestrators: sessions that hand out and watch work through the `orkumo` CLI
+// (server/services/orchestratorService.js; workspace <data>/orchestrator, set up at start)
+// ---------------------------------------------------------------------------
+const ensureOrchestratorWorkspace = () =>
+  orchestrator.ensureOrchestratorWorkspace({ apiUrl: `http://127.0.0.1:${PORT}/api` });
+const orchestratorTranscriptDeps = {
+  getTranscriptTail: agentService.getTranscriptTail,
+  readTranscriptTail: agentService.readTranscriptTail,
+  projectSlug: agentService.projectSlug,
+  projectsDir: agentService.paths.PROJECTS_DIR,
+};
+const orchestratorPaneDeps = (cwd) => ({
+  workspace: orchestrator.orchestratorDir(),
+  openAgentPty,
+  killPanePtys,
+  resolveBinary: resolveHarnessBinary,
+  ompArgs: (bin) => ompSkillsArgs(bin, cwd),
+  findOmpSession: async (paneId) => {
+    const rows = await listOmpSessions({ panes: agentService.agentPanes() });
+    return rows.find((r) => r.paneId === paneId)?.sessionId ?? null;
+  },
+});
+const orchestratorRefSchema = z.string().regex(/^[\w.:-]{1,200}$/);
+// A prompt is the CLI's last positional argument: a leading "-" would be read as a flag
+const panePromptSchema = z
+  .string()
+  .trim()
+  .min(4)
+  .max(20000)
+  .refine((p) => !p.startsWith('-'), 'Prompt must not start with "-"');
+
+/** Agents as orchestrators see them; ?all=1 also finished ones and terminals outside Orkumo, ?text=0 skips last answers */
+app.get('/api/orchestrator/overview', async (req, res) => {
+  try {
+    const [sessions, contexts] = await Promise.all([
+      agentService.currentSessions(),
+      getAgentContexts().catch(() => ({})),
+    ]);
+    res.json(
+      await orchestrator.buildOverview({
+        sessions,
+        contexts,
+        orchestrators: settingsService.getAgentViewSettings().orchestrators,
+        all: req.query.all === '1',
+        withText: req.query.text !== '0',
+        readTranscript: (session, last) =>
+          orchestrator.readSessionTranscript(session, last, orchestratorTranscriptDeps),
+      })
+    );
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** Last ?last=N (1-100) transcript turns of an agent (row id, transcript uuid or pane id) */
+app.get(
+  '/api/orchestrator/agents/:id/transcript',
+  validateParams(orchestratorRefSchema),
+  async (req, res) => {
+    try {
+      const last = Math.min(100, Math.max(1, parseInt(String(req.query.last || '10'), 10) || 10));
+      const session = orchestrator.findSessionByRef(
+        await agentService.currentSessions(),
+        req.params.id
+      );
+      if (!session) return res.status(404).json({ error: 'No agent with this id' });
+      res.json({
+        agent: { id: session.id, name: session.name || null },
+        entries: await orchestrator.readSessionTranscript(
+          session,
+          last,
+          orchestratorTranscriptDeps
+        ),
+      });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+app.get('/api/orchestrator/projects', async (req, res) => {
+  try {
+    const sessions = await agentService.currentSessions().catch(() => []);
+    res.json({
+      projects: orchestrator.projectList(scanAllDirectories(), sessions),
+      defaultHarness: settingsService.getAgentViewSettings().dispatch.harness,
+    });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** Workspace, CLI path and the briefing typed into a session that was just marked */
+app.get('/api/orchestrator/workspace', (req, res) => {
+  const dir = orchestrator.orchestratorDir();
+  res.json({
+    dir,
+    cli: orchestrator.orchestratorCli(dir),
+    briefing: orchestrator.orchestratorBriefing(dir),
+  });
+});
+
+/** `orkumo start --harness omp`: an agent pane in a project, listed in the rail like any pane */
+app.post(
+  '/api/orchestrator/panes',
+  agentLimiter,
+  sameSiteOnly,
+  validate(
+    z.object({
+      harness: z.enum(orchestrator.PANE_HARNESSES),
+      cwd: pathSchema,
+      prompt: panePromptSchema,
+    })
+  ),
+  async (req, res) => {
+    if (isRunningInDocker) return res.status(501).json({ error: 'Not available in Docker' });
+    try {
+      const cwd = agentService.assertAllowedPath(
+        req.body.cwd,
+        agentService.getAllowedDirectories(),
+        'Working directory'
+      );
+      const { model, permissionMode } = settingsService.getAgentViewSettings().dispatch;
+      res
+        .status(201)
+        .json(
+          await orchestrator.startAgentPane(
+            { harness: req.body.harness, cwd, prompt: req.body.prompt, model, permissionMode },
+            orchestratorPaneDeps(cwd)
+          )
+        );
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.message });
+    }
+  }
+);
+
+/** "New orchestrator": the default harness (Claude Code when it has no pane) in the workspace */
+app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, async (req, res) => {
+  if (isRunningInDocker) return res.status(501).json({ error: 'Not available in Docker' });
+  const { harness, model, permissionMode } = settingsService.getAgentViewSettings().dispatch;
+  try {
+    const { dir } = ensureOrchestratorWorkspace();
+    res.status(201).json(
+      await orchestrator.startAgentPane(
+        {
+          harness: orchestrator.PANE_HARNESSES.includes(harness) ? harness : 'claude',
+          cwd: dir,
+          prompt: orchestrator.ORCHESTRATOR_START_PROMPT,
+          model,
+          permissionMode,
+          orchestrator: true,
+        },
+        orchestratorPaneDeps(dir)
+      )
+    );
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message });
+  }
+});
 
 app.post(
   '/api/agents/:id/respawn',
@@ -2120,7 +2489,8 @@ app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
 });
 
 // ============================================
-// Chat history (#280): imported claude.ai / ChatGPT data exports, local only
+// Chat history (#280): claude.ai / ChatGPT conversations, imported exports or synced by the
+// desktop app (electron/chatSync.js), local only
 // ============================================
 
 const chatHistory = createChatHistory();
@@ -2170,6 +2540,56 @@ app.post('/api/chat-history/import', agentLimiter, async (req, res) => {
     sendAgentError(res, error);
   }
 });
+
+// The desktop app's sync (electron/chatSync.js, main process) posts the providers' conversations
+// here; it reads sync-state first to fetch only what changed. Local only: a client elsewhere must
+// not write into this machine's history. Own media type with its own size cap: one long
+// conversation outgrows the 1 MB JSON limit, and only this route accepts the type.
+const CHAT_INGEST_TYPE = 'application/vnd.orkumo.chats+json';
+const chatIngestSchema = z.object({
+  provider: z.enum(['claude', 'chatgpt']),
+  conversations: z.array(z.object({}).passthrough()).max(50),
+  projects: z
+    .array(z.object({ id: z.string().min(1).max(200), name: z.string().max(500) }))
+    .max(5000)
+    .optional(),
+  state: z
+    .object({
+      lastUpdatedAt: z.number().int().nonnegative().optional(),
+      orgId: z.string().max(100).optional(),
+    })
+    .strict()
+    .optional(),
+});
+const localChatSync = (req, res, next) =>
+  remoteAccess.isLocalRequest(req) && remoteAccess.isLoopbackOrigin(req.headers.origin)
+    ? next()
+    : res.status(403).json({ error: 'Local only' });
+
+app.get('/api/chat-history/sync-state', localChatSync, async (req, res) => {
+  try {
+    res.json(await chatHistory.syncState());
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+app.post(
+  '/api/chat-history/ingest',
+  localChatSync,
+  express.json({ type: CHAT_INGEST_TYPE, limit: '32mb' }),
+  async (req, res) => {
+    if (!req.is(CHAT_INGEST_TYPE))
+      return res.status(415).json({ error: `Send the batch as ${CHAT_INGEST_TYPE}` });
+    const body = chatIngestSchema.safeParse(req.body);
+    if (!body.success) return res.status(400).json({ error: 'Invalid chat batch' });
+    try {
+      res.json(await chatHistory.ingest(body.data));
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
 
 // ============================================
 // Project contexts (#97): title bar tabs with their own favorites, board slices, agent tabs
@@ -2759,11 +3179,23 @@ async function startServer() {
   } catch (error) {
     console.error('[Config] Directory spelling migration failed:', error);
   }
+  try {
+    logUnknownContextApps();
+  } catch (error) {
+    console.error('[Projects] Checking context members failed:', error);
+  }
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
   const modules = await moduleHost.load(getModulesDir());
   // Agents that outlived the previous server: back before a pane can ask for them
   if (!isRunningInDocker) await restoreHeldPtys();
+  // Orchestrator workspace (AGENTS.md, settings, skills, `orkumo` CLI): refreshed every start
+  try {
+    const { dir, changed } = ensureOrchestratorWorkspace();
+    if (changed.length) console.log(`[Orchestrator] Workspace ${dir}: wrote ${changed.join(', ')}`);
+  } catch (error) {
+    console.error('[Orchestrator] Workspace setup failed:', error.message);
+  }
 
   // A failure to bind is fatal and must be reported as such. Without this the
   // error reaches `uncaughtException` -> cleanup() -> exit code 0, which makes

@@ -40,6 +40,11 @@ const SESSIONS = [
     displayState: 'needs-input',
   }),
 ];
+/** Only git repos are projects: the rail's Project grouping needs them */
+const APPS = [
+  { id: 'alpha', name: 'alpha', path: '/home/dev/alpha' },
+  { id: 'beta', name: 'beta', path: '/home/dev/beta' },
+];
 
 /** Same wiring as AgentsView: groupSessions -> rail.arrange -> railItems, prefs per grouping */
 function Rail({
@@ -51,7 +56,7 @@ function Rail({
 }) {
   const rail = useRailPreferences(grouping);
   const groups = useMemo(
-    () => rail.arrange(groupSessions(sessions, grouping)),
+    () => rail.arrange(groupSessions(sessions, grouping, { apps: APPS })),
     [rail, sessions, grouping]
   );
   const items = railItems(groups, rail.collapsed, grouping);

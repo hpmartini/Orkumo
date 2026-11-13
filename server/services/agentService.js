@@ -29,12 +29,12 @@ import {
   stopOmpSession,
   removeOmpSession,
   ompSessionsDir,
-  ACTIVE_WRITE_MS as OMP_ACTIVE_WRITE_MS,
   OMP_SESSION_ID_RE,
 } from './ompSessions.js';
-import { getAllPtySessions } from './ptyService.js';
+import { getAllPtySessions, ptyEvents, PTY_ACTIVE_MS } from './ptyService.js';
 import { settingsService } from './settingsService.js';
 import { keepMainAgentAlive } from './mainAgent.js';
+import { orchestratorDir } from './orchestratorService.js';
 import { agentWatchSources, createRefreshScheduler, watchSources } from './agentRefresh.js';
 
 /**
@@ -200,6 +200,12 @@ const CLI_TIMEOUT = 60000;
  * last refresh catches what no file shows (a process that died without cleaning up).
  */
 const REFRESH_TIMING = { debounceMs: 300, minGapMs: 2500, reconcileMs: 60_000 };
+/**
+ * The omp-only refresh (omp store changes, an agent pane's output starting or stopping): no
+ * `claude` run, only ps + lsof and the changed session tails, so it may run more often; the full
+ * refresh's reconcile covers it.
+ */
+const OMP_REFRESH_TIMING = { debounceMs: 300, minGapMs: 1500, reconcileMs: Infinity };
 // eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE_RE = /\x1b\[[0-9;?]*[a-zA-Z]/g;
 
@@ -390,6 +396,16 @@ function isTurnActive(session, jobState) {
 }
 
 /**
+ * A Claude terminal session's display state: its session file's `status` (busy / idle / waiting,
+ * `waitingFor` while a dialog waits), and the Orkumo pane running it printing (`paneActive`).
+ * The rail still groups it by `kind`.
+ */
+function interactiveDisplayState(session, paneActive = false) {
+  if (session.status === 'waiting' || session.waitingFor) return 'needs-input';
+  return session.status === 'busy' || paneActive ? 'working' : 'interactive';
+}
+
+/**
  * Derive the display state used by the agent view from a session record.
  * @param {object} session
  * @param {string|null} [jobState] `state` from the job's state.json, when it differs from the CLI
@@ -397,7 +413,7 @@ function isTurnActive(session, jobState) {
  */
 export function deriveDisplayState(session, jobState = null) {
   if (!session) return 'idle';
-  if (session.kind === 'interactive') return 'interactive';
+  if (session.kind === 'interactive') return interactiveDisplayState(session);
   // A Claude app session: the local process knows busy/idle, claude.ai whether it waits for an answer
   if (session.kind === 'app') {
     if (session.status === 'busy') return 'working';
@@ -418,6 +434,8 @@ export function deriveDisplayState(session, jobState = null) {
     case 'stopped':
       return 'stopped';
     case 'done':
+      // a reply to a finished job runs in its still-living process
+      if (session.status === 'busy' && session.pid) return 'working';
       return session.status === 'idle' || session.pid ? 'idle' : 'completed';
     default:
       return session.status === 'busy' ? 'working' : 'idle';
@@ -552,11 +570,16 @@ function forbidden(message) {
 }
 
 /**
- * Configured scan directories - the only places sessions may be started in.
+ * Configured scan directories - the only places sessions may be started in - plus the
+ * orchestrator workspace (orchestratorService.js), whose agents never run in a project.
  */
 export function getAllowedDirectories() {
   try {
-    return (getConfig().directories || []).filter((dir) => typeof dir === 'string' && dir.trim());
+    const dirs = (getConfig().directories || []).filter(
+      (dir) => typeof dir === 'string' && dir.trim()
+    );
+    // Without projects there is nothing to orchestrate; keeps the "No project directories" hint
+    return dirs.length ? [...dirs, orchestratorDir()] : dirs;
   } catch {
     return [];
   }
@@ -726,25 +749,56 @@ async function toAppSession(entry) {
 }
 
 /**
- * pid → client pane id of the agent panes this server runs (PTY ids are `agent-<pane>-<ts>`),
- * so a harness session started here is matched to the pane that runs it
+ * pid → `{ paneId, active }` of the agent panes this server runs (PTY ids are
+ * `agent-<pane>-<ts>`), so a harness session started here is matched to the pane that runs it;
+ * `active` while the pane's PTY printed within `PTY_ACTIVE_MS`
  */
-export function agentPanes() {
+export function agentPanes(now = Date.now()) {
   const panes = new Map();
-  for (const { id, pid } of getAllPtySessions()) {
+  for (const { id, pid, outputAt } of getAllPtySessions()) {
     const match = /^agent-(.+)-\d+$/.exec(id);
-    if (match && pid) panes.set(pid, match[1]);
+    if (match && pid) {
+      panes.set(pid, { paneId: match[1], active: !!outputAt && now - outputAt < PTY_ACTIVE_MS });
+    }
   }
   return panes;
 }
 
+/** A Claude terminal row (of an earlier listing, too) with the current pane (activity) of its pid */
+function withPane(session, panes) {
+  if (session.kind !== 'interactive') return session;
+  const pane = session.pid ? panes.get(session.pid) : null;
+  return {
+    ...session,
+    paneId: pane?.paneId || null,
+    displayState: interactiveDisplayState(session, pane?.active),
+  };
+}
+
 /**
  * List sessions via `claude agents --json` and enrich background sessions with state.json data,
- * plus Oh My Pi sessions from omp's session store (#195).
+ * plus Oh My Pi sessions from omp's session store (#195), read alongside (not after) the CLI.
  * @param {{cwd?: string, all?: boolean}} options
  * @returns {Promise<object[]>}
  */
 export async function listSessions(options = {}) {
+  const panes = agentPanes();
+  const [claude, omp] = await Promise.all([
+    listClaudeSessions(options, panes),
+    listScopedOmpSessions(options, panes),
+  ]);
+  return [...claude, ...omp];
+}
+
+/** omp rows (never throws), limited to `options.cwd` and below */
+async function listScopedOmpSessions(options, panes) {
+  const omp = await listOmpSessions({ panes }).catch(() => []);
+  const scope = options.cwd ? path.resolve(options.cwd) : null;
+  return omp.filter((s) => !scope || s.cwd === scope || s.cwd.startsWith(scope + path.sep));
+}
+
+/** Claude Code sessions of `claude agents --json`; `panes` from `agentPanes()` */
+async function listClaudeSessions(options, panes) {
   const args = ['agents', '--json'];
   if (options.all !== false) args.push('--all');
   if (options.cwd) args.push('--cwd', options.cwd);
@@ -763,31 +817,33 @@ export async function listSessions(options = {}) {
   }
 
   const pins = await readPins();
-  // A terminal started in an Orkumo pane: its row names the pane, so the pane finds its session
-  const panes = agentPanes();
   const sessions = await Promise.all(
     raw.map(async (entry) => {
       if (entry.kind !== 'background' || !entry.id) {
         const appSession = await toAppSession(entry);
         if (appSession) return appSession;
-        return {
-          id: `interactive-${entry.pid || entry.sessionId || Math.random().toString(36).slice(2)}`,
-          sessionId: entry.sessionId || null,
-          kind: 'interactive',
-          cwd: entry.cwd,
-          startedAt: entry.startedAt,
-          name: entry.name || path.basename(entry.cwd || '') || 'interactive',
-          status: entry.status || null,
-          pid: entry.pid || null,
-          paneId: (entry.pid && panes.get(entry.pid)) || null,
-          state: null,
-          waitingFor: entry.waitingFor || null,
-          detail: entry.status === 'busy' ? 'working in a terminal' : 'interactive session',
-          pinned: false,
-          order: null,
-          links: [],
-          displayState: 'interactive',
-        };
+        // A terminal started in an Orkumo pane: its row names the pane, so the pane finds its session
+        return withPane(
+          {
+            id: `interactive-${entry.pid || entry.sessionId || Math.random().toString(36).slice(2)}`,
+            sessionId: entry.sessionId || null,
+            kind: 'interactive',
+            cwd: entry.cwd,
+            startedAt: entry.startedAt,
+            name: entry.name || path.basename(entry.cwd || '') || 'interactive',
+            status: entry.status || null,
+            pid: entry.pid || null,
+            paneId: null,
+            state: null,
+            waitingFor: entry.waitingFor || null,
+            detail: entry.status === 'busy' ? 'working in a terminal' : 'interactive session',
+            pinned: false,
+            order: null,
+            links: [],
+            displayState: 'interactive',
+          },
+          panes
+        );
       }
       const state = (await readJobState(entry.id)) || {};
       const order = await readOrder(entry.id);
@@ -840,12 +896,7 @@ export async function listSessions(options = {}) {
       return session;
     })
   );
-  const omp = await listOmpSessions({ panes }).catch(() => []);
-  const scope = options.cwd ? path.resolve(options.cwd) : null;
-  return [
-    ...sessions,
-    ...omp.filter((s) => !scope || s.cwd === scope || s.cwd.startsWith(scope + path.sep)),
-  ];
+  return sessions;
 }
 
 /**
@@ -969,7 +1020,8 @@ export async function getTranscriptTail(id, limit = 40) {
   return readTranscriptTail(file, limit);
 }
 
-async function readTranscriptTail(file, limit) {
+/** Last `limit` user/assistant messages of a Claude transcript file (also the orchestrator's `show`) */
+export async function readTranscriptTail(file, limit) {
   const stat = await fsp.stat(file);
   const readSize = Math.min(stat.size, 512 * 1024);
   const handle = await fsp.open(file, 'r');
@@ -1240,9 +1292,17 @@ function parseFrontmatter(content) {
   const match = String(content).match(/^---\s*\n([\s\S]*?)\n---/);
   const meta = {};
   if (!match) return meta;
+  let block = null;
   for (const line of match[1].split('\n')) {
     const kv = line.match(/^([A-Za-z0-9_-]+):\s*(.*)$/);
-    if (kv) meta[kv[1]] = kv[2].trim().replace(/^["']|["']$/g, '');
+    if (kv) {
+      const value = kv[2].trim();
+      // `key: >` / `key: |`: the indented lines below are the value, joined
+      block = /^[>|][-+]?$/.test(value) ? kv[1] : null;
+      meta[kv[1]] = block ? '' : value.replace(/^["']|["']$/g, '');
+    } else if (block && /^\s/.test(line)) {
+      meta[block] = `${meta[block]} ${line.trim()}`.trim();
+    }
   }
   return meta;
 }
@@ -1285,10 +1345,105 @@ export async function listSubagents(cwd) {
   });
 }
 
+/** stat that follows symlinks; null when missing */
+async function statFollow(p) {
+  return fsp.stat(p).catch(() => null);
+}
+
+async function readMeta(file) {
+  return parseFrontmatter(await fsp.readFile(file, 'utf-8').catch(() => ''));
+}
+
+/** `<dir>/<skill>/SKILL.md` entries (symlinked folders included) as `<prefix><name>` */
+async function readSkillsDir(dir, prefix, source, out) {
+  const names = await fsp.readdir(dir).catch(() => []);
+  for (const entry of names) {
+    const skillFile = path.join(dir, entry, 'SKILL.md');
+    if (!(await statFollow(skillFile))?.isFile()) continue;
+    const meta = await readMeta(skillFile);
+    if (meta['user-invocable'] === 'false') continue;
+    out.push({ name: prefix + (meta.name || entry), description: meta.description || '', source });
+  }
+}
+
+/** `<dir>/**.md` commands; a file in a subfolder is `<folder>:<name>` */
+async function readCommandsDir(dir, prefix, source, out, depth = 0) {
+  if (depth > 4) return;
+  const names = await fsp.readdir(dir).catch(() => []);
+  for (const entry of names) {
+    const full = path.join(dir, entry);
+    const st = await statFollow(full);
+    if (!st) continue;
+    if (st.isDirectory()) {
+      await readCommandsDir(full, `${prefix}${entry}:`, source, out, depth + 1);
+    } else if (st.isFile() && entry.endsWith('.md')) {
+      const meta = await readMeta(full);
+      if (meta['user-invocable'] === 'false') continue;
+      out.push({
+        name: prefix + entry.replace(/\.md$/, ''),
+        description: meta.description || '',
+        source,
+      });
+    }
+  }
+}
+
+/** Project dirs Claude reads `.claude/` from: cwd up to the git root (cwd only outside git) */
+function projectDirs(cwd) {
+  const dirs = [];
+  let dir = path.resolve(cwd);
+  for (;;) {
+    dirs.push(dir);
+    if (fs.existsSync(path.join(dir, '.git'))) return dirs;
+    const parent = path.dirname(dir);
+    if (parent === dir) return [path.resolve(cwd)];
+    dir = parent;
+  }
+}
+
+/** Install paths of the plugins enabled in user, project and local settings */
+async function enabledPluginDirs(cwd, claudeHome) {
+  const installed = (await readJson(path.join(claudeHome, 'plugins', 'installed_plugins.json')))
+    ?.plugins;
+  if (!installed || typeof installed !== 'object') return [];
+  const settingsFiles = [path.join(claudeHome, 'settings.json')];
+  if (cwd)
+    for (const dir of projectDirs(cwd).reverse())
+      settingsFiles.push(
+        path.join(dir, '.claude', 'settings.json'),
+        path.join(dir, '.claude', 'settings.local.json')
+      );
+  const enabled = {};
+  for (const file of settingsFiles) Object.assign(enabled, (await readJson(file))?.enabledPlugins);
+  const out = [];
+  for (const [id, on] of Object.entries(enabled)) {
+    if (on !== true || !Array.isArray(installed[id])) continue;
+    const install = installed[id].find((i) => typeof i?.installPath === 'string');
+    if (install) out.push({ plugin: id.split('@')[0], dir: install.installPath });
+  }
+  return out;
+}
+
 /**
- * Slash commands / skills that can be suggested in the dispatch input.
+ * Claude skills omp gets through the skills overlay: user skills and the skills of enabled
+ * plugins, un-namespaced as omp lists them (`/skill:<name>`).
  */
-export async function listSlashCommands(cwd) {
+export async function listClaudeSkills(cwd, { claudeHome = CLAUDE_HOME } = {}) {
+  const found = [];
+  await readSkillsDir(path.join(claudeHome, 'skills'), '', 'user', found);
+  for (const { dir } of await enabledPluginDirs(cwd, claudeHome))
+    await readSkillsDir(path.join(dir, 'skills'), '', 'plugin', found);
+  const seen = new Set();
+  return found.filter((c) => !seen.has(c.name) && seen.add(c.name));
+}
+
+/**
+ * Slash commands / skills Claude Code offers in `cwd`: project `.claude` dirs up to the git
+ * root, the user's commands and skills (symlinks followed, claude.ai-synced ones included),
+ * and the skills and commands of enabled plugins as `<plugin>:<name>`. Also feeds the dispatch
+ * input, whose own built-ins come first.
+ */
+export async function listSlashCommands(cwd, { claudeHome = CLAUDE_HOME } = {}) {
   const builtins = [
     {
       name: 'resume',
@@ -1306,45 +1461,20 @@ export async function listSlashCommands(cwd) {
       source: 'builtin',
     },
   ];
-  const dirs = [];
-  if (cwd)
-    dirs.push(
-      [path.join(cwd, '.claude', 'commands'), 'project'],
-      [path.join(cwd, '.claude', 'skills'), 'project']
-    );
-  dirs.push(
-    [path.join(CLAUDE_HOME, 'commands'), 'user'],
-    [path.join(CLAUDE_HOME, 'skills'), 'user']
-  );
   const found = [];
-  for (const [dir, source] of dirs) {
-    try {
-      const entries = await fsp.readdir(dir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (entry.isFile() && entry.name.endsWith('.md')) {
-          const meta = parseFrontmatter(
-            await fsp.readFile(path.join(dir, entry.name), 'utf-8').catch(() => '')
-          );
-          found.push({
-            name: entry.name.replace(/\.md$/, ''),
-            description: meta.description || '',
-            source,
-          });
-        } else if (entry.isDirectory()) {
-          const skillFile = path.join(dir, entry.name, 'SKILL.md');
-          if (fs.existsSync(skillFile)) {
-            const meta = parseFrontmatter(await fsp.readFile(skillFile, 'utf-8').catch(() => ''));
-            found.push({
-              name: meta.name || entry.name,
-              description: meta.description || '',
-              source,
-            });
-          }
-        }
-      }
-    } catch {
-      // missing dir
+  if (cwd)
+    for (const dir of projectDirs(cwd)) {
+      await readCommandsDir(path.join(dir, '.claude', 'commands'), '', 'project', found);
+      await readSkillsDir(path.join(dir, '.claude', 'skills'), '', 'project', found);
     }
+  await readCommandsDir(path.join(claudeHome, 'commands'), '', 'user', found);
+  await readSkillsDir(path.join(claudeHome, 'skills'), '', 'user', found);
+  const synced = path.join(claudeHome, 'skills', 'synced');
+  for (const bucket of await fsp.readdir(synced).catch(() => []))
+    await readSkillsDir(path.join(synced, bucket), '', 'user', found);
+  for (const { plugin, dir } of await enabledPluginDirs(cwd, claudeHome)) {
+    await readCommandsDir(path.join(dir, 'commands'), `${plugin}:`, 'plugin', found);
+    await readSkillsDir(path.join(dir, 'skills'), `${plugin}:`, 'plugin', found);
   }
   const seen = new Set();
   return [...builtins, ...found].filter((c) => {
@@ -1510,7 +1640,12 @@ let subscriberCount = 0;
 let lastSnapshot = new Map();
 /** The list of the last refresh while the watcher runs: kept current by the store watches */
 let latestSessions = null;
+/** Claude part of the last full refresh: the omp-only refresh lists omp next to it */
+let latestClaude = null;
+/** Full refresh (`claude agents --json` and omp) */
 let scheduler = null;
+/** omp-only refresh: omp store changes and agent pane output never wait for the Claude CLI */
+let ompScheduler = null;
 let watches = null;
 
 function snapshotKey(session) {
@@ -1519,15 +1654,40 @@ function snapshotKey(session) {
 
 async function refreshSessions() {
   watches?.ensure(); // a store created since (first job, first omp run) gets its watch
-  try {
-    const sessions = await listSessions({ all: true });
-    if (!scheduler) return; // unsubscribed meanwhile
-    latestSessions = sessions;
+  const panes = agentPanes();
+  const [claude, omp] = await Promise.all([
+    listClaudeSessions({ all: true }, panes).catch((error) => {
+      agentEvents.emit('error', { message: error.message });
+      return null;
+    }),
+    listScopedOmpSessions({}, panes),
+  ]);
+  if (!scheduler) return; // unsubscribed meanwhile
+  // A failing CLI keeps the Claude rows it listed last; omp rows stay current
+  latestClaude = claude ?? latestClaude ?? [];
+  const sessions = [...(claude ?? latestClaude.map((s) => withPane(s, panes))), ...omp];
+  if (claude) {
     // #252: the main agent is restarted when it stopped (Orkumo sends no prompt with it)
     keepMainAgentAlive(sessions, {
       config: settingsService.getAgentViewSettings().mainAgent,
       respawn: respawnSession,
     }).catch((err) => console.warn('[Agents] main agent keep-alive failed:', err.message));
+  }
+  publishSessions(sessions);
+}
+
+async function refreshOmpSessions() {
+  const panes = agentPanes();
+  const omp = await listScopedOmpSessions({}, panes);
+  // before the first full refresh there is no Claude part to list next to it; that one lists omp
+  if (!ompScheduler || !latestClaude) return;
+  publishSessions([...latestClaude.map((s) => withPane(s, panes)), ...omp]);
+}
+
+/** Emits `sessions` when the list changed and the notifications of background state changes */
+function publishSessions(sessions) {
+  try {
+    latestSessions = sessions;
     const next = new Map(sessions.map((s) => [s.id, s]));
     const notifications = [];
     for (const session of sessions) {
@@ -1556,22 +1716,27 @@ async function refreshSessions() {
   }
 }
 
+/** An agent pane's output started or stopped: its row turns working / back without the CLI */
+const onPaneActivity = () => ompScheduler?.notify();
+
 export function subscribe() {
   subscriberCount += 1;
   if (!scheduler) {
-    const own = (scheduler = createRefreshScheduler({
+    const full = (scheduler = createRefreshScheduler({
       run: refreshSessions,
       ...REFRESH_TIMING,
     }));
+    const omp = (ompScheduler = createRefreshScheduler({
+      run: refreshOmpSessions,
+      ...OMP_REFRESH_TIMING,
+    }));
     watches = watchSources(
       agentWatchSources({ claudeHome: CLAUDE_HOME, ompAgentDir: path.dirname(ompSessionsDir()) }),
-      (kind) => {
-        own.notify();
-        // an omp session counts as busy until its file has been quiet for a while: no write ends it
-        if (kind === 'omp') own.notifyAfter(OMP_ACTIVE_WRITE_MS + 1000);
-      }
+      (kind) => (kind === 'omp' || kind === 'ompTerminals' ? omp.notify() : full.notify())
     );
-    own.start();
+    ptyEvents.on('activity', onPaneActivity);
+    full.start();
+    omp.start();
   }
   // Idempotent: the SSE route calls it on both `close` and `error` of one request; counting a
   // client twice stopped the watcher while another client still listened
@@ -1582,10 +1747,14 @@ export function subscribe() {
     subscriberCount = Math.max(0, subscriberCount - 1);
     if (subscriberCount === 0 && scheduler) {
       scheduler.stop();
+      ompScheduler.stop();
       watches.close();
+      ptyEvents.off('activity', onPaneActivity);
       scheduler = null;
+      ompScheduler = null;
       watches = null;
       latestSessions = null;
+      latestClaude = null;
     }
   };
 }

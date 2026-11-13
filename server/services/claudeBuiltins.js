@@ -63,3 +63,52 @@ export const CLI_BUILTINS = [
   'list-agents',
   'team-onboarding',
 ];
+
+/**
+ * Interactive-only built-ins of the Claude Code TUI, missing from the initialize answer above.
+ * Names and descriptions confirmed in the v2.1.323 binary (dynamic descriptions: the default
+ * text; `continue` is an alias of `resume`).
+ * shortcut: a snapshot, regenerate on CLI updates
+ */
+export const CLI_INTERACTIVE_BUILTINS = [
+  { name: 'help', description: 'Show help and available commands' },
+  {
+    name: 'resume',
+    description: 'Resume a previous conversation',
+    argumentHint: '[conversation id or search term]',
+  },
+  {
+    name: 'continue',
+    description: 'Resume a previous conversation',
+    argumentHint: '[conversation id or search term]',
+  },
+  { name: 'permissions', description: 'Manage allow and deny tool permission rules' },
+  { name: 'memory', description: 'Edit CLAUDE.md files and memory settings' },
+  {
+    name: 'status',
+    description:
+      'Show Claude Code status including version, model, account, API connectivity, and tool statuses',
+  },
+  { name: 'hooks', description: 'View hook configurations for tool events' },
+  { name: 'plugin', description: 'Manage Claude Code plugins' },
+  { name: 'login', description: 'Sign in with your Anthropic account' },
+  { name: 'logout', description: 'Sign out from your Anthropic account' },
+  { name: 'exit', description: 'Exit the CLI' },
+  { name: 'export', description: 'Export the current conversation to a file or clipboard' },
+  { name: 'add-dir', description: 'Add a new working directory' },
+  { name: 'bug', description: 'Report a bug or share your conversation' },
+  { name: 'ide', description: 'Manage IDE integrations and show status' },
+  { name: 'install-github-app', description: 'Set up Claude GitHub Actions for a repository' },
+  { name: 'release-notes', description: 'View release notes' },
+  { name: 'rewind', description: 'Restore the code and/or conversation to a previous point' },
+  { name: 'statusline', description: "Set up Claude Code's status line UI" },
+  { name: 'terminal-setup', description: 'Install Shift+Enter key binding for newlines' },
+  { name: 'theme', description: 'Change the theme' },
+  { name: 'privacy-settings', description: 'View and update your privacy settings' },
+  { name: 'upgrade', description: 'Upgrade your plan for higher rate limits and more Opus' },
+  {
+    name: 'btw',
+    description: 'Ask a quick side question without interrupting the main conversation',
+  },
+  { name: 'tasks', description: 'View and manage everything running in the background' },
+];

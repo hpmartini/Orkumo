@@ -26,6 +26,7 @@ export type GroupKey =
   | 'app'
   | 'interactive'
   | 'all'
+  | 'orchestrators'
   | `dir:${string}`
   | `project:${string}`;
 
@@ -176,41 +177,122 @@ export function groupSessions(
   });
 }
 
-/** Minimal Orkumo app shape for the 'project' grouping */
+/** Key of the synthetic group holding orchestrator sessions (always first, not reorderable) */
+export const ORCHESTRATORS_GROUP_KEY: GroupKey = 'orchestrators';
+
+/**
+ * Marked as orchestrator (`agentView.orchestrators`): by row id, transcript uuid or pane id, so
+ * the mark survives a pane resuming its session under a new row id.
+ */
+export function isOrchestrator(
+  session: Pick<AgentSession, 'id' | 'sessionId' | 'paneId'>,
+  ids: readonly string[] | undefined
+): boolean {
+  if (!ids || ids.length === 0) return false;
+  return [session.id, session.sessionId, session.paneId].some((k) => !!k && ids.includes(k));
+}
+
+/** Id stored when marking: a job's own id, else its transcript uuid (row ids follow the pid) */
+export const orchestratorKey = (session: AgentSession): string =>
+  session.kind === 'background' ? session.id : session.sessionId || session.paneId || session.id;
+
+/** `ids` without every id that names `session` (unmarking) */
+export const withoutOrchestrator = (ids: readonly string[], session: AgentSession): string[] =>
+  ids.filter((id) => !isOrchestrator(session, [id]));
+
+/**
+ * Pulls orchestrator sessions out of their groups into a leading Orchestrators group, in every
+ * grouping (a session never shows twice). A non-state group left empty by this goes away.
+ */
+export function withOrchestratorSessions(
+  groups: SessionGroup[],
+  ids: readonly string[] | undefined
+): SessionGroup[] {
+  if (!ids || ids.length === 0) return groups;
+  const marked = (s: AgentSession) => isOrchestrator(s, ids);
+  const orchestrators = groups.flatMap((g) => [...g.sessions, ...g.hidden].filter(marked));
+  if (orchestrators.length === 0) return groups;
+  const rest = groups.flatMap((g): SessionGroup[] => {
+    const sessions = g.sessions.filter((s) => !marked(s));
+    const hidden = g.hidden.filter((s) => !marked(s));
+    const emptied =
+      sessions.length + hidden.length === 0 && g.sessions.length + g.hidden.length > 0;
+    if (emptied && !g.fixed && !STATE_GROUP_ORDER.includes(g.key)) return [];
+    return [{ ...g, sessions, hidden }];
+  });
+  return [
+    { key: ORCHESTRATORS_GROUP_KEY, title: 'Orchestrators', sessions: orchestrators, hidden: [] },
+    ...rest,
+  ];
+}
+
+/** Minimal Orkumo project shape for the 'project' grouping (GET /api/apps) */
 export interface ProjectApp {
   id: string;
   name: string;
   path: string;
+  /** Main checkouts it covers: its own path plus those of projects merged into it */
+  paths?: string[];
+  /** Linked git worktrees of those checkouts */
+  worktrees?: string[];
+  /** Ids of projects merged into this one */
+  mergedIds?: string[];
+  /** The user chose the name: it wins over the GitHub repo title */
+  userNamed?: boolean;
 }
 
-const bySpecificity = <T extends ProjectApp>(apps: T[]) =>
-  [...apps].sort((a, b) => b.path.length - a.path.length);
+/** The one group of sessions no project contains (non-git folders, deleted dirs, tmp runs) */
+export const NO_PROJECT_KEY: GroupKey = 'project:none';
 
-/** The session's directories and their main checkouts (worktrees join their main repo) */
-function sessionDirs(session: AgentSession, lookup?: SessionLookup) {
-  const root = lookup?.contexts?.[session.id]?.repo?.root;
-  const dirs = [session.worktree, session.cwd].filter((d): d is string => !!d);
-  // Worktrees group with their main checkout, also before contexts have loaded
-  const mains = [...(root ? [root] : []), ...dirs.map(mainRepoPath)];
-  return { dirs, mains };
+interface ProjectIndex<T extends ProjectApp> {
+  /** Project ids, merged ones included, to the active project that stands for them */
+  byId: Map<string, T>;
+  /** Lower-cased paths and worktrees, longest (most specific) first */
+  entries: { app: T; path: string }[];
 }
 
-/** Most specific app containing the session; `apps` must be sorted by `bySpecificity` */
-function sessionApp<T extends ProjectApp>(
+function projectIndex<T extends ProjectApp>(apps: T[]): ProjectIndex<T> {
+  const byId = new Map<string, T>();
+  const entries: { app: T; path: string }[] = [];
+  for (const app of apps) {
+    byId.set(app.id, app);
+    for (const id of app.mergedIds || []) byId.set(id, app);
+    for (const dir of [...(app.paths || [app.path]), ...(app.worktrees || [])])
+      if (dir) entries.push({ app, path: dir.toLowerCase() });
+  }
+  entries.sort((a, b) => b.path.length - a.path.length);
+  return { byId, entries };
+}
+
+/** Most specific project whose path or worktree contains one of `dirs` (case-insensitive: macOS) */
+function projectContaining<T extends ProjectApp>(index: ProjectIndex<T>, dirs: string[]) {
+  const lower = dirs.map((d) => d.toLowerCase());
+  return index.entries.find((e) => lower.some((d) => isUnder(e.path, d)))?.app;
+}
+
+/**
+ * Project of a session. The server's `projectId` wins (repo root based; a merged project's id
+ * maps to its target, a disabled one's to none). Without one (contexts not loaded, or a project
+ * added since) the repo root, then worktree / cwd are matched against paths and worktrees.
+ */
+function sessionProject<T extends ProjectApp>(
   session: AgentSession,
-  sortedApps: T[],
+  index: ProjectIndex<T>,
   lookup?: SessionLookup
 ): T | undefined {
-  const { dirs, mains } = sessionDirs(session, lookup);
-  // App paths may differ in case from session paths (case-insensitive macOS file system)
-  return sortedApps.find(
-    (a) => a.path && [...dirs, ...mains].some((d) => isUnder(a.path.toLowerCase(), d.toLowerCase()))
+  const ctx = lookup?.contexts?.[session.id];
+  if (ctx?.projectId) return index.byId.get(ctx.projectId);
+  const root = ctx?.repo?.root;
+  const dirs = [session.worktree, session.cwd].filter((d): d is string => !!d);
+  return (
+    (root ? projectContaining(index, [root]) : undefined) ??
+    projectContaining(index, [...dirs, ...dirs.map(mainRepoPath)])
   );
 }
 
 /**
- * Sessions belonging to a project context (#133): those whose app is a member.
- * `appIds === null` is the "all" context and keeps every session.
+ * Sessions belonging to a project context (#133): those whose project is a member, or holds a
+ * member merged into it. `appIds === null` is the "all" context and keeps every session.
  */
 export function sessionsInContext(
   sessions: AgentSession[],
@@ -220,17 +302,17 @@ export function sessionsInContext(
 ): AgentSession[] {
   if (!appIds) return sessions;
   const members = new Set(appIds);
-  const sorted = bySpecificity(apps);
+  const index = projectIndex(apps);
   return sessions.filter((s) => {
-    const app = sessionApp(s, sorted, lookup);
-    return !!app && members.has(app.id);
+    const app = sessionProject(s, index, lookup);
+    return !!app && (members.has(app.id) || !!app.mergedIds?.some((id) => members.has(id)));
   });
 }
 
 /**
- * One cluster per Orkumo app (most specific app path wins); sessions outside every app
- * cluster by repo root (subfolders and worktrees join their main checkout) after the apps.
- * Titled by the GitHub repo name when known, with the local folder in parentheses if it differs.
+ * One cluster per project; sessions no project contains share the trailing "No project" group.
+ * Titled by the GitHub repo name when known, with the local folder in parentheses if it differs;
+ * a name the user chose and merged projects keep the project's name.
  */
 function projectGroups(
   sessions: AgentSession[],
@@ -239,65 +321,54 @@ function projectGroups(
   lookup?: SessionLookup,
   fixedProjects: string[] = []
 ): SessionGroup[] {
-  const sorted = bySpecificity(apps);
-  const clusters = new Map<string, SessionGroup & { matched: boolean; fallback: string }>();
-  // Fixed projects first, under the key their sessions get: a worktree path means its main checkout
-  for (const dir of fixedProjects) {
-    const mainDir = mainRepoPath(dir);
-    const app = sorted.find((a) => a.path && isUnder(a.path.toLowerCase(), mainDir.toLowerCase()));
-    const key: GroupKey = app ? `project:${app.id}` : `project:dir:${mainDir}`;
-    if (clusters.has(key)) continue;
-    clusters.set(key, {
-      key,
-      title: '',
-      fallback: app ? app.name : lastSegment(mainDir),
-      cwd: app ? app.path : mainDir,
-      appId: app?.id,
-      sessions: [],
-      hidden: [],
-      fixed: true,
-      matched: !!app,
-    });
-  }
-  for (const session of sessions) {
-    const app = sessionApp(session, sorted, lookup);
-    const mainDir = sessionDirs(session, lookup).mains[0];
-    // Keyed by path, not display name: the name changes once contexts load and can collide
-    const key: GroupKey = app ? `project:${app.id}` : `project:dir:${mainDir}`;
+  const index = projectIndex(apps);
+  const clusters = new Map<string, SessionGroup & { app: ProjectApp }>();
+  const clusterOf = (app: ProjectApp) => {
+    const key: GroupKey = `project:${app.id}`;
     let cluster = clusters.get(key);
     if (!cluster) {
-      cluster = {
-        key,
-        title: '',
-        fallback: app ? app.name : repoName(session, lookup),
-        cwd: app ? app.path : mainDir,
-        appId: app?.id,
-        sessions: [],
-        hidden: [],
-        matched: !!app,
-      };
+      cluster = { key, title: '', cwd: app.path, appId: app.id, sessions: [], hidden: [], app };
       clusters.set(key, cluster);
     }
-    cluster.sessions.push(session);
+    return cluster;
+  };
+  // Fixed projects first, under the key their sessions get: a worktree path means its project;
+  // a directory no project contains is none (not a git repository)
+  for (const dir of fixedProjects) {
+    const app = projectContaining(index, [dir, mainRepoPath(dir)]);
+    if (app) clusterOf(app).fixed = true;
+  }
+  const homeless: AgentSession[] = [];
+  for (const session of sessions) {
+    const app = sessionProject(session, index, lookup);
+    if (app) clusterOf(app).sessions.push(session);
+    else homeless.push(session);
   }
   for (const cluster of clusters.values()) {
+    const { app } = cluster;
     const slug = cluster.sessions
       .map((s) => lookup?.contexts?.[s.id]?.repo?.slug)
       .find((s): s is string => !!s);
     const github = slug?.split('/')[1];
-    const folder = lastSegment(cluster.cwd || '');
-    cluster.title = !github
-      ? cluster.fallback
-      : github.toLowerCase() === folder.toLowerCase()
-        ? github
-        : `${github} (${folder})`;
+    const folder = lastSegment(app.path);
+    cluster.title =
+      !github || app.userNamed || app.mergedIds?.length
+        ? app.name
+        : github.toLowerCase() === folder.toLowerCase()
+          ? github
+          : `${github} (${folder})`;
   }
-  return [...clusters.values()]
-    .sort((a, b) => Number(b.matched) - Number(a.matched) || a.title.localeCompare(b.title))
-    .map(({ matched: _matched, fallback: _fallback, ...group }) => ({
-      ...group,
-      sessions: order(group.sessions),
-    }));
+  const groups: SessionGroup[] = [...clusters.values()]
+    .sort((a, b) => a.title.localeCompare(b.title))
+    .map(({ app: _app, ...group }) => ({ ...group, sessions: order(group.sessions) }));
+  if (homeless.length)
+    groups.push({
+      key: NO_PROJECT_KEY,
+      title: 'No project',
+      sessions: order(homeless),
+      hidden: [],
+    });
+  return groups;
 }
 
 // ---------------------------------------------------------------------

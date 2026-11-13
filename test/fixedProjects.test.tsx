@@ -20,7 +20,10 @@ const session = (partial: Partial<AgentSession>): AgentSession => ({
   displayState: 'completed',
   ...partial,
 });
-const APPS = [{ id: 'app-orkumo', name: 'Orkumo', path: '/Home/Dev/Orkumo' }];
+const APPS = [
+  { id: 'app-orkumo', name: 'Orkumo', path: '/Home/Dev/Orkumo' },
+  { id: 'app-notes', name: 'notes', path: '/home/dev/notes' },
+];
 const rows = (sessions: AgentSession[], fixedProjects: string[]) =>
   railItems(
     groupSessions(sessions, 'project', { apps: APPS, fixedProjects }),
@@ -31,9 +34,9 @@ const rows = (sessions: AgentSession[], fixedProjects: string[]) =>
   );
 
 describe('fixed projects in the project grouping', () => {
-  it('shows a fixed project without sessions, an undetected directory included', () => {
-    expect(rows([], ['/home/dev/notes'])).toEqual([
-      '[notes|project:dir:/home/dev/notes|/home/dev/notes]',
+  it('shows a fixed project without sessions; a directory that is no project is left out', () => {
+    expect(rows([], ['/home/dev/notes', '/home/dev/plain-folder'])).toEqual([
+      '[notes|project:app-notes|/home/dev/notes]',
     ]);
     // without it an empty project is not listed at all
     expect(rows([], [])).toEqual([]);
@@ -46,17 +49,17 @@ describe('fixed projects in the project grouping', () => {
       session({ cwd: '/home/dev/other' }),
     ];
     expect(rows(sessions, ['/home/dev/notes'])).toEqual([
-      '[notes|project:dir:/home/dev/notes|/home/dev/notes]',
+      '[notes|project:app-notes|/home/dev/notes]',
       '  session',
       '  session',
-      '[other|project:dir:/home/dev/other|/home/dev/other]',
+      '[No project|project:none|undefined]',
       '  session',
     ]);
   });
 
-  it('a fixed worktree path or a path inside a scanned app means that project', () => {
+  it('a fixed worktree path or a path inside a project means that project', () => {
     expect(rows([], ['/home/dev/notes/.claude/worktrees/feat-x', '/home/dev/notes'])).toEqual([
-      '[notes|project:dir:/home/dev/notes|/home/dev/notes]',
+      '[notes|project:app-notes|/home/dev/notes]',
     ]);
     expect(rows([], ['/home/dev/orkumo'])).toEqual([
       '[Orkumo|project:app-orkumo|/Home/Dev/Orkumo]',

@@ -48,6 +48,7 @@ import {
   respawnAgent,
   stopAgent,
   stopPane,
+  sendToPane,
   openCloudSession,
   uploadAgentImage,
   fetchHarnesses,
@@ -55,6 +56,7 @@ import {
 import { useStoredToggle } from '../../hooks/useStoredToggle';
 import { openInSystemBrowser } from '../../utils/links';
 import { RailSwitch } from './RailSwitch';
+import { RailOutletContext } from './railOutlet';
 import { fetchRepoPath } from '../../services/boardApi';
 import { confirmDelete } from '../../utils/agentDelete';
 import { agentFolder, boardUrl, codeUrl, modeUrl, pullsUrl } from '../../utils/codeTarget';
@@ -95,7 +97,13 @@ import {
   terminalResumeArgs,
   UI_VIEW_HARNESSES,
   isOmpStoreSession,
+  withOrchestratorSessions,
+  isOrchestrator,
+  orchestratorKey,
+  withoutOrchestrator,
+  ORCHESTRATORS_GROUP_KEY,
 } from '../../utils/agentSessions';
+import { fetchOrchestratorWorkspace, startOrchestrator } from '../../services/orchestratorApi';
 import { AgentList, AgentRowAction } from './AgentList';
 import { FoldButtons, GroupingPicker, ProjectsSection, RailNavProps } from './ProjectsRail';
 import { NewTaskButton } from './NewTaskButton';
@@ -133,6 +141,7 @@ import { pollWhileVisible } from '../../utils/visiblePoll';
 import { DirectoryPicker } from './DirectoryPicker';
 import { MainAgentDialog } from './MainAgentDialog';
 import { MAIN_AGENT_EVENT } from '../TitleBar';
+import { openProjectSettings } from '../ProjectsSettings';
 
 /** Board issue chips are a nice-to-have: refetch at most this often while the view is active */
 const BOARD_REFRESH_MS = 60_000;
@@ -154,6 +163,8 @@ interface AgentsViewProps {
   contextAppIds?: string[] | null;
   /** Main area of the other routes (dashboard, board, code, ...): replaces the workspace while not active */
   children?: React.ReactNode;
+  /** The route below lists its own items in the rail column (Chats mode): agents hidden meanwhile */
+  railOutlet?: boolean;
 }
 
 const noop = () => {};
@@ -203,6 +214,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   contextId,
   contextAppIds,
   children,
+  railOutlet = false,
 }) => {
   const palette = useCommandPalette();
   const {
@@ -358,6 +370,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [listedSessions, filter]
   );
   const railRef = useRef<HTMLDivElement>(null);
+  // Rail column handed to `children` while `railOutlet` (RailOutletContext)
+  const [outlet, setOutlet] = useState<HTMLDivElement | null>(null);
+  const outletShown = railOutlet && !active;
   const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
@@ -507,21 +522,26 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   );
   const groups = useMemo(
     () =>
-      arrange(
-        groupSessions(shownSessions, settings.grouping, {
-          // Filtering for Completed means the user wants all of them, not "… N more"
-          expandedCompleted: expandedCompleted || quickFilters.has('completed'),
-          sort,
-          lookup,
-          apps,
-          // A filter asks for agents: empty fixed projects would only be in the way
-          fixedProjects: filterActive ? [] : rail.fixedProjects,
-        })
+      // Orchestrators stay pinned above everything, favorites included
+      withOrchestratorSessions(
+        arrange(
+          groupSessions(shownSessions, settings.grouping, {
+            // Filtering for Completed means the user wants all of them, not "… N more"
+            expandedCompleted: expandedCompleted || quickFilters.has('completed'),
+            sort,
+            lookup,
+            apps,
+            // A filter asks for agents: empty fixed projects would only be in the way
+            fixedProjects: filterActive ? [] : rail.fixedProjects,
+          })
+        ),
+        settings.orchestrators
       ),
     [
       shownSessions,
       filterActive,
       settings.grouping,
+      settings.orchestrators,
       expandedCompleted,
       quickFilters,
       sort,
@@ -772,6 +792,42 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     return () => clearTimeout(timer);
   }, [quickPane, quickPaneListed, attach, showHint]);
 
+  // "New orchestrator": the server starts the default harness as an agent pane in the
+  // orchestrator workspace; it is marked right away and opened once the list names its pane
+  const [orchestratorPane, setOrchestratorPane] = useState<string | null>(null);
+  const [startingOrchestrator, setStartingOrchestrator] = useState(false);
+  const orchestratorPaneListed =
+    !!orchestratorPane && paneStandIns.some((s) => s.id === orchestratorPane);
+  useEffect(() => {
+    if (!orchestratorPane) return;
+    if (orchestratorPaneListed) {
+      setOrchestratorPane(null);
+      attach(orchestratorPane);
+      return;
+    }
+    const timer = setTimeout(() => {
+      setOrchestratorPane(null);
+      showHint('The orchestrator runs but is not listed yet: open it from the rail', 'error');
+    }, 30000);
+    return () => clearTimeout(timer);
+  }, [orchestratorPane, orchestratorPaneListed, attach, showHint]);
+  const newOrchestrator = useCallback(async () => {
+    if (startingOrchestrator) return;
+    setStartingOrchestrator(true);
+    showHint('Starting an orchestrator…', 'info');
+    try {
+      const agent = await startOrchestrator();
+      await updateSettings({ orchestrators: [...settings.orchestrators, agent.sessionId] });
+      setOrchestratorPane(agent.paneId);
+      refresh();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      showHint(`Orchestrator did not start: ${message}`, 'error', 8000);
+    } finally {
+      setStartingOrchestrator(false);
+    }
+  }, [startingOrchestrator, showHint, updateSettings, settings.orchestrators, refresh]);
+
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
   const navigate = useNavigate();
@@ -880,13 +936,35 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setSelectedKey(session.id);
   }, []);
 
+  const allPanes = useMemo(
+    () => [...sessions, ...cloudSessions, ...paneStandIns, ...foreignPanes],
+    [sessions, cloudSessions, paneStandIns, foreignPanes]
+  );
+
+  // A session an open pane runs is a row of its own (`omp-<uuid>`, a Claude terminal, a resumed
+  // transcript) while the pane keeps its pane id: the rail treats the row as open and a click
+  // switches to that pane, the same pane opening it would focus
+  const paneOfRow = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const s of sessions) {
+      const plan = openPlan(s, allPanes, openIdSet);
+      if (plan.type === 'focus' && plan.paneId !== s.id) map.set(s.id, plan.paneId);
+    }
+    return map;
+  }, [sessions, allPanes, openIdSet]);
+  const railOpenIds = useMemo(
+    () => new Set([...openIdSet, ...paneOfRow.keys()]),
+    [openIdSet, paneOfRow]
+  );
+
   // Single click on an already attached agent: switch to its tab/pane and put the cursor in the terminal
   const focusOpen = useCallback(
     (id: string) => {
-      attach(id);
+      attach(paneOfRow.get(id) ?? id);
+      setSelectedKey(id);
       requestAnimationFrame(() => moveFocus('terminal'));
     },
-    [attach, moveFocus]
+    [attach, moveFocus, paneOfRow]
   );
 
   const toggleGroup = useCallback(
@@ -975,11 +1053,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       else run();
     },
     []
-  );
-
-  const allPanes = useMemo(
-    () => [...sessions, ...cloudSessions, ...paneStandIns, ...foreignPanes],
-    [sessions, cloudSessions, paneStandIns, foreignPanes]
   );
 
   /**
@@ -1435,10 +1508,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const handleReorder = useCallback(
     async (direction: 'up' | 'down') => {
       if (selectedItem?.type === 'group') {
-        // Same rule as the group menu: favorites stay a block of their own
+        // Same rule as the group menu: orchestrators and favorites stay blocks of their own
         const key: string = selectedItem.group.key;
         const keys = items.flatMap((i) =>
-          i.type === 'group' && (i.group.key as string) !== FAVORITES_GROUP_KEY
+          i.type === 'group' &&
+          (i.group.key as string) !== FAVORITES_GROUP_KEY &&
+          i.group.key !== ORCHESTRATORS_GROUP_KEY
             ? [i.group.key as string]
             : []
         );
@@ -1654,7 +1729,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           if (e.ctrlKey || e.metaKey || e.altKey || !selectedItem) break;
           if (selectedItem.type === 'group') {
             const key: string = selectedItem.group.key;
-            if (key !== FAVORITES_GROUP_KEY && key !== 'all') toggleFavoriteGroup(key);
+            if (key !== FAVORITES_GROUP_KEY && key !== ORCHESTRATORS_GROUP_KEY && key !== 'all')
+              toggleFavoriteGroup(key);
           } else if (selectedItem.type === 'session') {
             toggleFavoriteSession(selectedItem.session.id);
           }
@@ -1700,6 +1776,41 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // ---------------------------------------------------------------------
   // Row / group menus
   // ---------------------------------------------------------------------
+
+  // Marking types a short briefing into the agent (pane) or replies it (background job), so it
+  // takes up the role without being restarted in the orchestrator workspace
+  const toggleOrchestrator = useCallback(
+    async (session: AgentSession) => {
+      const ids = settings.orchestrators;
+      if (isOrchestrator(session, ids)) {
+        await updateSettings({ orchestrators: withoutOrchestrator(ids, session) });
+        return;
+      }
+      await updateSettings({ orchestrators: [...ids, orchestratorKey(session)] });
+      const pane =
+        session.kind === 'interactive'
+          ? session.paneId || (sessionHarness(session) !== 'claude' ? session.id : null)
+          : null;
+      try {
+        const { briefing, dir } = await fetchOrchestratorWorkspace();
+        if (session.kind === 'background') await replyToAgent(session.id, briefing);
+        else if (pane) await sendToPane(pane, briefing);
+        else {
+          showHint(
+            `Marked as orchestrator. It runs outside Orkumo: point it to ${dir}/AGENTS.md yourself`,
+            'info',
+            8000
+          );
+          return;
+        }
+        toast.success('Marked as orchestrator and briefed');
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error(`Marked as orchestrator, but the briefing did not arrive: ${message}`);
+      }
+    },
+    [settings.orchestrators, updateSettings, showHint]
+  );
 
   const scopedModes = useMemo(() => nav.modes?.filter((m) => m.scoped) ?? [], [nav.modes]);
   const rowActions = useCallback(
@@ -1802,6 +1913,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               .catch((err) => toast.error(err.message)),
         },
         {
+          id: 'orchestrator',
+          label: isOrchestrator(session, settings.orchestrators)
+            ? 'Remove orchestrator mark'
+            : 'Mark as orchestrator',
+          disabled: session.kind === 'app',
+          onSelect: () => void toggleOrchestrator(session),
+        },
+        {
           id: 'copy-id',
           label: 'Copy session id',
           onSelect: () => {
@@ -1831,6 +1950,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       issuesByAgent,
       openShell,
       scopedModes,
+      settings.orchestrators,
+      toggleOrchestrator,
     ]
   );
 
@@ -1847,6 +1968,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               id: 'open-project',
               label: 'Open project',
               onSelect: () => nav.onOpenProject(group.appId!),
+            },
+            {
+              id: 'project-settings',
+              label: 'Project settings…',
+              onSelect: () => openProjectSettings(group.appId!),
             },
           ]
         : []),
@@ -2231,7 +2357,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           </button>
           <NewTaskButton
             onNew={(kind) =>
-              kind === 'issue' ? openIssueDialog(selectedRepo) : openComposer(kind)
+              kind === 'issue'
+                ? openIssueDialog(selectedRepo)
+                : kind === 'orchestrator'
+                  ? void newOrchestrator()
+                  : openComposer(kind)
             }
           />
           <AgentsRailSlot ids={nav.railSlots} />
@@ -2357,14 +2487,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
         {/* Body */}
         <div className="flex-1 flex min-h-0">
-          {/* Session list + dispatch input */}
+          {outletShown && (
+            <div
+              ref={setOutlet}
+              className="hidden md:flex md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40"
+            />
+          )}
+          {/* Session list + dispatch input; hidden, not unmounted, while a route uses the outlet */}
           <div
             ref={railRef}
             tabIndex={-1}
             data-focus-zone="rail"
             data-rail-focused={railFocused}
             // On small screens the rail is the agents page; other routes show their main area instead
-            className={`${active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+            className={`${outletShown ? 'hidden' : active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
           >
             {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
             {railFocused && (
@@ -2428,7 +2564,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 onActivate={activateItem}
                 onTogglePeek={togglePeek}
                 peekId={peekId}
-                openIds={openIdSet}
+                openIds={railOpenIds}
                 onFocusOpen={focusOpen}
                 now={now}
                 grouping={settings.grouping}
@@ -2460,6 +2596,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 nav={nav}
                 issuesByAgent={issuesByAgent}
                 onOpenIssue={setIssueModalKey}
+                orchestratorIds={settings.orchestrators}
                 top={
                   settings.grouping === 'state' ? (
                     <ProjectsSection apps={apps} nav={nav} filtered={filterActive || !!filter} />
@@ -2512,7 +2649,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           {/* Main area of the other routes; the workspace below stays mounted so terminals survive */}
           <div className={active ? 'hidden' : 'flex-1 min-w-0 min-h-0 relative'}>
             <PullRequestsDataContext.Provider value={pullsData}>
-              {children}
+              <RailOutletContext.Provider value={outletShown ? outlet : null}>
+                {children}
+              </RailOutletContext.Provider>
             </PullRequestsDataContext.Provider>
           </div>
 
@@ -2775,10 +2914,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       )}
       {pickFixedOpen && (
         <DirectoryPicker
-          choices={directoryChoices}
+          // A fixed project is a project: no free paths, no plain directories
+          choices={apps.map((a) => ({ name: a.name, path: a.path, source: 'project' }))}
           current={null}
           home={homeDir}
-          label="Directory of the fixed project…"
+          label="Project to keep in the rail…"
+          allowPath={false}
           onCancel={() => setPickFixedOpen(false)}
           onPick={(path) => {
             if (!rail.fixedProjects.includes(path)) rail.toggleFixedProject(path);

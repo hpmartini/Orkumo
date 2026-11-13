@@ -1,9 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import React from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import React, { useState } from 'react';
+import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ChatHistoryPage } from '../components/ChatHistoryView/ChatHistoryPage';
+import { RailOutletContext } from '../components/AgentsView/railOutlet';
 import {
   fetchChatConversation,
   fetchChatHistory,
@@ -11,13 +12,23 @@ import {
   type ChatHistoryItem,
   type ChatHistoryList,
 } from '../services/chatHistoryApi';
-import { PROVIDER_HARNESS, continuePrompt, dayBound } from '../utils/chatHistory';
+import {
+  PROVIDER_HARNESS,
+  continuePrompt,
+  conversationUrl,
+  dayBound,
+  recencyOf,
+  relativeTime,
+} from '../utils/chatHistory';
+import { openInSystemBrowser, openLink } from '../utils/links';
+import type { ChatSyncResult, ChatSyncStatus, ElectronAPI } from '../electron/electron';
 
 vi.mock('../services/chatHistoryApi', () => ({
   fetchChatHistory: vi.fn(),
   fetchChatConversation: vi.fn(),
   importChatExport: vi.fn(),
 }));
+vi.mock('../utils/links', () => ({ openLink: vi.fn(), openInSystemBrowser: vi.fn() }));
 
 const item = (n: number, patch: Partial<ChatHistoryItem> = {}): ChatHistoryItem => ({
   id: `claude:${n}`,
@@ -65,9 +76,46 @@ const show = () =>
   );
 const lastQuery = () => vi.mocked(fetchChatHistory).mock.lastCall![0];
 
+const status = (s: ChatSyncStatus['status'], extra: Partial<ChatSyncStatus> = {}) => ({
+  status: s,
+  added: 0,
+  updated: 0,
+  ...extra,
+});
+
+/** The preload's chatSync, driven by the test */
+function mockElectron(result: ChatSyncResult) {
+  let progress: ((p: ChatSyncStatus & { provider: 'claude' | 'chatgpt' }) => void) | null = null;
+  let navigate: ((s: { url: string }) => void) | null = null;
+  const run = vi.fn(() => Promise.resolve(result));
+  window.electronAPI = {
+    chatSync: {
+      run,
+      onProgress: (cb) => {
+        progress = cb;
+        return () => (progress = null);
+      },
+    },
+    browserView: {
+      onNavigate: (cb: (s: { url: string }) => void) => {
+        navigate = cb;
+        return () => (navigate = null);
+      },
+    },
+  } as unknown as ElectronAPI;
+  return {
+    run,
+    progress: (p: ChatSyncStatus & { provider: 'claude' | 'chatgpt' }) => act(() => progress?.(p)),
+    navigate: (url: string) => act(() => navigate?.({ url })),
+  };
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(fetchChatHistory).mockResolvedValue(list(ITEMS));
+});
+afterEach(() => {
+  delete window.electronAPI;
 });
 
 describe('ChatHistoryPage (#280)', () => {
@@ -84,12 +132,35 @@ describe('ChatHistoryPage (#280)', () => {
     );
   });
 
+  it('groups the rail by recency: Today, Yesterday, This week, Older', async () => {
+    const now = Date.now();
+    vi.mocked(fetchChatHistory).mockResolvedValue(
+      list([
+        item(1, { title: 'Heute', updatedAt: now - 60_000 }),
+        item(2, { title: 'Gestern', updatedAt: new Date(now).setHours(0, 0, 0, 0) - 3_600_000 }),
+        item(3, { title: 'Vorhin diese Woche', updatedAt: now - 4 * 86_400_000 }),
+        item(4, { title: 'Alt', updatedAt: now - 60 * 86_400_000 }),
+      ])
+    );
+    show();
+    await screen.findByText('Heute');
+    for (const [label, title] of [
+      ['Today', 'Heute'],
+      ['Yesterday', 'Gestern'],
+      ['This week', 'Vorhin diese Woche'],
+      ['Older', 'Alt'],
+    ])
+      expect(within(screen.getByRole('region', { name: label })).getByText(title)).toBeTruthy();
+    expect(within(screen.getByRole('region', { name: 'Today' })).getByText('1m')).toBeTruthy();
+  });
+
   it('AC-3: provider, project, topic and period go to the server as filters', async () => {
     const user = userEvent.setup();
     show();
     await screen.findByText('Chat 3');
-    await user.selectOptions(screen.getByLabelText('Provider'), 'chatgpt');
+    await user.click(within(screen.getByRole('group', { name: 'Provider' })).getByText('ChatGPT'));
     await waitFor(() => expect(lastQuery()).toMatchObject({ provider: 'chatgpt' }));
+    await user.click(screen.getByRole('button', { name: /Filters/ }));
     await user.selectOptions(screen.getByLabelText('Project'), 'p1');
     await user.selectOptions(screen.getByLabelText('Topic'), 'fahrrad');
     await user.type(screen.getByLabelText('Active from'), '2026-02-01');
@@ -105,12 +176,16 @@ describe('ChatHistoryPage (#280)', () => {
     );
     expect(dayBound('2026-02-28', true)! - dayBound('2026-02-28')!).toBe(86_400_000 - 1);
     expect(screen.getByLabelText('Topic')).toHaveTextContent('brot (2)');
+    expect(screen.getByRole('button', { name: /Filters \(4\)/ })).toBeTruthy();
+    await user.click(within(screen.getByRole('group', { name: 'Provider' })).getByText('All'));
+    await waitFor(() => expect(lastQuery().provider).toBeNull());
   });
 
   it('searches as typed and shows the hit with its snippet', async () => {
     const user = userEvent.setup();
     show();
     await screen.findByText('Chat 3');
+    expect(screen.queryByText('snippet 3')).toBeNull();
     vi.mocked(fetchChatHistory).mockResolvedValue(list([item(7, { snippet: '…die Stockgare' })]));
     await user.type(screen.getByLabelText('Search chats'), 'stockgare');
     expect(await screen.findByText('…die Stockgare')).toBeInTheDocument();
@@ -121,6 +196,7 @@ describe('ChatHistoryPage (#280)', () => {
     const user = userEvent.setup();
     show();
     await screen.findByText('Chat 3');
+    await user.click(screen.getByRole('button', { name: /Filters/ }));
     await user.click(screen.getByLabelText('Group by topic'));
     const bread = screen.getByRole('region', { name: 'brot' });
     expect(within(bread).getAllByRole('button')).toHaveLength(2);
@@ -129,21 +205,43 @@ describe('ChatHistoryPage (#280)', () => {
     ).toBeInTheDocument();
   });
 
-  it('opens a conversation as plain text and continues it as an Orkumo chat', async () => {
+  it('keyboard: ↓ from the search into the list, ↑/↓ between rows, Enter opens', async () => {
+    vi.mocked(fetchChatConversation).mockImplementation((id) =>
+      Promise.resolve({ ...ITEMS.find((i) => i.id === id)!, messages: [] })
+    );
+    const user = userEvent.setup();
+    show();
+    await screen.findByText('Chat 3');
+    await user.click(screen.getByLabelText('Search chats'));
+    await user.keyboard('{ArrowDown}');
+    expect(document.activeElement).toHaveTextContent('Chat 3');
+    await user.keyboard('{ArrowDown}{ArrowDown}{ArrowDown}');
+    expect(document.activeElement).toHaveTextContent('Chat 1');
+    await user.keyboard('{ArrowUp}{Enter}');
+    await waitFor(() => expect(fetchChatConversation).toHaveBeenCalledWith('chatgpt:2'));
+    expect(await screen.findByRole('heading', { name: 'Chat 2' })).toBeInTheDocument();
+  });
+
+  it('reads a conversation (user cards, markdown answers), opens it on the web, continues it', async () => {
     const conversation = {
       ...ITEMS[1],
       messages: [
         { role: 'user' as const, text: 'Wie flicke ich <b>einen</b> Reifen?', at: null },
-        { role: 'assistant' as const, text: 'Loch suchen.', at: null },
+        { role: 'assistant' as const, text: 'Loch **suchen**.', at: null },
       ],
     };
     vi.mocked(fetchChatConversation).mockResolvedValue(conversation);
     const user = userEvent.setup();
     show();
     await user.click(await screen.findByRole('button', { name: /Chat 2/ }));
-    // markup in a message is shown, not rendered
+    // markup in a user message is shown, not rendered; answers are markdown
     expect(await screen.findByText('Wie flicke ich <b>einen</b> Reifen?')).toBeInTheDocument();
+    expect(screen.getByText('suchen').tagName).toBe('STRONG');
     expect(fetchChatConversation).toHaveBeenCalledWith('chatgpt:2');
+
+    await user.click(screen.getByRole('button', { name: /Open on chatgpt.com/ }));
+    expect(openInSystemBrowser).toHaveBeenCalledWith('https://chatgpt.com/c/2');
+
     await user.click(screen.getByRole('button', { name: /Continue in Orkumo/ }));
     const [path, state] = JSON.parse(screen.getByTestId('where').textContent!);
     expect(path).toBe('/agents');
@@ -153,10 +251,10 @@ describe('ChatHistoryPage (#280)', () => {
       mode: 'chat',
       harness: 'codex',
     });
-    expect(state.dispatch).toContain('ChatGPT: Loch suchen.');
+    expect(state.dispatch).toContain('ChatGPT: Loch **suchen**.');
   });
 
-  it('imports a folder, reports the counts and reloads; errors are shown', async () => {
+  it('web mode: imports a folder, reports the counts and reloads; errors are shown', async () => {
     vi.mocked(importChatExport).mockResolvedValue({
       files: [
         {
@@ -172,6 +270,7 @@ describe('ChatHistoryPage (#280)', () => {
     const user = userEvent.setup();
     show();
     await screen.findByText('Chat 3');
+    expect(screen.queryByLabelText('Sync status')).toBeNull();
     const calls = vi.mocked(fetchChatHistory).mock.calls.length;
     await user.type(screen.getByLabelText('Folder of the unpacked export'), '~/Downloads/export');
     await user.click(screen.getByRole('button', { name: 'Import' }));
@@ -190,12 +289,98 @@ describe('ChatHistoryPage (#280)', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent('Path not found');
   });
 
-  it('explains where the exports come from while nothing is imported', async () => {
+  it('web mode: explains where the exports come from while nothing is imported', async () => {
     vi.mocked(fetchChatHistory).mockResolvedValue(
       list([], { counts: { claude: 0, chatgpt: 0 }, projects: [], topics: [] })
     );
     show();
     expect(await screen.findByText(/Settings → Privacy → Export data/)).toBeInTheDocument();
+  });
+
+  it('desktop: syncs on opening, shows per-provider status, logs in through the built-in browser', async () => {
+    const electron = mockElectron({
+      claude: status('ok', { added: 2, syncedAt: Date.now() }),
+      chatgpt: status('needs-login', { reason: 'Log in to chatgpt.com in the built-in browser' }),
+    });
+    const user = userEvent.setup();
+    show();
+    await screen.findByText('Chat 3');
+    expect(electron.run).toHaveBeenCalledTimes(1);
+    const chips = screen.getByLabelText('Sync status');
+    expect(await within(chips).findByText(/Claude · Up to date/)).toBeTruthy();
+    // the import is a secondary action now
+    expect(screen.queryByLabelText('Folder of the unpacked export')).toBeNull();
+
+    await user.click(within(chips).getByRole('button', { name: 'Log in to ChatGPT' }));
+    expect(openLink).toHaveBeenCalledWith('https://chatgpt.com/auth/login', undefined, 'builtin');
+    // still on the login page: no sync; landed on the start page: sync now
+    electron.navigate('https://chatgpt.com/auth/login?next=1');
+    expect(electron.run).toHaveBeenCalledTimes(1);
+    electron.navigate('https://chatgpt.com/');
+    await waitFor(() => expect(electron.run).toHaveBeenCalledTimes(2));
+
+    await user.click(screen.getByRole('button', { name: 'More chat actions' }));
+    await user.click(screen.getByRole('menuitem', { name: /Import a data export/ }));
+    expect(screen.getByLabelText('Folder of the unpacked export')).toBeInTheDocument();
+  });
+
+  it('desktop: progress shows syncing, reloads the list as chats arrive, errors name the reason', async () => {
+    const finished = Promise.withResolvers<ChatSyncResult>();
+    const electron = mockElectron({} as ChatSyncResult);
+    electron.run.mockImplementation(() => finished.promise);
+    show();
+    await screen.findByText('Chat 3');
+    expect(screen.getByRole('button', { name: 'Sync now' })).toBeDisabled();
+    const loads = vi.mocked(fetchChatHistory).mock.calls.length;
+    electron.progress({ provider: 'claude', ...status('syncing', { added: 10, pending: 30 }) });
+    expect(await screen.findByText(/Claude · Syncing \(30 left\)/)).toBeTruthy();
+    await waitFor(() =>
+      expect(vi.mocked(fetchChatHistory).mock.calls.length).toBeGreaterThan(loads)
+    );
+    await act(async () =>
+      finished.resolve({
+        claude: status('ok', { added: 40 }),
+        chatgpt: status('error', { reason: 'chatgpt.com answered HTTP 500' }),
+      })
+    );
+    expect(await screen.findByText('ChatGPT: chatgpt.com answered HTTP 500')).toBeTruthy();
+    expect(screen.getByText(/ChatGPT · Sync failed/)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Sync now' })).toBeEnabled();
+  });
+
+  it('desktop: tells what to do while nothing is synced yet', async () => {
+    mockElectron({
+      claude: status('needs-login'),
+      chatgpt: status('needs-login'),
+    });
+    vi.mocked(fetchChatHistory).mockResolvedValue(
+      list([], { counts: { claude: 0, chatgpt: 0 }, projects: [], topics: [] })
+    );
+    show();
+    expect(await screen.findByText(/Log in to claude.ai or chatgpt.com/)).toBeInTheDocument();
+    expect(screen.queryByText(/Settings → Privacy/)).toBeNull();
+  });
+
+  it('lists in the rail column the agents view hands over', async () => {
+    const Host = () => {
+      const [outlet, setOutlet] = useState<HTMLDivElement | null>(null);
+      return (
+        <MemoryRouter>
+          <div data-testid="rail" ref={setOutlet} />
+          <RailOutletContext.Provider value={outlet}>
+            <ChatHistoryPage />
+          </RailOutletContext.Provider>
+        </MemoryRouter>
+      );
+    };
+    const narrow = window.matchMedia;
+    window.matchMedia = (query: string) =>
+      ({ matches: true, media: query, addEventListener() {}, removeEventListener() {} }) as never;
+    render(<Host />);
+    window.matchMedia = narrow;
+    const rail = screen.getByTestId('rail');
+    expect(await within(rail).findByText('Chat 3')).toBeInTheDocument();
+    expect(within(rail).getByLabelText('Search chats')).toBeInTheDocument();
   });
 
   it('keeps the end of a long conversation when continuing', () => {
@@ -213,5 +398,19 @@ describe('ChatHistoryPage (#280)', () => {
 
   it('#251: continues each provider on the CLI of its subscription', () => {
     expect(PROVIDER_HARNESS).toEqual({ claude: 'claude', chatgpt: 'codex' });
+  });
+
+  it('web links and rail times', () => {
+    expect(conversationUrl({ id: 'claude:abc-1', provider: 'claude' })).toBe(
+      'https://claude.ai/chat/abc-1'
+    );
+    const now = new Date(2026, 10, 13, 15, 0).getTime();
+    expect(relativeTime(now - 30_000, now)).toBe('now');
+    expect(relativeTime(now - 5 * 60_000, now)).toBe('5m');
+    expect(relativeTime(now - 3 * 3_600_000, now)).toBe('3h');
+    expect(recencyOf(new Date(2026, 10, 12, 23, 0).getTime(), now)).toBe('Yesterday');
+    expect(recencyOf(new Date(2026, 10, 6, 1, 0).getTime(), now)).toBe('This week');
+    expect(recencyOf(new Date(2026, 10, 5, 23, 0).getTime(), now)).toBe('Older');
+    expect(recencyOf(null, now)).toBe('Older');
   });
 });

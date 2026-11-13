@@ -9,6 +9,7 @@ import {
   session,
   globalShortcut,
   screen,
+  net as electronNet,
 } from 'electron';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -20,6 +21,7 @@ import { isValidExternalUrl, validateDialogOptions, windowOpenRoute } from './va
 import { APP_NAME, LEGACY_USER_DATA_DIR } from './constants.js';
 import { wireBrowserViewNav, goHistory } from './browserViewNav.js';
 import { persistSessionCookies } from './cookiePersistence.js';
+import { createChatSync } from './chatSync.js';
 import { PORTS } from '../config/defaults.js';
 import electronUpdater from 'electron-updater';
 import {
@@ -28,7 +30,11 @@ import {
   hasUpdateConfigFile,
   isDeveloperIdSigned,
   appBundlePath,
+  canSwapBundle,
+  readAutoUpdateSetting,
 } from './updater.js';
+import { buildMenuTemplate } from './menu.js';
+import { channelOf } from './selfUpdate.js';
 
 // Before anything reads userData (single-instance lock, sessions, data dir)
 app.setPath('userData', path.join(app.getPath('appData'), LEGACY_USER_DATA_DIR));
@@ -284,77 +290,18 @@ function createWindow() {
 }
 
 /**
- * Create application menu
+ * Create application menu (electron/menu.js)
  */
 function createApplicationMenu() {
-  const template = [
-    {
-      label: 'File',
-      submenu: [
-        {
-          label: 'Refresh',
-          accelerator: 'CmdOrCtrl+R',
-          click: () => {
-            if (mainWindow) {
-              mainWindow.reload();
-            }
-          },
-        },
-        { type: 'separator' },
-        { role: 'quit' },
-      ],
-    },
-    {
-      label: 'Edit',
-      submenu: [
-        { role: 'undo' },
-        { role: 'redo' },
-        { type: 'separator' },
-        { role: 'cut' },
-        { role: 'copy' },
-        { role: 'paste' },
-        { role: 'selectAll' },
-      ],
-    },
-    {
-      label: 'View',
-      submenu: [
-        { role: 'reload' },
-        { role: 'forceReload' },
-        { role: 'toggleDevTools' },
-        { type: 'separator' },
-        { role: 'resetZoom' },
-        { role: 'zoomIn' },
-        { role: 'zoomOut' },
-        { type: 'separator' },
-        { role: 'togglefullscreen' },
-      ],
-    },
-    {
-      label: 'Window',
-      submenu: [{ role: 'minimize' }, { role: 'zoom' }, { type: 'separator' }, { role: 'front' }],
-    },
-    {
-      label: 'Help',
-      submenu: [
-        {
-          label: 'Documentation',
-          click: () => {
-            shell.openExternal('https://github.com/hpmartini/Orkumo');
-          },
-        },
-        {
-          label: 'Report Issue',
-          click: () => {
-            shell.openExternal('https://github.com/hpmartini/Orkumo/issues');
-          },
-        },
-      ],
-    },
-  ];
-
-  const menu = Menu.buildFromTemplate(template);
-  Menu.setApplicationMenu(menu);
+  const template = buildMenuTemplate({
+    appName: APP_NAME,
+    isMac: process.platform === 'darwin',
+    onRefresh: () => mainWindow?.reload(),
+    onCheckForUpdates: checkForUpdatesFromMenu,
+    onOpenSettings: () => sendToMainWindow('open-settings'),
+    openExternal: (url) => shell.openExternal(url),
+  });
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
 /**
@@ -1028,28 +975,85 @@ function setupIpcHandlers() {
     }
   });
 
+  // Chats mode (#280): the user's claude.ai / ChatGPT conversations through the built-in
+  // browser's login; its cookies stay in this process, the server gets conversations only
+  let chatSync = null;
+  ipcMain.handle('chat-sync', async () => {
+    if (REMOTE_LINK) {
+      const unavailable = {
+        status: 'unavailable',
+        added: 0,
+        updated: 0,
+        reason: 'Sync runs on the machine of the Orkumo server; import an export there',
+      };
+      return { claude: unavailable, chatgpt: unavailable };
+    }
+    chatSync ??= createChatSync({
+      providerFetch: (url, init) =>
+        session.fromPartition(BROWSER_PREVIEW_PARTITION).fetch(url, init),
+      serverUrl: `http://127.0.0.1:${SERVER_PORT}`,
+      onProgress: (provider, progress) => {
+        if (mainWindow && !mainWindow.isDestroyed())
+          mainWindow.webContents.send('chat-sync-progress', { provider, ...progress });
+      },
+    });
+    return chatSync.sync();
+  });
+
   // Check if running in Electron
   ipcMain.handle('is-electron', () => {
     return true;
   });
 }
 
-function startUpdateCheck() {
+// Created on first use: resolving the mode runs codesign, which should not delay the first window
+let updater = null;
+function getUpdater() {
+  if (updater) return updater;
+  const bundlePath = appBundlePath(process.execPath);
   const mode = resolveUpdateMode({
     isDev,
     platform: process.platform,
     env: process.env,
     hasUpdateConfig: !isDev && hasUpdateConfigFile(process.resourcesPath),
-    macSigned: () => isDeveloperIdSigned(appBundlePath(process.execPath)),
+    macSigned: () => isDeveloperIdSigned(bundlePath),
+    canSwap: () => canSwapBundle(bundlePath),
   });
-  const check = setupUpdater({
-    autoUpdater: electronUpdater.autoUpdater,
-    dialog,
-    shell,
-    getWindow: () => mainWindow,
+  const dataPath = path.join(app.getPath('userData'), 'data');
+  updater = setupUpdater({
     mode,
+    autoUpdater: electronUpdater.autoUpdater,
+    currentVersion: app.getVersion(),
+    fetch: (url, init) => electronNet.fetch(url, init), // system proxy and certificate store
+    updatesDir: path.join(app.getPath('userData'), 'updates'),
+    bundlePath,
+    isAutoEnabled: () => readAutoUpdateSetting(dataPath),
+    onStatus: (status) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('update:status', status);
+      }
+    },
+    quit: () => app.quit(),
   });
-  if (check) check();
+  return updater;
+}
+
+/** Menu "Check for Updates…": the main window's banner shows the outcome */
+function checkForUpdatesFromMenu() {
+  sendToMainWindow('update:status', getUpdater().getStatus());
+  getUpdater().check({ manual: true });
+}
+
+function setupUpdateIpc() {
+  // before the first automatic check the status is only a placeholder; no codesign for it
+  ipcMain.handle('update:get-status', () => {
+    if (updater) return updater.getStatus();
+    const currentVersion = app.getVersion();
+    const channel = channelOf(currentVersion);
+    return { state: 'idle', mode: null, currentVersion, channel, lastCheck: null, manual: false };
+  });
+  ipcMain.handle('update:check', () => getUpdater().check({ manual: true }));
+  ipcMain.handle('update:install', () => getUpdater().install());
 }
 
 /**
@@ -1065,13 +1069,14 @@ app.whenReady().then(async () => {
 
     // Setup IPC handlers
     setupIpcHandlers();
+    setupUpdateIpc();
     setupQuickWindow();
 
     // Create main window
     createWindow();
 
-    // after a delay so the backend and window settle first (codesign check included)
-    setTimeout(startUpdateCheck, 5000);
+    // after a delay so the backend and window settle first (codesign check included); then every 6 h
+    setTimeout(() => getUpdater().start({ delay: 0 }), 5000);
 
     // On macOS, recreate window when dock icon is clicked
     app.on('activate', () => {
@@ -1107,6 +1112,7 @@ app.on('window-all-closed', () => {
 // Cleanup before quit
 app.on('before-quit', () => {
   globalShortcut.unregisterAll();
+  updater?.installOnQuit();
   stopBackendServer();
 });
 

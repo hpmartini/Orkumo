@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -136,6 +136,17 @@ describe('agentService - output parsing', () => {
 describe('agentService - state helpers', () => {
   it('derives display states', () => {
     expect(deriveDisplayState({ kind: 'interactive' })).toBe('interactive');
+    // a Claude terminal session: its session file's status
+    expect(deriveDisplayState({ kind: 'interactive', status: 'busy' })).toBe('working');
+    expect(deriveDisplayState({ kind: 'interactive', status: 'waiting' })).toBe('needs-input');
+    expect(
+      deriveDisplayState({ kind: 'interactive', status: 'idle', waitingFor: 'permission' })
+    ).toBe('needs-input');
+    expect(deriveDisplayState({ kind: 'interactive', status: 'idle' })).toBe('interactive');
+    // a reply to a finished job runs in its living process
+    expect(deriveDisplayState({ kind: 'background', state: 'done', status: 'busy', pid: 7 })).toBe(
+      'working'
+    );
     expect(
       deriveDisplayState({ kind: 'background', state: 'working', status: 'busy', tempo: 'active' })
     ).toBe('working');
@@ -170,6 +181,52 @@ describe('agentService - state helpers', () => {
 
   it('slugs project directories like Claude Code does', () => {
     expect(projectSlug('/home/user/Orkumo')).toBe('-home-user-Orkumo');
+  });
+});
+
+describe('agentService - agent pane activity', () => {
+  afterEach(() => vi.useRealTimers());
+
+  it('an agent PTY printing marks its pane active, its echo of input does not', async () => {
+    vi.useFakeTimers({ now: 5_000_000 });
+    const { spawn } = await import('node-pty');
+    let print = () => {};
+    spawn.mockReturnValueOnce({
+      pid: 4242,
+      onData: (callback) => (print = callback),
+      onExit: () => {},
+      write: vi.fn(),
+      resize: vi.fn(),
+      kill: vi.fn(),
+    });
+    const pty = await import('../server/services/ptyService.js');
+    const events = [];
+    const listener = (event) => events.push(event);
+    pty.ptyEvents.on('activity', listener);
+    const id = 'agent-pane7-1794214000000';
+    try {
+      expect(pty.createPtySession(id, os.tmpdir(), 80, 24).success).toBe(true);
+      pty.writeToPty(id, 'x');
+      print('x'); // the terminal echoes the keystroke
+      expect(mod.agentPanes().get(4242)).toEqual({ paneId: 'pane7', active: false });
+      await vi.advanceTimersByTimeAsync(500);
+      print('⠋ Thinking');
+      expect(mod.agentPanes().get(4242)).toEqual({ paneId: 'pane7', active: true });
+      expect(events).toEqual([{ sessionId: id, active: true }]);
+      await vi.advanceTimersByTimeAsync(1000);
+      print('⠙ Thinking'); // still running: no second start
+      await vi.advanceTimersByTimeAsync(2999);
+      expect(events).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(events).toEqual([
+        { sessionId: id, active: true },
+        { sessionId: id, active: false },
+      ]);
+      expect(mod.agentPanes().get(4242)).toEqual({ paneId: 'pane7', active: false });
+    } finally {
+      pty.ptyEvents.off('activity', listener);
+      pty.killPtySession(id);
+    }
   });
 });
 
@@ -293,5 +350,79 @@ describe('agentService - subscribe', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('agentService - listSlashCommands', () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'slash-'));
+  const home = path.join(tmp, 'home');
+  const repo = path.join(tmp, 'repo');
+  const cwd = path.join(repo, 'pkg');
+  const write = (file, text) => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, text);
+  };
+  const skill = (dir, name, extra = '') =>
+    write(
+      path.join(dir, name, 'SKILL.md'),
+      `---\nname: ${name}\ndescription: >\n  ${name} skill\n  more\n${extra}---\nbody\n`
+    );
+
+  skill(path.join(tmp, 'elsewhere'), 'linked');
+  fs.mkdirSync(path.join(home, 'skills'), { recursive: true });
+  fs.symlinkSync(path.join(tmp, 'elsewhere', 'linked'), path.join(home, 'skills', 'linked'));
+  skill(path.join(home, 'skills'), 'hidden', 'user-invocable: false\n');
+  skill(path.join(home, 'skills', 'synced', 'bucket'), 'pptx');
+  write(path.join(home, 'commands', 'git', 'push.md'), '---\ndescription: Push it\n---\n');
+  const on = path.join(tmp, 'plugins', 'on');
+  const off = path.join(tmp, 'plugins', 'off');
+  skill(path.join(on, 'skills'), 'goal-contract');
+  write(path.join(on, 'commands', 'ship.md'), 'ship\n');
+  skill(path.join(off, 'skills'), 'nope');
+  write(
+    path.join(home, 'plugins', 'installed_plugins.json'),
+    JSON.stringify({
+      version: 2,
+      plugins: {
+        'mw@m': [{ scope: 'user', installPath: on }],
+        'off@m': [{ scope: 'user', installPath: off }],
+      },
+    })
+  );
+  write(
+    path.join(home, 'settings.json'),
+    JSON.stringify({ enabledPlugins: { 'mw@m': true, 'off@m': true } })
+  );
+  fs.mkdirSync(path.join(repo, '.git'), { recursive: true });
+  write(
+    path.join(repo, '.claude', 'settings.json'),
+    JSON.stringify({ enabledPlugins: { 'off@m': false } })
+  );
+  skill(path.join(repo, '.claude', 'skills'), 'repo-skill');
+  fs.mkdirSync(cwd, { recursive: true });
+
+  it('follows symlinks, plugins, synced skills, nested commands and parent project dirs', async () => {
+    const list = await mod.listSlashCommands(cwd, { claudeHome: home });
+    const names = list.map((c) => c.name);
+    expect(names).toEqual(
+      expect.arrayContaining([
+        'linked',
+        'pptx',
+        'git:push',
+        'mw:goal-contract',
+        'mw:ship',
+        'repo-skill',
+      ])
+    );
+    expect(names).not.toContain('hidden');
+    expect(names).not.toContain('off:nope');
+    expect(list.find((c) => c.name === 'linked').description).toBe('linked skill more');
+    expect(list.find((c) => c.name === 'mw:goal-contract').source).toBe('plugin');
+  });
+
+  it('lists the Claude skills omp sees, un-namespaced', async () => {
+    const names = (await mod.listClaudeSkills(cwd, { claudeHome: home })).map((c) => c.name);
+    expect(names).toEqual(expect.arrayContaining(['linked', 'goal-contract']));
+    expect(names).not.toContain('nope');
   });
 });

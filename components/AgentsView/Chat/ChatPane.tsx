@@ -10,6 +10,7 @@ import React, {
 import { ListTree, Maximize2, MessageSquare, Send, Square, SquareTerminal, X } from 'lucide-react';
 import type { AgentSession } from '../../../types';
 import {
+  groupAnswers,
   initialChatState,
   reduceChat,
   type ChatState,
@@ -18,7 +19,14 @@ import {
 import { promptWithImages } from '../../../utils/composer';
 import { openTranscriptView, subscribeToChat, uploadAgentImage } from '../../../services/agentsApi';
 import { ImageAttachments, imageDropHandlers } from '../../ImageAttachments';
-import { ChatMessageView } from './ChatMessages';
+import { ChatItemView } from './ChatMessages';
+import { ChatFileContext } from './ChatMarkdown';
+import {
+  ChatArtifactsButton,
+  ChatArtifactsModal,
+  artifactRefreshKey,
+  useChatArtifacts,
+} from './ChatArtifacts';
 import { ChatComposer } from './ChatComposer';
 import { ChatActivity } from './ChatActivity';
 import { ChatStatusLine } from './ChatStatusLine';
@@ -189,16 +197,21 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     () => state.messages.filter((m) => m.kind === 'result').length,
     [state.messages]
   );
+  // One card per answer; regrouped per event, cards memoize on their messages
+  const items = useMemo(() => groupAnswers(state.messages), [state.messages]);
+  const artifactKey = useMemo(
+    () => artifactRefreshKey(state.messages, turns),
+    [state.messages, turns]
+  );
+  const artifacts = useChatArtifacts(chatId, artifactKey);
+  const [artifactsOpen, setArtifactsOpen] = useState(false);
 
   // Busy and questions come from the agent's state: a prompt is on its screen, not in its transcript.
-  // A terminal session only reports `status` (busy / idle / waiting), a background job its state.
+  // The server derives `displayState` for every kind; a prompt to answer here needs `status: waiting`.
   const prompting =
     agent?.displayState === 'waiting' ||
-    ((agent?.displayState === 'needs-input' || agent?.displayState === 'interactive') &&
-      agent?.status === 'waiting');
-  const busy =
-    agent?.displayState === 'working' ||
-    (agent?.displayState === 'interactive' && agent?.status === 'busy');
+    (agent?.displayState === 'needs-input' && agent?.status === 'waiting');
+  const busy = agent?.displayState === 'working';
   const prompt = usePanePrompt(pane.id, prompting);
   const choices = prompt ? extractNumberedChoices(prompt) : [];
   const notConnected = 'The terminal is not connected: switch to the terminal view and reattach';
@@ -367,15 +380,32 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
                 : `Waiting for ${harnessName} to report its session; the terminal view works meanwhile.`}
             </div>
           )}
-          {state.messages.map((m) => (
-            // content-visibility keeps long chats (hundreds of messages) cheap to scroll
-            <div
-              key={m.key}
-              className="[content-visibility:auto] [contain-intrinsic-size:auto_60px]"
-            >
-              <ChatMessageView message={m} showSteps={showSteps} />
-            </div>
-          ))}
+          <ChatFileContext.Provider value={pane.cwd}>
+            {items.map((item, i) => (
+              // content-visibility keeps long chats (hundreds of messages) cheap to scroll
+              <div
+                key={item.key}
+                className="[content-visibility:auto] [contain-intrinsic-size:auto_60px]"
+              >
+                <ChatItemView
+                  item={item}
+                  showSteps={showSteps}
+                  live={busy && item.kind === 'answer' && i === items.length - 1}
+                  harness={harnessName}
+                  model={state.model}
+                />
+              </div>
+            ))}
+            {busy && items.at(-1)?.kind === 'user' && (
+              <ChatItemView
+                item={null}
+                showSteps={showSteps}
+                live
+                harness={harnessName}
+                model={state.model}
+              />
+            )}
+          </ChatFileContext.Provider>
         </div>
       </div>
 
@@ -443,7 +473,25 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           </button>
         </div>
         <ImageAttachments images={images} onChange={setImages} disabled={sending || !connected} />
-        {chatId && <ChatStatusLine chatId={chatId} turns={turns} visible={active} />}
+        {chatId && (
+          <div className="flex items-end gap-3">
+            <div className="flex-1 min-w-0">
+              <ChatStatusLine chatId={chatId} turns={turns} visible={active} />
+            </div>
+            <div className="mt-2">
+              <ChatArtifactsButton count={artifacts.length} onOpen={() => setArtifactsOpen(true)} />
+            </div>
+          </div>
+        )}
+        {chatId && artifactsOpen && (
+          <ChatArtifactsModal
+            chatId={chatId}
+            cwd={pane.cwd}
+            title={pane.name}
+            artifacts={artifacts}
+            onClose={() => setArtifactsOpen(false)}
+          />
+        )}
       </div>
     </div>
   );

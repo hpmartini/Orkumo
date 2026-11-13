@@ -1,0 +1,83 @@
+{
+  "uuid": "11111111-0000-4000-8000-000000000002",
+  "name": "Fahrrad Kette wechseln",
+  "summary": "",
+  "model": "claude-sonnet-4-5",
+  "created_at": "2026-02-11T08:00:00.000000Z",
+  "updated_at": "2026-04-02T10:00:00.000000Z",
+  "settings": { "preview_feature_uses_artifacts": true },
+  "is_starred": false,
+  "project_uuid": "22222222-0000-4000-8000-000000000002",
+  "current_leaf_message_uuid": "c5",
+  "chat_messages": [
+    {
+      "uuid": "c1",
+      "parent_message_uuid": "00000000-0000-4000-8000-000000000000",
+      "text": "",
+      "content": [{ "type": "text", "text": "Wie wechsle ich die Kette am Fahrrad?" }],
+      "sender": "human",
+      "index": 0,
+      "created_at": "2026-02-11T08:00:00.000000Z",
+      "attachments": [],
+      "files": [
+        {
+          "file_kind": "image",
+          "file_uuid": "f1",
+          "file_name": "kette.jpg",
+          "preview_url": "/api/x/f1/preview"
+        }
+      ],
+      "sync_sources": []
+    },
+    {
+      "uuid": "c2",
+      "parent_message_uuid": "c1",
+      "text": "",
+      "content": [
+        { "type": "thinking", "thinking": "(Überlegung)" },
+        { "type": "text", "text": "Mit einem Kettennieter: Glied öffnen, neue Kette einfädeln." }
+      ],
+      "sender": "assistant",
+      "index": 1,
+      "created_at": "2026-02-11T08:01:00.000000Z",
+      "attachments": [],
+      "files": []
+    },
+    {
+      "uuid": "c3",
+      "parent_message_uuid": "c2",
+      "text": "",
+      "content": [{ "type": "text", "text": "Verworfene Frage" }],
+      "sender": "human",
+      "index": 2,
+      "created_at": "2026-04-02T09:00:00.000000Z",
+      "attachments": [],
+      "files": []
+    },
+    {
+      "uuid": "c4",
+      "parent_message_uuid": "c2",
+      "text": "",
+      "content": [{ "type": "text", "text": "Und wie lang muss die neue Kette sein?" }],
+      "sender": "human",
+      "index": 2,
+      "created_at": "2026-04-02T09:59:00.000000Z",
+      "attachments": [{ "file_name": "notiz.txt", "extracted_content": "Ritzel 11-34" }],
+      "files": []
+    },
+    {
+      "uuid": "c5",
+      "parent_message_uuid": "c4",
+      "text": "",
+      "content": [
+        { "type": "tool_use", "name": "web_search", "input": { "query": "kettenlänge" } },
+        { "type": "text", "text": "Großes Blatt, größtes Ritzel, plus zwei Glieder." }
+      ],
+      "sender": "assistant",
+      "index": 3,
+      "created_at": "2026-04-02T10:00:00.000000Z",
+      "attachments": [],
+      "files": []
+    }
+  ]
+}

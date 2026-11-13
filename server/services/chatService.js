@@ -10,8 +10,17 @@
 import { EventEmitter } from 'events';
 import crypto from 'crypto';
 import fs from 'fs';
-import { CLI_BUILTINS } from './claudeBuiltins.js';
+import path from 'path';
+import { CLI_BUILTINS, CLI_INTERACTIVE_BUILTINS } from './claudeBuiltins.js';
+import { listOmpCommands, ompSnapshot } from './ompCommands.js';
+import { resolveHarnessBinary } from '../../config/harnesses.js';
 import { HISTORY_BYTES, TRANSCRIPT_READERS, commandsEvent } from './chatTranscripts.js';
+import {
+  artifactContent,
+  createArtifactLog,
+  logArtifactEvent,
+  sessionArtifacts,
+} from './chatArtifacts.js';
 import {
   assertAllowedPath,
   getAllowedDirectories,
@@ -62,6 +71,7 @@ function record(s, event) {
       s.events.splice(prev, 1);
     }
   }
+  logArtifactEvent(s.artifactLog, event);
   s.events.push(event);
   if (s.events.length > MAX_EVENTS) s.events.splice(0, s.events.length - MAX_EVENTS);
   chatEvents.emit(`event:${s.id}`, event);
@@ -99,17 +109,34 @@ async function claudePicker(cwd, context) {
     (context.listCommands ?? listSlashCommands)(cwd),
     (context.listAgents ?? listSubagents)(cwd),
   ]);
-  const builtins = CLI_BUILTINS.map((name) => ({ name, builtin: true }));
-  const known = new Set(CLI_BUILTINS);
+  const builtins = [
+    ...CLI_BUILTINS.map((name) => ({ name, builtin: true })),
+    ...CLI_INTERACTIVE_BUILTINS.map((c) => ({ ...c, builtin: true })),
+  ];
+  const known = new Set(builtins.map((c) => c.name));
   // listSlashCommands' own built-ins describe the dispatch input, not the TUI
   const own = commands.filter((c) => c.source !== 'builtin' && !known.has(c.name));
   return commandsEvent([...builtins, ...own], agents);
 }
 
 /**
+ * omp's `/` list: the TUI snapshot right away (`onSnapshot`), then the probed list. The probe
+ * (a short-lived `omp --mode rpc --no-session`) starts after the view is up.
+ */
+function defaultOmpLister(cwd, onSnapshot) {
+  const { promise, resolve } = Promise.withResolvers();
+  setTimeout(() => {
+    onSnapshot(ompSnapshot());
+    resolve(listOmpCommands(cwd, { bin: resolveHarnessBinary('omp') }));
+  });
+  return promise;
+}
+
+/**
  * Open the UI view of an agent session: tails its transcript, never touches the agent process.
  * The same harness + session already in view returns that view.
- * Context (tests): `allowedDirs`, `transcriptDir`, `pollMs`, `listCommands`, `listAgents`.
+ * Context (tests): `allowedDirs`, `transcriptDir`, `pollMs`, `listCommands`, `listAgents`,
+ * `listOmpCommands(cwd, onSnapshot) → Promise<commands>`.
  * @param {{ harness: 'claude'|'omp'|'pi', sessionId: string, cwd: string, name?: string }} opts
  * @returns {object} view summary
  */
@@ -135,6 +162,12 @@ export function viewSession(opts, context = {}) {
     events: [],
     watchers: 0,
     orphanTimer: null,
+    /** File tool calls of the whole tail (the replay buffer is capped) */
+    artifactLog: createArtifactLog(),
+    /** Transcript file once found; omp keeps its `local://` documents next to it */
+    transcript: null,
+    /** Tests pass their project dirs; else the configured ones at request time */
+    allowedDirs: context.allowedDirs ?? null,
   };
   sessions.set(s.id, s);
   let file = null;
@@ -175,6 +208,7 @@ export function viewSession(opts, context = {}) {
     ticking = true;
     try {
       file ??= await reader.findTranscript(s.sessionId, s.cwd, context.transcriptDir);
+      s.transcript = file;
       if (file && s.running) read();
     } catch {
       // unreadable now; the next tick retries
@@ -188,6 +222,14 @@ export function viewSession(opts, context = {}) {
   if (s.harness === 'claude')
     claudePicker(s.cwd, context)
       .then((event) => s.running && record(s, event))
+      .catch(() => {
+        // no picker entries; typing still works
+      });
+  else if (s.harness === 'omp')
+    (context.listOmpCommands ?? defaultOmpLister)(s.cwd, (list) => {
+      if (s.running) record(s, commandsEvent(list));
+    })
+      .then((list) => s.running && record(s, commandsEvent(list)))
       .catch(() => {
         // no picker entries; typing still works
       });
@@ -279,4 +321,24 @@ export function shellOutputFile(id, shellId) {
     }
   }
   return null;
+}
+
+/** omp/pi keep a session's `local://` documents in `<session file without .jsonl>/local` */
+function documentDir(s) {
+  if (s.harness === 'claude' || !s.transcript?.endsWith('.jsonl')) return null;
+  return path.join(s.transcript.slice(0, -'.jsonl'.length), 'local');
+}
+
+/** Files the agent created or edited plus its session documents (chatArtifacts.js) */
+export function chatArtifacts(id) {
+  const s = get(id);
+  return sessionArtifacts(s.artifactLog, s.cwd, documentDir(s));
+}
+
+/** Text preview of one listed artifact: under the project dirs or the document folder, <= 1 MB */
+export function chatArtifactContent(id, file) {
+  const s = get(id);
+  const dir = documentDir(s);
+  const roots = [...(s.allowedDirs ?? getAllowedDirectories()), dir];
+  return artifactContent(sessionArtifacts(s.artifactLog, s.cwd, dir), file, roots);
 }

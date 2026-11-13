@@ -207,11 +207,9 @@ export const ProjectsSection: React.FC<{
       // stays in memory only
     }
   };
-  const list = apps
-    .filter((app) => !app.isArchived)
-    .sort(
-      (a, b) => Number(!!b.isFavorite) - Number(!!a.isFavorite) || a.name.localeCompare(b.name)
-    );
+  const list = [...apps].sort(
+    (a, b) => Number(!!b.isFavorite) - Number(!!a.isFavorite) || a.name.localeCompare(b.name)
+  );
   if (list.length === 0) return null;
   const open = !collapsed && !filtered;
   return (

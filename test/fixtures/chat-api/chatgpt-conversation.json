@@ -1,0 +1,94 @@
+{
+  "title": "Fahrrad Reifen flicken",
+  "create_time": 1767690000.0,
+  "update_time": 1775120400.123456,
+  "conversation_id": "33333333-0000-4000-8000-000000000002",
+  "gizmo_id": "g-p-0123456789abcdef0123456789abcdef",
+  "current_node": "a3",
+  "is_archived": false,
+  "moderation_results": [],
+  "safe_urls": ["https://example.org/reifen"],
+  "default_model_slug": "gpt-5",
+  "mapping": {
+    "root": { "id": "root", "message": null, "parent": null, "children": ["u1"] },
+    "u1": {
+      "id": "u1",
+      "message": {
+        "id": "u1",
+        "author": { "role": "user", "name": null, "metadata": {} },
+        "create_time": 1767690000.0,
+        "content": { "content_type": "text", "parts": ["Wie flicke ich einen Reifen?"] },
+        "status": "finished_successfully",
+        "metadata": { "request_id": "r-1" },
+        "recipient": "all"
+      },
+      "parent": "root",
+      "children": ["a1"]
+    },
+    "a1": {
+      "id": "a1",
+      "message": {
+        "id": "a1",
+        "author": { "role": "assistant", "name": null, "metadata": {} },
+        "create_time": 1767690010.0,
+        "content": { "content_type": "text", "parts": ["Loch suchen, anrauen, Flicken drauf."] },
+        "metadata": { "model_slug": "gpt-5" },
+        "recipient": "all"
+      },
+      "parent": "u1",
+      "children": ["u2"]
+    },
+    "u2": {
+      "id": "u2",
+      "message": {
+        "id": "u2",
+        "author": { "role": "user", "name": null, "metadata": {} },
+        "create_time": 1775120000.0,
+        "content": {
+          "content_type": "multimodal_text",
+          "parts": [
+            {
+              "content_type": "image_asset_pointer",
+              "asset_pointer": "file-service://file-abc",
+              "width": 800
+            },
+            "Hier ein Foto vom Ventil"
+          ]
+        },
+        "metadata": {},
+        "recipient": "all"
+      },
+      "parent": "a1",
+      "children": ["t1"]
+    },
+    "t1": {
+      "id": "t1",
+      "message": {
+        "id": "t1",
+        "author": { "role": "assistant", "name": null, "metadata": {} },
+        "create_time": 1775120100.0,
+        "content": { "content_type": "code", "text": "search(\"sclaverand ventil\")" },
+        "metadata": {},
+        "recipient": "web"
+      },
+      "parent": "u2",
+      "children": ["a3"]
+    },
+    "a3": {
+      "id": "a3",
+      "message": {
+        "id": "a3",
+        "author": { "role": "assistant", "name": null, "metadata": {} },
+        "create_time": 1775120400.0,
+        "content": {
+          "content_type": "text",
+          "parts": ["Ein Sclaverand-Ventil: Mutter oben aufdrehen."]
+        },
+        "metadata": { "is_visually_hidden_from_conversation": false },
+        "recipient": "all"
+      },
+      "parent": "t1",
+      "children": []
+    }
+  }
+}
