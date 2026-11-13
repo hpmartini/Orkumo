@@ -155,7 +155,7 @@ Every merge to `main` becomes a pre-release, built by Woodpecker (`.woodpecker/r
 
 - Secret `github_token`: a GitHub PAT for `hpmartini/Orkumo` with `contents: write` and `write:packages` (GHCR).
 - Repository setting "Trusted" → Security: `release-docker` runs `tonistiigi/binfmt` and `plugin-docker-buildx` privileged.
-- A macOS agent with the local backend for `release-mac` (labels `backend=local`, `platform=darwin/arm64` are automatic): install `woodpecker-agent` from the [Woodpecker releases](https://github.com/woodpecker-ci/woodpecker/releases), run it as your user with `WOODPECKER_SERVER`, `WOODPECKER_AGENT_SECRET` and `WOODPECKER_BACKEND=local`; `node`, `bun` and `gh` must be on its `PATH`. While no Mac agent is online the macOS workflow waits and the draft stays unpublished. Every other workflow is pinned to `backend: docker`, so the Mac never runs containers.
+- A macOS agent with the local backend for `release-mac` (labels `backend=local`, `platform=darwin/arm64` are automatic): `scripts/release/mac-agent/install.sh` downloads the agent matching the server version (checksum verified), copies the agent secret from the CI host over ssh into `~/.local/share/woodpecker-agent/agent.env` (mode 600) and loads the LaunchAgent `com.orkumo.woodpecker-agent` (log `~/.local/share/woodpecker-agent/agent.log`). It reaches the server's gRPC through traefik on `woodpecker-grpc-tv94.srv1329780.hstgr.cloud:443` (TLS there, h2c to the server's `:9000`; labels in the CI host's `docker-compose.yml`). `node`, `bun`, `gh` and `git` must be installed. While no Mac agent is online the macOS workflow waits and the draft stays unpublished. Every other workflow is pinned to `backend: docker`, so the Mac never runs containers.
 
 **macOS signing:** the Woodpecker build is ad-hoc (`CSC_IDENTITY_AUTO_DISCOVERY=false`); macOS apps update themselves by bundle swap (see Updates), so `release-mac` must upload both zips and the merged `latest-mac.yml`. With a Developer ID plus notarization (`electron/notarize.js`) Squirrel.Mac takes over and the one-time `xattr -cr` goes away; it needs `CSC_LINK`, `CSC_KEY_PASSWORD`, `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` and `APPLE_TEAM_ID` in `release-mac`'s environment and `-c.mac.hardenedRuntime=true -c.mac.entitlements=electron/entitlements.mac.plist -c.mac.entitlementsInherit=electron/entitlements.mac.plist` on its `electron-builder` calls.
 
@@ -323,9 +323,9 @@ None - the app works out of the box!
 
 ## API origin policy (CORS)
 
-The backend only answers browser requests from loopback origins (`localhost`, `127.0.0.1`, `[::1]`, any port). Add more with `CORS_ORIGINS=https://a.example,https://b.example`.
+The backend listens on `127.0.0.1` only (Docker: every interface; `DEVORBIT_LISTEN_HOST` opts in to another address) and answers browser requests from loopback origins (`localhost`, `127.0.0.1`, `[::1]`, any port). Add more with `CORS_ORIGINS=https://a.example,https://b.example`.
 
-The packaged app loads the UI via `file://`, which sends `Origin: null`. That origin is accepted only when the server runs with `ELECTRON_MODE=true`. Known residual risk: a sandboxed iframe inside the desktop app (e.g. the Web IDE) also sends `null` and can reach the API. Closing it needs a per-launch token between the Electron main process and the server, or serving the UI over `http://localhost` instead of `file://`; both are tracked as follow-up work.
+The packaged app loads the UI via `file://`, which sends `Origin: null` (fetch) and `file://` (WebSocket). Those origins, which any sandboxed iframe or local file can send too, are accepted only with the per-launch secret the Electron main process adds as `X-Orkumo-Renderer` to the main and quick windows' top-frame requests (`electron/rendererSecret.js`, server env `DEVORBIT_RENDERER_SECRET`); the built-in browser and frames inside the app never get it.
 
 ## Contributing
 
