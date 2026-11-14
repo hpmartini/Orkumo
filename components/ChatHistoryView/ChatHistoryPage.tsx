@@ -3,27 +3,40 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
+  Archive,
+  ArchiveRestore,
+  Bot,
   Check,
+  Download,
   ExternalLink,
+  Folder,
   FolderOpen,
   History,
   LogIn,
   MessageSquarePlus,
   MoreHorizontal,
+  Pencil,
+  Pin,
+  PinOff,
   RefreshCw,
   Search,
   SlidersHorizontal,
+  SquarePen,
 } from 'lucide-react';
 import {
   fetchChatConversation,
   fetchChatHistory,
   importChatExport,
+  updateChatMeta,
   type ChatHistoryConversation,
   type ChatHistoryItem,
   type ChatHistoryList,
   type ChatImportReport,
+  type ChatMetaPatch,
   type ChatProvider,
+  type ChatSource,
 } from '../../services/chatHistoryApi';
+import { uploadAgentFile } from '../../services/agentsApi';
 import type { ChatSyncResult, ChatSyncStatus } from '../../electron/electron';
 import {
   PROVIDER_HARNESS,
@@ -32,11 +45,16 @@ import {
   PROVIDER_SITE,
   RECENCY,
   continuePrompt,
+  conversationMarkdown,
   conversationUrl,
   dayBound,
+  isWebProvider,
+  markdownFileName,
+  promptLimit,
   recencyOf,
   relativeTime,
 } from '../../utils/chatHistory';
+import { harnessLabel } from '../../utils/agentSessions';
 import { openInSystemBrowser, openLink } from '../../utils/links';
 import { Filter, ICON_BTN, SELECT_CLS } from '../AgentsView/PullRequestsPage';
 import { RailOutletContext } from '../AgentsView/railOutlet';
@@ -46,9 +64,12 @@ const PAGE = 200;
 // Low rate on purpose (the providers' terms, the user's account): once on opening, then this often
 const SYNC_EVERY_MS = 5 * 60_000;
 const PROVIDERS: ChatProvider[] = ['claude', 'chatgpt'];
-const PROVIDER_CLS: Record<ChatProvider, string> = {
+/** The list's sources: the synced providers plus the chats started in Orkumo (#19 AK-4) */
+const SOURCES: ChatSource[] = [...PROVIDERS, 'orkumo'];
+const PROVIDER_CLS: Record<ChatSource, string> = {
   claude: 'bg-orange-500/15 text-orange-300',
   chatgpt: 'bg-emerald-500/15 text-emerald-300',
+  orkumo: 'bg-blue-500/15 text-blue-300',
 };
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
 const CHIP = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] border';
@@ -56,11 +77,76 @@ const CHIP = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] b
 const day = (time: number | null) =>
   time ? new Date(time).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '';
 
-const ProviderBadge: React.FC<{ provider: ChatProvider }> = ({ provider }) => (
+const ProviderBadge: React.FC<{ provider: ChatSource }> = ({ provider }) => (
   <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${PROVIDER_CLS[provider]}`}>
     {PROVIDER_LABEL[provider]}
   </span>
 );
+
+/** Saves a conversation as Markdown through the browser's download (#19 AK-6) */
+function downloadMarkdown(conversation: ChatHistoryConversation) {
+  const url = URL.createObjectURL(
+    new Blob([conversationMarkdown(conversation)], { type: 'text/markdown;charset=utf-8' })
+  );
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = markdownFileName(conversation);
+  link.click();
+  // the download has its own copy once started
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}
+
+/** One-line text form in the reader header (rename, folder); Enter saves, Escape cancels */
+const InlineField: React.FC<{
+  label: string;
+  initial: string;
+  placeholder?: string;
+  suggestions?: string[];
+  maxLength: number;
+  onSave: (value: string) => void;
+  onCancel: () => void;
+}> = ({ label, initial, placeholder, suggestions = [], maxLength, onSave, onCancel }) => {
+  const [value, setValue] = useState(initial);
+  return (
+    <form
+      className="flex items-center gap-1"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave(value);
+      }}
+    >
+      <input
+        autoFocus
+        aria-label={label}
+        value={value}
+        maxLength={maxLength}
+        placeholder={placeholder}
+        list={suggestions.length ? 'chat-folder-suggestions' : undefined}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape') {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+        className={`${SELECT_CLS} !max-w-none w-56`}
+      />
+      {suggestions.length > 0 && (
+        <datalist id="chat-folder-suggestions">
+          {suggestions.map((s) => (
+            <option key={s} value={s} />
+          ))}
+        </datalist>
+      )}
+      <button type="submit" className={`${ICON_BTN} border border-gray-700`}>
+        Save
+      </button>
+      <button type="button" onClick={onCancel} className={ICON_BTN}>
+        Cancel
+      </button>
+    </form>
+  );
+};
 
 const reportLine = (file: ChatImportReport['files'][number]) => {
   const skipped = Object.entries(file.skipped)
@@ -215,9 +301,11 @@ const SyncChip: React.FC<{
 export const ChatHistoryPage: React.FC = () => {
   const navigate = useNavigate();
   const [q, setQ] = useState('');
-  const [provider, setProvider] = useState<ChatProvider | null>(null);
+  const [provider, setProvider] = useState<ChatSource | null>(null);
   const [project, setProject] = useState<string | null>(null);
   const [topic, setTopic] = useState<string | null>(null);
+  const [folder, setFolder] = useState<string | null>(null);
+  const [archived, setArchived] = useState(false);
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [grouped, setGrouped] = useState(false);
@@ -226,6 +314,9 @@ export const ChatHistoryPage: React.FC = () => {
   const [data, setData] = useState<ChatHistoryList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<ChatHistoryConversation | null>(null);
+  // reader header form: rename or file into a folder (#19 AK-5)
+  const [editing, setEditing] = useState<'title' | 'folder' | null>(null);
+  const [continuing, setContinuing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importPath, setImportPath] = useState('');
@@ -249,6 +340,8 @@ export const ChatHistoryPage: React.FC = () => {
           provider,
           project,
           topic,
+          folder,
+          archived,
           from: dayBound(from),
           to: dayBound(to, true),
           limit,
@@ -262,13 +355,61 @@ export const ChatHistoryPage: React.FC = () => {
       q ? 200 : 0
     );
     return () => clearTimeout(timer);
-  }, [q, provider, project, topic, from, to, limit, reloads]);
+  }, [q, provider, project, topic, folder, archived, from, to, limit, reloads]);
 
   const openConversation = useCallback((id: string) => {
+    setEditing(null);
     fetchChatConversation(id)
       .then(setOpen)
       .catch((e: Error) => setError(e.message));
   }, []);
+
+  /** Pin, rename, file, archive the open conversation; the list follows (#19 AK-5) */
+  const mark = async (patch: ChatMetaPatch) => {
+    if (!open) return;
+    try {
+      const item = await updateChatMeta(open.id, patch);
+      setOpen((c) => (c && c.id === item.id ? { ...c, ...item } : c));
+      setEditing(null);
+      reload();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  };
+
+  /** "New chat" (#19 AK-1): the chat composer in the chats folder, no project to pick */
+  const newChat = () => navigate('/agents', { state: { dispatch: '', mode: 'chat', place: 'chats' } });
+
+  /**
+   * Carries a claude.ai / ChatGPT conversation into a new Orkumo chat on the CLI of the same
+   * subscription, in the chats folder. The whole conversation goes along as a Markdown file; the
+   * prompt repeats as much of its end as the harness's start prompt takes (#19 AK-7).
+   */
+  const continueChat = async (conversation: ChatHistoryConversation) => {
+    if (!isWebProvider(conversation.provider) || continuing) return;
+    const harness = PROVIDER_HARNESS[conversation.provider];
+    setContinuing(true);
+    let file: string | null = null;
+    try {
+      file = await uploadAgentFile(
+        new File([conversationMarkdown(conversation)], markdownFileName(conversation), {
+          type: 'text/markdown',
+        })
+      );
+    } catch {
+      // the prompt still carries the conversation's end
+    } finally {
+      setContinuing(false);
+    }
+    navigate('/agents', {
+      state: {
+        dispatch: continuePrompt(conversation, promptLimit(harness), file),
+        mode: 'chat',
+        harness,
+        place: 'chats',
+      },
+    });
+  };
 
   const runImport = async (path: string) => {
     if (!path.trim() || importing) return;
@@ -334,10 +475,12 @@ export const ChatHistoryPage: React.FC = () => {
         label,
         items: items.filter((i) => recencyOf(i.updatedAt, now) === label),
       })).filter((g) => g.items.length > 0);
-  const empty = data && data.counts.claude + data.counts.chatgpt === 0;
+  const empty =
+    data && !archived && data.counts.claude + data.counts.chatgpt + data.counts.orkumo === 0;
   const importShown = importOpen || !sync.available;
   const syncing = sync.running || PROVIDERS.some((p) => sync.statuses[p]?.status === 'syncing');
-  const extraFilters = [project, topic, from, to].filter(Boolean).length + (grouped ? 1 : 0);
+  const extraFilters =
+    [project, topic, folder, from, to].filter(Boolean).length + (grouped ? 1 : 0) + (archived ? 1 : 0);
   const problems = PROVIDERS.flatMap((p) => {
     const s = sync.statuses[p];
     return s?.reason && (s.status === 'error' || s.status === 'unavailable')
@@ -354,9 +497,19 @@ export const ChatHistoryPage: React.FC = () => {
           {data && (
             <span className="text-gray-400 tabular-nums text-xs truncate" data-testid="chat-counts">
               {data.total} matching · Claude {data.counts.claude} · ChatGPT {data.counts.chatgpt}
+              {data.counts.orkumo ? ` · Orkumo ${data.counts.orkumo}` : ''}
             </span>
           )}
           <div className="flex-1" />
+          <button
+            type="button"
+            onClick={newChat}
+            className={ICON_BTN}
+            title="New chat without a project (Claude Code, Codex or Oh My Pi), in its own folder"
+            aria-label="New chat"
+          >
+            <SquarePen size={12} aria-hidden /> New chat
+          </button>
           {sync.available && (
             <button
               type="button"
@@ -483,14 +636,14 @@ export const ChatHistoryPage: React.FC = () => {
             onClick={() => setFiltersOpen((o) => !o)}
             aria-expanded={filtersOpen}
             className={`${ICON_BTN} ${extraFilters ? 'text-blue-300' : ''}`}
-            title="Project, topic, period, grouping"
+            title="Folder, archive, project, topic, period, grouping"
           >
             <SlidersHorizontal size={12} aria-hidden />
             Filters{extraFilters ? ` (${extraFilters})` : ''}
           </button>
         </div>
         <div role="group" aria-label="Provider" className="flex items-center gap-1 text-xs">
-          {([null, ...PROVIDERS] as (ChatProvider | null)[]).map((p) => (
+          {([null, ...SOURCES] as (ChatSource | null)[]).map((p) => (
             <button
               key={p ?? 'all'}
               type="button"
@@ -504,6 +657,22 @@ export const ChatHistoryPage: React.FC = () => {
         </div>
         {filtersOpen && (
           <div className="flex flex-wrap items-center gap-2 text-xs">
+            <Filter
+              label="Folder"
+              value={folder}
+              options={Object.fromEntries(
+                (data?.folders ?? []).map((f) => [f.id, `${f.name} (${f.count})`])
+              )}
+              onChange={filter(setFolder)}
+            />
+            <label className="flex items-center gap-1 text-gray-300">
+              <input
+                type="checkbox"
+                checked={archived}
+                onChange={(e) => filter(setArchived)(e.target.checked)}
+              />
+              Archived only
+            </label>
             <Filter
               label="Project"
               value={project}
@@ -576,6 +745,7 @@ export const ChatHistoryPage: React.FC = () => {
                     Log in to claude.ai or chatgpt.com with the buttons above; your conversations
                     then appear here and stay on this machine.
                   </p>
+                  <p>Or start one without a project: New chat.</p>
                 </>
               )}
             </div>
@@ -587,6 +757,7 @@ export const ChatHistoryPage: React.FC = () => {
                 Settings → Data controls → Export data), unpack the ZIP from the mail and import its
                 folder above. The files are read and searched on this machine only.
               </p>
+              <p>Or start one without a project: New chat.</p>
             </div>
           )
         ) : data && items.length === 0 ? (
@@ -611,7 +782,15 @@ export const ChatHistoryPage: React.FC = () => {
                     >
                       <span className="flex items-center gap-2">
                         <ProviderBadge provider={item.provider} />
+                        {item.pinned && (
+                          <Pin size={11} className="shrink-0 text-gray-400" aria-label="Pinned" />
+                        )}
                         <span className="truncate flex-1 text-sm text-gray-100">{item.title}</span>
+                        {item.folder && (
+                          <span className="shrink-0 max-w-[6rem] truncate text-[10px] text-gray-400">
+                            {item.folder}
+                          </span>
+                        )}
                         <time
                           dateTime={
                             item.updatedAt ? new Date(item.updatedAt).toISOString() : undefined
@@ -661,40 +840,138 @@ export const ChatHistoryPage: React.FC = () => {
           <article className="max-w-3xl mx-auto px-4 py-3">
             <header className="flex flex-wrap items-start gap-2 pb-3 mb-1 border-b border-gray-800">
               <div className="flex-1 min-w-[12rem]">
-                <h2 className="text-base font-medium text-gray-100">{open.title}</h2>
+                {editing === 'title' ? (
+                  <InlineField
+                    label="Chat title"
+                    initial={open.title}
+                    maxLength={200}
+                    onSave={(title) => void mark({ title: title.trim() || null })}
+                    onCancel={() => setEditing(null)}
+                  />
+                ) : (
+                  <h2 className="text-base font-medium text-gray-100">{open.title}</h2>
+                )}
                 <p className="text-xs text-gray-400 flex flex-wrap items-center gap-2 mt-1">
                   <ProviderBadge provider={open.provider} />
                   {[...new Set([day(open.createdAt), day(open.updatedAt)].filter(Boolean))].join(
                     ' – '
                   )}
                   {open.projectName && <span>· {open.projectName}</span>}
+                  {open.harness && <span>· {harnessLabel(open.harness)}</span>}
                   <span>· {open.messages.length} messages</span>
+                  {open.folder && (
+                    <span className="inline-flex items-center gap-1">
+                      · <Folder size={11} aria-hidden /> {open.folder}
+                    </span>
+                  )}
+                  {open.archived && <span>· archived</span>}
                 </p>
+                {editing === 'folder' && (
+                  <div className="mt-2">
+                    <InlineField
+                      label="Folder"
+                      initial={open.folder ?? ''}
+                      placeholder="Folder name, empty = none"
+                      suggestions={(data?.folders ?? []).map((f) => f.name)}
+                      maxLength={60}
+                      onSave={(name) => void mark({ folder: name.trim() || null })}
+                      onCancel={() => setEditing(null)}
+                    />
+                  </div>
+                )}
               </div>
-              <button
-                type="button"
-                onClick={() => openInSystemBrowser(conversationUrl(open))}
-                className={`${ICON_BTN} border border-gray-700`}
-                title="Opens the conversation in the system browser"
-              >
-                <ExternalLink size={12} aria-hidden /> Open on {PROVIDER_SITE[open.provider]}
-              </button>
-              <button
-                type="button"
-                onClick={() =>
-                  navigate('/agents', {
-                    state: {
-                      dispatch: continuePrompt(open),
-                      mode: 'chat',
-                      harness: PROVIDER_HARNESS[open.provider],
-                    },
-                  })
-                }
-                className={`${ICON_BTN} border border-gray-700`}
-                title="Opens a new Orkumo chat with this conversation as its start, on the same subscription (Claude Code or Codex)"
-              >
-                <MessageSquarePlus size={12} aria-hidden /> Continue in Orkumo
-              </button>
+              <div role="group" className="flex flex-wrap items-center gap-1" aria-label="Chat actions">
+                <button
+                  type="button"
+                  onClick={() => void mark({ pinned: !open.pinned })}
+                  className={ICON_BTN}
+                  aria-label={open.pinned ? 'Unpin' : 'Pin'}
+                  title={open.pinned ? 'Unpin' : 'Pin to the top of the list'}
+                >
+                  {open.pinned ? <PinOff size={12} aria-hidden /> : <Pin size={12} aria-hidden />}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing('title')}
+                  className={ICON_BTN}
+                  aria-label="Rename"
+                  title="Rename (here only; the provider keeps its title)"
+                >
+                  <Pencil size={12} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditing('folder')}
+                  className={ICON_BTN}
+                  aria-label="Move to folder"
+                  title="Move to a folder"
+                >
+                  <Folder size={12} aria-hidden />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void mark({ archived: !open.archived })}
+                  className={ICON_BTN}
+                  aria-label={open.archived ? 'Unarchive' : 'Archive'}
+                  title={open.archived ? 'Back into the list' : 'Archive: hidden unless filtered'}
+                >
+                  {open.archived ? (
+                    <ArchiveRestore size={12} aria-hidden />
+                  ) : (
+                    <Archive size={12} aria-hidden />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadMarkdown(open)}
+                  className={ICON_BTN}
+                  aria-label="Export as Markdown"
+                  title="Download as Markdown"
+                >
+                  <Download size={12} aria-hidden />
+                </button>
+              </div>
+              {isWebProvider(open.provider) ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => openInSystemBrowser(conversationUrl(open) ?? '')}
+                    className={`${ICON_BTN} border border-gray-700`}
+                    title="Opens the conversation in the system browser"
+                  >
+                    <ExternalLink size={12} aria-hidden /> Open on {PROVIDER_SITE[open.provider]}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void continueChat(open)}
+                    disabled={continuing}
+                    className={`${ICON_BTN} border border-gray-700 disabled:opacity-50`}
+                    title="Opens a new Orkumo chat with this conversation as its start, on the same subscription (Claude Code or Codex); the whole conversation goes along as a file"
+                  >
+                    <MessageSquarePlus size={12} aria-hidden /> Continue in Orkumo
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() =>
+                    navigate('/agents', {
+                      state: {
+                        openChat: {
+                          harness: open.harness,
+                          sessionId: open.sessionId,
+                          cwd: open.cwd,
+                          title: open.title,
+                        },
+                      },
+                    })
+                  }
+                  className={`${ICON_BTN} border border-gray-700`}
+                  title="Opens this chat in Agents: its pane if it runs, else it resumes"
+                >
+                  <Bot size={12} aria-hidden /> Open in Agents
+                </button>
+              )}
             </header>
             {open.messages.map((message, i) =>
               message.role === 'user' ? (
@@ -706,7 +983,7 @@ export const ChatHistoryPage: React.FC = () => {
               ) : (
                 <div key={i} className="my-3">
                   <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
-                    {PROVIDER_LABEL[open.provider]}
+                    {open.harness ? harnessLabel(open.harness) : PROVIDER_LABEL[open.provider]}
                   </div>
                   <ChatMarkdown text={message.text} />
                 </div>

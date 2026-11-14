@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useState, useCallback } from 'react';
 import { Send, FolderOpen, PenSquare } from 'lucide-react';
 import type { AgentSubagent, AgentRepo, AgentSlashCommand, AgentHarness } from '../../types';
-import { HARNESSES } from '../../utils/agentSessions';
+import { HARNESSES, HARNESS_MODEL_FLAG, MODEL_SUGGESTIONS } from '../../utils/agentSessions';
 import { computeSuggestions, Suggestion } from '../../utils/agentInput';
 import { submitIntent } from '../../utils/composer';
 
@@ -29,6 +29,13 @@ interface DispatchInputProps {
   onHarnessChange?: (harness: AgentHarness) => void;
   /** false marks a harness as not installed; missing/null = unknown */
   harnessInstalled?: Record<string, boolean | null>;
+  /**
+   * Model of this agent or chat (#19 AK-2), '' = default; shown for agents and chats whose CLI
+   * takes one. `defaultModel`: what '' means (settings.dispatch.model), null = the CLI's own
+   */
+  model?: string;
+  onModelChange?: (model: string) => void;
+  defaultModel?: string | null;
 }
 
 const MIN_HEIGHT = 96;
@@ -60,6 +67,9 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   harness,
   onHarnessChange,
   harnessInstalled = {},
+  model = '',
+  onModelChange,
+  defaultModel = null,
 }) => {
   // @agent, /command and ! are Claude Code syntax; other harnesses get the text as their first message
   const otherHarness = harness !== undefined && harness !== 'claude';
@@ -275,6 +285,35 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
             </select>
           </label>
         )}
+        {harness !== undefined &&
+          onModelChange &&
+          isAgent &&
+          (harness === 'claude' || HARNESS_MODEL_FLAG[harness]) && (
+            <label className="flex items-center gap-1.5 text-xs text-gray-200">
+              <span>Model</span>
+              <input
+                value={model}
+                onChange={(e) => onModelChange(e.target.value)}
+                disabled={disabled}
+                list={`model-suggestions-${harness}`}
+                placeholder={defaultModel ? `default (${defaultModel})` : 'default'}
+                aria-label="Model"
+                spellCheck={false}
+                maxLength={80}
+                className="w-36 bg-gray-900 border border-gray-600 rounded-md px-1.5 py-1 text-xs text-gray-50 placeholder-gray-400 font-mono focus-visible:outline-2 focus-visible:outline-blue-400"
+                title={
+                  harness === 'claude'
+                    ? 'Model of this chat: opus, sonnet, haiku or a full model name; empty = the dispatch default'
+                    : 'Model of this chat, passed as --model; empty = the CLI default'
+                }
+              />
+              <datalist id={`model-suggestions-${harness}`}>
+                {MODEL_SUGGESTIONS[harness].map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+            </label>
+          )}
         <span className="flex-1" />
         <button
           type="button"

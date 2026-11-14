@@ -4,11 +4,14 @@ import os from 'os';
 import path from 'path';
 import {
   HARNESS_COMMANDS,
-  MAX_HARNESS_PROMPT,
+  HARNESS_MODEL_SUPPORT,
+  MODEL_NAME_RE,
   harnessArgsError,
   isHarnessCommand,
   resolveHarnessBinary,
 } from '../config/harnesses.js';
+import { MAX_HARNESS_PROMPT } from '../config/limits.js';
+import { HARNESS_MODEL_FLAG } from '../utils/agentSessions';
 
 describe('harness policy (#195)', () => {
   it('knows exactly the four harnesses', () => {
@@ -70,6 +73,44 @@ describe('harness policy (#195)', () => {
     expect(harnessArgsError('codex', ['resume', '--last'])).not.toBeNull();
     expect(harnessArgsError('opencode', ['--session', id])).not.toBeNull();
     expect(harnessArgsError('pi', ['--session', '../x.jsonl'])).not.toBeNull();
+  });
+
+  it('#19 AK-2: a plain model name may come first, where the CLI takes one', () => {
+    for (const id of ['omp', 'codex', 'pi']) {
+      expect(harnessArgsError(id, ['--model', 'gpt-5-codex'])).toBeNull();
+      expect(
+        harnessArgsError(id, ['--model', 'anthropic/claude-sonnet-4-5:high', '--', 'hi'])
+      ).toBeNull();
+    }
+    for (const args of [
+      ['--model'],
+      ['--model', ''],
+      ['--model', '--config=x.yml'],
+      ['--model', '-x'],
+      ['--model', 'a b'],
+      ['--model', 'x'.repeat(81)],
+      ['--model', 'opus', '--api-key', 'k'],
+      ['--model', 'opus', 'hello'],
+      ['--model', 'opus', '--model', 'sonnet'],
+    ]) {
+      expect(harnessArgsError('codex', args)).not.toBeNull();
+    }
+    // no model with a resume, none for opencode
+    expect(
+      harnessArgsError('codex', ['--model', 'o3', 'resume', '01a1c095-7edd-72eb-9c97-4afdcd01f56e'])
+    ).not.toBeNull();
+    expect(harnessArgsError('opencode', ['--model', 'x'])).toMatch(/no model/);
+  });
+
+  it('one model name rule for --model and the dispatch model: never a flag', () => {
+    for (const ok of ['opus', 'sonnet[1m]', 'claude-opus-4-1', 'gpt-5-codex', 'openai/gpt-5.2:high'])
+      expect(MODEL_NAME_RE.test(ok)).toBe(true);
+    for (const bad of ['-x', '--settings=x', '', ' opus', 'opus sonnet', 'a\nb', 'x'.repeat(81)])
+      expect(MODEL_NAME_RE.test(bad)).toBe(false);
+  });
+
+  it('the client offers --model exactly where the server allows it', () => {
+    for (const id of HARNESS_COMMANDS) expect(HARNESS_MODEL_FLAG[id]).toBe(HARNESS_MODEL_SUPPORT[id]);
   });
 
   it('resolves only executables named after the harness, null when missing', () => {

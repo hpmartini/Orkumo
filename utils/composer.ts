@@ -2,6 +2,7 @@
  * Shared rules of the task / agent / issue composers (#105): Enter inserts a newline,
  * Cmd+Enter (Ctrl+Enter off macOS) submits, Cmd+Shift+Enter submits and attaches.
  */
+import { ATTACHMENT_EXTENSIONS } from '../config/limits.js';
 
 interface KeyLike {
   key: string;
@@ -23,11 +24,39 @@ export function imageFiles(list: FileList | File[] | null | undefined): File[] {
   return Array.from(list || []).filter((f) => f.type.startsWith('image/'));
 }
 
-/** Prompt with the stored image paths appended, the way Claude Code references pasted images */
-export function promptWithImages(prompt: string, paths: string[]): string {
+/** Images the agents' image store takes (`POST /api/agents/images` sniffs the same four) */
+export const PROMPT_IMAGE_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+const extensionOf = (name: string) => /\.([^./\\]+)$/.exec(name)?.[1]?.toLowerCase() ?? '';
+
+/**
+ * Files a chat or agent prompt can carry (#19 AK-3): the four image types, else PDF, text and
+ * code by extension (config/limits.js; the server checks the content).
+ */
+export function attachableFiles(list: FileList | File[] | null | undefined): File[] {
+  return Array.from(list || []).filter(
+    (f) =>
+      PROMPT_IMAGE_TYPES.includes(f.type) ||
+      (ATTACHMENT_EXTENSIONS as readonly string[]).includes(extensionOf(f.name))
+  );
+}
+
+/** An attachment stored on the server: images go to Claude Code as images, files by path */
+export interface StoredAttachment {
+  path: string;
+  kind: 'image' | 'file';
+}
+
+/**
+ * Prompt with the stored attachments appended: `[Image: <path>]` the way Claude Code references
+ * pasted images, `[File: <path>]` for documents the agent reads itself
+ */
+export function promptWithAttachments(prompt: string, stored: StoredAttachment[]): string {
   const text = prompt.trim();
-  if (paths.length === 0) return text;
-  return [text, ...paths.map((p) => `[Image: ${p}]`)].filter(Boolean).join('\n');
+  if (stored.length === 0) return text;
+  return [text, ...stored.map((a) => `[${a.kind === 'image' ? 'Image' : 'File'}: ${a.path}]`)]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /** Issue body with the uploaded images embedded as Markdown */

@@ -1144,6 +1144,27 @@ export const terminalResumeArgs = (harness: AgentHarness, sessionId: string): st
 ];
 
 /**
+ * Harnesses started in a PTY that take `--model <name>` before their prompt (#19 AK-2; server
+ * allowlist: config/harnesses.js). Claude Code gets its model through the dispatch.
+ */
+export const HARNESS_MODEL_FLAG: Record<AgentHarness, boolean> = {
+  claude: false,
+  omp: true,
+  pi: true,
+  opencode: false,
+  codex: true,
+};
+
+/** Model names the composer offers per harness (CLI aliases; any other name can be typed) */
+export const MODEL_SUGGESTIONS: Record<AgentHarness, string[]> = {
+  claude: ['opus', 'sonnet', 'haiku'],
+  omp: [],
+  pi: [],
+  opencode: [],
+  codex: [],
+};
+
+/**
  * An Oh My Pi session listed from omp's session store (#195), wherever its process runs: the
  * server stops and deletes it. A harness pane started here gets such a row once omp writes.
  */
