@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Backend target (DevHub-pro#20): a module can connect the whole UI to another Orkumo instance through one of its routes (`host.connectBackend(prefix, label)`, `host.disconnectBackend()`, `host.backend`; `docs/MODULES.md`, "Backend target"). Every API call, stream and WebSocket then goes there; a bar "Verbunden mit <label>" with "Trennen" shows in every mode. Code mode opens that instance's VS Code through the new `/api/code-server/proxy/*` (HTTP and WebSocket, loopback only, behind the usual origin and token checks)
 - Orchestrators: mark any agent as orchestrator from its row menu (it gets a short briefing) or start one with "New orchestrator"; orchestrators get their own pinned group and badge in the rail in every grouping. They run in the workspace `<data>/orchestrator/` (AGENTS.md, Claude settings that block sub-agents and edits outside the workspace, `orkumo-orchestrator` skill for Claude Code and omp), refreshed at every server start; `NOTES.md` stays theirs
 - `orkumo` CLI for orchestrators: `agents`, `show`, `send`, `start --project`, `stop`, `projects`, against the new `/api/orchestrator/*` routes and the existing dispatch, reply, pane message and stop routes; work goes to real agent sessions (background `claude --bg` jobs or agent panes), never sub-agents
 - Projects section in settings: search, rename, disable (with undo), merge into another project, add own projects (git roots only, validated); disabled and merged projects in collapsible sections. The rail regroups live; a project group's menu has "Project settings…"
@@ -57,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- code-server (runs with `--auth none`) no longer listens on a TCP port when loopback is not trusted (`DEVORBIT_TRUST_LOOPBACK=false`, shared hosts): it runs on the Unix socket `<data>/code-server.sock` (mode 600) and is reached only through `/api/code-server/proxy`, so other local users and containers cannot open a VS Code shell. Default (trusted loopback) unchanged
 - The Electron renderer's `file://` origin (`Origin: null` / `file://`) no longer authorizes API, PTY WebSocket or module requests on its own: Electron main tags its main and quick window top-frame requests with a per-launch secret (`X-Orkumo-Renderer`), so sandboxed iframes and local files can no longer start agents, type into terminals or read chats
 - Chat history reads (list, conversation, sync-state, import) are answered only to the desktop app, local requests without Origin and pages served from Orkumo's own or Vite's port, no longer to any loopback origin
 - The API server listens on loopback only (it was on every interface without remote mode, so any device on the LAN could start agents and type into their terminals). Docker keeps every interface; `DEVORBIT_LISTEN_HOST` is the explicit opt-in for another address

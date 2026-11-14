@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { boardUrl, codeUrl } from '../utils/codeTarget';
 import { setAgentTarget, useAgentTarget } from '../utils/agentTarget';
+import { connectBackend, disconnectBackend, getBackend, type Backend } from '../utils/backendTarget';
 
 /** What the shell hands a module UI on mount and on every update (docs/MODULES.md, "Frontend") */
 export interface ModuleHost {
@@ -22,6 +23,12 @@ export interface ModuleHost {
   agentTarget: string;
   /** Switches it; only '' or `/modules/<id>/...` is accepted. Open tabs keep their instance. */
   setAgentTarget: (target: string) => void;
+  /** Instance the whole UI talks to (docs/MODULES.md, "Backend target"); null is this machine */
+  backend: Backend | null;
+  /** Connects the whole UI to `/api<prefix>` and reloads; only `/modules/<id>/...` is accepted */
+  connectBackend: (prefix: string, label: string) => void;
+  /** Back to this machine; reloads */
+  disconnectBackend: () => void;
 }
 
 interface MountHandle {
@@ -61,6 +68,9 @@ export function useModuleHost(active: boolean): ModuleHost {
       urls,
       agentTarget,
       setAgentTarget,
+      backend: getBackend(),
+      connectBackend,
+      disconnectBackend,
     }),
     [active, search, agentTarget]
   );

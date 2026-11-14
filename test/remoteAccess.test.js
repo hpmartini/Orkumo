@@ -127,6 +127,30 @@ describe('remote access token', () => {
     expect(await wsOutcome(`?sessionId=x&token=${token}`, REMOTE)).toBe('open');
   });
 
+  it('accepts the query token on every WebSocket upgrade under /api, not on plain HTTP', () => {
+    const token = remoteAccess.getToken();
+    // Node lowercases header names; a forwarded-for header marks the request as remote
+    const remoteReq = (url, headers = {}) => ({
+      url,
+      method: 'GET',
+      socket: { remoteAddress: '127.0.0.1' },
+      headers: { host: 'localhost', 'x-forwarded-for': '100.64.0.7', ...headers },
+    });
+    const ws = { upgrade: 'websocket', connection: 'Upgrade' };
+    for (const path of [
+      '/api/pty',
+      '/api/modules/mesh/peer/darkbook/pty',
+      '/api/code-server/proxy/stable-1',
+      '/api/modules/mesh/peer/darkbook/code-server/proxy/stable-1',
+    ]) {
+      expect(remoteAccess.isAuthorized(remoteReq(`${path}?token=${token}`, ws))).toBe(true);
+      expect(remoteAccess.isAuthorized(remoteReq(`${path}?token=wrong`, ws))).toBe(false);
+      // A plain request (the VS Code iframe's navigation) cannot use the query token
+      expect(remoteAccess.isAuthorized(remoteReq(`${path}?token=${token}`))).toBe(false);
+    }
+    expect(remoteAccess.isAuthorized(remoteReq(`/other?token=${token}`, ws))).toBe(false);
+  });
+
   it('takes the serve path secret off the URL and remembers the request', () => {
     const secret = remoteAccess.getServeSecret();
     expect(fs.statSync(path.join(dataDir, 'serve-secret')).mode & 0o777).toBe(0o600);
