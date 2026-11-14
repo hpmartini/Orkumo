@@ -355,6 +355,10 @@ export const WebIDEPanel = ({
       return false;
     }
 
+    // Through the proxy the folder is on the connected instance (or this server in socket mode), a
+    // Linux box whose projects live anywhere (/opt, /srv, /home/<user>): any absolute path there
+    if (viaProxy) return normalizedPath.startsWith('/');
+
     // Ensure path starts with allowed prefixes
     // Restricted to specific project directories to prevent access to system files
     const allowedPrefixes = [
@@ -374,7 +378,7 @@ export const WebIDEPanel = ({
     }
 
     return true;
-  }, []);
+  }, [viaProxy]);
 
   // Get the path for code-server
   // When running locally (not in Docker), use the path as-is
