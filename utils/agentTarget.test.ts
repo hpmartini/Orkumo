@@ -16,7 +16,15 @@ beforeEach(resetAgentTarget);
 
 describe('agentTarget', () => {
   it('accepts only "" or a module prefix', () => {
-    for (const bad of ['/agents', 'http://evil', '/modules/../x', '/modules/Mesh', '//x']) {
+    for (const bad of [
+      '/agents',
+      'http://evil',
+      '/modules/../x',
+      '/modules/a/../../agents',
+      '/modules/mesh/./x',
+      '/modules/Mesh',
+      '//x',
+    ]) {
       setAgentTarget(bad);
       expect(getAgentTarget()).toBe('');
     }

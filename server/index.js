@@ -53,6 +53,17 @@ import * as chatStatus from './services/chatStatus.js';
 import { ompSkillsArgs } from './services/ompSkills.js';
 import { getSelfDnsName } from './services/tailscale.js';
 import * as remoteAccess from './services/remoteAccess.js';
+import {
+  codeServerArgs,
+  codeServerStatus,
+  codeServerTarget,
+  createCodeServerProxy,
+  isRelayedProxyPath,
+  probeCodeServer,
+  PROXY_PREFIX,
+  singleFlight,
+} from './services/codeServerProxy.js';
+import { getDataPath } from './services/dataPath.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import fileOpenRoutes from './services/fileOpenRoutes.js';
 import { usageRouter, getUsage } from './services/usageService.js';
@@ -135,10 +146,12 @@ const limiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
-  // Skip rate limiting for SSE endpoints (they're long-lived connections, not repeated requests)
+  // Skip rate limiting for SSE endpoints (they're long-lived connections, not repeated requests),
+  // and for code-server assets through a module relay (VS Code loads hundreds per window; the
+  // direct proxy sits before the limiter anyway)
   skip: (req) => {
     const sseEndpoints = ['/api/agents/stream'];
-    return sseEndpoints.some((endpoint) => req.path === endpoint);
+    return sseEndpoints.some((endpoint) => req.path === endpoint) || isRelayedProxyPath(req.path);
   },
 });
 
@@ -213,6 +226,13 @@ app.use((req, res, next) =>
 );
 // Before every route so nothing is reachable without the token.
 app.use(remoteAccess.requireRemoteToken);
+// code-server through the API (docs/MODULES.md, "Backend target"); upgrades in the dispatcher below.
+// Before express.json, the body streams through raw; before the limiter, VS Code loads hundreds of
+// assets per window. The target is read per request.
+const codeServerProxy = createCodeServerProxy({ getTarget: () => currentCodeServerTarget() });
+app.use((req, res, next) =>
+  req.url.startsWith(PROXY_PREFIX) ? codeServerProxy.handleHttp(req, res) : next()
+);
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
 app.use('/api/terminal/ghostty', ghosttyRoutes);
@@ -934,6 +954,14 @@ app.get('/api/system/versions', async (req, res) => {
 // Track code-server process
 let codeServerProcess = null;
 let codeServerPort = 8080;
+// Loopback when it is trusted, else a Unix socket of mode 600 in the data dir: code-server runs
+// without auth, so other local users or containers must not reach it (codeServerProxy.js)
+const currentCodeServerTarget = () =>
+  codeServerTarget({
+    trustLoopback: remoteAccess.trustsLoopback(),
+    port: codeServerPort,
+    dataPath: getDataPath(),
+  });
 
 /**
  * GET /api/code-server/status
@@ -962,26 +990,13 @@ app.get('/api/code-server/status', async (req, res) => {
       });
     }
 
-    // Check if code-server is running by trying to connect
-    const isRunning = await new Promise((resolve) => {
-      const checkUrl = `http://127.0.0.1:${codeServerPort}`;
-      http
-        .get(checkUrl, (response) => {
-          resolve(response.statusCode < 500);
-        })
-        .on('error', () => {
-          resolve(false);
-        });
-    });
-
-    res.json({
-      installed: true,
-      path: codeServerPath,
-      running: isRunning,
-      url: isRunning ? `http://127.0.0.1:${codeServerPort}` : null,
-      port: codeServerPort,
-      managedByUs: codeServerProcess !== null,
-    });
+    res.json(
+      await codeServerStatus({
+        path: codeServerPath,
+        target: currentCodeServerTarget(),
+        managedByUs: codeServerProcess !== null,
+      })
+    );
   } catch (error) {
     res.status(500).json({
       installed: false,
@@ -991,29 +1006,20 @@ app.get('/api/code-server/status', async (req, res) => {
   }
 });
 
-/**
- * POST /api/code-server/start
- * Start code-server if not already running
- */
-app.post('/api/code-server/start', async (req, res) => {
+// Serialised: a call while another starts code-server waits for it instead of spawning a second
+// one (which, on a socket, would delete the first one's socket file and orphan it)
+const startCodeServer = singleFlight(async () => {
   try {
+    const target = currentCodeServerTarget();
+    // On a socket there is no direct URL, only the proxy
+    const url = target.socketPath ? null : `http://${target.host}:${target.port}`;
+    const socket = Boolean(target.socketPath);
     // Check if already running
-    const isRunning = await new Promise((resolve) => {
-      http
-        .get(`http://127.0.0.1:${codeServerPort}`, (response) => {
-          resolve(response.statusCode < 500);
-        })
-        .on('error', () => {
-          resolve(false);
-        });
-    });
-
-    if (isRunning) {
-      return res.json({
-        success: true,
-        url: `http://127.0.0.1:${codeServerPort}`,
-        message: 'code-server is already running',
-      });
+    if (await probeCodeServer(target)) {
+      return {
+        status: 200,
+        body: { success: true, url, socket, message: 'code-server is already running' },
+      };
     }
 
     // Check if code-server is installed
@@ -1024,10 +1030,7 @@ app.post('/api/code-server/start', async (req, res) => {
     });
 
     if (!codeServerPath) {
-      return res.status(400).json({
-        success: false,
-        error: 'code-server is not installed',
-      });
+      return { status: 400, body: { success: false, error: 'code-server is not installed' } };
     }
 
     // Start code-server with proper process management
@@ -1036,13 +1039,11 @@ app.post('/api/code-server/start', async (req, res) => {
     // 2. Capture stdout/stderr for debugging
     // 3. Clean up on parent exit
     const { spawn } = await import('child_process');
-    codeServerProcess = spawn(
-      codeServerPath,
-      ['--bind-addr', `127.0.0.1:${codeServerPort}`, '--auth', 'none', '--disable-telemetry'],
-      {
-        stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout and stderr
-      }
-    );
+    // A socket file left by a crashed run makes code-server fail with EADDRINUSE
+    if (target.socketPath) fs.rmSync(target.socketPath, { force: true });
+    codeServerProcess = spawn(codeServerPath, codeServerArgs(target), {
+      stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout and stderr
+    });
 
     // Log code-server output for debugging
     codeServerProcess.stdout.on('data', (data) => {
@@ -1079,38 +1080,33 @@ app.post('/api/code-server/start', async (req, res) => {
     let attempts = 0;
     const maxAttempts = 30;
     while (attempts < maxAttempts) {
-      const ready = await new Promise((resolve) => {
-        http
-          .get(`http://127.0.0.1:${codeServerPort}`, (response) => {
-            resolve(response.statusCode < 500);
-          })
-          .on('error', () => {
-            resolve(false);
-          });
-      });
-
-      if (ready) {
-        return res.json({
-          success: true,
-          url: `http://127.0.0.1:${codeServerPort}`,
-          message: 'code-server started successfully',
-        });
+      if (await probeCodeServer(target)) {
+        return {
+          status: 200,
+          body: { success: true, url, socket, message: 'code-server started successfully' },
+        };
       }
 
       await new Promise((resolve) => setTimeout(resolve, 500));
       attempts++;
     }
 
-    res.status(500).json({
-      success: false,
-      error: 'code-server failed to start within timeout',
-    });
+    return {
+      status: 500,
+      body: { success: false, error: 'code-server failed to start within timeout' },
+    };
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return { status: 500, body: { success: false, error: error.message } };
   }
+});
+
+/**
+ * POST /api/code-server/start
+ * Start code-server if not already running
+ */
+app.post('/api/code-server/start', async (req, res) => {
+  const { status, body } = await startCodeServer();
+  res.status(status).json(body);
 });
 
 /**
@@ -1123,6 +1119,9 @@ app.post('/api/code-server/stop', (req, res) => {
       codeServerProcess.kill();
       codeServerProcess = null;
       res.json({ success: true, message: 'code-server stopped' });
+    } else if (currentCodeServerTarget().socketPath) {
+      // Socket mode: only the one we started is ours to stop
+      res.json({ success: true, message: 'No code-server process to stop' });
     } else {
       // Try to kill any running code-server
       exec(`lsof -ti:${codeServerPort} | xargs kill -9`, (error) => {
@@ -2829,7 +2828,8 @@ const server = createServer(app);
 
 // WebSocket server for PTY communication
 // noServer: ws attached to `server` answers every other upgrade path with 400, so one dispatcher
-// routes /api/pty here and /api/modules/<id>/... to the module's ctx.onUpgrade (docs/MODULES.md).
+// routes /api/pty here, /api/code-server/proxy/... to code-server and /api/modules/<id>/... to the
+// module's ctx.onUpgrade (docs/MODULES.md).
 const wss = new WebSocketServer({ noServer: true });
 
 const refuseUpgrade = (socket, status) => {
@@ -2860,6 +2860,9 @@ server.on('upgrade', (req, socket, head) => {
   const { pathname } = new URL(req.url, 'http://x');
   if (pathname === '/api/pty') {
     return wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  }
+  if (pathname === PROXY_PREFIX || pathname.startsWith(`${PROXY_PREFIX}/`)) {
+    return codeServerProxy.handleUpgrade(req, socket, head);
   }
   const moduleId = /^\/api\/modules\/([a-z0-9-]+)\//.exec(pathname)?.[1];
   const handler = moduleId && moduleHost.upgradeHandler(moduleId);

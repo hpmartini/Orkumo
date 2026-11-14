@@ -9,9 +9,8 @@
  */
 import { useSyncExternalStore } from 'react';
 import { API_BASE_URL, getWsUrl } from './apiConfig';
-
 // Only module routes: a target can never point the client at a host route or another origin
-const TARGET_RE = /^\/modules\/[a-z0-9-]+(?:\/[A-Za-z0-9._~-]+)*$/;
+import { MODULE_PREFIX_RE as TARGET_RE } from './backendTarget';
 
 let current = '';
 const listeners = new Set<() => void>();

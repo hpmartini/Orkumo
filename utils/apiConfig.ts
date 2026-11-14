@@ -5,6 +5,7 @@
 
 import { PORTS } from '../config/defaults';
 import { parsePairingLink, readPairing, type Pairing } from './remoteClient';
+import { getBackend } from './backendTarget';
 
 // Detect if running in Electron
 // In production: file:// protocol
@@ -39,19 +40,23 @@ export const serverOrigin = (native: boolean, paired: Pairing | null, electron: 
 
 const SERVER_ORIGIN = serverOrigin(isNativeApp, pairing, isElectron);
 
-// Base URL for API requests
-export const API_BASE_URL = `${SERVER_ORIGIN}/api`;
+// Backend target (docs/MODULES.md): another instance relayed by a module route of this server
+const BACKEND_PREFIX = getBackend()?.prefix ?? '';
 
-// WebSocket URL for PTY terminal connections
+// Base URL for API requests
+export const API_BASE_URL = `${SERVER_ORIGIN}/api${BACKEND_PREFIX}`;
+
+// WebSocket URL for PTY terminal connections; `/api/...` paths go to the backend target
 export const getWsUrl = (path: string = '/api/pty'): string => {
+  const target = path.startsWith('/api/') ? `/api${BACKEND_PREFIX}${path.slice(4)}` : path;
   if (SERVER_ORIGIN) {
-    return `${SERVER_ORIGIN.replace(/^http/, 'ws')}${path}`;
+    return `${SERVER_ORIGIN.replace(/^http/, 'ws')}${target}`;
   }
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-  return `${protocol}//${window.location.host}${path}`;
+  return `${protocol}//${window.location.host}${target}`;
 };
 
-// SSE URL for Server-Sent Events
+// SSE URL for Server-Sent Events: follows API_BASE_URL, so the backend target too
 export const getSSEUrl = (path: string): string => {
   return `${API_BASE_URL}${path.startsWith('/') ? path.slice(4) : path}`;
 };

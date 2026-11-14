@@ -22,6 +22,7 @@ import {
   AgentsView,
 } from './components';
 import { ModuleSlot } from './components/ModuleSlot';
+import { BackendBar } from './components/BackendBar';
 import { ModuleMode } from './components/ModuleMount';
 import { modeCommands, useModulesState, type ModeEntry } from './hooks/useModules';
 import { useApps } from './hooks';
@@ -263,7 +264,13 @@ function AppContent() {
   const palette = useCommandPalette();
 
   if (loading || !contexts.ready || !modulesReady) {
-    return <LoadingSkeleton />;
+    // The bar stays reachable even when a connected instance never answers
+    return (
+      <div className="flex flex-col min-h-screen">
+        <BackendBar />
+        <LoadingSkeleton />
+      </div>
+    );
   }
 
   return (
@@ -306,6 +313,8 @@ function AppContent() {
 
       {/* One shell: the agents rail on every route; the other views fill its main area */}
       <main className="flex-1 flex flex-col relative overflow-hidden mt-10">
+        {/* Connected to another instance (docs/MODULES.md, "Backend target"): every mode */}
+        <BackendBar />
         {/* Small screens: the agents page is the rail, so other views need a way back to it */}
         {activeTab !== 'agents' && (
           <header className="flex md:hidden items-center gap-2 px-3 py-2 border-b border-gray-800 bg-gray-900">
