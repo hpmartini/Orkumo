@@ -54,6 +54,9 @@ describe('backendTarget', () => {
     ['host route', JSON.stringify({ prefix: '/agents', label: 'x' })],
     ['other origin', JSON.stringify({ prefix: 'http://evil/modules/a', label: 'x' })],
     ['traversal', JSON.stringify({ prefix: '/modules/../agents', label: 'x' })],
+    ['.. segment', JSON.stringify({ prefix: '/modules/a/../../agents', label: 'x' })],
+    ['trailing ..', JSON.stringify({ prefix: '/modules/mesh/peer/..', label: 'x' })],
+    ['. segment', JSON.stringify({ prefix: '/modules/mesh/./peer', label: 'x' })],
     ['upper-case module id', JSON.stringify({ prefix: '/modules/Mesh', label: 'x' })],
     ['empty label', JSON.stringify({ prefix: PEER, label: ' ' })],
     ['label too long', JSON.stringify({ prefix: PEER, label: 'x'.repeat(81) })],
@@ -73,6 +76,13 @@ describe('backendTarget', () => {
     expect(target.getBackend()?.label).toHaveLength(80);
   });
 
+  it('accepts dots inside a segment (host names), only `.`/`..` segments are refused', async () => {
+    const { MODULE_PREFIX_RE } = (await load()).target;
+    expect(MODULE_PREFIX_RE.test('/modules/mesh/peer/darkbook.tail1.ts.net')).toBe(true);
+    expect(MODULE_PREFIX_RE.test('/modules/mesh/peer/..x')).toBe(true);
+    expect(MODULE_PREFIX_RE.test('/modules/mesh/peer/../x')).toBe(false);
+  });
+
   it('connectBackend stores a valid backend and reloads', async () => {
     const { target } = await load();
     target.connectBackend(PEER, 'darkbook');
@@ -88,6 +98,7 @@ describe('backendTarget', () => {
     target.connectBackend('/api/agents', 'x');
     target.connectBackend(PEER, '');
     target.connectBackend('/modules/mesh/peer/a b', 'x');
+    target.connectBackend('/modules/a/../../agents', 'x');
     expect(localStorage.getItem(KEY)).toBeNull();
     expect(reload).not.toHaveBeenCalled();
   });

@@ -4,7 +4,7 @@
  * Opt-in via DEVORBIT_REMOTE=true. The server is then meant to be reached through
  * `tailscale serve` (HTTPS proxy on the tailnet to localhost). Every request that
  * is not a direct loopback request needs the pairing token, sent as
- * `X-DevOrbit-Token` header; the `token` query param only for the /api/pty WebSocket upgrade and SSE.
+ * `X-DevOrbit-Token` header; the `token` query param only for WebSocket upgrades under /api and SSE.
  * Without the opt-in nothing changes: no token, no extra CORS origin.
  */
 
@@ -119,9 +119,13 @@ export function takeServePrefix(req) {
 /** True for a request that came in under the serve prefix (takeServePrefix). */
 export const isViaServe = (req) => viaServe.has(req);
 
-/** EventSource and WebSocket cannot set headers; only they may carry the token in the URL (logs, history). */
+/**
+ * EventSource and WebSocket cannot set headers; only they may carry the token in the URL (logs,
+ * history). Every upgrade under /api: the PTY, relayed PTYs (`/api/modules/<id>/.../pty`) and
+ * code-server's WebSockets (`/api/code-server/proxy/...`, also relayed).
+ */
 function allowsQueryToken(req, url) {
-  if (url.pathname === '/api/pty' && req.headers.upgrade?.toLowerCase() === 'websocket')
+  if (url.pathname.startsWith('/api/') && req.headers.upgrade?.toLowerCase() === 'websocket')
     return true;
   return req.method === 'GET' && (req.headers.accept ?? '').includes('text/event-stream');
 }

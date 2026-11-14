@@ -12,6 +12,8 @@ import {
   codeServerStatus,
   codeServerTarget,
   createCodeServerProxy,
+  isRelayedProxyPath,
+  singleFlight,
   upstreamPath,
 } from '../server/services/codeServerProxy.js';
 
@@ -22,13 +24,22 @@ const listen = (server, at = 0) =>
     else server.listen(at, '127.0.0.1', done);
   });
 
-/** Fake code-server: echoes HTTP, echoes WebSocket messages, refuses upgrades under /refuse */
+/**
+ * Fake code-server: echoes HTTP, echoes WebSocket messages, refuses upgrades under /refuse, never
+ * answers upgrades under /hang, aborts HTTP responses under /abort halfway
+ */
 function fakeCodeServer(seen) {
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (c) => (body += c));
     req.on('end', () => {
       seen.push({ url: req.url, headers: req.headers, body });
+      if (req.url.startsWith('/abort')) {
+        res.writeHead(200, { 'content-type': 'text/plain' });
+        res.write('half');
+        setTimeout(() => res.destroy(), 20);
+        return;
+      }
       res.writeHead(201, {
         'content-type': 'text/plain',
         'set-cookie': ['a=1', 'b=2'],
@@ -45,6 +56,16 @@ function fakeCodeServer(seen) {
     seen.push({ url: req.url, headers: req.headers, upgrade: true });
     if (req.url.startsWith('/refuse')) {
       socket.end('HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n');
+      return;
+    }
+    if (req.url.startsWith('/hang')) {
+      const entry = seen[seen.length - 1];
+      // The proxy dropping its request shows as end (the server socket is half-open)
+      socket.on('end', () => {
+        entry.closed = true;
+        socket.end();
+      });
+      socket.resume();
       return;
     }
     wss.handleUpgrade(req, socket, head, (ws) => ws.on('message', (data) => ws.send(`echo:${data}`)));
@@ -242,6 +263,82 @@ describe.each([
     });
     expect(status).toBe(403);
   });
+
+  it('ends the browser response when code-server aborts mid-response', async () => {
+    const res = await fetch(`http://127.0.0.1:${frontPort}/api/code-server/proxy/abort`);
+    expect(res.status).toBe(200);
+    await expect(res.text()).rejects.toThrow();
+  });
+
+  it('drops the upstream request when the browser leaves before the handshake', async () => {
+    const ws = new WebSocket(`ws://127.0.0.1:${frontPort}/api/code-server/proxy/hang-early`);
+    ws.on('error', () => {});
+    await expect.poll(() => seen.some((s) => s.url === '/hang-early')).toBe(true);
+    const entry = seen.find((s) => s.url === '/hang-early');
+    ws.terminate();
+    await expect.poll(() => entry.closed).toBe(true);
+  });
+
+  it('answers 504 when code-server does not complete the handshake in time', async () => {
+    const proxy = createCodeServerProxy({ getTarget: () => target, handshakeMs: 100 });
+    const slow = http.createServer();
+    slow.on('upgrade', proxy.handleUpgrade);
+    const slowPort = await listen(slow);
+    try {
+      const ws = new WebSocket(`ws://127.0.0.1:${slowPort}/api/code-server/proxy/hang-slow`);
+      const status = await new Promise((resolve) => {
+        ws.on('unexpected-response', (_req, res) => resolve(res.statusCode));
+        ws.on('error', () => resolve('error'));
+      });
+      expect(status).toBe(504);
+      const entry = seen.find((s) => s.url === '/hang-slow');
+      await expect.poll(() => entry.closed).toBe(true);
+    } finally {
+      slow.close();
+    }
+  });
+});
+
+it('skips the rate limiter only for the proxy through a module relay', () => {
+  for (const ok of [
+    '/api/modules/mesh/peer/darkbook/code-server/proxy/',
+    '/api/modules/mesh/peer/darkbook.tail1.ts.net/code-server/proxy/static/x.js',
+    '/api/modules/mesh/peer/k/code-server/proxy',
+  ]) {
+    expect(isRelayedProxyPath(ok)).toBe(true);
+  }
+  for (const bad of [
+    '/api/modules/mesh/peer/k/agents',
+    '/api/modules/mesh/peer/k/code-server/proxyx',
+    '/api/modules/mesh/../../code-server/proxy/',
+    '/api/modules/mesh/peer/./code-server/proxy/',
+    '/api/agents/code-server/proxy/',
+    '/api/modules/Mesh/code-server/proxy/',
+    '/x/api/modules/mesh/code-server/proxy/',
+  ]) {
+    expect(isRelayedProxyPath(bad)).toBe(false);
+  }
+});
+
+it('singleFlight: concurrent calls share one run, the next call runs again', async () => {
+  let runs = 0;
+  let release;
+  const start = singleFlight(async () => {
+    runs++;
+    await new Promise((r) => (release = r));
+    return runs;
+  });
+  const first = start();
+  const second = start();
+  await Promise.resolve();
+  await Promise.resolve();
+  release();
+  expect(await Promise.all([first, second])).toEqual([1, 1]);
+  expect(runs).toBe(1);
+  const third = start();
+  await expect.poll(() => runs).toBe(2);
+  release();
+  expect(await third).toBe(2);
 });
 
 it('answers 502 when code-server is not running', async () => {

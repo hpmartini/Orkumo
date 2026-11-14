@@ -120,6 +120,28 @@ export function upstreamPath(rawUrl) {
   return `${pathname.slice(PROXY_PREFIX.length) || '/'}${url.search}`;
 }
 
+// Through a module relay, e.g. /api/modules/mesh/peer/<key>/code-server/proxy/...: module id, then
+// relay segments by the module-prefix rule without `.`/`..`, then the proxy
+const RELAYED_PROXY_RE =
+  /^\/api\/modules\/[a-z0-9-]+(?:\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+)*\/code-server\/proxy(?:\/|$)/;
+
+/**
+ * True for a request path (Express `req.path`) the global rate limiter skips: the proxy itself sits
+ * before the limiter, and the same assets through a module relay must not starve the UI with 429s
+ */
+export const isRelayedProxyPath = (pathname) => RELAYED_PROXY_RE.test(pathname);
+
+/** Wraps an async `fn` so calls while one runs share its result instead of running it again */
+export function singleFlight(fn) {
+  let running = null;
+  return () =>
+    (running ??= Promise.resolve()
+      .then(fn)
+      .finally(() => {
+        running = null;
+      }));
+}
+
 function upstreamHeaders(headers, target) {
   const skip = hopByHop(headers);
   const out = {};
@@ -141,8 +163,11 @@ const refuse = (socket, status) => {
   socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 };
 
-/** `getTarget()` is read per request (codeServerTarget): the port can change while the server runs */
-export function createCodeServerProxy({ getTarget }) {
+/**
+ * `getTarget()` is read per request (codeServerTarget): the port can change while the server runs.
+ * An upgrade code-server does not answer within `handshakeMs` gets 504.
+ */
+export function createCodeServerProxy({ getTarget, handshakeMs = 10_000 }) {
   function handleHttp(req, res) {
     const path = upstreamPath(req.url);
     if (path === null) {
@@ -164,6 +189,11 @@ export function createCodeServerProxy({ getTarget }) {
       },
       (upRes) => {
         res.writeHead(upRes.statusCode ?? 502, responseHeaders(upRes.headers));
+        // code-server aborting mid-response must not leave the browser's response open
+        upRes.on('error', () => res.destroy());
+        upRes.on('close', () => {
+          if (!upRes.complete) res.destroy();
+        });
         upRes.pipe(res);
       }
     );
@@ -191,8 +221,34 @@ export function createCodeServerProxy({ getTarget }) {
         upgrade: req.headers.upgrade,
       },
     });
-    socket.on('error', () => upstream.destroy());
+    // Until code-server answers: a browser that leaves takes the request with it (`end` first:
+    // server sockets are half-open), and a handshake that does not complete within handshakeMs
+    // ends with 504. `settle` lets only the first outcome act.
+    let settled = false;
+    const settle = () => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(timer);
+      socket.off('end', browserGone);
+      socket.off('close', browserGone);
+      return true;
+    };
+    const browserGone = () => {
+      if (!settle()) return;
+      upstream.destroy();
+      socket.destroy();
+    };
+    const timer = setTimeout(() => {
+      if (!settle()) return;
+      upstream.destroy();
+      refuse(socket, '504 Gateway Timeout');
+    }, handshakeMs);
+    socket.on('end', browserGone);
+    socket.on('close', browserGone);
+    // Stays for the socket's life: an error is followed by close, which the upgrade path handles
+    socket.on('error', browserGone);
     upstream.on('upgrade', (upRes, upSocket, upHead) => {
+      if (!settle() || socket.destroyed) return upSocket.destroy();
       const lines = [`HTTP/1.1 101 ${upRes.statusMessage || 'Switching Protocols'}`];
       for (let i = 0; i < upRes.rawHeaders.length; i += 2) {
         lines.push(`${upRes.rawHeaders[i]}: ${upRes.rawHeaders[i + 1]}`);
@@ -208,9 +264,11 @@ export function createCodeServerProxy({ getTarget }) {
     // code-server answered without upgrading (e.g. 403): pass the status on and close
     upstream.on('response', (upRes) => {
       upRes.resume();
-      refuse(socket, `${upRes.statusCode} ${upRes.statusMessage ?? ''}`.trim());
+      if (settle()) refuse(socket, `${upRes.statusCode} ${upRes.statusMessage ?? ''}`.trim());
     });
-    upstream.on('error', () => refuse(socket, '502 Bad Gateway'));
+    upstream.on('error', () => {
+      if (settle()) refuse(socket, '502 Bad Gateway');
+    });
     upstream.end();
   }
 

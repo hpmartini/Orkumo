@@ -7,8 +7,11 @@
  * one instance survives into the other.
  */
 
-/** Only module routes: a prefix can never point the client at a host route or another origin */
-export const MODULE_PREFIX_RE = /^\/modules\/[a-z0-9-]+(?:\/[A-Za-z0-9._~-]+)*$/;
+/**
+ * Only module routes: a prefix can never point the client at a host route or another origin.
+ * `.`/`..` segments are refused, so `/modules/a/../../agents` cannot climb out once resolved.
+ */
+export const MODULE_PREFIX_RE = /^\/modules\/[a-z0-9-]+(?:\/(?!\.\.?(?:\/|$))[A-Za-z0-9._~-]+)*$/;
 
 export const BACKEND_KEY = 'orkumo.backend';
 const MAX_LABEL = 80;

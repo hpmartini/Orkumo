@@ -58,8 +58,10 @@ import {
   codeServerStatus,
   codeServerTarget,
   createCodeServerProxy,
+  isRelayedProxyPath,
   probeCodeServer,
   PROXY_PREFIX,
+  singleFlight,
 } from './services/codeServerProxy.js';
 import { getDataPath } from './services/dataPath.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
@@ -144,10 +146,12 @@ const limiter = rateLimit({
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
-  // Skip rate limiting for SSE endpoints (they're long-lived connections, not repeated requests)
+  // Skip rate limiting for SSE endpoints (they're long-lived connections, not repeated requests),
+  // and for code-server assets through a module relay (VS Code loads hundreds per window; the
+  // direct proxy sits before the limiter anyway)
   skip: (req) => {
     const sseEndpoints = ['/api/agents/stream'];
-    return sseEndpoints.some((endpoint) => req.path === endpoint);
+    return sseEndpoints.some((endpoint) => req.path === endpoint) || isRelayedProxyPath(req.path);
   },
 });
 
@@ -1002,11 +1006,9 @@ app.get('/api/code-server/status', async (req, res) => {
   }
 });
 
-/**
- * POST /api/code-server/start
- * Start code-server if not already running
- */
-app.post('/api/code-server/start', async (req, res) => {
+// Serialised: a call while another starts code-server waits for it instead of spawning a second
+// one (which, on a socket, would delete the first one's socket file and orphan it)
+const startCodeServer = singleFlight(async () => {
   try {
     const target = currentCodeServerTarget();
     // On a socket there is no direct URL, only the proxy
@@ -1014,7 +1016,10 @@ app.post('/api/code-server/start', async (req, res) => {
     const socket = Boolean(target.socketPath);
     // Check if already running
     if (await probeCodeServer(target)) {
-      return res.json({ success: true, url, socket, message: 'code-server is already running' });
+      return {
+        status: 200,
+        body: { success: true, url, socket, message: 'code-server is already running' },
+      };
     }
 
     // Check if code-server is installed
@@ -1025,10 +1030,7 @@ app.post('/api/code-server/start', async (req, res) => {
     });
 
     if (!codeServerPath) {
-      return res.status(400).json({
-        success: false,
-        error: 'code-server is not installed',
-      });
+      return { status: 400, body: { success: false, error: 'code-server is not installed' } };
     }
 
     // Start code-server with proper process management
@@ -1079,28 +1081,32 @@ app.post('/api/code-server/start', async (req, res) => {
     const maxAttempts = 30;
     while (attempts < maxAttempts) {
       if (await probeCodeServer(target)) {
-        return res.json({
-          success: true,
-          url,
-          socket,
-          message: 'code-server started successfully',
-        });
+        return {
+          status: 200,
+          body: { success: true, url, socket, message: 'code-server started successfully' },
+        };
       }
 
       await new Promise((resolve) => setTimeout(resolve, 500));
       attempts++;
     }
 
-    res.status(500).json({
-      success: false,
-      error: 'code-server failed to start within timeout',
-    });
+    return {
+      status: 500,
+      body: { success: false, error: 'code-server failed to start within timeout' },
+    };
   } catch (error) {
-    res.status(500).json({
-      success: false,
-      error: error.message,
-    });
+    return { status: 500, body: { success: false, error: error.message } };
   }
+});
+
+/**
+ * POST /api/code-server/start
+ * Start code-server if not already running
+ */
+app.post('/api/code-server/start', async (req, res) => {
+  const { status, body } = await startCodeServer();
+  res.status(status).json(body);
 });
 
 /**
