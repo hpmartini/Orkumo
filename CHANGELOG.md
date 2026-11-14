@@ -58,6 +58,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- code-server (runs with `--auth none`) no longer listens on a TCP port when loopback is not trusted (`DEVORBIT_TRUST_LOOPBACK=false`, shared hosts): it runs on the Unix socket `<data>/code-server.sock` (mode 600) and is reached only through `/api/code-server/proxy`, so other local users and containers cannot open a VS Code shell. Default (trusted loopback) unchanged
 - The Electron renderer's `file://` origin (`Origin: null` / `file://`) no longer authorizes API, PTY WebSocket or module requests on its own: Electron main tags its main and quick window top-frame requests with a per-launch secret (`X-Orkumo-Renderer`), so sandboxed iframes and local files can no longer start agents, type into terminals or read chats
 - Chat history reads (list, conversation, sync-state, import) are answered only to the desktop app, local requests without Origin and pages served from Orkumo's own or Vite's port, no longer to any loopback origin
 - The API server listens on loopback only (it was on every interface without remote mode, so any device on the LAN could start agents and type into their terminals). Docker keeps every interface; `DEVORBIT_LISTEN_HOST` is the explicit opt-in for another address

@@ -53,7 +53,15 @@ import * as chatStatus from './services/chatStatus.js';
 import { ompSkillsArgs } from './services/ompSkills.js';
 import { getSelfDnsName } from './services/tailscale.js';
 import * as remoteAccess from './services/remoteAccess.js';
-import { createCodeServerProxy, PROXY_PREFIX } from './services/codeServerProxy.js';
+import {
+  codeServerArgs,
+  codeServerStatus,
+  codeServerTarget,
+  createCodeServerProxy,
+  probeCodeServer,
+  PROXY_PREFIX,
+} from './services/codeServerProxy.js';
+import { getDataPath } from './services/dataPath.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import fileOpenRoutes from './services/fileOpenRoutes.js';
 import { usageRouter, getUsage } from './services/usageService.js';
@@ -216,8 +224,8 @@ app.use((req, res, next) =>
 app.use(remoteAccess.requireRemoteToken);
 // code-server through the API (docs/MODULES.md, "Backend target"); upgrades in the dispatcher below.
 // Before express.json, the body streams through raw; before the limiter, VS Code loads hundreds of
-// assets per window. codeServerPort is read per request.
-const codeServerProxy = createCodeServerProxy({ getPort: () => codeServerPort });
+// assets per window. The target is read per request.
+const codeServerProxy = createCodeServerProxy({ getTarget: () => currentCodeServerTarget() });
 app.use((req, res, next) =>
   req.url.startsWith(PROXY_PREFIX) ? codeServerProxy.handleHttp(req, res) : next()
 );
@@ -942,6 +950,14 @@ app.get('/api/system/versions', async (req, res) => {
 // Track code-server process
 let codeServerProcess = null;
 let codeServerPort = 8080;
+// Loopback when it is trusted, else a Unix socket of mode 600 in the data dir: code-server runs
+// without auth, so other local users or containers must not reach it (codeServerProxy.js)
+const currentCodeServerTarget = () =>
+  codeServerTarget({
+    trustLoopback: remoteAccess.trustsLoopback(),
+    port: codeServerPort,
+    dataPath: getDataPath(),
+  });
 
 /**
  * GET /api/code-server/status
@@ -970,26 +986,13 @@ app.get('/api/code-server/status', async (req, res) => {
       });
     }
 
-    // Check if code-server is running by trying to connect
-    const isRunning = await new Promise((resolve) => {
-      const checkUrl = `http://127.0.0.1:${codeServerPort}`;
-      http
-        .get(checkUrl, (response) => {
-          resolve(response.statusCode < 500);
-        })
-        .on('error', () => {
-          resolve(false);
-        });
-    });
-
-    res.json({
-      installed: true,
-      path: codeServerPath,
-      running: isRunning,
-      url: isRunning ? `http://127.0.0.1:${codeServerPort}` : null,
-      port: codeServerPort,
-      managedByUs: codeServerProcess !== null,
-    });
+    res.json(
+      await codeServerStatus({
+        path: codeServerPath,
+        target: currentCodeServerTarget(),
+        managedByUs: codeServerProcess !== null,
+      })
+    );
   } catch (error) {
     res.status(500).json({
       installed: false,
@@ -1005,23 +1008,13 @@ app.get('/api/code-server/status', async (req, res) => {
  */
 app.post('/api/code-server/start', async (req, res) => {
   try {
+    const target = currentCodeServerTarget();
+    // On a socket there is no direct URL, only the proxy
+    const url = target.socketPath ? null : `http://${target.host}:${target.port}`;
+    const socket = Boolean(target.socketPath);
     // Check if already running
-    const isRunning = await new Promise((resolve) => {
-      http
-        .get(`http://127.0.0.1:${codeServerPort}`, (response) => {
-          resolve(response.statusCode < 500);
-        })
-        .on('error', () => {
-          resolve(false);
-        });
-    });
-
-    if (isRunning) {
-      return res.json({
-        success: true,
-        url: `http://127.0.0.1:${codeServerPort}`,
-        message: 'code-server is already running',
-      });
+    if (await probeCodeServer(target)) {
+      return res.json({ success: true, url, socket, message: 'code-server is already running' });
     }
 
     // Check if code-server is installed
@@ -1044,13 +1037,11 @@ app.post('/api/code-server/start', async (req, res) => {
     // 2. Capture stdout/stderr for debugging
     // 3. Clean up on parent exit
     const { spawn } = await import('child_process');
-    codeServerProcess = spawn(
-      codeServerPath,
-      ['--bind-addr', `127.0.0.1:${codeServerPort}`, '--auth', 'none', '--disable-telemetry'],
-      {
-        stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout and stderr
-      }
-    );
+    // A socket file left by a crashed run makes code-server fail with EADDRINUSE
+    if (target.socketPath) fs.rmSync(target.socketPath, { force: true });
+    codeServerProcess = spawn(codeServerPath, codeServerArgs(target), {
+      stdio: ['ignore', 'pipe', 'pipe'], // Capture stdout and stderr
+    });
 
     // Log code-server output for debugging
     codeServerProcess.stdout.on('data', (data) => {
@@ -1087,20 +1078,11 @@ app.post('/api/code-server/start', async (req, res) => {
     let attempts = 0;
     const maxAttempts = 30;
     while (attempts < maxAttempts) {
-      const ready = await new Promise((resolve) => {
-        http
-          .get(`http://127.0.0.1:${codeServerPort}`, (response) => {
-            resolve(response.statusCode < 500);
-          })
-          .on('error', () => {
-            resolve(false);
-          });
-      });
-
-      if (ready) {
+      if (await probeCodeServer(target)) {
         return res.json({
           success: true,
-          url: `http://127.0.0.1:${codeServerPort}`,
+          url,
+          socket,
           message: 'code-server started successfully',
         });
       }
@@ -1131,6 +1113,9 @@ app.post('/api/code-server/stop', (req, res) => {
       codeServerProcess.kill();
       codeServerProcess = null;
       res.json({ success: true, message: 'code-server stopped' });
+    } else if (currentCodeServerTarget().socketPath) {
+      // Socket mode: only the one we started is ours to stop
+      res.json({ success: true, message: 'No code-server process to stop' });
     } else {
       // Try to kill any running code-server
       exec(`lsof -ti:${codeServerPort} | xargs kill -9`, (error) => {

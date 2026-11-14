@@ -127,4 +127,23 @@ describe('WebIDEPanel code-server URL', () => {
       `http://127.0.0.1:8080/?folder=${encodeURIComponent(DIR)}`
     );
   });
+
+  it('this machine with code-server on a Unix socket: its proxy, host path as is', async () => {
+    state.backend = null;
+    vi.mocked(fetch).mockImplementation(
+      async (url) =>
+        ({
+          ok: true,
+          json: async () =>
+            String(url).endsWith('/code-server/status')
+              ? { installed: true, running: true, url: null, socket: true }
+              : {},
+        }) as Response
+    );
+    await renderReady();
+    // API_BASE_URL carries this file's mocked backend prefix: the proxy follows it
+    expect(iframe().getAttribute('src')).toBe(
+      `/api${PEER.prefix}/code-server/proxy/?folder=${encodeURIComponent(DIR)}`
+    );
+  });
 });

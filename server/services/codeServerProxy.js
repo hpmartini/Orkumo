@@ -1,18 +1,76 @@
 /**
  * code-server through the API (docs/MODULES.md, "Backend target"): `/api/code-server/proxy/<rest>`
- * (HTTP and WebSocket upgrade) goes to `http://127.0.0.1:<port>/<rest>`, so a UI connected to this
- * instance through a module relay reaches its VS Code. code-server uses relative URLs and works
- * under the sub-path.
+ * (HTTP and WebSocket upgrade) goes to code-server's `/<rest>`, so a UI connected to this instance
+ * through a module relay reaches its VS Code. code-server uses relative URLs and works under the
+ * sub-path.
  *
- * Only ever 127.0.0.1:<port>. Orkumo's own credentials (pairing token header and query, renderer
- * secret) are dropped; cookies pass, the proxy is same-origin for the browser. The caller checks
- * origin and auth first, as for every /api route.
+ * code-server runs with `--auth none`, so where it listens is its access control: 127.0.0.1:<port>
+ * when loopback is trusted (the default), else a Unix socket of mode 600 in the data dir
+ * (DEVORBIT_TRUST_LOOPBACK=false: other local users or containers reach loopback). The proxy only
+ * ever targets that. Orkumo's own credentials (pairing token header and query, renderer secret)
+ * are dropped; cookies pass, the proxy is same-origin for the browser. The caller checks origin and
+ * auth first, as for every /api route.
  */
 import http from 'http';
+import { join } from 'path';
 
 export const PROXY_PREFIX = '/api/code-server/proxy';
 
-const UPSTREAM_HOST = '127.0.0.1';
+const LOOPBACK = '127.0.0.1';
+const SOCKET_NAME = 'code-server.sock';
+
+/**
+ * Where code-server listens: `{ host, port }` on loopback, or `{ socketPath }` when loopback is not
+ * trusted
+ */
+export function codeServerTarget({ trustLoopback, port, dataPath }) {
+  return trustLoopback
+    ? { host: LOOPBACK, port }
+    : { socketPath: join(dataPath, SOCKET_NAME) };
+}
+
+/** code-server command line for a target */
+export function codeServerArgs(target) {
+  const listen = target.socketPath
+    ? ['--socket', target.socketPath, '--socket-mode', '600']
+    : ['--bind-addr', `${target.host}:${target.port}`];
+  return [...listen, '--auth', 'none', '--disable-telemetry'];
+}
+
+// Host (and Origin) code-server sees; it compares the two for WebSockets
+const authority = (target) => (target.socketPath ? 'localhost' : `${target.host}:${target.port}`);
+const connectTo = (target) =>
+  target.socketPath ? { socketPath: target.socketPath } : { host: target.host, port: target.port };
+
+/** True when code-server answers on the target */
+export function probeCodeServer(target) {
+  return new Promise((resolve) => {
+    http
+      .get({ ...connectTo(target), path: '/', headers: { host: authority(target) } }, (res) => {
+        res.resume();
+        resolve(res.statusCode < 500);
+      })
+      .on('error', () => resolve(false));
+  });
+}
+
+/**
+ * Body of GET /api/code-server/status for an installed code-server: on a socket there is no
+ * direct URL, only the proxy
+ */
+export async function codeServerStatus({ path: binary, target, managedByUs }) {
+  const running = await probeCodeServer(target);
+  const socket = Boolean(target.socketPath);
+  return {
+    installed: true,
+    path: binary,
+    running,
+    url: running && !socket ? `http://${authority(target)}` : null,
+    port: socket ? null : target.port,
+    socket,
+    managedByUs,
+  };
+}
 
 // RFC 9110 7.6.1, plus the legacy ones still seen in the wild
 const HOP_BY_HOP = new Set([
@@ -62,15 +120,15 @@ export function upstreamPath(rawUrl) {
   return `${pathname.slice(PROXY_PREFIX.length) || '/'}${url.search}`;
 }
 
-function upstreamHeaders(headers, port) {
+function upstreamHeaders(headers, target) {
   const skip = hopByHop(headers);
   const out = {};
   for (const [name, value] of Object.entries(headers)) {
     if (!skip.has(name) && !DROPPED.has(name)) out[name] = value;
   }
-  out.host = `${UPSTREAM_HOST}:${port}`;
+  out.host = authority(target);
   // Checked by the caller; code-server compares it with Host for WebSockets
-  if (headers.origin) out.origin = `http://${UPSTREAM_HOST}:${port}`;
+  if (headers.origin) out.origin = `http://${authority(target)}`;
   return out;
 }
 
@@ -83,8 +141,8 @@ const refuse = (socket, status) => {
   socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
 };
 
-/** `getPort()` is read per request: code-server's port can change while the server runs */
-export function createCodeServerProxy({ getPort }) {
+/** `getTarget()` is read per request (codeServerTarget): the port can change while the server runs */
+export function createCodeServerProxy({ getTarget }) {
   function handleHttp(req, res) {
     const path = upstreamPath(req.url);
     if (path === null) {
@@ -96,14 +154,13 @@ export function createCodeServerProxy({ getPort }) {
       res.writeHead(308, { location: `proxy${path}` });
       return res.end();
     }
-    const port = getPort();
+    const target = getTarget();
     const upstream = http.request(
       {
-        host: UPSTREAM_HOST,
-        port,
+        ...connectTo(target),
         method: req.method,
         path,
-        headers: upstreamHeaders(req.headers, port),
+        headers: upstreamHeaders(req.headers, target),
       },
       (upRes) => {
         res.writeHead(upRes.statusCode ?? 502, responseHeaders(upRes.headers));
@@ -123,14 +180,13 @@ export function createCodeServerProxy({ getPort }) {
   function handleUpgrade(req, socket, head) {
     const path = upstreamPath(req.url);
     if (path === null) return refuse(socket, '404 Not Found');
-    const port = getPort();
+    const target = getTarget();
     const upstream = http.request({
-      host: UPSTREAM_HOST,
-      port,
+      ...connectTo(target),
       method: req.method,
       path,
       headers: {
-        ...upstreamHeaders(req.headers, port),
+        ...upstreamHeaders(req.headers, target),
         connection: 'Upgrade',
         upgrade: req.headers.upgrade,
       },
