@@ -4,9 +4,10 @@
  * sides enforce the same trust boundary.
  *
  * Each harness starts interactively without options; the only arguments are the task prompt,
- * passed after `--` as the first message, or the harness's resume form with a session id
- * (`omp -r <id>`, `pi --session <id>`, `opencode --session <id>`, `codex resume <id>`), so a
- * Chat pane can hand its session to the terminal. `opencode` takes no start prompt this way.
+ * passed after `--` as the first message, optionally after `--model <name>` (#19, where the CLI
+ * takes it), or the harness's resume form with a session id (`omp -r <id>`, `pi --session <id>`,
+ * `opencode --session <id>`, `codex resume <id>`), so a Chat pane can hand its session to the
+ * terminal. `opencode` takes no start prompt this way.
  */
 import fs from 'fs';
 import os from 'os';
@@ -33,25 +34,43 @@ export const HARNESS_RESUME = Object.freeze({
   codex: { flag: 'resume', id: UUID_RE },
 });
 
+/** Harnesses whose interactive start takes `--model <name>` (codex, omp and pi all do) */
+export const HARNESS_MODEL_SUPPORT = Object.freeze({
+  omp: true,
+  opencode: false,
+  codex: true,
+  pi: true,
+});
+
+/** A model name: `opus`, `gpt-5-codex`, `anthropic/claude-sonnet-4-5:high`; never a flag */
+export const MODEL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,79}$/;
+
 export function isHarnessCommand(command) {
   return Object.hasOwn(HARNESS_PROMPT_SUPPORT, command);
 }
 
 /**
- * Allowed argument shapes: `[]`, `['--', prompt]` (prompt only where supported) or
- * `[resumeFlag, sessionId]` (a session UUID only, where the harness can resume).
+ * Allowed argument shapes: `[]`, `['--', prompt]` (prompt only where supported), each optionally
+ * after `['--model', name]` (where supported, a plain model name), or `[resumeFlag, sessionId]`
+ * (a session UUID only, where the harness can resume).
  * Anything else, including any other flag, is rejected: a flag like `--config` or `--api-key`
  * would let a client reconfigure the harness.
  * @returns {string|null} error message, null when allowed
  */
-export function harnessArgsError(command, args) {
+export function harnessArgsError(command, given) {
   if (!isHarnessCommand(command)) return 'Unknown harness';
-  if (!Array.isArray(args) || !args.every((a) => typeof a === 'string')) {
+  if (!Array.isArray(given) || !given.every((a) => typeof a === 'string')) {
     return 'Invalid args format';
+  }
+  let args = given;
+  if (args[0] === '--model') {
+    if (!HARNESS_MODEL_SUPPORT[command]) return `${command} takes no model here`;
+    if (!MODEL_NAME_RE.test(args[1] ?? '')) return 'Invalid model name';
+    args = args.slice(2);
   }
   if (args.length === 0) return null;
   const resume = HARNESS_RESUME[command];
-  if (resume && args[0] === resume.flag) {
+  if (resume && args[0] === resume.flag && args === given) {
     return args.length === 2 && resume.id.test(args[1]) ? null : 'Invalid session id';
   }
   if (!HARNESS_PROMPT_SUPPORT[command]) return `${command} takes no arguments`;
