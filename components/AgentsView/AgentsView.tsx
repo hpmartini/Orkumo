@@ -50,7 +50,7 @@ import {
   stopPane,
   sendToPane,
   openCloudSession,
-  uploadAgentImage,
+  uploadAttachment,
   fetchHarnesses,
 } from '../../services/agentsApi';
 import { useStoredToggle } from '../../hooks/useStoredToggle';
@@ -136,7 +136,12 @@ import { deriveAgentLinks, itemKey as boardItemKey, linksByAgent } from '../../u
 import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo, type IssueDraft } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
-import { issueDraftToTask, promptWithImages, taskToIssueDraft } from '../../utils/composer';
+import {
+  issueDraftToTask,
+  promptWithAttachments,
+  taskToIssueDraft,
+  type StoredAttachment,
+} from '../../utils/composer';
 import { pollWhileVisible } from '../../utils/visiblePoll';
 import { DirectoryPicker } from './DirectoryPicker';
 import { MainAgentDialog } from './MainAgentDialog';
@@ -1223,14 +1228,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [doDispatch, updateSettings, settings.dispatch, showHint, guardCopy, sessions]
   );
 
-  /** Stores the composer images on the server; null when an upload failed (hint shown) */
-  const uploadComposerImages = useCallback(async (): Promise<string[] | null> => {
+  /** Stores the composer attachments on the server; null when an upload failed (hint shown) */
+  const uploadComposerImages = useCallback(async (): Promise<StoredAttachment[] | null> => {
     if (composerImages.length === 0) return [];
     setDispatching(true);
     try {
-      return await Promise.all(composerImages.map(uploadAgentImage));
+      return await Promise.all(composerImages.map(uploadAttachment));
     } catch (err) {
-      showHint(err instanceof Error ? err.message : 'Image upload failed', 'error', 6000);
+      showHint(err instanceof Error ? err.message : 'Upload failed', 'error', 6000);
       return null;
     } finally {
       setDispatching(false);
@@ -1299,9 +1304,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           showHint(`${harnessLabel(composerHarness)} is not installed on this machine`, 'error');
           return;
         }
-        const paths = await uploadComposerImages();
-        if (!paths) return;
-        const prompt = promptWithImages(input, paths).trim();
+        const stored = await uploadComposerImages();
+        if (!stored) return;
+        const prompt = promptWithAttachments(input, stored).trim();
         if (prompt && composerHarness === 'opencode') {
           showHint(
             'OpenCode takes no start prompt: leave it empty and type in the terminal',
@@ -1336,9 +1341,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           openInteractiveClaude(homeDir, 'claude · ~', [], 'claude', undefined, view);
           return;
         }
-        const paths = await uploadComposerImages();
-        if (!paths) return;
-        const prompt = promptWithImages(input, paths);
+        const stored = await uploadComposerImages();
+        if (!stored) return;
+        const prompt = promptWithAttachments(input, stored);
         await doDispatch({ prompt: prompt || undefined, idle: true, cwd: composerCwd }, true, view);
         return;
       }
@@ -1379,11 +1384,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           await doDispatch({ exec: parsed.command }, attachAfter);
           return;
         case 'dispatch': {
-          const paths = await uploadComposerImages();
-          if (!paths) return;
+          const stored = await uploadComposerImages();
+          if (!stored) return;
           await doDispatch(
             {
-              prompt: promptWithImages(parsed.prompt, paths),
+              prompt: promptWithAttachments(parsed.prompt, stored),
               agent: parsed.agent ?? undefined,
               cwd: parsed.repo?.path || undefined,
             },

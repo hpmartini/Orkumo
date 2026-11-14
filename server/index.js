@@ -78,6 +78,7 @@ import * as boardService from './services/boardService.js';
 import * as issueListService from './services/issueListService.js';
 import { createChatHistory } from './services/chatHistoryService.js';
 import * as imageUpload from './services/imageUpload.js';
+import { agentFilesRouter } from './services/agentFiles.js';
 import * as workflowProvider from './services/workflowProvider.js';
 import { ISSUE_URL_RE } from '../utils/issueUrl.js';
 import * as codeService from './services/codeService.js';
@@ -92,8 +93,8 @@ import {
   isHarnessCommand,
   harnessArgsError,
   resolveHarnessBinary,
-  MAX_HARNESS_PROMPT,
 } from '../config/harnesses.js';
+import { DISPATCH_PROMPT_MAX, MAX_HARNESS_PROMPT } from '../config/limits.js';
 
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
@@ -1336,7 +1337,7 @@ app.get('/api/preview/:port{/*path}', (req, res) => {
 
 const agentIdSchema = z.string().regex(agentService.SHORT_ID_RE);
 const agentDispatchSchema = z.object({
-  prompt: z.string().max(20000).optional(),
+  prompt: z.string().max(DISPATCH_PROMPT_MAX).optional(),
   exec: z.string().max(4000).optional(),
   resume: z.string().max(120).optional(),
   cwd: pathSchema,
@@ -1517,6 +1518,9 @@ app.post('/api/agents/images', agentLimiter, imageBody, async (req, res) => {
     sendAgentError(res, error);
   }
 });
+
+/** POST /api/agents/files?name= - store a PDF / text / code file for a prompt (#19 AK-3) */
+app.use('/api/agents/files', agentLimiter, agentFilesRouter());
 
 /** GET /api/agents/images/:name - preview of an image stored for a prompt (server-chosen names only) */
 app.get('/api/agents/images/:name', (req, res) => {

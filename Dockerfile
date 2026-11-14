@@ -47,7 +47,7 @@ COPY --from=builder /app/dist ./dist
 # Copy server files
 COPY server ./server
 # Server imports these shared modules from outside server/
-COPY config/defaults.js config/harnesses.js config/ptyEnv.js ./config/
+COPY config/defaults.js config/harnesses.js config/limits.js config/ptyEnv.js ./config/
 COPY utils/boardWrites.js ./utils/boardWrites.js
 
 # Create directories for persistent data

@@ -4,11 +4,11 @@ import os from 'os';
 import path from 'path';
 import {
   HARNESS_COMMANDS,
-  MAX_HARNESS_PROMPT,
   harnessArgsError,
   isHarnessCommand,
   resolveHarnessBinary,
 } from '../config/harnesses.js';
+import { MAX_HARNESS_PROMPT } from '../config/limits.js';
 
 describe('harness policy (#195)', () => {
   it('knows exactly the four harnesses', () => {

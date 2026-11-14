@@ -11,6 +11,7 @@
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { MAX_HARNESS_PROMPT } from './limits.js';
 
 /** id → whether the CLI accepts `-- <prompt>` as the first interactive message */
 export const HARNESS_PROMPT_SUPPORT = Object.freeze({
@@ -21,10 +22,6 @@ export const HARNESS_PROMPT_SUPPORT = Object.freeze({
 });
 
 export const HARNESS_COMMANDS = Object.freeze(Object.keys(HARNESS_PROMPT_SUPPORT));
-
-// the prompt travels in the ws URL: 1500 chars of 3-byte UTF-8 percent-encode to ~13.5 KB,
-// below Node's 16 KB header limit, so a too-long prompt gets this error instead of a 431
-export const MAX_HARNESS_PROMPT = 1500;
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

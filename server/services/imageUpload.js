@@ -24,7 +24,7 @@ const MIME = { png: 'image/png', jpg: 'image/jpeg', gif: 'image/gif', webp: 'ima
 const IMAGE_LINE = /^\[Image: (.+)\]$/;
 
 /**
- * The images a composer attached to a prompt (`[Image: <path>]` lines, `promptWithImages`),
+ * The images a composer attached to a prompt (`[Image: <path>]` lines, `promptWithAttachments`),
  * read for harnesses that take them as message content like a pasted image. Only files this
  * server stored (`saveAgentImage`) count; any other line stays text.
  * @returns {{ text: string, images: { path: string, mimeType: string, data: string }[] }}
