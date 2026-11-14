@@ -114,10 +114,12 @@ export function mount(el, host) {
 | `active`                                                           | the module's mode is visible (poll only while true); `true` for slot UIs |
 | `search`                                                           | query string of the current route, e.g. `?repo=owner/name`               |
 | `navigate(to)`, `setSearch(params)`                                | host router navigation; `setSearch({})` clears the query                 |
-| `apiBase`                                                          | API base URL (`/api`, or absolute in Electron)                           |
+| `apiBase`                                                          | API base URL (`/api` + backend prefix; absolute in Electron)             |
 | `toast.success(msg)`, `toast.error(msg)`                           | host toasts                                                              |
 | `urls.code(path)`, `urls.board(repo, agent?)`, `urls.agent(jobId)` | routes of the host modes                                                 |
 | `agentTarget`, `setAgentTarget(target)`                            | instance the AgentsView talks to, see Agent target                       |
+| `backend`                                                          | instance the whole UI talks to or `null`, see Backend target             |
+| `connectBackend(prefix, label)`, `disconnectBackend()`             | switch the whole UI to an instance and back; both reload                 |
 
 Modules with `ui` but without `mode` or `slot` render in the shell's module slot (`components/ModuleSlot.tsx`); modes render in their own pane, slot UIs at their slot.
 
@@ -136,6 +138,18 @@ A slot UI gets the same `mount(el, host)` contract with `active: true`. Without 
 - `setAgentTarget(target)` accepts only `''` or `/modules/<id>/...` (`[A-Za-z0-9._~-]` segments); anything else is ignored. Every UI module gets a fresh host on a change.
 - A session or chat id remembers the target it was first listed on: an open tab keeps talking to its instance after a switch, and a switch closes or re-attaches nothing. Tabs of other instances are not pruned while their instance is not picked.
 - The prefix module answers `<prefix>/agents/*` like `/api/agents/*` and an upgrade at `<prefix>/pty` like `/api/pty`; it must refuse to relay to anything but the instances it knows.
+
+### Backend target
+
+`host.backend` is `null` (this machine) or `{ prefix, label }`: the whole UI then talks to another Orkumo instance through a module route of the local server, e.g. `/modules/mesh/peer/<key>` (`utils/backendTarget.ts`). Unlike the agent target it covers everything: `API_BASE_URL` becomes `/api<prefix>` (so `host.apiBase`, module lists and module UIs too), `getWsUrl('/api/...')` inserts the prefix right after `/api`, `getSSEUrl` follows `API_BASE_URL` (`utils/apiConfig.ts`). An agent target is appended on top, after `API_BASE_URL`.
+
+- `connectBackend(prefix, label)` accepts a prefix by the agent-target rule (`/modules/<id>/...`, `[A-Za-z0-9._~-]` segments) and a non-empty label of at most 80 characters; it stores `{ prefix, label }` as JSON under the localStorage key `orkumo.backend` and reloads the window. Invalid input is ignored. `disconnectBackend()` removes the key and reloads.
+- Read once at load, so no request, stream or cached state of one instance survives a switch. An invalid stored value counts as `null` and is removed.
+- While connected the shell shows its own bar in every mode, also while the shell is still loading: "Verbunden mit <label>" and "Trennen" (`components/BackendBar.tsx`). The way back never depends on a module of the remote instance.
+- The prefix module relays `<prefix>/<rest>` to `/api/<rest>` of the instance for every route, plus the upgrades at `<prefix>/pty` and `<prefix>/code-server/proxy/...`; it must refuse to relay to anything but the instances it knows.
+- Code mode: with a backend, the VS Code iframe loads `${API_BASE_URL}/code-server/proxy/?folder=<abs path>`, code-server of that instance, started by the same `/code-server/status|start` calls, which go there too. Without one nothing changes (`VITE_CODE_SERVER_URL` or `http://127.0.0.1:8080`).
+
+`/api/code-server/proxy/<rest>` (`server/services/codeServerProxy.js`) reverse-proxies HTTP and WebSocket upgrades to `http://127.0.0.1:<codeServerPort>/<rest>` with the prefix stripped and the query kept; `/api/code-server/proxy` redirects to `proxy/` so code-server's relative URLs resolve. Same gates as every `/api` route and upgrade (origin, pairing token, authorizers). It only ever targets loopback; the pairing token (header and `token` query) and the renderer secret are dropped, cookies pass. `Host` and a present `Origin` are rewritten to the upstream, hop-by-hop headers are dropped both ways. Before the rate limiter: VS Code loads hundreds of assets per window.
 
 `mount(el, host)` instead of a React component on purpose: a bundled module ships its own React copy, and hooks across two React instances crash. Without modules the slot renders nothing. In Electron the import is cross-origin (`file://` -> `localhost`); the server's CORS setup allows it.
 

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { RefreshCw, Box, Terminal, Globe, FileText } from 'lucide-react';
 import { API_BASE_URL } from '../../utils/apiConfig';
+import { getBackend } from '../../utils/backendTarget';
 import { TIMEOUTS } from '../../config/defaults';
 
 // ============================================================================
@@ -296,12 +297,15 @@ export const WebIDEPanel = ({
     }
   };
 
-  // Get code-server URL from environment or use default (memoized)
-  // Default to http://127.0.0.1:8080 for local development
-  // Use /code-server/ when running through Docker nginx proxy
+  // Connected to another instance (docs/MODULES.md, "Backend target"): its code-server through
+  // its API (/api/code-server/proxy), started by the same API calls below, which go there too.
+  // Otherwise from the environment or the default: http://127.0.0.1:8080 for local development,
+  // /code-server/ when running through the Docker nginx proxy.
+  const viaBackend = getBackend() !== null;
   const codeServerUrl = useMemo(() => {
+    if (viaBackend) return `${API_BASE_URL}/code-server/proxy`;
     return import.meta.env.VITE_CODE_SERVER_URL || 'http://127.0.0.1:8080';
-  }, []);
+  }, [viaBackend]);
 
   // Get iframe load timeout from environment or use default (15 seconds)
   const iframeTimeout = useMemo(() => {
@@ -376,9 +380,9 @@ export const WebIDEPanel = ({
       const normalizedPath = hostPath.replace(/\\/g, '/');
 
       // Check if we're using local code-server (not Docker)
-      // If URL is localhost/127.0.0.1, use the path directly
+      // If URL is localhost/127.0.0.1 or the backend's own one, use the path directly
       const isLocalCodeServer =
-        codeServerUrl.includes('127.0.0.1') || codeServerUrl.includes('localhost');
+        viaBackend || codeServerUrl.includes('127.0.0.1') || codeServerUrl.includes('localhost');
 
       if (isLocalCodeServer) {
         // Local code-server can access host paths directly
@@ -420,7 +424,7 @@ export const WebIDEPanel = ({
 
       return containerPath;
     },
-    [validatePath, codeServerUrl]
+    [validatePath, codeServerUrl, viaBackend]
   );
 
   // Memoize iframe src URL to avoid unnecessary recalculations
