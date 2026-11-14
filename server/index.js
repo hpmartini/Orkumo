@@ -98,6 +98,7 @@ import {
   isHarnessCommand,
   harnessArgsError,
   resolveHarnessBinary,
+  MODEL_NAME_RE,
 } from '../config/harnesses.js';
 import { DISPATCH_PROMPT_MAX, MAX_HARNESS_PROMPT } from '../config/limits.js';
 
@@ -1348,8 +1349,9 @@ const agentDispatchSchema = z.object({
   cwd: pathSchema,
   name: optionalShortString,
   agent: optionalShortString,
-  model: optionalShortString,
-  fallbackModel: optionalShortString,
+  // a CLI argument (`--model <name>`): a plain model name, never a flag
+  model: z.string().regex(MODEL_NAME_RE).optional().nullable(),
+  fallbackModel: z.string().regex(MODEL_NAME_RE).optional().nullable(),
   effort: optionalShortString,
   permissionMode: z
     .string()

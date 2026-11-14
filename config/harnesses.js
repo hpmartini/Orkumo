@@ -42,8 +42,11 @@ export const HARNESS_MODEL_SUPPORT = Object.freeze({
   pi: true,
 });
 
-/** A model name: `opus`, `gpt-5-codex`, `anthropic/claude-sonnet-4-5:high`; never a flag */
-export const MODEL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+-]{0,79}$/;
+/**
+ * A model name: `opus`, `sonnet[1m]`, `gpt-5-codex`, `anthropic/claude-sonnet-4-5:high`; never a
+ * flag. Also the rule for the dispatch `model` / `fallbackModel` (server/index.js)
+ */
+export const MODEL_NAME_RE = /^[A-Za-z0-9][A-Za-z0-9._:/@+[\]-]{0,79}$/;
 
 export function isHarnessCommand(command) {
   return Object.hasOwn(HARNESS_PROMPT_SUPPORT, command);

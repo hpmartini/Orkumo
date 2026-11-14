@@ -71,6 +71,24 @@ describe('POST /api/agents/files (#19 AK-3)', () => {
     expect(empty.status).toBe(400);
   });
 
+  it('refuses every media type but application/octet-stream: no CORS simple request writes', async () => {
+    const before = fs.readdirSync(dir).length;
+    for (const type of [
+      'text/plain',
+      'application/x-www-form-urlencoded',
+      'multipart/form-data; boundary=x',
+      'application/json',
+    ]) {
+      const res = await fetch(`${base}?name=notes.txt`, {
+        method: 'POST',
+        headers: { 'Content-Type': type },
+        body: 'hello',
+      });
+      expect(res.status).toBe(415);
+    }
+    expect(fs.readdirSync(dir)).toHaveLength(before);
+  });
+
   it('refuses a file above 20 MB with 413', async () => {
     const res = await upload('big.txt', Buffer.alloc(MAX_ATTACHMENT_BYTES + 1, 0x61));
     expect(res.status).toBe(413);

@@ -118,8 +118,9 @@ const GRAMMARS: Record<string, Grammar> = {
   yaml: {
     rules: [
       { kind: 'comment', re: /(?:^|(?<=\s))#[^\n]*/ },
-      { kind: 'attr', re: /^[ \t-]*[\w.-]+(?=\s*:(?:\s|$))/m },
-      { kind: 'meta', re: /^\s*\[[^\]\n]+\]/m },
+      // list dashes need a blank after them, so a long `-----` line does not backtrack
+      { kind: 'attr', re: /^[ \t]*(?:-[ \t]+)*[\w.][\w.-]*(?=\s*:(?:\s|$))/m },
+      { kind: 'meta', re: /^[ \t]*\[[^\]\n]+\]/m },
       DQ,
       SQ,
       NUMBER,
@@ -161,6 +162,8 @@ const GRAMMARS: Record<string, Grammar> = {
       { kind: 'attr', re: /[A-Za-z_:][\w:.-]*(?==)/ },
       DQ,
       SQ,
+      // a plain word is consumed whole: the attr rule must not retry at every letter of it
+      { kind: 'word', re: /[\w:.-]+/ },
     ],
     keywords: set(''),
     literals: set(''),

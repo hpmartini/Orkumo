@@ -207,6 +207,51 @@ describe('scanner and /chats list (#19 AK-4)', () => {
     expect(again[0].messages.at(-1).text).toBe('Und Roggen?');
   });
 
+  it('a corrupt Codex rollout next to a valid one costs only itself', async () => {
+    const now = new Date();
+    const pad = (n) => String(n).padStart(2, '0');
+    const day = path.join(
+      homes.codexDir,
+      String(now.getFullYear()),
+      pad(now.getMonth() + 1),
+      pad(now.getDate())
+    );
+    // a broken escape inside the cwd string: JSON.parse of it throws
+    fs.writeFileSync(
+      path.join(day, 'rollout-broken.jsonl'),
+      '{"type":"session_meta","payload":{"id":"x","cwd":"\\u12"}}\n'
+    );
+    const scanner = createOrkumoChatScanner({ dir: chats, ...homes });
+    const found = await scanner.scan();
+    expect(found.map((c) => c.id)).toContain(`orkumo:codex:${UUID_C}`);
+    expect(await scanner.scan()).toEqual([]);
+  });
+
+  it('a transcript over 16 MB keeps its session header (id, cwd) and its end', async () => {
+    const file = path.join(homes.ompDir, '--chats--', `2_${UUID_D}.jsonl`);
+    const filler = JSON.stringify({
+      type: 'message',
+      message: { role: 'assistant', content: [{ type: 'text', text: 'x'.repeat(1024 * 1024) }] },
+    });
+    fs.writeFileSync(
+      file,
+      [
+        JSON.stringify({ type: 'session', id: UUID_D, cwd: chats, timestamp: '2026-11-11T09:00:00Z' }),
+        JSON.stringify({ type: 'title', title: 'Langer Chat' }),
+        ...Array.from({ length: 17 }, () => filler),
+        JSON.stringify({
+          type: 'message',
+          message: { role: 'user', content: [{ type: 'text', text: 'Das Ende' }] },
+        }),
+      ].join('\n') + '\n'
+    );
+    expect(fs.statSync(file).size).toBeGreaterThan(16 * 1024 * 1024);
+    const found = await createOrkumoChatScanner({ dir: chats, ...homes }).scan();
+    const long = found.find((c) => c.id === `orkumo:omp:${UUID_D}`);
+    expect(long).toMatchObject({ cwd: chats, title: 'Langer Chat' });
+    expect(long.messages.at(-1).text).toBe('Das Ende');
+  });
+
   it('/chats lists them with source Orkumo next to the history; search covers both', async () => {
     const scanner = createOrkumoChatScanner({ dir: chats, ...homes });
     const history = createChatHistory(path.join(root, 'data', 'chat-history'), {

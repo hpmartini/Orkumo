@@ -58,6 +58,31 @@ describe('highlight (#19 AK-8)', () => {
     expect(highlight(big, 'ts')).toEqual([{ text: big, kind: null }]);
   });
 
+  it('pathological 100k-character blocks highlight in well under 200 ms (no backtracking blow-up)', () => {
+    const n = MAX_HIGHLIGHT_CHARS - 1;
+    const cases: [string, string][] = [
+      ['-'.repeat(n), 'yaml'],
+      [`- ${'-'.repeat(n - 2)}`, 'yaml'],
+      ['a'.repeat(n), 'yaml'],
+      [' '.repeat(n - 1) + '[', 'yaml'],
+      ['a'.repeat(n), 'html'],
+      [`<${'a'.repeat(n - 1)}`, 'html'],
+      ['a'.repeat(n), 'css'],
+      ['a'.repeat(n), 'ts'],
+      ['"'.repeat(n), 'json'],
+      ['#'.repeat(n), 'bash'],
+      [' '.repeat(n), 'python'],
+    ];
+    for (const [code, lang] of cases) {
+      const started = window.performance.now();
+      const tokens = highlight(code, lang);
+      expect(tokens.map((t) => t.text).join('')).toBe(code);
+      expect(window.performance.now() - started, `${lang}: ${code.slice(0, 3)}…`).toBeLessThan(
+        200
+      );
+    }
+  });
+
   it('an unterminated string or comment runs to the end without hanging', () => {
     expect(kinds(highlight('x = "open', 'js'))).toEqual([['string', '"open']]);
     expect(kinds(highlight('/* open', 'js'))).toEqual([['comment', '/* open']]);

@@ -78,14 +78,20 @@ export async function saveAgentFile(buf, name, dir = agentFilesDir()) {
 }
 
 /**
- * `POST /?name=<file name>` with the raw bytes → 201 `{ path }`. Mounted at /api/agents/files;
- * the server adds the rate limit.
+ * `POST /?name=<file name>` with the raw bytes as `application/octet-stream` → 201 `{ path }`.
+ * Mounted at /api/agents/files; the server adds the rate limit. Any other media type is refused
+ * before the body is read: `text/plain` & co. are CORS simple requests any website could send.
  */
 export function agentFilesRouter(dir = agentFilesDir()) {
   const router = express.Router();
   router.post(
     '/',
-    express.raw({ type: () => true, limit: MAX_ATTACHMENT_BYTES }),
+    // `is` answers null without a body (refused below as empty), false for another type
+    (req, res, next) =>
+      req.is('application/octet-stream') === false
+        ? res.status(415).json({ error: 'Send the file as application/octet-stream' })
+        : next(),
+    express.raw({ type: 'application/octet-stream', limit: MAX_ATTACHMENT_BYTES }),
     async (req, res) => {
       const name = typeof req.query.name === 'string' ? req.query.name : '';
       if (!name || name.length > 255) return res.status(400).json({ error: 'Give the file name' });

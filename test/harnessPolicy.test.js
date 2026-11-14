@@ -5,6 +5,7 @@ import path from 'path';
 import {
   HARNESS_COMMANDS,
   HARNESS_MODEL_SUPPORT,
+  MODEL_NAME_RE,
   harnessArgsError,
   isHarnessCommand,
   resolveHarnessBinary,
@@ -99,6 +100,13 @@ describe('harness policy (#195)', () => {
       harnessArgsError('codex', ['--model', 'o3', 'resume', '01a1c095-7edd-72eb-9c97-4afdcd01f56e'])
     ).not.toBeNull();
     expect(harnessArgsError('opencode', ['--model', 'x'])).toMatch(/no model/);
+  });
+
+  it('one model name rule for --model and the dispatch model: never a flag', () => {
+    for (const ok of ['opus', 'sonnet[1m]', 'claude-opus-4-1', 'gpt-5-codex', 'openai/gpt-5.2:high'])
+      expect(MODEL_NAME_RE.test(ok)).toBe(true);
+    for (const bad of ['-x', '--settings=x', '', ' opus', 'opus sonnet', 'a\nb', 'x'.repeat(81)])
+      expect(MODEL_NAME_RE.test(bad)).toBe(false);
   });
 
   it('the client offers --model exactly where the server allows it', () => {

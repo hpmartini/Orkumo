@@ -152,8 +152,21 @@ export function codexChat(lines) {
   return { id, cwd, createdAt, messages };
 }
 
+/** Records that name a transcript's session (id, cwd, start, title), read from its head */
+const HEADER_LINE = /"type":"(session|session_meta|title|custom-title)"/;
+/** Head bytes searched for them (a Codex `session_meta` carries its instructions: large) */
+const HEADER_BYTES = 1024 * 1024;
+
+/**
+ * Lines of a transcript: the whole file up to MAX_READ_BYTES, else its end plus the header
+ * records of its head, so a long session keeps its id, cwd and title
+ */
 async function readLines(file, size) {
   if (size <= MAX_READ_BYTES) return (await fsp.readFile(file, 'utf8')).split('\n');
+  const header = (await readHead(file, HEADER_BYTES))
+    .split('\n')
+    .slice(0, -1)
+    .filter((line) => HEADER_LINE.test(line));
   const handle = await fsp.open(file, 'r');
   try {
     const { buffer, bytesRead } = await handle.read(
@@ -163,7 +176,7 @@ async function readLines(file, size) {
       size - MAX_READ_BYTES
     );
     // the first line is cut: drop it
-    return buffer.toString('utf8', 0, bytesRead).split('\n').slice(1);
+    return [...header, ...buffer.toString('utf8', 0, bytesRead).split('\n').slice(1)];
   } finally {
     await handle.close();
   }
@@ -234,19 +247,31 @@ export function createOrkumoChatScanner({
     return files;
   }
 
-  /** Codex rollouts that ran in the chats folder; date folders older than the chats folder skipped */
+  /** Local day of `time` as `YYYY/MM/DD`, the way Codex files rollouts (by start date) */
+  const dayOf = (time) => {
+    const d = new Date(time);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())}`;
+  };
+  /** When the last codex walk started; later walks only visit date folders from the day before */
+  let codexWalkedAt = null;
+
+  /**
+   * Codex rollouts that ran in the chats folder. The first walk visits the date folders from the
+   * day before the folder's birth (every folder where the file system keeps no birth time: a
+   * Linux ctime moves with every change); later walks only the days since the last one, the
+   * rollouts found before stay known.
+   */
   async function codexChatFiles() {
-    let born = 0;
+    let born;
     try {
-      const stat = await fsp.stat(dir);
-      born = stat.birthtimeMs || stat.ctimeMs;
+      born = (await fsp.stat(dir)).birthtimeMs;
     } catch {
       return [];
     }
-    // the day before the folder's birth, as `YYYY/MM/DD` (rollouts are filed by local start date)
-    const first = new Date(born - 86_400_000);
-    const pad = (n) => String(n).padStart(2, '0');
-    const firstDay = `${first.getFullYear()}/${pad(first.getMonth() + 1)}/${pad(first.getDate())}`;
+    const since = codexWalkedAt ?? (born > 0 ? born : null);
+    const firstDay = since == null ? '' : dayOf(since - 86_400_000);
+    codexWalkedAt = Date.now();
     const files = [];
     const walk = async (folder, depth, prefix) => {
       let names;
@@ -264,17 +289,21 @@ export function createOrkumoChatScanner({
       }
     };
     await walk(codexDir, 0, '');
-    const chats = [];
     for (const file of files) {
-      if (!codexFiles.has(file)) {
-        const head = await readHead(file, CODEX_HEAD_BYTES).catch(() => '');
-        const cwd = head.match(/"cwd":"((?:[^"\\]|\\.)*)"/)?.[1];
-        if (cwd === undefined) continue;
-        codexFiles.set(file, inChats(JSON.parse(`"${cwd}"`)));
+      if (codexFiles.has(file)) continue;
+      const head = await readHead(file, CODEX_HEAD_BYTES).catch(() => '');
+      const cwd = head.match(/"cwd":"((?:[^"\\]|\\.)*)"/)?.[1];
+      // no cwd in the head yet (a rollout being written): asked again next time
+      if (cwd === undefined) continue;
+      let parsed = null;
+      try {
+        parsed = JSON.parse(`"${cwd}"`);
+      } catch {
+        // a corrupt escape: not one of ours, and no reason to stop the scan
       }
-      if (codexFiles.get(file)) chats.push(file);
+      codexFiles.set(file, parsed !== null && inChats(parsed));
     }
-    return chats;
+    return [...codexFiles].filter(([, ours]) => ours).map(([file]) => file);
   }
 
   /** Conversation of one transcript, or null (nothing said yet, not of the chats folder) */
