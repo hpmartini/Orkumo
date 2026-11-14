@@ -245,13 +245,25 @@ export function assignTopics(entries, minSize = 2) {
 // Store
 // ---------------------------------------------------------------------------
 
+/** Local chats (scanLocal) are looked for at most this often, when the list is asked for */
+const LOCAL_SCAN_MS = 3000;
+export const MAX_FOLDER_CHARS = 60;
+export const MAX_TITLE_CHARS = 200;
+
 /**
  * @param {string} dir where the store lives (default `<data>/chat-history`)
+ * @param {{ scanLocal?: () => Promise<object[]> }} [options] scanLocal: the chats started in
+ *   Orkumo whose transcript changed (orkumoChats.js), stored as conversations of source `orkumo`
  */
-export function createChatHistory(dir = path.join(getDataPath(), 'chat-history')) {
+export function createChatHistory(
+  dir = path.join(getDataPath(), 'chat-history'),
+  { scanLocal } = {}
+) {
   const file = path.join(dir, 'conversations.jsonl');
   // Where each provider's sync stopped (electron/chatSync.js); no login, only positions
   const stateFile = path.join(dir, 'sync-state.json');
+  // Pinned, renamed, filed, archived (#19 AK-5): local only, the conversations stay as they came
+  const metaFile = path.join(dir, 'meta.json');
   /** @type {null | object[]} metadata + `hay`, `offset`, `length` per conversation */
   let index = null;
   // Bytes in the file, and lines no entry points at any more (replaced conversations)
@@ -266,6 +278,7 @@ export function createChatHistory(dir = path.join(getDataPath(), 'chat-history')
     updatedAt: c.updatedAt,
     project: c.project,
     projectName: c.projectName,
+    ...(c.provider === 'orkumo' && { harness: c.harness, sessionId: c.sessionId, cwd: c.cwd }),
     messageCount: c.messages.length,
     firstMessage: (c.messages.find((m) => m.role === 'user') ?? c.messages[0]).text.slice(0, 400),
     hay: haystack(c).toLowerCase(),
@@ -522,53 +535,159 @@ export function createChatHistory(dir = path.join(getDataPath(), 'chat-history')
   }
 
   const counts = (entries) => {
-    const result = { claude: 0, chatgpt: 0 };
+    const result = { claude: 0, chatgpt: 0, orkumo: 0 };
     for (const e of entries) result[e.provider]++;
     return result;
   };
 
+  // ---- Local marks (#19 AK-5): `{ [id]: { title?, pinned?, folder?, archived? } }` ----
+  let marks = null;
+  async function loadMarks() {
+    if (marks) return marks;
+    try {
+      const saved = JSON.parse(await fsp.readFile(metaFile, 'utf8'));
+      marks = saved && typeof saved === 'object' && !Array.isArray(saved) ? saved : {};
+    } catch {
+      marks = {};
+    }
+    return marks;
+  }
+
   /**
-   * Conversations by last activity. `q`: every word must occur (title or any message,
-   * case-insensitive). `from` / `to` are ms bounds on the last activity.
+   * Pins, renames, files into a folder or archives a conversation; `null` / `''` clears a
+   * field. Written atomically (temp file + rename); the conversation itself is not touched.
+   * @returns {Promise<object|null>} the item as listed, null for an unknown id
    */
-  async function list({ q = '', provider, project, topic, from, to, limit = 200 } = {}) {
+  function setMeta(id, { title, pinned, folder, archived }) {
+    return exclusive(async () => {
+      const entry = (await load()).find((e) => e.id === id);
+      if (!entry) return null;
+      const all = await loadMarks();
+      const mark = { ...all[id] };
+      const text = (value, max) => (typeof value === 'string' ? value.trim().slice(0, max) : '');
+      if (title !== undefined) mark.title = text(title, MAX_TITLE_CHARS);
+      if (folder !== undefined) mark.folder = text(folder, MAX_FOLDER_CHARS);
+      if (pinned !== undefined) mark.pinned = pinned === true;
+      if (archived !== undefined) mark.archived = archived === true;
+      for (const key of Object.keys(mark)) if (!mark[key]) delete mark[key];
+      const next = { ...all };
+      if (Object.keys(mark).length) next[id] = mark;
+      else delete next[id];
+      await fsp.mkdir(dir, { recursive: true });
+      await fsp.writeFile(`${metaFile}.tmp`, JSON.stringify(next));
+      await fsp.rename(`${metaFile}.tmp`, metaFile);
+      marks = next;
+      return { ...itemOf(entry, mark), snippet: entry.firstMessage.slice(0, 160) };
+    });
+  }
+
+  // ---- Orkumo chats: stored like a sync batch, only when their transcript changed ----
+  let localRun = null;
+  let localAt = 0;
+  function refreshLocal() {
+    if (!scanLocal) return Promise.resolve();
+    if (localRun) return localRun;
+    if (Date.now() - localAt < LOCAL_SCAN_MS) return Promise.resolve();
+    localRun = (async () => {
+      try {
+        const found = await scanLocal();
+        const byId = new Map((await load()).map((e) => [e.id, e]));
+        // a restart reads every transcript again: store only what differs from the stored copy
+        const changed = found.filter((c) => {
+          const before = byId.get(c.id);
+          return (
+            !before ||
+            before.updatedAt !== c.updatedAt ||
+            before.messageCount !== c.messages.length ||
+            before.title !== c.title
+          );
+        });
+        if (changed.length) await upsert(changed);
+      } catch (error) {
+        console.error('[chat-history] Reading the Orkumo chats failed:', error.message);
+      } finally {
+        localAt = Date.now();
+        localRun = null;
+      }
+    })();
+    return localRun;
+  }
+
+  /**
+   * Conversations, pinned first, else by last activity. `q`: every word must occur (title, the
+   * local title or any message, case-insensitive). `from` / `to` are ms bounds on the last
+   * activity. Archived conversations are left out, unless `archived`: then only they.
+   */
+  async function list({
+    q = '',
+    provider,
+    project,
+    topic,
+    folder,
+    archived = false,
+    from,
+    to,
+    limit = 200,
+  } = {}) {
     const started = Date.now();
+    await refreshLocal();
     const all = await load();
+    const marked = await loadMarks();
     const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
-    // provider, period and search first: the project and topic choices are offered within them
-    const base = all.filter(
-      (e) =>
+    // provider, period, archive and search first: the project, topic and folder choices are
+    // offered within them
+    const base = all.filter((e) => {
+      const mark = marked[e.id];
+      const renamed = mark?.title?.toLowerCase() ?? '';
+      return (
         (!provider || e.provider === provider) &&
         (from == null || (e.updatedAt ?? 0) >= from) &&
         (to == null || (e.updatedAt ?? 0) <= to) &&
-        terms.every((t) => e.hay.includes(t))
-    );
+        Boolean(mark?.archived) === archived &&
+        terms.every((t) => e.hay.includes(t) || renamed.includes(t))
+      );
+    });
     const matches = base.filter(
-      (e) => (!project || e.project === project) && (!topic || e.topic === topic)
+      (e) =>
+        (!project || e.project === project) &&
+        (!topic || e.topic === topic) &&
+        (!folder || marked[e.id]?.folder === folder)
     );
     const tally = (key, label) => {
       const groups = new Map();
       for (const e of base) {
-        if (!e[key]) continue;
-        const group = groups.get(e[key]) ?? { id: e[key], name: label(e), count: 0 };
+        const value = key(e);
+        if (!value) continue;
+        const group = groups.get(value) ?? { id: value, name: label(e), count: 0 };
         group.count++;
-        groups.set(e[key], group);
+        groups.set(value, group);
       }
       return [...groups.values()].sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
     };
-    const page = matches.slice(0, limit);
+    const pinned = (e) => Boolean(marked[e.id]?.pinned);
+    const page = [...matches.filter(pinned), ...matches.filter((e) => !pinned(e))].slice(0, limit);
     const items = [];
     for (const e of page) {
       items.push({
-        ...metaOf(e),
+        ...itemOf(e, marked[e.id]),
         snippet: terms.length ? await snippet(e, terms[0]) : e.firstMessage.slice(0, 160),
       });
     }
     return {
       total: matches.length,
       counts: counts(all),
-      projects: tally('project', (e) => e.projectName ?? e.project),
-      topics: tally('topic', (e) => e.topic),
+      projects: tally(
+        (e) => e.project,
+        (e) => e.projectName ?? e.project
+      ),
+      topics: tally(
+        (e) => e.topic,
+        (e) => e.topic
+      ),
+      folders: tally(
+        (e) => marked[e.id]?.folder,
+        (e) => marked[e.id].folder
+      ),
       items,
       tookMs: Date.now() - started,
     };
@@ -584,35 +703,52 @@ export function createChatHistory(dir = path.join(getDataPath(), 'chat-history')
   }
 
   async function get(id) {
+    await refreshLocal();
     const entry = (await load()).find((e) => e.id === id);
     if (!entry) return null;
-    return { ...metaOf(entry), messages: (await read(entry)).messages };
+    return {
+      ...itemOf(entry, (await loadMarks())[id]),
+      messages: (await read(entry)).messages,
+    };
   }
 
-  return { importFrom, upsert, ingest, syncState, list, get };
+  return { importFrom, upsert, ingest, syncState, list, get, setMeta };
 }
 
-/** What a client gets of an index entry (not the haystack and file position) */
-const metaOf = ({
+/**
+ * What a client gets of an index entry (not the haystack and file position), with its local
+ * marks: a local title replaces the provider's, which stays in the store
+ */
+const itemOf = (
+  {
+    id,
+    provider,
+    title,
+    createdAt,
+    updatedAt,
+    project,
+    projectName,
+    topic,
+    messageCount,
+    harness,
+    sessionId,
+    cwd,
+  },
+  mark = {}
+) => ({
   id,
   provider,
-  title,
+  title: mark.title || title,
   createdAt,
   updatedAt,
   project,
   projectName,
   topic,
   messageCount,
-}) => ({
-  id,
-  provider,
-  title,
-  createdAt,
-  updatedAt,
-  project,
-  projectName,
-  topic,
-  messageCount,
+  pinned: Boolean(mark.pinned),
+  folder: mark.folder || null,
+  archived: Boolean(mark.archived),
+  ...(provider === 'orkumo' && { harness, sessionId, cwd }),
 });
 
 const haystack = (c) => [c.title, ...c.messages.map((m) => m.text)].join('\n');

@@ -210,7 +210,7 @@ describe('electron/chatSync.js against fake providers (#280)', () => {
     expect(posted.every((b) => JSON.parse(b).conversations.length <= 10)).toBe(true);
 
     const list = await history.list({ limit: 1000 });
-    expect(list.counts).toEqual({ claude: 120, chatgpt: 70 });
+    expect(list.counts).toEqual({ claude: 120, chatgpt: 70, orkumo: 0 });
     expect((await history.get('claude:c-7')).projectName).toBe('Backstube');
     const state = await history.syncState();
     expect(state.claude).toMatchObject({ lastUpdatedAt: Date.parse(iso(120)), orgId: ORG });

@@ -9,6 +9,7 @@ import { randomUUID } from 'crypto';
 import express from 'express';
 import fsp from 'fs/promises';
 import path from 'path';
+import { TextDecoder } from 'util';
 import { ATTACHMENT_EXTENSIONS, MAX_ATTACHMENT_BYTES } from '../../config/limits.js';
 import { getDataPath } from './dataPath.js';
 

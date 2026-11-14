@@ -76,7 +76,12 @@ import {
 } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
 import * as issueListService from './services/issueListService.js';
-import { createChatHistory } from './services/chatHistoryService.js';
+import {
+  createChatHistory,
+  MAX_FOLDER_CHARS,
+  MAX_TITLE_CHARS,
+} from './services/chatHistoryService.js';
+import { chatsDir, createOrkumoChatScanner, ensureChatsDir } from './services/orkumoChats.js';
 import * as imageUpload from './services/imageUpload.js';
 import { agentFilesRouter } from './services/agentFiles.js';
 import * as workflowProvider from './services/workflowProvider.js';
@@ -1841,7 +1846,8 @@ app.get('/api/agents/repos', async (req, res) => {
         repos.push({ name: path.basename(dir), path: dir, source: 'configured' });
       }
     }
-    res.json({ cwd, repos, home: os.homedir() });
+    // chats: where chats without a project run (#19), created on first use
+    res.json({ cwd, repos, home: os.homedir(), chats: ensureChatsDir() });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -2580,19 +2586,46 @@ app.put('/api/board/settings', validate(boardSettingsSchema), (req, res) => {
 // desktop app (electron/chatSync.js), local only
 // ============================================
 
-const chatHistory = createChatHistory();
+// Chats started in Orkumo (#19): sessions in the chats folder, read from their transcripts
+let orkumoChatScanner = null;
+async function scanOrkumoChats() {
+  if (!fs.existsSync(chatsDir())) return [];
+  if (!orkumoChatScanner) {
+    const dir = fs.realpathSync(chatsDir());
+    orkumoChatScanner = createOrkumoChatScanner({
+      dir,
+      claudeDir: path.join(agentService.paths.PROJECTS_DIR, agentService.projectSlug(dir)),
+    });
+  }
+  return orkumoChatScanner.scan();
+}
+const chatHistory = createChatHistory(undefined, { scanLocal: scanOrkumoChats });
 // Read the store now, in the background: the first search after a start should not wait for it
 chatHistory.list({ limit: 1 }).catch(() => {});
 const epochMs = z.coerce.number().int().nonnegative().optional();
 const chatHistoryQuerySchema = z.object({
   q: z.string().max(200).optional(),
-  provider: z.enum(['claude', 'chatgpt']).optional(),
+  provider: z.enum(['claude', 'chatgpt', 'orkumo']).optional(),
   project: z.string().max(200).optional(),
   topic: z.string().max(200).optional(),
+  folder: z.string().max(MAX_FOLDER_CHARS).optional(),
+  archived: z
+    .enum(['true', '1'])
+    .transform(() => true)
+    .optional(),
   from: epochMs,
   to: epochMs,
   limit: z.coerce.number().int().min(1).max(100_000).optional(),
 });
+const chatMetaSchema = z
+  .object({
+    id: z.string().min(1).max(300),
+    title: z.string().max(MAX_TITLE_CHARS).nullable().optional(),
+    pinned: z.boolean().optional(),
+    folder: z.string().max(MAX_FOLDER_CHARS).nullable().optional(),
+    archived: z.boolean().optional(),
+  })
+  .strict();
 
 // Security review M3: the history is private, and any page on any loopback port (every local dev
 // app) passes CORS. Readers: the Electron renderer (secret); this machine without an Origin (curl,
@@ -2633,6 +2666,20 @@ app.get('/api/chat-history/conversation', chatHistoryReader, async (req, res) =>
     const conversation = await chatHistory.get(String(req.query.id ?? ''));
     if (!conversation) return res.status(404).json({ error: 'Unknown conversation' });
     res.json(conversation);
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+// Pin, rename, file, archive (#19 AK-5): local marks in meta.json, the conversation stays as is
+app.patch('/api/chat-history/meta', agentLimiter, chatHistoryReader, async (req, res) => {
+  const body = chatMetaSchema.safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: 'Invalid chat metadata' });
+  const { id, ...patch } = body.data;
+  try {
+    const item = await chatHistory.setMeta(id, patch);
+    if (!item) return res.status(404).json({ error: 'Unknown conversation' });
+    res.json(item);
   } catch (error) {
     sendAgentError(res, error);
   }
