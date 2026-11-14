@@ -12,6 +12,10 @@ set +a
 export WOODPECKER_SERVER="${WOODPECKER_SERVER:-woodpecker-grpc-tv94.srv1329780.hstgr.cloud:443}"
 export WOODPECKER_GRPC_SECURE=true
 export WOODPECKER_BACKEND=local
+# Only workflows that ask for this backend (release-mac: `labels: backend: local`). Without the `!` a
+# workflow without labels (every repo's lint/typecheck on the docker agent) may land here and fails:
+# the local backend runs the image name as a command.
+export WOODPECKER_AGENT_LABELS='!backend=local'
 export WOODPECKER_HOSTNAME="mac-$(scutil --get LocalHostName 2>/dev/null || hostname -s)"
 export WOODPECKER_MAX_WORKFLOWS=1
 export WOODPECKER_AGENT_CONFIG_FILE="$DIR/agent.conf"
