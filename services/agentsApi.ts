@@ -290,9 +290,10 @@ export async function checkCodeFolder(path: string): Promise<string> {
   return data.path;
 }
 
+/** `chats`: the folder chats without a project run in (#19), absent on older hosts */
 export async function fetchAgentRepos(
   cwd?: string | null
-): Promise<{ cwd: string; repos: AgentRepo[]; home?: string }> {
+): Promise<{ cwd: string; repos: AgentRepo[]; home?: string; chats?: string }> {
   return request(`/agents/repos${query({ cwd })}`);
 }
 
