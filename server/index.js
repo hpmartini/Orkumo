@@ -53,6 +53,7 @@ import * as chatStatus from './services/chatStatus.js';
 import { ompSkillsArgs } from './services/ompSkills.js';
 import { getSelfDnsName } from './services/tailscale.js';
 import * as remoteAccess from './services/remoteAccess.js';
+import { createCodeServerProxy, PROXY_PREFIX } from './services/codeServerProxy.js';
 import ghosttyRoutes from './services/ghosttyRoutes.js';
 import fileOpenRoutes from './services/fileOpenRoutes.js';
 import { usageRouter, getUsage } from './services/usageService.js';
@@ -213,6 +214,13 @@ app.use((req, res, next) =>
 );
 // Before every route so nothing is reachable without the token.
 app.use(remoteAccess.requireRemoteToken);
+// code-server through the API (docs/MODULES.md, "Backend target"); upgrades in the dispatcher below.
+// Before express.json, the body streams through raw; before the limiter, VS Code loads hundreds of
+// assets per window. codeServerPort is read per request.
+const codeServerProxy = createCodeServerProxy({ getPort: () => codeServerPort });
+app.use((req, res, next) =>
+  req.url.startsWith(PROXY_PREFIX) ? codeServerProxy.handleHttp(req, res) : next()
+);
 app.use(express.json({ limit: '1mb' })); // Limit body size
 app.use(limiter);
 app.use('/api/terminal/ghostty', ghosttyRoutes);
@@ -2829,7 +2837,8 @@ const server = createServer(app);
 
 // WebSocket server for PTY communication
 // noServer: ws attached to `server` answers every other upgrade path with 400, so one dispatcher
-// routes /api/pty here and /api/modules/<id>/... to the module's ctx.onUpgrade (docs/MODULES.md).
+// routes /api/pty here, /api/code-server/proxy/... to code-server and /api/modules/<id>/... to the
+// module's ctx.onUpgrade (docs/MODULES.md).
 const wss = new WebSocketServer({ noServer: true });
 
 const refuseUpgrade = (socket, status) => {
@@ -2860,6 +2869,9 @@ server.on('upgrade', (req, socket, head) => {
   const { pathname } = new URL(req.url, 'http://x');
   if (pathname === '/api/pty') {
     return wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
+  }
+  if (pathname === PROXY_PREFIX || pathname.startsWith(`${PROXY_PREFIX}/`)) {
+    return codeServerProxy.handleUpgrade(req, socket, head);
   }
   const moduleId = /^\/api\/modules\/([a-z0-9-]+)\//.exec(pathname)?.[1];
   const handler = moduleId && moduleHost.upgradeHandler(moduleId);

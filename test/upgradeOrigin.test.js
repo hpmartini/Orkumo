@@ -46,12 +46,12 @@ const startServer = async (extraEnv) => {
   return { port, child, dataDir };
 };
 
-const upgradeStatus = (port, origin, extraHeaders = {}) =>
+const upgradeStatus = (port, origin, extraHeaders = {}, path = '/api/modules/none/ws') =>
   new Promise((resolve, reject) => {
     const req = http.request({
       port,
       host: '127.0.0.1',
-      path: '/api/modules/none/ws',
+      path,
       headers: {
         Connection: 'Upgrade',
         Upgrade: 'websocket',
@@ -114,5 +114,22 @@ describe('WebSocket upgrade origin gate', { timeout: 30_000 }, () => {
 
   it('refuses a foreign origin even in Electron mode', async () => {
     expect(await upgradeStatus(electron.port, 'https://evil.example')).toBe(403);
+  });
+
+  it('gates the code-server proxy like every upgrade', async () => {
+    const proxy = '/api/code-server/proxy/stable-1';
+    expect(await upgradeStatus(browser.port, 'https://evil.example', {}, proxy)).toBe(403);
+    expect(await upgradeStatus(electron.port, 'file://', {}, proxy)).toBe(403);
+    // HTTP through the proxy passes the same opaque-origin gate as every /api route
+    const status = await new Promise((resolve, reject) => {
+      http
+        .get({ port: electron.port, host: '127.0.0.1', path: proxy, headers: { Origin: 'null' } })
+        .on('response', (res) => {
+          res.resume();
+          resolve(res.statusCode);
+        })
+        .on('error', reject);
+    });
+    expect(status).toBe(403);
   });
 });
