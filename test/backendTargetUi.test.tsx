@@ -105,8 +105,8 @@ describe('WebIDEPanel code-server URL', () => {
     vi.unstubAllGlobals();
   });
 
-  const renderReady = async () => {
-    render(<WebIDEPanel directory={DIR} />);
+  const renderReady = async (directory = DIR) => {
+    render(<WebIDEPanel directory={directory} />);
     await act(async () => {
       await vi.advanceTimersByTimeAsync(2100);
     });
@@ -144,6 +144,22 @@ describe('WebIDEPanel code-server URL', () => {
     // API_BASE_URL carries this file's mocked backend prefix: the proxy follows it
     expect(iframe().getAttribute('src')).toBe(
       `/api${PEER.prefix}/code-server/proxy/?folder=${encodeURIComponent(DIR)}`
+    );
+  });
+
+  it('connected: a project anywhere on that Linux box opens (no Mac prefix list)', async () => {
+    await renderReady('/opt/orkumo-pro');
+    expect(iframe().getAttribute('src')).toBe(
+      `/api${PEER.prefix}/code-server/proxy/?folder=${encodeURIComponent('/opt/orkumo-pro')}`
+    );
+  });
+
+  it('this machine: a path outside the allowed prefixes is still refused', () => {
+    state.backend = null;
+    // the panel throws to its error boundary ("Web IDE Crashed"); React logs the error
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(() => render(<WebIDEPanel directory="/opt/orkumo-pro" />)).toThrow(
+      'Invalid or unsafe path: /opt/orkumo-pro'
     );
   });
 });
