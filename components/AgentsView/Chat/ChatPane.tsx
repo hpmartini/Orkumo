@@ -16,8 +16,8 @@ import {
   type ChatState,
   type ChatSubmitKey,
 } from '../../../utils/chatEvents';
-import { promptWithImages } from '../../../utils/composer';
-import { openTranscriptView, subscribeToChat, uploadAgentImage } from '../../../services/agentsApi';
+import { attachableFiles, promptWithAttachments } from '../../../utils/composer';
+import { openTranscriptView, subscribeToChat, uploadAttachment } from '../../../services/agentsApi';
 import { ImageAttachments, imageDropHandlers } from '../../ImageAttachments';
 import { ChatItemView } from './ChatMessages';
 import { ChatFileContext } from './ChatMarkdown';
@@ -225,8 +225,8 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     setSending(true);
     setError(null);
     try {
-      const paths = await Promise.all(images.map(uploadAgentImage));
-      if (!typeIntoPane(pane.id, promptWithImages(text, paths))) {
+      const stored = await Promise.all(images.map(uploadAttachment));
+      if (!typeIntoPane(pane.id, promptWithAttachments(text, stored))) {
         setError(notConnected);
         return;
       }
@@ -267,7 +267,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       data-agent-pane={pane.id}
       data-chat-pane
       data-pane-active={active}
-      {...imageDropHandlers((files) => setImages((prev) => [...prev, ...files]))}
+      {...imageDropHandlers((files) => setImages((prev) => [...prev, ...files]), attachableFiles)}
     >
       <div
         {...headerProps}
@@ -472,7 +472,12 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             <span className="hidden sm:inline">Send</span>
           </button>
         </div>
-        <ImageAttachments images={images} onChange={setImages} disabled={sending || !connected} />
+        <ImageAttachments
+          images={images}
+          onChange={setImages}
+          disabled={sending || !connected}
+          files
+        />
         {chatId && (
           <div className="flex items-end gap-3">
             <div className="flex-1 min-w-0">

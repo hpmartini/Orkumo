@@ -1,9 +1,10 @@
-import React, { createContext, useContext, useEffect, useRef, useState } from 'react';
+import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import ReactMarkdown, { type Components, type ExtraProps } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { Check, Copy } from 'lucide-react';
 import { findFilePaths, type FilePathMatch } from '../../../utils/fileLinks';
 import { openFile } from '../../../utils/openFile';
+import { highlight, TOKEN_CLASS } from '../../../utils/highlight';
 
 /**
  * Session directory file paths in the markdown resolve against. Without it (no session behind
@@ -72,7 +73,8 @@ export const CopyButton: React.FC<{ text: string; label?: string; className?: st
   );
 };
 
-const CodeBlock: React.FC<React.ComponentProps<'pre'> & ExtraProps> = ({ node, children }) => {
+/** Fenced block: language label, copy button, code with syntax highlighting (utils/highlight.ts) */
+const CodeBlock: React.FC<React.ComponentProps<'pre'> & ExtraProps> = ({ node }) => {
   const code = (node?.children?.[0] ?? undefined) as HastNode | undefined;
   const classes = code?.properties?.className;
   const language = (Array.isArray(classes) ? classes : [])
@@ -80,13 +82,26 @@ const CodeBlock: React.FC<React.ComponentProps<'pre'> & ExtraProps> = ({ node, c
     .find((c) => c.startsWith('language-'))
     ?.slice('language-'.length);
   const text = hastText(code).replace(/\n$/, '');
+  const tokens = useMemo(() => highlight(text, language), [text, language]);
   return (
     <div className="my-2.5 rounded-md border border-gray-800 bg-gray-950 overflow-hidden">
       <div className="flex items-center gap-2 h-7 pl-3 pr-1 border-b border-gray-800 bg-gray-900/70">
         <span className="font-mono text-[11px] text-gray-400">{language || 'text'}</span>
         <CopyButton text={text} label="Copy" className="ml-auto" />
       </div>
-      <pre className="p-3 overflow-x-auto text-xs leading-relaxed text-gray-200">{children}</pre>
+      <pre className="p-3 overflow-x-auto text-xs leading-relaxed text-gray-200">
+        <code className={`font-mono${language ? ` language-${language}` : ''}`}>
+          {tokens.map((t, i) =>
+            t.kind ? (
+              <span key={i} className={TOKEN_CLASS[t.kind]} data-token={t.kind}>
+                {t.text}
+              </span>
+            ) : (
+              t.text
+            )
+          )}
+        </code>
+      </pre>
     </div>
   );
 };

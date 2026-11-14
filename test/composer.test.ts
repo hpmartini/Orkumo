@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { submitIntent, promptWithImages, bodyWithImages, imageFiles } from '../utils/composer';
+import {
+  submitIntent,
+  promptWithAttachments,
+  bodyWithImages,
+  imageFiles,
+  attachableFiles,
+} from '../utils/composer';
 
 const key = (k: string, mods: Partial<{ meta: boolean; ctrl: boolean; shift: boolean }> = {}) => ({
   key: k,
@@ -28,13 +34,28 @@ describe('composer - submitIntent', () => {
   });
 });
 
-describe('composer - images', () => {
-  it('appends image paths to the prompt', () => {
-    expect(promptWithImages('  fix it  ', [])).toBe('fix it');
-    expect(promptWithImages('look', ['/a.png', '/b.jpg'])).toBe(
-      'look\n[Image: /a.png]\n[Image: /b.jpg]'
+describe('composer - attachments', () => {
+  it('appends image and file paths to the prompt (#19 AK-3)', () => {
+    expect(promptWithAttachments('  fix it  ', [])).toBe('fix it');
+    expect(
+      promptWithAttachments('look', [
+        { path: '/a.png', kind: 'image' },
+        { path: '/d/report.pdf', kind: 'file' },
+      ])
+    ).toBe('look\n[Image: /a.png]\n[File: /d/report.pdf]');
+    expect(promptWithAttachments('  ', [{ path: '/a.png', kind: 'image' }])).toBe(
+      '[Image: /a.png]'
     );
-    expect(promptWithImages('  ', ['/a.png'])).toBe('[Image: /a.png]');
+  });
+
+  it('a chat prompt takes the four image types, PDF, text and code; nothing else', () => {
+    const png = new File(['x'], 'a.png', { type: 'image/png' });
+    const pdf = new File(['x'], 'Report.PDF', { type: 'application/pdf' });
+    const code = new File(['x'], 'main.ts', { type: '' });
+    const heic = new File(['x'], 'photo.heic', { type: 'image/heic' });
+    const zip = new File(['x'], 'a.zip', { type: 'application/zip' });
+    expect(attachableFiles([png, pdf, code, heic, zip])).toEqual([png, pdf, code]);
+    expect(attachableFiles(null)).toEqual([]);
   });
 
   it('embeds uploaded images in the issue body', () => {

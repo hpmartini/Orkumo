@@ -50,7 +50,7 @@ import {
   stopPane,
   sendToPane,
   openCloudSession,
-  uploadAgentImage,
+  uploadAttachment,
   fetchHarnesses,
 } from '../../services/agentsApi';
 import { useStoredToggle } from '../../hooks/useStoredToggle';
@@ -96,6 +96,7 @@ import {
   sessionsWithBranchPullRequests,
   terminalResumeArgs,
   UI_VIEW_HARNESSES,
+  HARNESS_MODEL_FLAG,
   isOmpStoreSession,
   withOrchestratorSessions,
   isOrchestrator,
@@ -136,7 +137,12 @@ import { deriveAgentLinks, itemKey as boardItemKey, linksByAgent } from '../../u
 import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo, type IssueDraft } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
-import { issueDraftToTask, promptWithImages, taskToIssueDraft } from '../../utils/composer';
+import {
+  issueDraftToTask,
+  promptWithAttachments,
+  taskToIssueDraft,
+  type StoredAttachment,
+} from '../../utils/composer';
 import { pollWhileVisible } from '../../utils/visiblePoll';
 import { DirectoryPicker } from './DirectoryPicker';
 import { MainAgentDialog } from './MainAgentDialog';
@@ -288,7 +294,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       .catch(() => {});
   }, []);
   const [composerImages, setComposerImages] = useState<File[]>([]);
+  // Model of the next agent or chat (#19 AK-2); '' = the default (settings.dispatch.model)
+  const [composerModel, setComposerModel] = useState('');
   const [homeDir, setHomeDir] = useState<string | null>(null);
+  // Where chats without a project run (#19 AK-1): `<data>/chats` of the agent target; `discovered`
+  // once the discovery data is in (an older host has no chats folder)
+  const [chatsDir, setChatsDir] = useState<string | null>(null);
+  const [discovered, setDiscovered] = useState(false);
   const [editorOpen, setEditorOpen] = useState(false);
   const [pickDirOpen, setPickDirOpen] = useState(false);
   /** Main agent dialog (#252): opened from the title bar or the palette in every view */
@@ -615,17 +627,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setComposerMode(mode);
     if (mode !== 'task') setAgentCwd(cwd);
     setComposerHarness(null);
+    setComposerModel('');
     setComposerOpen(true);
   }, []);
-  // Quick window (#251): its prompt opens the chat composer here, ready to send
+  // Quick window (#251): its prompt opens the chat composer here, ready to send, without a project
   useEffect(
     () =>
       window.electronAPI?.onQuickPrompt?.((text) => {
         onOpenView();
         setInput(text);
-        openComposer('chat');
+        openComposer('chat', chatsDir);
       }),
-    [onOpenView, openComposer]
+    [onOpenView, openComposer, chatsDir]
   );
   const composerCwd =
     composerMode === 'agent'
@@ -701,7 +714,12 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     const scope = settings.scopeCwd;
     Promise.all([
       fetchSubagents(scope).catch(() => []),
-      fetchAgentRepos(scope).catch(() => ({ cwd: null, repos: [], home: undefined })),
+      fetchAgentRepos(scope).catch(() => ({
+        cwd: null,
+        repos: [],
+        home: undefined,
+        chats: undefined,
+      })),
       fetchAgentCommands(scope).catch(() => []),
     ]).then(([agentsList, repoData, commandList]) => {
       if (cancelled) return;
@@ -709,6 +727,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       setRepos(repoData.repos);
       setDefaultCwd(repoData.cwd);
       if (repoData.home) setHomeDir(repoData.home);
+      if (repoData.chats) setChatsDir(repoData.chats);
+      setDiscovered(true);
       setCommands(commandList);
     });
     return () => {
@@ -868,26 +888,34 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     navigate('/agents', { replace: true });
   }, [attachParam, loading, sessions, attach, showHint, navigate]);
 
-  // Board "Agent starten" / chat history "Continue" (#280): composer prefill via router state,
-  // which external links cannot set
+  // Board "Agent starten" / chat history "Continue" and "New chat" (#280, #19): composer prefill
+  // via router state, which external links cannot set. `place: 'chats'` = no project, the chats
+  // folder; `openChat` = an Orkumo chat of /chats to open again
   const prefill = active
     ? (location.state as {
         dispatch?: unknown;
         cwd?: unknown;
         mode?: unknown;
         harness?: unknown;
+        place?: unknown;
+        openChat?: unknown;
       } | null)
     : null;
   useEffect(() => {
     if (typeof prefill?.dispatch !== 'string') return;
+    // the chats folder comes with the discovery data: wait for it
+    if (prefill.place === 'chats' && !chatsDir && !discovered) return;
     setInput(prefill.dispatch);
-    if (typeof prefill.cwd === 'string' && prefill.cwd) pickDispatchCwd(prefill.cwd);
-    openComposer(prefill.mode === 'chat' ? 'chat' : 'task');
+    if (prefill.place === 'chats') openComposer('chat', chatsDir);
+    else {
+      if (typeof prefill.cwd === 'string' && prefill.cwd) pickDispatchCwd(prefill.cwd);
+      openComposer(prefill.mode === 'chat' ? 'chat' : 'task');
+    }
     // After openComposer, which resets the pick; sending checks that the harness is installed
     const harness = HARNESSES.find((h) => h.id === prefill.harness)?.id;
     if (harness) setComposerHarness(harness);
     navigate('/agents', { replace: true, state: null });
-  }, [prefill, navigate, openComposer, pickDispatchCwd]);
+  }, [prefill, navigate, openComposer, pickDispatchCwd, chatsDir, discovered]);
 
   const openCloud = useCallback(
     async (target?: string) => {
@@ -1130,6 +1158,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         cwd?: string | null;
         name?: string | null;
         idle?: boolean;
+        model?: string;
       },
       attachAfter = false,
       view: PaneView = 'terminal'
@@ -1223,14 +1252,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [doDispatch, updateSettings, settings.dispatch, showHint, guardCopy, sessions]
   );
 
-  /** Stores the composer images on the server; null when an upload failed (hint shown) */
-  const uploadComposerImages = useCallback(async (): Promise<string[] | null> => {
+  /** Stores the composer attachments on the server; null when an upload failed (hint shown) */
+  const uploadComposerImages = useCallback(async (): Promise<StoredAttachment[] | null> => {
     if (composerImages.length === 0) return [];
     setDispatching(true);
     try {
-      return await Promise.all(composerImages.map(uploadAgentImage));
+      return await Promise.all(composerImages.map(uploadAttachment));
     } catch (err) {
-      showHint(err instanceof Error ? err.message : 'Image upload failed', 'error', 6000);
+      showHint(err instanceof Error ? err.message : 'Upload failed', 'error', 6000);
       return null;
     } finally {
       setDispatching(false);
@@ -1299,9 +1328,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           showHint(`${harnessLabel(composerHarness)} is not installed on this machine`, 'error');
           return;
         }
-        const paths = await uploadComposerImages();
-        if (!paths) return;
-        const prompt = promptWithImages(input, paths).trim();
+        const stored = await uploadComposerImages();
+        if (!stored) return;
+        const prompt = promptWithAttachments(input, stored).trim();
         if (prompt && composerHarness === 'opencode') {
           showHint(
             'OpenCode takes no start prompt: leave it empty and type in the terminal',
@@ -1310,10 +1339,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           );
           return;
         }
+        // A model picked for this agent or chat (#19 AK-2) goes as `--model` where the CLI takes it
+        const model = composerModel.trim();
         openInteractiveClaude(
           cwd,
           `${composerHarness} · ${cwd.split('/').filter(Boolean).pop() || cwd}`,
-          prompt ? ['--', prompt] : [],
+          [
+            ...(model && HARNESS_MODEL_FLAG[composerHarness] ? ['--model', model] : []),
+            ...(prompt ? ['--', prompt] : []),
+          ],
           composerHarness,
           undefined,
           view
@@ -1336,10 +1370,20 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           openInteractiveClaude(homeDir, 'claude · ~', [], 'claude', undefined, view);
           return;
         }
-        const paths = await uploadComposerImages();
-        if (!paths) return;
-        const prompt = promptWithImages(input, paths);
-        await doDispatch({ prompt: prompt || undefined, idle: true, cwd: composerCwd }, true, view);
+        const stored = await uploadComposerImages();
+        if (!stored) return;
+        const prompt = promptWithAttachments(input, stored);
+        await doDispatch(
+          {
+            prompt: prompt || undefined,
+            idle: true,
+            cwd: composerCwd,
+            // '' keeps the default: settings.dispatch.model
+            ...(composerModel.trim() && { model: composerModel.trim() }),
+          },
+          true,
+          view
+        );
         return;
       }
       const parsed = parseDispatchInput(input, { subagents, repos });
@@ -1379,11 +1423,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           await doDispatch({ exec: parsed.command }, attachAfter);
           return;
         case 'dispatch': {
-          const paths = await uploadComposerImages();
-          if (!paths) return;
+          const stored = await uploadComposerImages();
+          if (!stored) return;
           await doDispatch(
             {
-              prompt: promptWithImages(parsed.prompt, paths),
+              prompt: promptWithAttachments(parsed.prompt, stored),
               agent: parsed.agent ?? undefined,
               cwd: parsed.repo?.path || undefined,
             },
@@ -1398,6 +1442,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       composerMode,
       composerCwd,
       composerHarness,
+      composerModel,
       harnessInstalled,
       agentCwd,
       targetCwd,
@@ -1415,6 +1460,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       openInteractiveClaude,
     ]
   );
+
+  // /chats "Open in Agents" (#19 AK-4): an Orkumo chat opens like its rail row, else it resumes
+  // in the chats folder the way `/resume <id>` does in the chat composer
+  // Once per router state: the navigation that clears it is a transition, so renders the opening
+  // causes can still see it
+  const openedChat = useRef<unknown>(null);
+  useEffect(() => {
+    const chat = prefill?.openChat as
+      | { harness?: unknown; sessionId?: unknown; cwd?: unknown; title?: unknown }
+      | undefined;
+    if (!chat || typeof chat !== 'object' || loading || openedChat.current === chat) return;
+    openedChat.current = chat;
+    navigate('/agents', { replace: true, state: null });
+    const harness = HARNESSES.find((h) => h.id === chat.harness)?.id;
+    const id = typeof chat.sessionId === 'string' ? chat.sessionId : '';
+    const cwd = typeof chat.cwd === 'string' ? chat.cwd : '';
+    if (!harness || !id || !cwd) return;
+    const row = sessions.find((s) => s.sessionId === id);
+    if (row) return openSession(row);
+    const view: PaneView = UI_VIEW_HARNESSES[harness] ? 'chat' : 'terminal';
+    const name = typeof chat.title === 'string' && chat.title ? chat.title.slice(0, 80) : harness;
+    guardCopy(transcriptHolder(sessions, id), () => {
+      if (harness === 'claude') void doDispatch({ resume: id, cwd }, true, view);
+      else openInteractiveClaude(cwd, name, terminalResumeArgs(harness, id), harness, undefined, view);
+    });
+  }, [prefill, loading, sessions, navigate, openSession, guardCopy, doDispatch, openInteractiveClaude]);
 
   const handleRename = useCallback(
     async (session: AgentSession) => {
@@ -2850,8 +2921,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           setComposerImages([]);
         }}
         harness={composerHarness}
-        onHarnessChange={setComposerHarness}
+        onHarnessChange={(harness) => {
+          setComposerHarness(harness);
+          // model names differ per CLI: a new harness starts from its default
+          setComposerModel('');
+        }}
         harnessInstalled={harnessInstalled}
+        model={composerModel}
+        onModelChange={setComposerModel}
+        defaultModel={composerHarness === 'claude' ? settings.dispatch.model || null : null}
         images={composerImages}
         onImagesChange={setComposerImages}
         hint={hint?.text || (dispatching ? 'Dispatching…' : null)}
@@ -2923,7 +3001,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           choices={
             composerMode === 'agent' && homeDir
               ? [{ name: '~ (home)', path: homeDir, source: 'home' }, ...directoryChoices]
-              : directoryChoices
+              : composerMode === 'chat' && chatsDir
+                ? [{ name: 'Chats (no project)', path: chatsDir, source: 'chats' }, ...directoryChoices]
+                : directoryChoices
           }
           current={composerCwd}
           home={homeDir}

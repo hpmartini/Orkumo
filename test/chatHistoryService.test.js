@@ -140,7 +140,7 @@ describe('store', () => {
         skipped: { 'no messages': 1 },
       },
     ]);
-    expect(report.counts).toEqual({ claude: 3, chatgpt: 3 });
+    expect(report.counts).toEqual({ claude: 3, chatgpt: 3, orkumo: 0 });
   });
 
   it('lists by last activity; filters provider, period, project, topic (AC-3)', async () => {
@@ -196,7 +196,7 @@ describe('store', () => {
     changed[0].name = 'Umbenannt';
     fs.writeFileSync(path.join(dir, 'conversations.json'), JSON.stringify(changed));
     const report = await history.importFrom(path.join(dir, 'conversations.json'));
-    expect(report.counts).toEqual({ claude: 3, chatgpt: 0 });
+    expect(report.counts).toEqual({ claude: 3, chatgpt: 0, orkumo: 0 });
     expect((await history.get(id)).title).toBe('Umbenannt');
     expect((await createChatHistory(dir).list()).total).toBe(3);
   });
@@ -389,5 +389,83 @@ describe('desktop sync: API responses and ingest (#280)', () => {
     const after = await createChatHistory(dir).syncState();
     expect(after.claude).toMatchObject({ lastUpdatedAt: 43, orgId: 'org-1' });
     expect(after.chatgpt.lastUpdatedAt).toBeNull();
+  });
+});
+
+describe('local marks: pin, rename, folder, archive (#19 AK-5)', () => {
+  const conversation = (id, title, updatedAt, text = 'irgendwas') => ({
+    id,
+    provider: id.split(':')[0],
+    title,
+    createdAt: updatedAt,
+    updatedAt,
+    project: null,
+    projectName: null,
+    messages: [{ role: 'user', text, at: null }],
+  });
+  const ids = (list) => list.items.map((i) => i.id);
+
+  beforeEach(async () => {
+    await createChatHistory(dir).upsert([
+      conversation('claude:a', 'Alt', 1),
+      conversation('chatgpt:b', 'Mitte', 2),
+      conversation('orkumo:claude:c', 'Neu', 3, 'Zwiebelkuchen'),
+    ]);
+  });
+
+  it('pinned first; a local title is shown and searched, the stored one stays', async () => {
+    const history = createChatHistory(dir);
+    const before = fs.readFileSync(path.join(dir, 'conversations.jsonl'), 'utf8');
+    expect(ids(await history.list())).toEqual(['orkumo:claude:c', 'chatgpt:b', 'claude:a']);
+
+    const pinned = await history.setMeta('claude:a', { pinned: true, title: '  Steuern 2026  ' });
+    expect(pinned).toMatchObject({ id: 'claude:a', pinned: true, title: 'Steuern 2026' });
+    const list = await history.list();
+    expect(ids(list)).toEqual(['claude:a', 'orkumo:claude:c', 'chatgpt:b']);
+    expect(list.items[0]).toMatchObject({ title: 'Steuern 2026', pinned: true, archived: false });
+    expect(ids(await history.list({ q: 'steuern' }))).toEqual(['claude:a']);
+    expect((await history.get('claude:a')).title).toBe('Steuern 2026');
+
+    // provider data untouched; marks in meta.json, survive a restart
+    expect(fs.readFileSync(path.join(dir, 'conversations.jsonl'), 'utf8')).toBe(before);
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8'))).toEqual({
+      'claude:a': { title: 'Steuern 2026', pinned: true },
+    });
+    expect(fs.existsSync(path.join(dir, 'meta.json.tmp'))).toBe(false);
+    expect(ids(await createChatHistory(dir).list())[0]).toBe('claude:a');
+
+    // clearing the title brings back the provider's
+    await history.setMeta('claude:a', { title: null, pinned: false });
+    expect((await history.get('claude:a')).title).toBe('Alt');
+    expect(JSON.parse(fs.readFileSync(path.join(dir, 'meta.json'), 'utf8'))).toEqual({});
+  });
+
+  it('folders filter and are offered with counts; archived ones only when asked for', async () => {
+    const history = createChatHistory(dir);
+    await history.setMeta('claude:a', { folder: 'Arbeit' });
+    await history.setMeta('orkumo:claude:c', { folder: 'Arbeit' });
+    await history.setMeta('chatgpt:b', { folder: 'Privat' });
+    const all = await history.list();
+    expect(all.folders).toEqual([
+      { id: 'Arbeit', name: 'Arbeit', count: 2 },
+      { id: 'Privat', name: 'Privat', count: 1 },
+    ]);
+    expect(ids(await history.list({ folder: 'Arbeit' }))).toEqual(['orkumo:claude:c', 'claude:a']);
+
+    await history.setMeta('orkumo:claude:c', { archived: true });
+    expect(ids(await history.list())).toEqual(['chatgpt:b', 'claude:a']);
+    expect(ids(await history.list({ q: 'zwiebelkuchen' }))).toEqual([]);
+    const archived = await history.list({ archived: true });
+    expect(ids(archived)).toEqual(['orkumo:claude:c']);
+    expect(archived.items[0]).toMatchObject({ archived: true, folder: 'Arbeit' });
+    expect(ids(await history.list({ archived: true, q: 'zwiebelkuchen' }))).toEqual([
+      'orkumo:claude:c',
+    ]);
+  });
+
+  it('an unknown id is refused and writes nothing', async () => {
+    const history = createChatHistory(dir);
+    expect(await history.setMeta('claude:nope', { pinned: true })).toBeNull();
+    expect(fs.existsSync(path.join(dir, 'meta.json'))).toBe(false);
   });
 });

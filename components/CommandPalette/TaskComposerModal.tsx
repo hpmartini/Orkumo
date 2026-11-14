@@ -4,6 +4,7 @@ import { DispatchInput } from '../AgentsView/DispatchInput';
 import { NewKindTabs, type NewKind } from '../AgentsView/NewTaskButton';
 import { useDialogA11y } from './useDialogA11y';
 import { ImageAttachments, imageDropHandlers } from '../ImageAttachments';
+import { attachableFiles } from '../../utils/composer';
 
 type DispatchInputProps = React.ComponentProps<typeof DispatchInput>;
 
@@ -51,7 +52,7 @@ export const TaskComposerModal: React.FC<TaskComposerModalProps> = ({
           }
         }}
         onMouseDown={(e) => e.stopPropagation()}
-        {...imageDropHandlers((files) => onImagesChange([...images, ...files]))}
+        {...imageDropHandlers((files) => onImagesChange([...images, ...files]), attachableFiles)}
         className="w-full max-w-[680px] bg-gray-800 border border-gray-600 rounded-xl shadow-2xl p-4"
       >
         <div className="flex items-center mb-3">
@@ -88,7 +89,8 @@ export const TaskComposerModal: React.FC<TaskComposerModalProps> = ({
               images={images}
               onChange={onImagesChange}
               disabled={inputProps.disabled}
-              note={images.length ? 'Stays local, handed to the agent as a file' : undefined}
+              files
+              note={images.length ? 'Stays local, handed to the agent by path' : undefined}
             />
           }
         />

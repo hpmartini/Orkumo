@@ -35,6 +35,7 @@ import { getAllPtySessions, ptyEvents, PTY_ACTIVE_MS } from './ptyService.js';
 import { settingsService } from './settingsService.js';
 import { keepMainAgentAlive } from './mainAgent.js';
 import { orchestratorDir } from './orchestratorService.js';
+import { chatsDir } from './orkumoChats.js';
 import { agentWatchSources, createRefreshScheduler, watchSources } from './agentRefresh.js';
 
 /**
@@ -571,17 +572,18 @@ function forbidden(message) {
 
 /**
  * Configured scan directories - the only places sessions may be started in - plus the
- * orchestrator workspace (orchestratorService.js), whose agents never run in a project.
+ * orchestrator workspace (orchestratorService.js), whose agents never run in a project, and the
+ * chats folder (orkumoChats.js, #19), where chats without a project run.
  */
 export function getAllowedDirectories() {
   try {
     const dirs = (getConfig().directories || []).filter(
       (dir) => typeof dir === 'string' && dir.trim()
     );
-    // Without projects there is nothing to orchestrate; keeps the "No project directories" hint
-    return dirs.length ? [...dirs, orchestratorDir()] : dirs;
+    // Without projects there is nothing to orchestrate; a chat needs no project
+    return [...dirs, ...(dirs.length ? [orchestratorDir()] : []), chatsDir()];
   } catch {
-    return [];
+    return [chatsDir()];
   }
 }
 

@@ -4,6 +4,7 @@
 import { API_BASE_URL } from '../utils/apiConfig';
 import { agentApiUrl, getAgentTarget, pinTarget, targetOf } from '../utils/agentTarget';
 import { fitImage } from '../utils/imageFit';
+import { PROMPT_IMAGE_TYPES, type StoredAttachment } from '../utils/composer';
 import type {
   AgentsResponse,
   AgentDispatchRequest,
@@ -144,6 +145,26 @@ export async function uploadAgentImage(file: Blob): Promise<string> {
   return data.path;
 }
 
+/** Stores a PDF / text / code file for a prompt (#19 AK-3) and returns its server path */
+export async function uploadAgentFile(file: File): Promise<string> {
+  const data = await request<{ path: string }>(
+    `/agents/files${query({ name: file.name || 'file.txt' })}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/octet-stream' },
+      body: file,
+    }
+  );
+  return data.path;
+}
+
+/** Stores one composer attachment: the four image types as image, everything else as file */
+export async function uploadAttachment(file: File): Promise<StoredAttachment> {
+  return PROMPT_IMAGE_TYPES.includes(file.type)
+    ? { path: await uploadAgentImage(file), kind: 'image' }
+    : { path: await uploadAgentFile(file), kind: 'file' };
+}
+
 export function openCloudSession(target?: string): Promise<{ args: string[] }> {
   return request<{ args: string[] }>('/agents/cloud-session', {
     method: 'POST',
@@ -269,9 +290,10 @@ export async function checkCodeFolder(path: string): Promise<string> {
   return data.path;
 }
 
+/** `chats`: the folder chats without a project run in (#19), absent on older hosts */
 export async function fetchAgentRepos(
   cwd?: string | null
-): Promise<{ cwd: string; repos: AgentRepo[]; home?: string }> {
+): Promise<{ cwd: string; repos: AgentRepo[]; home?: string; chats?: string }> {
   return request(`/agents/repos${query({ cwd })}`);
 }
 
