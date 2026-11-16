@@ -27,7 +27,7 @@ const pressed = () =>
 describe('ModeSwitcher (#184)', () => {
   it('offers the modes in order: Agents, module modes (Workflows), Board, Issues, Pull Requests, Code', () => {
     renderAt('/agents');
-    expect(screen.getAllByRole('button').map((b) => b.getAttribute('title'))).toEqual([
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
       'Agents',
       'Workflows',
       'Board',
@@ -48,6 +48,17 @@ describe('ModeSwitcher (#184)', () => {
     expect(pressed()).toEqual(['Agents']);
   });
 
+  it('Ctrl+1 … Ctrl+9 switch modes in sidebar order; other modifiers are ignored', async () => {
+    renderAt('/agents');
+    await userEvent.keyboard('{Control>}{3}{/Control}');
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/board$/);
+    await userEvent.keyboard('{Control>}{Shift>}{1}{/Shift}{/Control}');
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/board$/);
+    await userEvent.keyboard('{Control>}{1}{/Control}');
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/agents$/);
+    expect(button('Board').getAttribute('aria-keyshortcuts')).toBe('Control+3');
+  });
+
   it('marks Pull Requests on a deep link with filters', () => {
     renderAt('/pulls?repo=o%2Fr&ci=failure');
     expect(pressed()).toEqual(['Pull Requests']);
@@ -55,7 +66,7 @@ describe('ModeSwitcher (#184)', () => {
 
   it('without the workflows module there is no Workflows mode (#165)', () => {
     renderAt('/agents', []);
-    expect(screen.getAllByRole('button').map((b) => b.getAttribute('title'))).toEqual([
+    expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
       'Agents',
       'Board',
       'Issues',

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { MessagesSquare, Kanban, CircleDot, GitPullRequest, Code2, History } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ModeEntry } from '../hooks/useModules';
@@ -27,18 +27,36 @@ export const ModeSwitcher: React.FC<{ modes?: ModeEntry[] }> = ({ modes = [] }) 
     ...modes.map((m) => ({ path: `/${m.id}`, label: m.label, icon: moduleIcon(m.icon) })),
     ...host,
   ];
+  const go = (path: string, active: boolean) =>
+    // #191 AC-1: Pull Requests is an overlay mode, a second click returns to the agents
+    active ? path === '/pulls' && navigate('/agents') : navigate(path);
+  // Ctrl+1 … Ctrl+9 switch modes in list order; capture phase so a focused terminal doesn't eat it
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
+      const n = /^Digit([1-9])$/.exec(e.code)?.[1];
+      const mode = n && all[Number(n) - 1];
+      if (!mode) return;
+      e.preventDefault();
+      e.stopPropagation();
+      go(mode.path, pathname === mode.path);
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  });
   return (
     <div role="group" aria-label="Mode" className="flex flex-col items-stretch w-full">
-      {all.map(({ path, label, icon: Icon }) => {
+      {all.map(({ path, label, icon: Icon }, i) => {
         const active = pathname === path;
+        const key = i < 9 ? `Control+${i + 1}` : undefined;
         return (
           <button
             key={path}
-            // #191 AC-1: Pull Requests is an overlay mode, a second click returns to the agents
-            onClick={() => (active ? path === '/pulls' && navigate('/agents') : navigate(path))}
+            onClick={() => go(path, active)}
             aria-pressed={active}
             aria-label={label}
-            title={label}
+            aria-keyshortcuts={key}
+            title={key ? `${label} (Ctrl+${i + 1})` : label}
             className={`relative flex items-center justify-center h-11 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${
               active ? 'text-white' : 'text-gray-500 hover:text-gray-200'
             }`}
