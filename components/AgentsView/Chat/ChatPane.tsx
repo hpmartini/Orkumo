@@ -7,11 +7,23 @@ import React, {
   useRef,
   useState,
 } from 'react';
-import { ListTree, Maximize2, MessageSquare, Send, Square, SquareTerminal, X } from 'lucide-react';
+import {
+  ChevronRight,
+  ListTree,
+  Maximize2,
+  MessageSquare,
+  MessagesSquare,
+  Send,
+  Square,
+  SquareTerminal,
+  X,
+} from 'lucide-react';
 import type { AgentSession } from '../../../types';
 import {
   groupAnswers,
   initialChatState,
+  initialPrompts,
+  pendingPrompts,
   reduceChat,
   type ChatState,
   type ChatSubmitKey,
@@ -19,7 +31,7 @@ import {
 import { attachableFiles, promptWithAttachments } from '../../../utils/composer';
 import { openTranscriptView, subscribeToChat, uploadAttachment } from '../../../services/agentsApi';
 import { ImageAttachments, imageDropHandlers } from '../../ImageAttachments';
-import { ChatItemView } from './ChatMessages';
+import { ChatItemView, UserMessage } from './ChatMessages';
 import { ChatFileContext } from './ChatMarkdown';
 import {
   ChatArtifactsButton,
@@ -34,6 +46,38 @@ import { splitImages } from '../../../utils/chatComposer';
 import { extractNumberedChoices } from '../../../utils/agentInput';
 import { harnessLabel, sessionHarness } from '../../../utils/agentSessions';
 import { paneScreen, pressKeys, typeIntoPane, usePaneConnected } from '../AgentTerminal';
+
+/** Sessions whose view shows only the user's prompts (answers hidden) */
+const PROMPTS_ONLY_KEY = 'devOrbitChatPromptsOnly';
+
+function readPromptsOnly(): string[] {
+  try {
+    const list: unknown = JSON.parse(localStorage.getItem(PROMPTS_ONLY_KEY) ?? '[]');
+    return Array.isArray(list) ? list.filter((v): v is string => typeof v === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
+/** Answers hidden or shown for session `sessionId`, remembered per session */
+function usePromptsOnly(sessionId: string | null): [boolean, () => void] {
+  const [list, setList] = useState(readPromptsOnly);
+  const on = !!sessionId && list.includes(sessionId);
+  const toggle = useCallback(() => {
+    if (!sessionId) return;
+    const current = readPromptsOnly(); // another pane may have changed it
+    const next = current.includes(sessionId)
+      ? current.filter((id) => id !== sessionId)
+      : [...current, sessionId].slice(-200);
+    setList(next);
+    try {
+      localStorage.setItem(PROMPTS_ONLY_KEY, JSON.stringify(next));
+    } catch {
+      // stays for this page only
+    }
+  }, [sessionId]);
+  return [on, toggle];
+}
 
 /** How often the screen of an agent that asks something is read for its question */
 const PROMPT_POLL_MS = 1000;
@@ -199,6 +243,27 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   );
   // One card per answer; regrouped per event, cards memoize on their messages
   const items = useMemo(() => groupAnswers(state.messages), [state.messages]);
+  const [promptsOnly, togglePromptsOnly] = usePromptsOnly(sessionId);
+  const shown = useMemo(
+    () => (promptsOnly ? items.filter((item) => item.kind === 'user') : items),
+    [items, promptsOnly]
+  );
+  const pending = useMemo(() => pendingPrompts(state), [state]);
+  const starts = useMemo(() => initialPrompts(state.messages), [state.messages]);
+  const [startsOpen, setStartsOpen] = useState(false);
+  // Jump to a prompt; letting go of the bottom keeps late layout from pulling the list back down
+  const jumpTo = (key: string) => {
+    const target = listRef.current?.querySelector<HTMLElement>(`[data-chat-key="${key}"]`);
+    if (!target) return;
+    stickToBottom.current = false;
+    target.scrollIntoView({ block: 'start' });
+    // content-visibility renders the skipped messages above late: settle, then aim again
+    requestAnimationFrame(() => target.scrollIntoView({ block: 'start' }));
+    target.animate?.(
+      [{ backgroundColor: 'rgba(59,130,246,0.25)' }, { backgroundColor: 'transparent' }],
+      { duration: 1200 }
+    );
+  };
   const artifactKey = useMemo(
     () => artifactRefreshKey(state.messages, turns),
     [state.messages, turns]
@@ -312,6 +377,18 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         >
           <ListTree size={13} />
         </button>
+        <button
+          type="button"
+          onClick={togglePromptsOnly}
+          onMouseDown={keepFocus}
+          disabled={!sessionId}
+          className={`${iconBtn} ${promptsOnly ? 'text-blue-300' : ''}`}
+          title={promptsOnly ? 'Show the answers again' : 'Show only my prompts (hide the answers)'}
+          aria-label="Show only my prompts"
+          aria-pressed={promptsOnly}
+        >
+          <MessagesSquare size={13} />
+        </button>
         {busy && connected && (
           <button
             type="button"
@@ -358,6 +435,43 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         </button>
       </div>
 
+      {starts.length > 0 && (
+        <div className="shrink-0 border-b border-gray-800 bg-gray-900/60 text-xs">
+          <button
+            type="button"
+            onClick={() => setStartsOpen((o) => !o)}
+            className="flex w-full items-center gap-1 px-3 py-1 text-gray-400 hover:text-gray-200"
+            aria-expanded={startsOpen}
+            data-chat-starts
+          >
+            <ChevronRight
+              size={12}
+              aria-hidden
+              className={`transition-transform ${startsOpen ? 'rotate-90' : ''}`}
+            />
+            {starts.length === 1 ? 'Start prompt' : `${starts.length} start prompts`}
+            <span className="text-gray-600">(session start, after compaction or /clear)</span>
+          </button>
+          {startsOpen && (
+            <ol className="max-h-40 overflow-y-auto pb-1">
+              {starts.map((m, i) => (
+                <li key={m.key}>
+                  <button
+                    type="button"
+                    onClick={() => jumpTo(m.key)}
+                    className="block w-full truncate px-3 py-0.5 pl-7 text-left text-gray-300 hover:bg-gray-800 hover:text-white"
+                    title={m.text}
+                  >
+                    <span className="mr-1.5 text-gray-600">{i + 1}.</span>
+                    {splitImages(m.text).text || m.text}
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+        </div>
+      )}
+
       <div
         ref={listRef}
         role="log"
@@ -381,22 +495,26 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             </div>
           )}
           <ChatFileContext.Provider value={pane.cwd}>
-            {items.map((item, i) => (
+            {shown.map((item, i) => (
               // content-visibility keeps long chats (hundreds of messages) cheap to scroll
               <div
                 key={item.key}
+                data-chat-key={item.key}
                 className="[content-visibility:auto] [contain-intrinsic-size:auto_60px]"
               >
                 <ChatItemView
                   item={item}
                   showSteps={showSteps}
-                  live={busy && item.kind === 'answer' && i === items.length - 1}
+                  live={busy && item.kind === 'answer' && i === shown.length - 1}
                   harness={harnessName}
                   model={state.model}
                 />
               </div>
             ))}
-            {busy && items.at(-1)?.kind === 'user' && (
+            {pending.map((p, i) => (
+              <UserMessage key={`q${i}`} text={p} queued />
+            ))}
+            {busy && !promptsOnly && pending.length === 0 && items.at(-1)?.kind === 'user' && (
               <ChatItemView
                 item={null}
                 showSteps={showSteps}

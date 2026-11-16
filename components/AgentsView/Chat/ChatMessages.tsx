@@ -1,6 +1,7 @@
 import React from 'react';
 import {
   Brain,
+  Clock,
   ChevronRight,
   History,
   Wrench,
@@ -120,12 +121,19 @@ export const AssistantBlock: React.FC<{ block: ChatBlock }> = ({ block }) => {
   return <ToolBlock block={block} />;
 };
 
-const UserMessage: React.FC<{ text: string }> = ({ text }) => {
+/** `queued`: typed while the agent works, not taken by its turn yet */
+export const UserMessage: React.FC<{ text: string; queued?: boolean }> = ({ text, queued }) => {
   const { text: body, images } = splitImages(text);
   const previews = images.map((p) => ({ path: p, url: agentImageUrl(p) }));
   return (
-    <div className="flex justify-end my-3">
-      <div className="max-w-[85%] rounded-lg bg-blue-900/50 border border-blue-800/60 px-3 py-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
+    <div className="flex flex-col items-end my-3" data-queued={queued || undefined}>
+      <div
+        className={`max-w-[85%] rounded-lg px-3 py-2 text-sm text-gray-100 whitespace-pre-wrap break-words border ${
+          queued
+            ? 'bg-blue-900/25 border-dashed border-blue-700/70'
+            : 'bg-blue-900/50 border-blue-800/60'
+        }`}
+      >
         {body}
         {previews.length > 0 && (
           <div className={`flex flex-wrap gap-1.5 ${body ? 'mt-2' : ''}`}>
@@ -148,6 +156,11 @@ const UserMessage: React.FC<{ text: string }> = ({ text }) => {
           </div>
         )}
       </div>
+      {queued && (
+        <span className="mt-1 flex items-center gap-1 text-[11px] text-blue-300/80">
+          <Clock size={11} aria-hidden /> sent · waits for the current turn
+        </span>
+      )}
     </div>
   );
 };
