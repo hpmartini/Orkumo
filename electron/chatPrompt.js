@@ -40,9 +40,16 @@ export function findChatView(views, provider, id) {
  * @returns {Promise<'sent'|'typed'|'no-field'>}
  */
 export function typeIntoPage(text, submit) {
-  const field = document.querySelector(
-    '#prompt-textarea, div.ProseMirror[contenteditable="true"], [contenteditable="true"][role="textbox"], textarea'
-  );
+  // In priority order and visible only: a hidden textarea earlier in the page must not win
+  const visible = (el) => el.getClientRects().length > 0;
+  const field = [
+    '#prompt-textarea',
+    'div.ProseMirror[contenteditable="true"]',
+    '[contenteditable="true"][role="textbox"]',
+    'textarea',
+  ]
+    .flatMap((sel) => [...document.querySelectorAll(sel)])
+    .find(visible);
   if (!field) return Promise.resolve('no-field');
   field.focus();
   if (field instanceof HTMLTextAreaElement) {
@@ -65,9 +72,14 @@ export function typeIntoPage(text, submit) {
   }
   if (!submit) return Promise.resolve('typed');
   const sendButton = () =>
-    document.querySelector(
-      '[data-testid="send-button"], button[aria-label="Send message"], button[aria-label="Send prompt"], button[aria-label*="Send" i], button[aria-label*="Senden" i]'
-    );
+    [
+      '[data-testid="send-button"]',
+      'button[aria-label="Send message"]',
+      'button[aria-label="Send prompt"]',
+      'button[aria-label="Nachricht senden"]',
+    ]
+      .flatMap((sel) => [...document.querySelectorAll(sel)])
+      .find(visible);
   return new Promise((resolve) => {
     let tries = 0;
     const press = () => {

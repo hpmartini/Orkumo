@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import React from 'react';
 import fs from 'fs';
 import path from 'path';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
 import { ChatHistoryPage } from '../components/ChatHistoryView/ChatHistoryPage';
@@ -155,12 +155,34 @@ describe('chat view: header, scroll, tabs, composer', () => {
   it('header stays on top and the chat opens at its end', async () => {
     const user = userEvent.setup();
     const heights = vi.spyOn(HTMLElement.prototype, 'scrollHeight', 'get').mockReturnValue(5000);
+    // capture the reader's resize callback (images, opened artifacts, a split resize the chat)
+    const resized: (() => void)[] = [];
+    const RealObserver = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(cb: () => void) {
+        resized.push(cb);
+      }
+      observe() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
     show();
     const reader = await openChat(user, CLAUDE.title);
     await within(reader).findByRole('heading', { name: CLAUDE.title });
     expect(reader.querySelector('[data-chat-header]')!.className).toMatch(/sticky top-0/);
     const scroller = reader.querySelector('[data-chat-header]')!.parentElement!.parentElement!;
     expect(scroller.scrollTop).toBe(5000);
+    // the event of that jump arrives after the chat grew again: still pinned to the end
+    heights.mockReturnValue(6000);
+    fireEvent.scroll(scroller);
+    act(() => resized.forEach((cb) => cb()));
+    expect(scroller.scrollTop).toBe(6000);
+    // scrolling up lets go: growth no longer moves the view
+    scroller.scrollTop = 100;
+    fireEvent.scroll(scroller);
+    heights.mockReturnValue(7000);
+    act(() => resized.forEach((cb) => cb()));
+    expect(scroller.scrollTop).toBe(100);
+    globalThis.ResizeObserver = RealObserver;
     heights.mockRestore();
   });
 
@@ -254,6 +276,18 @@ describe('chat view: header, scroll, tabs, composer', () => {
 });
 
 describe('chatPrompt.js (types into the provider page)', () => {
+  // jsdom lays nothing out: an element counts as visible unless marked hidden
+  beforeEach(() => {
+    vi.spyOn(window.Element.prototype, 'getClientRects').mockImplementation(function (
+      this: HTMLElement
+    ) {
+      return (this.hasAttribute('hidden') ? [] : [{}]) as unknown as ReturnType<
+        HTMLElement['getClientRects']
+      >;
+    });
+  });
+  afterEach(() => vi.restoreAllMocks());
+
   it('finds the browser view that shows exactly this conversation', () => {
     const views = [
       { url: 'https://claude.ai/chat/other', target: 'a' },
@@ -288,6 +322,14 @@ describe('chatPrompt.js (types into the provider page)', () => {
     await expect(result).resolves.toBe('typed');
     expect(document.querySelector('.ProseMirror')!.textContent).toBe('Zeile');
     vi.useRealTimers();
+  });
+
+  it('a hidden textarea before the editor does not take the text', async () => {
+    document.body.innerHTML =
+      '<textarea hidden></textarea><div class="ProseMirror" contenteditable="true"></div>';
+    await expect(typeIntoPage('Hier', false)).resolves.toBe('typed');
+    expect(document.querySelector('textarea')!.value).toBe('');
+    expect(document.querySelector('.ProseMirror')!.textContent).toBe('Hier');
   });
 
   it('no prompt field: nothing typed', async () => {
