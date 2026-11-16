@@ -1,6 +1,7 @@
 // Prompt field (Bug 2) against composer-harness: hidden mount, browser split with long text,
 // drag handle remembered across reload, double-click back to auto-grow.
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/composer-e2e.cjs <harnessUrl> <outDir> <label>
+/* global window, localStorage, getComputedStyle */
 const { chromium } = require('playwright');
 const [url, out, label = 'run'] = process.argv.slice(2);
 const LONG =
@@ -50,6 +51,22 @@ const measure = (p) =>
   m = await measure(p);
   await shot(p, `${out}/${label}-2-split-long.png`);
   check('split view: text not clipped', !m.clipped, JSON.stringify(m));
+
+  // 2b. More text than the cap: capped height plus a scrollbar, nothing cut off
+  await p.fill('textarea', LONG.repeat(6));
+  await p.waitForTimeout(200);
+  const capped = await p.$eval('textarea', (el) => ({
+    height: el.offsetHeight,
+    overflowY: getComputedStyle(el).overflowY,
+  }));
+  await shot(p, `${out}/${label}-2b-past-cap.png`);
+  check(
+    'past the cap: scrollbar',
+    capped.height === 320 && capped.overflowY === 'auto',
+    JSON.stringify(capped)
+  );
+  await p.fill('textarea', LONG);
+  await p.waitForTimeout(200);
 
   // 3. Drag handle pins the height, survives reload, double-click returns to auto-grow
   const grip = await p.$('[role="separator"]');

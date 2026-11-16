@@ -14,7 +14,8 @@ export function fitHeight(
   return { height, scroll: content > height };
 }
 
-function readPinned(key: string): number | null {
+function readPinned(key?: string): number | null {
+  if (!key) return null;
   try {
     const n = Number(localStorage.getItem(key));
     return n > 0 ? n : null;
@@ -23,7 +24,8 @@ function readPinned(key: string): number | null {
   }
 }
 
-function savePinned(key: string, value: number | null) {
+function savePinned(key: string | undefined, value: number | null) {
+  if (!key) return;
   try {
     if (value) localStorage.setItem(key, String(Math.round(value)));
     else localStorage.removeItem(key);
@@ -42,7 +44,7 @@ function savePinned(key: string, value: number | null) {
 export function useAutoGrowTextarea(
   ref: React.RefObject<HTMLTextAreaElement | null>,
   value: string,
-  { min, max, storageKey }: { min: number; max: number; storageKey: string }
+  { min, max, storageKey }: { min: number; max: number; storageKey?: string }
 ) {
   const [pinned, setPinned] = useState(() => readPinned(storageKey));
 

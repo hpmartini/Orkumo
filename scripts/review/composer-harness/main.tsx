@@ -5,7 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { ChatComposer } from '../../../components/AgentsView/Chat/ChatComposer';
 
 const App = () => {
-  const params = new URLSearchParams(location.search);
+  const params = new URLSearchParams(window.location.search);
   const [value, setValue] = useState('');
   const [split, setSplit] = useState(false);
   const [visible, setVisible] = useState(params.get('hidden') !== '1');

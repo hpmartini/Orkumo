@@ -137,6 +137,25 @@ describe('wireViewPopups', () => {
     expect(popups.size).toBe(0);
   });
 
+  it('caps popups per view and keeps popup navigation on http(s)', () => {
+    const wc = makeWc();
+    const popups = wireViewPopups(wc, { parent: null, partition: 'p', route });
+    const open = () => wc.openHandler({ url: 'https://idp.example/a', disposition: 'new-window' });
+    for (let i = 0; i < 3; i++) {
+      expect(open().action).toBe('allow');
+      const popup = new EventEmitter();
+      popup.webContents = makeWc();
+      wc.emit('did-create-window', popup);
+      if (i === 0) {
+        const event = { preventDefault: vi.fn() };
+        popup.webContents.emit('will-navigate', event, 'file:///etc/passwd');
+        expect(event.preventDefault).toHaveBeenCalled();
+      }
+    }
+    expect(popups.size).toBe(3);
+    expect(open()).toEqual({ action: 'deny' });
+  });
+
   it('keeps target=_blank links in the view', () => {
     const wc = makeWc();
     wireViewPopups(wc, { parent: null, partition: 'p', route });

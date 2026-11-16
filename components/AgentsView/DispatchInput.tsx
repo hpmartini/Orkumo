@@ -5,7 +5,6 @@ import { HARNESSES, HARNESS_MODEL_FLAG, MODEL_SUGGESTIONS } from '../../utils/ag
 import { computeSuggestions, Suggestion } from '../../utils/agentInput';
 import { submitIntent } from '../../utils/composer';
 import { useAutoGrowTextarea } from '../../hooks/useAutoGrowTextarea';
-import { ResizeGrip } from '../ResizeGrip';
 
 interface DispatchInputProps {
   value: string;
@@ -42,7 +41,6 @@ interface DispatchInputProps {
 
 const MIN_HEIGHT = 96;
 const MAX_HEIGHT = 288;
-export const DISPATCH_INPUT_HEIGHT_KEY = 'devOrbitDispatchInputHeight';
 
 /**
  * The task composer body, rendered inside TaskComposerModal.
@@ -95,10 +93,10 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   const showSuggestions = suggestionsOpen && suggestions.length > 0;
 
   // Grow with the content; the scrollbar only exists once the maximum height is reached
-  const { handleProps } = useAutoGrowTextarea(inputRef, value, {
+  // No drag handle here: the field sits in a modal, not at the bottom of a pane
+  useAutoGrowTextarea(inputRef, value, {
     min: MIN_HEIGHT,
     max: MAX_HEIGHT,
-    storageKey: DISPATCH_INPUT_HEIGHT_KEY,
   });
 
   // Open the popover automatically when typing @ or /
@@ -221,37 +219,34 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
           ))}
         </ul>
       )}
-      <div className="relative">
-        <ResizeGrip {...handleProps} />
-        <textarea
-          ref={inputRef}
-          value={value}
-          disabled={disabled}
-          onChange={(e) => {
-            onChange(e.target.value);
-            setCaret(e.target.selectionStart);
-          }}
-          onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
-          onKeyDown={handleKeyDown}
-          onBlur={() => setSuggestionsOpen(false)}
-          placeholder={
-            isAgent
-              ? variant === 'chat'
-                ? otherHarness
-                  ? 'First message (optional) - /resume <id> picks up an earlier session'
-                  : 'First message (optional) - /resume or /continue picks up an earlier session'
-                : 'Optional first prompt - leave empty to start an idle session'
-              : 'Describe the task for a new session'
-          }
-          aria-label="Task description"
-          aria-autocomplete="list"
-          aria-controls={showSuggestions ? listId : undefined}
-          aria-activedescendant={showSuggestions ? `${listId}-${highlighted}` : undefined}
-          style={{ minHeight: MIN_HEIGHT }}
-          className="block w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-50 placeholder-gray-400 resize-none outline-none font-mono leading-6 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/40"
-          spellCheck={false}
-        />
-      </div>
+      <textarea
+        ref={inputRef}
+        value={value}
+        disabled={disabled}
+        onChange={(e) => {
+          onChange(e.target.value);
+          setCaret(e.target.selectionStart);
+        }}
+        onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart)}
+        onKeyDown={handleKeyDown}
+        onBlur={() => setSuggestionsOpen(false)}
+        placeholder={
+          isAgent
+            ? variant === 'chat'
+              ? otherHarness
+                ? 'First message (optional) - /resume <id> picks up an earlier session'
+                : 'First message (optional) - /resume or /continue picks up an earlier session'
+              : 'Optional first prompt - leave empty to start an idle session'
+            : 'Describe the task for a new session'
+        }
+        aria-label="Task description"
+        aria-autocomplete="list"
+        aria-controls={showSuggestions ? listId : undefined}
+        aria-activedescendant={showSuggestions ? `${listId}-${highlighted}` : undefined}
+        style={{ minHeight: MIN_HEIGHT }}
+        className="block w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-50 placeholder-gray-400 resize-none outline-none font-mono leading-6 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/40"
+        spellCheck={false}
+      />
       {attachments}
       <div className="flex items-center gap-2 mt-3">
         <button
