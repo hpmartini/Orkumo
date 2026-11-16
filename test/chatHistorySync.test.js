@@ -1,3 +1,4 @@
+/* global Response -- Node 18+ fetch API, used to fake provider responses */
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import fs from 'fs';
 import http from 'http';
