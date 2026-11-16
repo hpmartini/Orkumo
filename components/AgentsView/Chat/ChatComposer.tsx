@@ -13,8 +13,13 @@ import {
   type Edit,
 } from '../../../utils/chatComposer';
 import { fetchChatFiles } from '../../../services/agentsApi';
+import { useAutoGrowTextarea } from '../../../hooks/useAutoGrowTextarea';
+import { ResizeGrip } from '../../ResizeGrip';
 
 const MAX_HEIGHT = 320;
+// One full line: leading-6 + py-2 + border
+const MIN_HEIGHT = 42;
+export const CHAT_COMPOSER_HEIGHT_KEY = 'devOrbitChatComposerHeight';
 const KIND_LABEL: Record<ChatSuggestion['kind'], string> = {
   command: 'command',
   agent: 'agent',
@@ -62,15 +67,15 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const [dismissed, setDismissed] = useState<string | null>(null);
   const listRef = useRef<React.ElementRef<'ul'>>(null);
 
-  // Height follows the wrapped content, so no line is ever clipped
+  const { handleProps } = useAutoGrowTextarea(inputRef, value, {
+    min: MIN_HEIGHT,
+    max: MAX_HEIGHT,
+    storageKey: CHAT_COMPOSER_HEIGHT_KEY,
+  });
+
   useLayoutEffect(() => {
     const el = inputRef.current;
     if (!el) return;
-    el.style.height = 'auto';
-    // border-box: scrollHeight excludes the border, so add it or the text scrolls by 2px
-    const height = el.scrollHeight + el.offsetHeight - el.clientHeight;
-    el.style.height = `${Math.min(height, MAX_HEIGHT)}px`;
-    el.style.overflowY = height > MAX_HEIGHT ? 'auto' : 'hidden';
     if (pendingCaret.current !== null) {
       el.setSelectionRange(pendingCaret.current, pendingCaret.current);
       setCaret(pendingCaret.current);
@@ -259,35 +264,38 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
           </div>
         </div>
       )}
-      <textarea
-        id={`chat-input-${domId}`}
-        ref={inputRef}
-        value={value}
-        disabled={disabled}
-        rows={1}
-        onChange={(e) => {
-          historyIndex.current = -1;
-          setDismissed(null);
-          onChange(e.target.value);
-          setCaret(e.target.selectionStart);
-        }}
-        onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-        onKeyDown={onKeyDown}
-        onBlur={() => setDismissed(queryKey)}
-        placeholder={
-          disabled
-            ? 'Terminal not connected'
-            : submitKey === 'enter'
-              ? 'Message · Enter sends · / commands · @ files'
-              : 'Message · Cmd/Ctrl+Enter sends · / commands · @ files'
-        }
-        aria-label="Message"
-        aria-autocomplete="list"
-        aria-controls={open ? listId : undefined}
-        aria-activedescendant={open ? `${listId}-${highlighted}` : undefined}
-        style={{ maxHeight: MAX_HEIGHT }}
-        className="block w-full resize-none rounded-md bg-gray-900 border border-gray-700 px-2.5 py-2 text-sm leading-6 text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-400 disabled:opacity-50"
-      />
+      <div className="relative">
+        <ResizeGrip {...handleProps} />
+        <textarea
+          id={`chat-input-${domId}`}
+          ref={inputRef}
+          value={value}
+          disabled={disabled}
+          rows={1}
+          onChange={(e) => {
+            historyIndex.current = -1;
+            setDismissed(null);
+            onChange(e.target.value);
+            setCaret(e.target.selectionStart);
+          }}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+          onKeyDown={onKeyDown}
+          onBlur={() => setDismissed(queryKey)}
+          placeholder={
+            disabled
+              ? 'Terminal not connected'
+              : submitKey === 'enter'
+                ? 'Message · Enter sends · / commands · @ files'
+                : 'Message · Cmd/Ctrl+Enter sends · / commands · @ files'
+          }
+          aria-label="Message"
+          aria-autocomplete="list"
+          aria-controls={open ? listId : undefined}
+          aria-activedescendant={open ? `${listId}-${highlighted}` : undefined}
+          style={{ minHeight: MIN_HEIGHT }}
+          className="block w-full resize-none rounded-md bg-gray-900 border border-gray-700 px-2.5 py-2 text-sm leading-6 text-gray-100 placeholder:text-gray-500 focus:outline-none focus:border-blue-400 disabled:opacity-50"
+        />
+      </div>
     </div>
   );
 };
