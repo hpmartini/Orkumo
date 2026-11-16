@@ -467,7 +467,8 @@ export type AgentSortKey =
   | 'name'
   | 'repo'
   | 'prs'
-  | 'servers';
+  | 'servers'
+  | 'manual';
 
 export interface AgentSort {
   key: AgentSortKey;
@@ -489,6 +490,8 @@ export const SORT_OPTIONS: {
   { key: 'repo', label: 'Repository', dir: 'asc', directional: true },
   { key: 'prs', label: 'Open PRs', dir: 'desc', directional: true },
   { key: 'servers', label: 'Running servers', dir: 'desc', directional: true },
+  // Order comes from the per-group manual order (useRailPreferences), newest first until moved
+  { key: 'manual', label: 'Manual', dir: 'desc', directional: false },
 ];
 
 export const DEFAULT_SORT: AgentSort = { key: 'attention', dir: 'desc' };
@@ -594,6 +597,8 @@ function sortMetric(
       return openPrCount(session);
     case 'servers':
       return runningServerCount(session, lookup);
+    case 'manual':
+      return 0;
   }
 }
 

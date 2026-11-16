@@ -72,6 +72,9 @@ const SYNTHETIC_GROUPS = new Set<string>([ORCHESTRATORS_GROUP_KEY, FAVORITES_GRO
 /** Drag payload of a group header (separate from the workspace tab drag) */
 export const RAIL_GROUP_MIME = 'application/x-devorbit-rail-group';
 
+/** Drag payload of an agent row in manual sort mode (#299) */
+export const RAIL_SESSION_MIME = 'application/x-devorbit-rail-session';
+
 export interface AgentRowAction {
   id: string;
   label: string;
@@ -136,6 +139,14 @@ interface AgentListProps {
   onToggleFavoriteSession?: (id: string) => void;
   /** Drag-and-drop / menu reorder: move `key` to the position of `targetKey` among `visibleKeys` */
   onMoveGroup?: (key: string, targetKey: string, visibleKeys: string[]) => void;
+  /** Set only with the "Manual" sort: drag-and-drop / Alt+Up/Down moves an agent inside its group */
+  onMoveSession?: (
+    groupKey: string,
+    id: string,
+    targetId: string,
+    visibleIds: string[],
+    hiddenIds: string[]
+  ) => void;
   /** Board issue keys ("owner/name#12") per session id, derived from the GitHub project */
   issuesByAgent?: Map<string, string[]>;
   onOpenIssue?: (issueKey: string) => void;
@@ -238,6 +249,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   onToggleFavoriteGroup,
   onToggleFavoriteSession,
   onMoveGroup,
+  onMoveSession,
   issuesByAgent,
   onOpenIssue,
   orchestratorIds,
@@ -328,6 +340,22 @@ export const AgentList: React.FC<AgentListProps> = ({
     setDrag(null);
     setDropKey(null);
   };
+
+  // Agent drag-and-drop (manual sort): an agent only moves inside its own group
+  const [dragAgent, setDragAgent] = useState<{ id: string; group: string } | null>(null);
+  const [dropAgent, setDropAgent] = useState<string | null>(null);
+  const endAgentDrag = () => {
+    setDragAgent(null);
+    setDropAgent(null);
+  };
+  const moveAgent = (group: SessionGroup, id: string, targetId: string) =>
+    onMoveSession?.(
+      group.key as string,
+      id,
+      targetId,
+      group.sessions.map((s) => s.id),
+      group.hidden.map((s) => s.id)
+    );
 
   // After a keyboard move the selection stays on the moved group, not on its old index
   const followGroup = useRef<string | null>(null);
@@ -439,6 +467,15 @@ export const AgentList: React.FC<AgentListProps> = ({
         return;
       }
       if (e.altKey && !e.ctrlKey && !e.metaKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        if (item?.type === 'session' && onMoveSession) {
+          const ids = item.group.sessions.map((s) => s.id);
+          const at = ids.indexOf(item.session.id);
+          const target = ids[at + (e.key === 'ArrowUp' ? -1 : 1)];
+          e.preventDefault();
+          e.stopPropagation();
+          if (target) moveAgent(item.group, item.session.id, target);
+          return;
+        }
         if (item?.type !== 'group') return;
         const key: string = item.group.key;
         const target = canReorder(key) ? neighbour(key, e.key === 'ArrowUp' ? -1 : 1) : null;
@@ -925,7 +962,31 @@ export const AgentList: React.FC<AgentListProps> = ({
                       }}
                       onDoubleClick={() => onActivate(item)}
                       onContextMenu={(e) => openMenu(index, e)}
+                      draggable={onMoveSession && item.group.sessions.length > 1 ? true : undefined}
+                      onDragStart={(e) => {
+                        if (!onMoveSession) return;
+                        e.dataTransfer.setData(RAIL_SESSION_MIME, session.id);
+                        e.dataTransfer.effectAllowed = 'move';
+                        setDragAgent({ id: session.id, group: item.group.key as string });
+                      }}
+                      onDragOver={(e) => {
+                        if (!dragAgent || dragAgent.group !== item.group.key) return;
+                        if (dragAgent.id === session.id) return;
+                        e.preventDefault();
+                        e.dataTransfer.dropEffect = 'move';
+                        setDropAgent(session.id);
+                      }}
+                      onDragLeave={() => setDropAgent((k) => (k === session.id ? null : k))}
+                      onDrop={(e) => {
+                        if (!dragAgent || dragAgent.group !== item.group.key) return;
+                        e.preventDefault();
+                        moveAgent(item.group, dragAgent.id, session.id);
+                        endAgentDrag();
+                      }}
+                      onDragEnd={endAgentDrag}
                       className={`group relative flex items-start gap-2 px-3 ${comfortable ? 'py-2.5' : 'py-1.5'} text-sm cursor-pointer border-t border-gray-700/60 first:border-t-0 text-gray-300 hover:bg-gray-800 ${
+                        dragAgent?.id === session.id ? 'opacity-50 ' : ''
+                      }${dropAgent === session.id ? 'shadow-[inset_0_2px_0_0_#60a5fa] ' : ''}${
                         // #210: shown in the workspace = strong, attached in a tab = medium (left bar), a click alone = nothing
                         isActive
                           ? 'outline outline-2 -outline-offset-2 outline-blue-400 bg-blue-400/15 text-white'
