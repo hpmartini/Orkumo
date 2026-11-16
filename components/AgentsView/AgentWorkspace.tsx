@@ -61,6 +61,24 @@ interface AgentWorkspaceProps {
   views?: Record<string, PaneView>;
   /** Switches a pane between terminal and UI view; its process is untouched */
   onSetView?: (sessionId: string, view: PaneView) => void;
+  /**
+   * Own content for a pane (Chats mode: a conversation reader); null keeps the default. Such a
+   * pane never gets a terminal, so no process starts for it.
+   */
+  renderCustomPane?: (session: AgentSession, pane: CustomPaneProps) => React.ReactNode | null;
+  /** Shown while no tab is open */
+  emptyState?: React.ReactNode;
+}
+
+export interface CustomPaneProps {
+  active: boolean;
+  visible: boolean;
+  onFocus: () => void;
+  onClose: () => void;
+  /** Own tab; only while the tab holds several panes */
+  onMaximize?: () => void;
+  /** Drag handle for rearranging; only while the tab holds several panes */
+  headerProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
 /** What is being dragged: a whole tab (moves its active session on split) or one pane */
@@ -238,6 +256,8 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   onToggleChatSteps,
   views = {},
   onSetView,
+  renderCustomPane,
+  emptyState,
   hidden = false,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -343,6 +363,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   };
 
   if (tabs.length === 0) {
+    if (emptyState) return <>{emptyState}</>;
     return (
       <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-3 p-8 text-center">
         <Bot size={40} className="text-gray-700" />
@@ -383,9 +404,19 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
           className: drag?.id === session.id ? 'opacity-50' : '',
         }
       : undefined;
+    const custom = renderCustomPane?.(session, {
+      active,
+      visible,
+      onFocus: () => onFocusPane(session.id),
+      onClose: () => onClosePane(session.id),
+      onMaximize: multi ? () => onDetach(session.id) : undefined,
+      headerProps: dragHeader,
+    });
     return (
       <div className="relative h-full min-h-0">
-        {url !== null ? (
+        {custom ? (
+          custom
+        ) : url !== null ? (
           <BrowserPane
             url={url}
             active={active}
@@ -420,7 +451,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             />
           </div>
         )}
-        {chatView && (
+        {chatView && !custom && (
           <div className="absolute inset-0">
             <ChatPane
               pane={session}

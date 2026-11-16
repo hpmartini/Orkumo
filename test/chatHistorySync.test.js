@@ -335,3 +335,68 @@ describe('electron/chatSync.js against fake providers (#280)', () => {
     expect(providers.requests).toHaveLength(0);
   });
 });
+
+describe('chat view images (createChatSync().asset)', () => {
+  const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+  /** Fake provider fetch: records urls and auth, answers by url */
+  const fake = (routes) => {
+    const calls = [];
+    const providerFetch = async (url, init = {}) => {
+      calls.push({ url, auth: init.headers?.authorization });
+      const hit = routes[url];
+      if (!hit) return new Response('nope', { status: 404 });
+      return typeof hit === 'function' ? hit() : hit;
+    };
+    return { calls, providerFetch };
+  };
+  const image = (type = 'image/png', body = PNG) =>
+    new Response(body, { status: 200, headers: { 'content-type': type } });
+  const make = (providerFetch) =>
+    createChatSync({
+      providerFetch,
+      serverUrl: 'http://127.0.0.1:1',
+      bases: { claude: 'https://claude.ai', chatgpt: 'https://chatgpt.com' },
+    });
+
+  it('claude.ai: only its preview paths, as a data url', async () => {
+    const { calls, providerFetch } = fake({
+      'https://claude.ai/api/org-1/files/img-1/preview': () => image(),
+    });
+    const sync = make(providerFetch);
+    expect(await sync.asset('claude', '/api/org-1/files/img-1/preview')).toBe(
+      `data:image/png;base64,${PNG.toString('base64')}`
+    );
+    // nothing outside the preview paths is fetched with the login
+    for (const ref of [
+      'https://evil.example/x',
+      '/api/../logout',
+      '//evil.example/a',
+      '/api/a/files/b/raw',
+    ])
+      expect(await sync.asset('claude', ref)).toBeNull();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('ChatGPT: signed link on an OpenAI host only, token not sent there; images only', async () => {
+    const session = () => Response.json({ accessToken: TOKEN });
+    const { calls, providerFetch } = fake({
+      'https://chatgpt.com/api/auth/session': session,
+      'https://chatgpt.com/backend-api/files/download/file-ok': () =>
+        Response.json({ download_url: 'https://files.oaiusercontent.com/file-ok?sig=1' }),
+      'https://files.oaiusercontent.com/file-ok?sig=1': () => image('image/webp'),
+      'https://chatgpt.com/backend-api/files/download/file-evil': () =>
+        Response.json({ download_url: 'https://evil.example/steal' }),
+      'https://chatgpt.com/backend-api/files/download/file-html': () =>
+        Response.json({ download_url: 'https://files.oaiusercontent.com/page' }),
+      'https://files.oaiusercontent.com/page': () => image('text/html', Buffer.from('<p>')),
+    });
+    const sync = make(providerFetch);
+    expect(await sync.asset('chatgpt', 'file-ok')).toMatch(/^data:image\/webp;base64,/);
+    expect(calls.find((c) => c.url.startsWith('https://files.')).auth).toBeUndefined();
+    expect(await sync.asset('chatgpt', 'file-evil')).toBeNull();
+    expect(calls.some((c) => c.url.includes('evil.example'))).toBe(false);
+    expect(await sync.asset('chatgpt', 'file-html')).toBeNull();
+    expect(await sync.asset('chatgpt', '../backend-api/me')).toBeNull();
+    expect(await sync.asset('other', 'file-ok')).toBeNull();
+  });
+});

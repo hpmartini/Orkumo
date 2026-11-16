@@ -3,150 +3,53 @@ import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
-  Archive,
-  ArchiveRestore,
-  Bot,
   Check,
-  Download,
-  ExternalLink,
-  Folder,
   FolderOpen,
   History,
   LogIn,
-  MessageSquarePlus,
   MoreHorizontal,
-  Pencil,
   Pin,
-  PinOff,
   RefreshCw,
   Search,
   SlidersHorizontal,
   SquarePen,
 } from 'lucide-react';
 import {
-  fetchChatConversation,
   fetchChatHistory,
   importChatExport,
-  updateChatMeta,
-  type ChatHistoryConversation,
   type ChatHistoryItem,
   type ChatHistoryList,
   type ChatImportReport,
-  type ChatMetaPatch,
   type ChatProvider,
   type ChatSource,
 } from '../../services/chatHistoryApi';
-import { uploadAgentFile } from '../../services/agentsApi';
 import type { ChatSyncResult, ChatSyncStatus } from '../../electron/electron';
 import {
-  PROVIDER_HARNESS,
   PROVIDER_LABEL,
   PROVIDER_LOGIN,
   PROVIDER_SITE,
   RECENCY,
-  continuePrompt,
-  conversationMarkdown,
-  conversationUrl,
   dayBound,
-  isWebProvider,
-  markdownFileName,
-  promptLimit,
   recencyOf,
   relativeTime,
 } from '../../utils/chatHistory';
-import { harnessLabel } from '../../utils/agentSessions';
 import { openInSystemBrowser, openLink } from '../../utils/links';
 import { Filter, ICON_BTN, SELECT_CLS } from '../AgentsView/PullRequestsPage';
 import { RailOutletContext } from '../AgentsView/railOutlet';
-import { ChatMarkdown } from '../AgentsView/Chat/ChatMarkdown';
+import { AgentWorkspace } from '../AgentsView/AgentWorkspace';
+import { ChatReader, ProviderBadge } from './ChatReader';
+import { historyChatId, useChatTabs } from './useChatTabs';
 
 const PAGE = 200;
 // Low rate on purpose (the providers' terms, the user's account): once on opening, then this often
 const SYNC_EVERY_MS = 5 * 60_000;
+/** After a prompt was sent on the provider's page: one sync when the answer is likely complete */
+const ANSWER_SYNC_MS = 45_000;
 const PROVIDERS: ChatProvider[] = ['claude', 'chatgpt'];
 /** The list's sources: the synced providers plus the chats started in Orkumo (#19 AK-4) */
 const SOURCES: ChatSource[] = [...PROVIDERS, 'orkumo'];
-const PROVIDER_CLS: Record<ChatSource, string> = {
-  claude: 'bg-orange-500/15 text-orange-300',
-  chatgpt: 'bg-emerald-500/15 text-emerald-300',
-  orkumo: 'bg-blue-500/15 text-blue-300',
-};
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
 const CHIP = 'inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] border';
-
-const day = (time: number | null) =>
-  time ? new Date(time).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '';
-
-const ProviderBadge: React.FC<{ provider: ChatSource }> = ({ provider }) => (
-  <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${PROVIDER_CLS[provider]}`}>
-    {PROVIDER_LABEL[provider]}
-  </span>
-);
-
-/** Saves a conversation as Markdown through the browser's download (#19 AK-6) */
-function downloadMarkdown(conversation: ChatHistoryConversation) {
-  const url = URL.createObjectURL(
-    new Blob([conversationMarkdown(conversation)], { type: 'text/markdown;charset=utf-8' })
-  );
-  const link = document.createElement('a');
-  link.href = url;
-  link.download = markdownFileName(conversation);
-  link.click();
-  // the download has its own copy once started
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-}
-
-/** One-line text form in the reader header (rename, folder); Enter saves, Escape cancels */
-const InlineField: React.FC<{
-  label: string;
-  initial: string;
-  placeholder?: string;
-  suggestions?: string[];
-  maxLength: number;
-  onSave: (value: string) => void;
-  onCancel: () => void;
-}> = ({ label, initial, placeholder, suggestions = [], maxLength, onSave, onCancel }) => {
-  const [value, setValue] = useState(initial);
-  return (
-    <form
-      className="flex items-center gap-1"
-      onSubmit={(e) => {
-        e.preventDefault();
-        onSave(value);
-      }}
-    >
-      <input
-        autoFocus
-        aria-label={label}
-        value={value}
-        maxLength={maxLength}
-        placeholder={placeholder}
-        list={suggestions.length ? 'chat-folder-suggestions' : undefined}
-        onChange={(e) => setValue(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape') {
-            e.preventDefault();
-            onCancel();
-          }
-        }}
-        className={`${SELECT_CLS} !max-w-none w-56`}
-      />
-      {suggestions.length > 0 && (
-        <datalist id="chat-folder-suggestions">
-          {suggestions.map((s) => (
-            <option key={s} value={s} />
-          ))}
-        </datalist>
-      )}
-      <button type="submit" className={`${ICON_BTN} border border-gray-700`}>
-        Save
-      </button>
-      <button type="button" onClick={onCancel} className={ICON_BTN}>
-        Cancel
-      </button>
-    </form>
-  );
-};
 
 const reportLine = (file: ChatImportReport['files'][number]) => {
   const skipped = Object.entries(file.skipped)
@@ -313,10 +216,7 @@ export const ChatHistoryPage: React.FC = () => {
   const [limit, setLimit] = useState(PAGE);
   const [data, setData] = useState<ChatHistoryList | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [open, setOpen] = useState<ChatHistoryConversation | null>(null);
-  // reader header form: rename or file into a folder (#19 AK-5)
-  const [editing, setEditing] = useState<'title' | 'folder' | null>(null);
-  const [continuing, setContinuing] = useState(false);
+  const tabs = useChatTabs();
   const [menuOpen, setMenuOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [importPath, setImportPath] = useState('');
@@ -328,7 +228,13 @@ export const ChatHistoryPage: React.FC = () => {
   const outlet = useContext(RailOutletContext);
   const wide = useWide();
   const reload = useCallback(() => setReloads((n) => n + 1), []);
-  const sync = useChatSync(reload);
+  // new data from the providers (sync, import): open chats refetch, a pin or rename does not
+  const [arrivals, setArrivals] = useState(0);
+  const arrived = useCallback(() => {
+    reload();
+    setArrivals((n) => n + 1);
+  }, [reload]);
+  const sync = useChatSync(arrived);
 
   useEffect(() => {
     const run = ++latest.current;
@@ -357,58 +263,16 @@ export const ChatHistoryPage: React.FC = () => {
     return () => clearTimeout(timer);
   }, [q, provider, project, topic, folder, archived, from, to, limit, reloads]);
 
-  const openConversation = useCallback((id: string) => {
-    setEditing(null);
-    fetchChatConversation(id)
-      .then(setOpen)
-      .catch((e: Error) => setError(e.message));
-  }, []);
-
-  /** Pin, rename, file, archive the open conversation; the list follows (#19 AK-5) */
-  const mark = async (patch: ChatMetaPatch) => {
-    if (!open) return;
-    try {
-      const item = await updateChatMeta(open.id, patch);
-      setOpen((c) => (c && c.id === item.id ? { ...c, ...item } : c));
-      setEditing(null);
-      reload();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  };
-
   /** "New chat" (#19 AK-1): the chat composer in the chats folder, no project to pick */
-  const newChat = () => navigate('/agents', { state: { dispatch: '', mode: 'chat', place: 'chats' } });
+  const newChat = () =>
+    navigate('/agents', { state: { dispatch: '', mode: 'chat', place: 'chats' } });
 
-  /**
-   * Carries a claude.ai / ChatGPT conversation into a new Orkumo chat on the CLI of the same
-   * subscription, in the chats folder. The whole conversation goes along as a Markdown file; the
-   * prompt repeats as much of its end as the harness's start prompt takes (#19 AK-7).
-   */
-  const continueChat = async (conversation: ChatHistoryConversation) => {
-    if (!isWebProvider(conversation.provider) || continuing) return;
-    const harness = PROVIDER_HARNESS[conversation.provider];
-    setContinuing(true);
-    let file: string | null = null;
-    try {
-      file = await uploadAgentFile(
-        new File([conversationMarkdown(conversation)], markdownFileName(conversation), {
-          type: 'text/markdown',
-        })
-      );
-    } catch {
-      // the prompt still carries the conversation's end
-    } finally {
-      setContinuing(false);
-    }
-    navigate('/agents', {
-      state: {
-        dispatch: continuePrompt(conversation, promptLimit(harness), file),
-        mode: 'chat',
-        harness,
-        place: 'chats',
-      },
-    });
+  // A prompt sent on the provider's page: fetch the answer once it had time to arrive
+  const syncSoon = useRef<number | undefined>(undefined);
+  useEffect(() => () => clearTimeout(syncSoon.current), []);
+  const afterSend = () => {
+    clearTimeout(syncSoon.current);
+    syncSoon.current = window.setTimeout(sync.run, ANSWER_SYNC_MS);
   };
 
   const runImport = async (path: string) => {
@@ -418,7 +282,7 @@ export const ChatHistoryPage: React.FC = () => {
     try {
       setReport(await importChatExport(path));
       setError(null);
-      reload();
+      arrived();
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -480,7 +344,9 @@ export const ChatHistoryPage: React.FC = () => {
   const importShown = importOpen || !sync.available;
   const syncing = sync.running || PROVIDERS.some((p) => sync.statuses[p]?.status === 'syncing');
   const extraFilters =
-    [project, topic, folder, from, to].filter(Boolean).length + (grouped ? 1 : 0) + (archived ? 1 : 0);
+    [project, topic, folder, from, to].filter(Boolean).length +
+    (grouped ? 1 : 0) +
+    (archived ? 1 : 0);
   const problems = PROVIDERS.flatMap((p) => {
     const s = sync.statuses[p];
     return s?.reason && (s.status === 'error' || s.status === 'unavailable')
@@ -775,10 +641,10 @@ export const ChatHistoryPage: React.FC = () => {
                     <button
                       type="button"
                       data-chat-row
-                      onClick={() => openConversation(item.id)}
-                      aria-current={open?.id === item.id || undefined}
+                      onClick={() => tabs.open(item.id, item.title)}
+                      aria-current={tabs.current === item.id || undefined}
                       title={item.projectName ? `${item.title} · ${item.projectName}` : item.title}
-                      className={`w-full text-left px-3 py-1.5 hover:bg-gray-800/60 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${open?.id === item.id ? 'bg-gray-800' : ''}`}
+                      className={`w-full text-left px-3 py-1.5 hover:bg-gray-800/60 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor ${tabs.current === item.id ? 'bg-gray-800' : ''}`}
                     >
                       <span className="flex items-center gap-2">
                         <ProviderBadge provider={item.provider} />
@@ -831,166 +697,51 @@ export const ChatHistoryPage: React.FC = () => {
         </div>
       )}
 
-      <div className="flex-1 min-w-0 overflow-auto" aria-label="Conversation">
-        {!open ? (
-          <p className="px-4 py-6 text-sm text-gray-400">
-            {items.length > 0 ? 'Pick a chat on the left to read it.' : ''}
-          </p>
-        ) : (
-          <article className="max-w-3xl mx-auto px-4 py-3">
-            <header className="flex flex-wrap items-start gap-2 pb-3 mb-1 border-b border-gray-800">
-              <div className="flex-1 min-w-[12rem]">
-                {editing === 'title' ? (
-                  <InlineField
-                    label="Chat title"
-                    initial={open.title}
-                    maxLength={200}
-                    onSave={(title) => void mark({ title: title.trim() || null })}
-                    onCancel={() => setEditing(null)}
-                  />
-                ) : (
-                  <h2 className="text-base font-medium text-gray-100">{open.title}</h2>
-                )}
-                <p className="text-xs text-gray-400 flex flex-wrap items-center gap-2 mt-1">
-                  <ProviderBadge provider={open.provider} />
-                  {[...new Set([day(open.createdAt), day(open.updatedAt)].filter(Boolean))].join(
-                    ' – '
-                  )}
-                  {open.projectName && <span>· {open.projectName}</span>}
-                  {open.harness && <span>· {harnessLabel(open.harness)}</span>}
-                  <span>· {open.messages.length} messages</span>
-                  {open.folder && (
-                    <span className="inline-flex items-center gap-1">
-                      · <Folder size={11} aria-hidden /> {open.folder}
-                    </span>
-                  )}
-                  {open.archived && <span>· archived</span>}
-                </p>
-                {editing === 'folder' && (
-                  <div className="mt-2">
-                    <InlineField
-                      label="Folder"
-                      initial={open.folder ?? ''}
-                      placeholder="Folder name, empty = none"
-                      suggestions={(data?.folders ?? []).map((f) => f.name)}
-                      maxLength={60}
-                      onSave={(name) => void mark({ folder: name.trim() || null })}
-                      onCancel={() => setEditing(null)}
-                    />
-                  </div>
-                )}
-              </div>
-              <div role="group" className="flex flex-wrap items-center gap-1" aria-label="Chat actions">
-                <button
-                  type="button"
-                  onClick={() => void mark({ pinned: !open.pinned })}
-                  className={ICON_BTN}
-                  aria-label={open.pinned ? 'Unpin' : 'Pin'}
-                  title={open.pinned ? 'Unpin' : 'Pin to the top of the list'}
-                >
-                  {open.pinned ? <PinOff size={12} aria-hidden /> : <Pin size={12} aria-hidden />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditing('title')}
-                  className={ICON_BTN}
-                  aria-label="Rename"
-                  title="Rename (here only; the provider keeps its title)"
-                >
-                  <Pencil size={12} aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setEditing('folder')}
-                  className={ICON_BTN}
-                  aria-label="Move to folder"
-                  title="Move to a folder"
-                >
-                  <Folder size={12} aria-hidden />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void mark({ archived: !open.archived })}
-                  className={ICON_BTN}
-                  aria-label={open.archived ? 'Unarchive' : 'Archive'}
-                  title={open.archived ? 'Back into the list' : 'Archive: hidden unless filtered'}
-                >
-                  {open.archived ? (
-                    <ArchiveRestore size={12} aria-hidden />
-                  ) : (
-                    <Archive size={12} aria-hidden />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => downloadMarkdown(open)}
-                  className={ICON_BTN}
-                  aria-label="Export as Markdown"
-                  title="Download as Markdown"
-                >
-                  <Download size={12} aria-hidden />
-                </button>
-              </div>
-              {isWebProvider(open.provider) ? (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => openInSystemBrowser(conversationUrl(open) ?? '')}
-                    className={`${ICON_BTN} border border-gray-700`}
-                    title="Opens the conversation in the system browser"
-                  >
-                    <ExternalLink size={12} aria-hidden /> Open on {PROVIDER_SITE[open.provider]}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void continueChat(open)}
-                    disabled={continuing}
-                    className={`${ICON_BTN} border border-gray-700 disabled:opacity-50`}
-                    title="Opens a new Orkumo chat with this conversation as its start, on the same subscription (Claude Code or Codex); the whole conversation goes along as a file"
-                  >
-                    <MessageSquarePlus size={12} aria-hidden /> Continue in Orkumo
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() =>
-                    navigate('/agents', {
-                      state: {
-                        openChat: {
-                          harness: open.harness,
-                          sessionId: open.sessionId,
-                          cwd: open.cwd,
-                          title: open.title,
-                        },
-                      },
-                    })
-                  }
-                  className={`${ICON_BTN} border border-gray-700`}
-                  title="Opens this chat in Agents: its pane if it runs, else it resumes"
-                >
-                  <Bot size={12} aria-hidden /> Open in Agents
-                </button>
-              )}
-            </header>
-            {open.messages.map((message, i) =>
-              message.role === 'user' ? (
-                <div key={i} className="flex justify-end my-3">
-                  <div className="max-w-[85%] rounded-lg bg-blue-900/50 border border-blue-800/60 px-3 py-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
-                    {message.text}
-                  </div>
-                </div>
-              ) : (
-                <div key={i} className="my-3">
-                  <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
-                    {open.harness ? harnessLabel(open.harness) : PROVIDER_LABEL[open.provider]}
-                  </div>
-                  <ChatMarkdown text={message.text} />
-                </div>
-              )
-            )}
-          </article>
-        )}
+      <div className="flex-1 min-w-0 min-h-0">
+        <AgentWorkspace
+          sessions={tabs.sessions}
+          workspace={tabs.workspace}
+          onActivateTab={tabs.activateTab}
+          onFocusPane={tabs.focus}
+          onClosePane={tabs.close}
+          onCloseTab={tabs.closeTab}
+          onMoveTab={tabs.moveTab}
+          onSplit={tabs.split}
+          onDetach={tabs.detach}
+          onSetLayout={tabs.setLayout}
+          onPeek={() => {}}
+          focusZone="terminal"
+          emptyState={
+            <p className="px-4 py-6 text-sm text-gray-400">
+              {items.length > 0
+                ? 'Pick a chat on the left to read it. Each chat opens in its own tab; drag a tab onto another to see chats side by side.'
+                : ''}
+            </p>
+          }
+          renderCustomPane={(session, pane) => {
+            const id = historyChatId(session.id);
+            return id === null ? null : (
+              <ChatReader
+                key={id}
+                id={id}
+                version={arrivals}
+                folders={(data?.folders ?? []).map((f) => f.name)}
+                {...pane}
+                onChanged={(item) => {
+                  reload();
+                  tabs.retitle(item.id, item.title);
+                }}
+                onOpenSite={(url) =>
+                  // the providers refuse to be framed: the web app hands them to the system browser
+                  window.electronAPI?.browserView
+                    ? tabs.openSite(session.id, url)
+                    : openInSystemBrowser(url)
+                }
+                onSent={afterSend}
+              />
+            );
+          }}
+        />
       </div>
     </div>
   );

@@ -50,8 +50,36 @@ export interface ChatHistoryList {
   tookMs: number;
 }
 
+/** What claude.ai / ChatGPT show in a message besides its text (server: chatParts.js) */
+export type ChatPart =
+  | { type: 'text'; text: string }
+  | { type: 'thinking'; text: string }
+  | {
+      type: 'artifact';
+      id: string;
+      title: string;
+      /** MIME-like: text/markdown, text/html, image/svg+xml, application/vnd.ant.react|code|mermaid */
+      kind: string;
+      language?: string;
+      content: string;
+      version: number;
+    }
+  | { type: 'file'; name: string; mime?: string; size?: number; content?: string }
+  /** `asset`: provider reference, fetched by electron `chatSync.asset` */
+  | { type: 'image'; name?: string; asset?: string }
+  | { type: 'tool'; name: string; input?: string; output?: string; error?: boolean }
+  | { type: 'sources'; items: { title: string; url: string }[] };
+
+export interface ChatHistoryMessage {
+  role: 'user' | 'assistant';
+  /** Plain text of the message (search, export); `parts` holds everything in order */
+  text: string;
+  at: number | null;
+  parts?: ChatPart[];
+}
+
 export interface ChatHistoryConversation extends Omit<ChatHistoryItem, 'snippet'> {
-  messages: { role: 'user' | 'assistant'; text: string; at: number | null }[];
+  messages: ChatHistoryMessage[];
 }
 
 export interface ChatHistoryQuery {

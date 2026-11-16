@@ -2715,6 +2715,7 @@ const chatIngestSchema = z.object({
     .object({
       lastUpdatedAt: z.number().int().nonnegative().optional(),
       orgId: z.string().max(100).optional(),
+      format: z.number().int().positive().optional(),
     })
     .strict()
     .optional(),
