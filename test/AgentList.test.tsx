@@ -403,3 +403,69 @@ describe('AgentList card highlights (#210)', () => {
     expect(highlights('b')).toEqual(MEDIUM);
   });
 });
+
+describe('AgentList manual agent order (#299)', () => {
+  const a = session({ id: 'a', name: 'alpha' });
+  const b = session({ id: 'b', name: 'beta' });
+  const c = session({ id: 'c', name: 'gamma' });
+  const group = {
+    key: 'g',
+    title: 'Group',
+    sessions: [a, b, c],
+    hidden: [],
+  } as unknown as SessionGroup;
+  const setup = (onMoveSession?: ReturnType<typeof vi.fn>, selectedIndex = 1) =>
+    render(
+      <div data-focus-zone="rail">
+        <AgentList
+          items={[a, b, c].map((s) => ({ type: 'session', session: s, group }) as NavItem)}
+          selectedIndex={selectedIndex}
+          onSelectIndex={() => {}}
+          onActivate={() => {}}
+          onTogglePeek={() => {}}
+          peekId={null}
+          openIds={new Set()}
+          now={2000}
+          grouping="state"
+          lookup={{}}
+          contexts={{}}
+          servers={new Map()}
+          rowActions={() => []}
+          groupActions={() => []}
+          collapsedKeys={new Set()}
+          onOpenPr={() => {}}
+          onMoveSession={onMoveSession}
+        />
+      </div>
+    );
+  const row = (id: string) => document.querySelector<HTMLElement>(`[data-session-id="${id}"]`)!;
+
+  it('moves an agent by drag-and-drop onto another row of its group', () => {
+    const onMove = vi.fn();
+    setup(onMove);
+    const data = new Map<string, string>();
+    const dataTransfer = {
+      setData: (k: string, v: string) => data.set(k, v),
+      effectAllowed: '',
+      dropEffect: '',
+    };
+    fireEvent.dragStart(row('c'), { dataTransfer });
+    fireEvent.dragOver(row('a'), { dataTransfer });
+    fireEvent.drop(row('a'), { dataTransfer });
+    expect(onMove).toHaveBeenCalledWith('g', 'c', 'a', ['a', 'b', 'c'], []);
+  });
+
+  it('moves the selected agent with Alt+ArrowUp/Down and stops at the edges', () => {
+    const onMove = vi.fn();
+    setup(onMove);
+    fireEvent.keyDown(row('b'), { key: 'ArrowUp', altKey: true });
+    expect(onMove).toHaveBeenLastCalledWith('g', 'b', 'a', ['a', 'b', 'c'], []);
+    fireEvent.keyDown(row('b'), { key: 'ArrowDown', altKey: true });
+    expect(onMove).toHaveBeenLastCalledWith('g', 'b', 'c', ['a', 'b', 'c'], []);
+  });
+
+  it('rows are not draggable without manual mode', () => {
+    setup(undefined);
+    expect(row('a').hasAttribute('draggable')).toBe(false);
+  });
+});
