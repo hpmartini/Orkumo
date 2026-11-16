@@ -74,12 +74,15 @@ export function windowOpenTarget({ url, disposition }, route) {
  * Wire window.open for one view; returns the live set of its popup windows (the
  * caller closes them with the view). route(url) is validation.js windowOpenRoute.
  */
+// Sign-in needs one popup; a few more cover multi-step flows, a page cannot flood the screen
+const MAX_POPUPS = 3;
+
 export function wireViewPopups(webContents, { parent, partition, route }) {
   const popups = new Set();
   webContents.setWindowOpenHandler((details) => {
     const target = windowOpenTarget(details, route);
     if (target === 'view') webContents.loadURL(details.url).catch(() => {});
-    if (target !== 'popup') return { action: 'deny' };
+    if (target !== 'popup' || popups.size >= MAX_POPUPS) return { action: 'deny' };
     return {
       action: 'allow',
       overrideBrowserWindowOptions: {
@@ -97,6 +100,17 @@ export function wireViewPopups(webContents, { parent, partition, route }) {
   webContents.on('did-create-window', (popup) => {
     popups.add(popup);
     popup.on('closed', () => popups.delete(popup));
+    // No address bar: the title names the origin, so a page cannot pose as another site
+    const showOrigin = (event) => {
+      event?.preventDefault();
+      const url = popup.webContents.getURL();
+      if (url) popup.setTitle(`${new URL(url).host} - ${popup.webContents.getTitle()}`);
+    };
+    popup.webContents.on('page-title-updated', showOrigin);
+    popup.webContents.on('did-navigate', () => showOrigin());
+    popup.webContents.on('will-navigate', (event, url) => {
+      if (route(url) !== 'renderer') event.preventDefault();
+    });
     // A popup's own window.open stays inside the popup
     popup.webContents.setWindowOpenHandler(({ url }) => {
       if (route(url) === 'renderer') popup.webContents.loadURL(url).catch(() => {});
