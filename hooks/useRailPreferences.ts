@@ -21,6 +21,8 @@ interface RailPrefs {
   expandedSessions: string[];
   /** Directories of fixed projects (#253): their project groups stay without sessions */
   fixedProjects: string[];
+  /** Manual agent order per group key (#299): session ids, used by the "Manual" sort */
+  sessionOrder: Record<string, string[]>;
 }
 
 const EMPTY_MODE: ModePrefs = { collapsed: [], order: [] };
@@ -30,6 +32,7 @@ const EMPTY: RailPrefs = {
   favoriteSessions: [],
   expandedSessions: [],
   fixedProjects: [],
+  sessionOrder: {},
 };
 
 // ---------------------------------------------------------------------
@@ -122,6 +125,46 @@ export function moveGroup(
   return [...current, ...order.filter((k) => !visibleKeys.includes(k))];
 }
 
+/**
+ * Applies the manual agent order per group (#299). Sessions missing from a group's stored order
+ * (new agents) come first in their incoming order; stored ids that are gone are ignored.
+ */
+export function applySessionOrder(
+  groups: SessionGroup[],
+  orders: Record<string, string[]>
+): SessionGroup[] {
+  return groups.map((g) => {
+    const stored = orders[g.key];
+    if (!stored?.length) return g;
+    const rank = new Map(stored.map((id, i) => [id, i]));
+    const known = g.sessions.filter((s) => rank.has(s.id));
+    const fresh = g.sessions.filter((s) => !rank.has(s.id));
+    known.sort((a, b) => rank.get(a.id)! - rank.get(b.id)!);
+    return { ...g, sessions: [...fresh, ...known] };
+  });
+}
+
+/**
+ * New stored order after moving `id` to the slot of `targetId` among the displayed `visibleIds`.
+ * Entries of sessions folded away (`hiddenIds`) are kept after them; every other stored id is
+ * gone and dropped. Returns `stored` itself when nothing moves.
+ */
+export function moveSession(
+  stored: string[],
+  visibleIds: string[],
+  hiddenIds: string[],
+  id: string,
+  targetId: string
+): string[] {
+  const from = visibleIds.indexOf(id);
+  const to = visibleIds.indexOf(targetId);
+  if (from < 0 || to < 0 || from === to) return stored;
+  const next = [...visibleIds];
+  next.splice(to, 0, next.splice(from, 1)[0]);
+  const hidden = new Set(hiddenIds);
+  return [...next, ...stored.filter((x) => hidden.has(x))];
+}
+
 /** Key of the group (visible or folded away) that holds the session */
 export const findGroupKeyOf = (groups: SessionGroup[], sessionId: string): string | null =>
   groups.find((g) => [...g.sessions, ...g.hidden].some((s) => s.id === sessionId))?.key ?? null;
@@ -179,6 +222,13 @@ function load(): RailPrefs {
       favoriteSessions: strings(raw.favoriteSessions),
       expandedSessions: strings(raw.expandedSessions),
       fixedProjects: strings(raw.fixedProjects),
+      sessionOrder: Object.fromEntries(
+        Object.entries(
+          raw.sessionOrder && typeof raw.sessionOrder === 'object' ? raw.sessionOrder : {}
+        )
+          .map(([key, ids]) => [key, strings(ids)] as const)
+          .filter(([, ids]) => ids.length > 0)
+      ),
     };
   } catch {
     return EMPTY;
@@ -306,14 +356,37 @@ export function useRailPreferences(groupBy: AgentGrouping, contextId?: string) {
         }),
       [update]
     ),
-    /** Favorite sessions section + manual order + favorite groups first, for the current mode */
+    /** Manual agent order of a group (#299) */
+    moveSession: useCallback(
+      (
+        groupKey: string,
+        id: string,
+        targetId: string,
+        visibleIds: string[],
+        hiddenIds: string[] = []
+      ) =>
+        update((p) => {
+          const stored = p.sessionOrder[groupKey] ?? [];
+          const next = moveSession(stored, visibleIds, hiddenIds, id, targetId);
+          return next === stored
+            ? p
+            : { ...p, sessionOrder: { ...p.sessionOrder, [groupKey]: next } };
+        }),
+      [update]
+    ),
+    /**
+     * Favorite sessions section + manual order + favorite groups first, for the current mode;
+     * `manualAgents` additionally applies the manual agent order inside each group.
+     */
     arrange: useCallback(
-      (groups: SessionGroup[]) =>
-        withFavoriteSessions(
+      (groups: SessionGroup[], manualAgents = false) => {
+        const arranged = withFavoriteSessions(
           applyGroupOrder(groups, mode.order, prefs.favoriteGroups),
           prefs.favoriteSessions
-        ),
-      [mode.order, prefs.favoriteGroups, prefs.favoriteSessions]
+        );
+        return manualAgents ? applySessionOrder(arranged, prefs.sessionOrder) : arranged;
+      },
+      [mode.order, prefs.favoriteGroups, prefs.favoriteSessions, prefs.sessionOrder]
     ),
   };
 }

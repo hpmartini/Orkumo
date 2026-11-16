@@ -524,6 +524,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     arrange,
     toggleCollapsed,
     moveGroup,
+    moveSession,
     toggleFavoriteGroup,
     toggleFavoriteSession,
     favoriteGroups,
@@ -545,7 +546,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             apps,
             // A filter asks for agents: empty fixed projects would only be in the way
             fixedProjects: filterActive ? [] : rail.fixedProjects,
-          })
+          }),
+          sort.key === 'manual'
         ),
         settings.orchestrators
       ),
@@ -1483,9 +1485,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     const name = typeof chat.title === 'string' && chat.title ? chat.title.slice(0, 80) : harness;
     guardCopy(transcriptHolder(sessions, id), () => {
       if (harness === 'claude') void doDispatch({ resume: id, cwd }, true, view);
-      else openInteractiveClaude(cwd, name, terminalResumeArgs(harness, id), harness, undefined, view);
+      else
+        openInteractiveClaude(cwd, name, terminalResumeArgs(harness, id), harness, undefined, view);
     });
-  }, [prefill, loading, sessions, navigate, openSession, guardCopy, doDispatch, openInteractiveClaude]);
+  }, [
+    prefill,
+    loading,
+    sessions,
+    navigate,
+    openSession,
+    guardCopy,
+    doDispatch,
+    openInteractiveClaude,
+  ]);
 
   const handleRename = useCallback(
     async (session: AgentSession) => {
@@ -1600,6 +1612,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       const index = ids.indexOf(selectedItem.session.id);
       const target = direction === 'up' ? index - 1 : index + 1;
       if (index < 0 || target < 0 || target >= ids.length) return;
+      if (sort.key === 'manual') {
+        moveSession(
+          group.key,
+          ids[index],
+          ids[target],
+          ids,
+          group.hidden.map((s) => s.id)
+        );
+        return;
+      }
       [ids[index], ids[target]] = [ids[target], ids[index]];
       try {
         await reorderAgents(ids);
@@ -1608,7 +1630,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         toast.error(err instanceof Error ? err.message : 'Reorder failed');
       }
     },
-    [selectedItem, items, favoriteGroups, moveGroup, refresh]
+    [selectedItem, items, favoriteGroups, moveGroup, moveSession, sort.key, refresh]
   );
 
   const handleReply = useCallback(
@@ -2653,6 +2675,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 onToggleFavoriteGroup={rail.toggleFavoriteGroup}
                 onToggleFavoriteSession={rail.toggleFavoriteSession}
                 onMoveGroup={rail.moveGroup}
+                onMoveSession={sort.key === 'manual' ? rail.moveSession : undefined}
                 appsById={appsById}
                 nav={nav}
                 issuesByAgent={issuesByAgent}
@@ -3002,7 +3025,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             composerMode === 'agent' && homeDir
               ? [{ name: '~ (home)', path: homeDir, source: 'home' }, ...directoryChoices]
               : composerMode === 'chat' && chatsDir
-                ? [{ name: 'Chats (no project)', path: chatsDir, source: 'chats' }, ...directoryChoices]
+                ? [
+                    { name: 'Chats (no project)', path: chatsDir, source: 'chats' },
+                    ...directoryChoices,
+                  ]
                 : directoryChoices
           }
           current={composerCwd}
