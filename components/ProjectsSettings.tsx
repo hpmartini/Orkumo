@@ -8,6 +8,7 @@ import {
   FolderGit2,
   FolderOpen,
   GitMerge,
+  Github,
   Pencil,
   Plus,
   RefreshCw,
@@ -26,6 +27,7 @@ import {
   setProjectDisabled,
   updateCustomProject,
 } from '../services/api';
+import { GithubReposPanel } from './GithubReposPanel';
 
 /** Fired on `window` to open the settings at the Projects section, optionally at one project */
 export const PROJECT_SETTINGS_EVENT = 'orkumo:project-settings';
@@ -71,6 +73,7 @@ export const ProjectsSettings: React.FC<Props> = ({ focusProjectId, refreshKey, 
   const [highlight, setHighlight] = useState<string | null>(null);
   const [undo, setUndo] = useState<{ label: string; run: () => Promise<unknown> } | null>(null);
   const [adding, setAdding] = useState(false);
+  const [browsingGithub, setBrowsingGithub] = useState(false);
   const listRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -351,15 +354,41 @@ export const ProjectsSettings: React.FC<Props> = ({ focusProjectId, refreshKey, 
             listed under “No project”.
           </p>
         </div>
-        <button
-          onClick={() => setAdding((v) => !v)}
-          aria-expanded={adding}
-          className={`shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-blue-600 hover:bg-blue-500 transition-colors ${FOCUS}`}
-        >
-          <Plus size={15} />
-          Add project
-        </button>
+        <div className="shrink-0 flex items-center gap-2">
+          <button
+            onClick={() => setBrowsingGithub((v) => !v)}
+            aria-expanded={browsingGithub}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-gray-100 bg-gray-700 hover:bg-gray-600 transition-colors ${FOCUS}`}
+          >
+            <Github size={15} />
+            GitHub repos
+          </button>
+          <button
+            onClick={() => setAdding((v) => !v)}
+            aria-expanded={adding}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm text-white bg-blue-600 hover:bg-blue-500 transition-colors ${FOCUS}`}
+          >
+            <Plus size={15} />
+            Add project
+          </button>
+        </div>
       </div>
+
+      {browsingGithub && (
+        <GithubReposPanel
+          onClose={() => setBrowsingGithub(false)}
+          onCloned={async () => {
+            await load();
+            onChange();
+          }}
+          onSetDisabled={(id, name, disable) =>
+            act(`disable:${id}`, () => setProjectDisabled(id, disable), {
+              label: `${disable ? 'Disabled' : 'Enabled'} “${name}”.`,
+              run: () => setProjectDisabled(id, !disable),
+            })
+          }
+        />
+      )}
 
       {adding && (
         <AddProjectForm
