@@ -68,6 +68,8 @@ interface AgentWorkspaceProps {
   renderCustomPane?: (session: AgentSession, pane: CustomPaneProps) => React.ReactNode | null;
   /** Shown while no tab is open */
   emptyState?: React.ReactNode;
+  /** What a tab of three or more panes counts ("3 chats"); agents by default */
+  paneNoun?: string;
 }
 
 export interface CustomPaneProps {
@@ -258,6 +260,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   onSetView,
   renderCustomPane,
   emptyState,
+  paneNoun,
   hidden = false,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -541,7 +544,10 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             const lead = panes.find((s) => s.id === tab.activeSessionId) ?? panes[0];
             const needsInput = panes.some((s) => s.displayState === 'needs-input');
             const glyph = stateGlyph(needsInput ? 'needs-input' : lead.displayState);
-            const title = tabTitle(panes.map((s) => s.name));
+            const title = tabTitle(
+              panes.map((s) => s.name),
+              paneNoun
+            );
             const indicator = dropTarget?.id === tab.id ? dropTarget.position : null;
             return (
               <div

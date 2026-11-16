@@ -718,6 +718,7 @@ export const ChatHistoryPage: React.FC = () => {
                 : ''}
             </p>
           }
+          paneNoun="chats"
           renderCustomPane={(session, pane) => {
             const id = historyChatId(session.id);
             return id === null ? null : (

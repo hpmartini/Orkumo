@@ -265,6 +265,7 @@ export const ChatReader: React.FC<ChatReaderProps> = ({
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const atBottom = useRef(true);
+  const lastTop = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -286,12 +287,13 @@ export const ChatReader: React.FC<ChatReaderProps> = ({
   };
   useLayoutEffect(toBottom, [open]);
   const loaded = !!open;
-  // Images and opened artifacts grow the chat after the first paint: stay at the end if there
+  // Images and opened artifacts grow the chat after the first paint, and a split resizes the
+  // pane without a scroll event: stay at the end if there
   useEffect(() => {
-    const el = content.current;
-    if (!el) return;
+    if (!content.current || !scroller.current) return;
     const observer = new ResizeObserver(toBottom);
-    observer.observe(el);
+    observer.observe(content.current);
+    observer.observe(scroller.current);
     return () => observer.disconnect();
   }, [loaded]);
 
@@ -357,7 +359,13 @@ export const ChatReader: React.FC<ChatReaderProps> = ({
         className="flex-1 min-h-0 overflow-auto"
         onScroll={(e) => {
           const el = e.currentTarget;
-          atBottom.current = el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX;
+          // Only scrolling up lets go of the end: the event of our own jump arrives after the
+          // chat may have grown again, and would read as "not at the end" otherwise
+          const up = el.scrollTop < lastTop.current;
+          lastTop.current = el.scrollTop;
+          atBottom.current =
+            el.scrollHeight - el.scrollTop - el.clientHeight < STICK_PX ||
+            (atBottom.current && !up);
         }}
       >
         {!open ? (
