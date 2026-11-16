@@ -109,6 +109,7 @@ import { AgentList, AgentRowAction } from './AgentList';
 import { FoldButtons, GroupingPicker, ProjectsSection, RailNavProps } from './ProjectsRail';
 import { NewTaskButton } from './NewTaskButton';
 import { ModeSwitcher } from '../ModeSwitcher';
+import { moduleIcon } from '../moduleIcon';
 import { AgentsRailSlot } from '../ModuleSlot';
 import { AgentSummaryBar, AgentFilterBar } from './AgentSummaryBar';
 import { PullRequestsPanel } from './PullRequestsPanel';
@@ -1483,9 +1484,19 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     const name = typeof chat.title === 'string' && chat.title ? chat.title.slice(0, 80) : harness;
     guardCopy(transcriptHolder(sessions, id), () => {
       if (harness === 'claude') void doDispatch({ resume: id, cwd }, true, view);
-      else openInteractiveClaude(cwd, name, terminalResumeArgs(harness, id), harness, undefined, view);
+      else
+        openInteractiveClaude(cwd, name, terminalResumeArgs(harness, id), harness, undefined, view);
     });
-  }, [prefill, loading, sessions, navigate, openSession, guardCopy, doDispatch, openInteractiveClaude]);
+  }, [
+    prefill,
+    loading,
+    sessions,
+    navigate,
+    openSession,
+    guardCopy,
+    doDispatch,
+    openInteractiveClaude,
+  ]);
 
   const handleRename = useCallback(
     async (session: AgentSession) => {
@@ -1940,6 +1951,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         ...scopedModes.map((m) => ({
           id: `mode:${m.id}`,
           label: `Show ${m.label}`,
+          icon: moduleIcon(m.icon),
           // Only agents started for a board issue have something to show in a scoped mode
           disabled: !contexts[session.id]?.repo?.slug || !issuesByAgent?.get(session.id)?.length,
           onSelect: () => {
@@ -2089,6 +2101,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             ...scopedModes.map((m) => ({
               id: `mode:${m.id}`,
               label: `View ${m.label}`,
+              icon: moduleIcon(m.icon),
               onSelect: () => navigate(modeUrl(m.id)(groupRepoSlug(group, contexts)!)),
             })),
           ]
@@ -3002,7 +3015,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             composerMode === 'agent' && homeDir
               ? [{ name: '~ (home)', path: homeDir, source: 'home' }, ...directoryChoices]
               : composerMode === 'chat' && chatsDir
-                ? [{ name: 'Chats (no project)', path: chatsDir, source: 'chats' }, ...directoryChoices]
+                ? [
+                    { name: 'Chats (no project)', path: chatsDir, source: 'chats' },
+                    ...directoryChoices,
+                  ]
                 : directoryChoices
           }
           current={composerCwd}
