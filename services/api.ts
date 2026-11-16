@@ -132,6 +132,28 @@ export const updateCustomProject = (id: string, patch: { name?: string; paths?: 
 export const deleteCustomProject = (id: string) =>
   sendJson(`${API_BASE}/settings/projects/custom/${encodeURIComponent(id)}`, 'DELETE');
 
+export interface GithubRepo {
+  slug: string;
+  private: boolean;
+  fork: boolean;
+  archived: boolean;
+  pushedAt: string;
+  description: string | null;
+  /** Project whose origin this repo is, in any state; null = not on this machine */
+  local: { projectId: string; name: string; state: ProjectEntry['state'] } | null;
+}
+
+/** The gh user's GitHub repos plus the scan directories a clone can go to */
+export const fetchGithubRepos = () =>
+  sendJson<{ repos: GithubRepo[]; directories: string[] }>(`${API_BASE}/github/repos`, 'GET');
+
+/** `gh repo clone` into <dir>/<name>; dir must be a scan directory */
+export const cloneGithubRepo = (slug: string, dir: string) =>
+  sendJson<{ path: string; projectId: string | null }>(`${API_BASE}/github/clone`, 'POST', {
+    slug,
+    dir,
+  });
+
 /**
  * Configuration API
  */

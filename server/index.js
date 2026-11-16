@@ -76,6 +76,7 @@ import {
 } from './services/agentContextService.js';
 import * as boardService from './services/boardService.js';
 import * as issueListService from './services/issueListService.js';
+import { cloneRepo, cloneTarget, listGithubRepos } from './services/githubRepos.js';
 import {
   createChatHistory,
   MAX_FOLDER_CHARS,
@@ -849,6 +850,56 @@ app.delete('/api/settings/projects/custom/:id', validateParams(idSchema), (req, 
     sendProjectError(res, error);
   }
 });
+
+/**
+ * GET /api/github/repos
+ * The gh user's GitHub repos; `local` names the project whose origin it is (any state), so the
+ * settings can offer a clone only for repos not on this machine
+ */
+app.get('/api/github/repos', async (req, res) => {
+  try {
+    const catalog = projectList();
+    const [repos, slugs] = await Promise.all([
+      listGithubRepos(),
+      Promise.all(catalog.map((p) => boardService.originSlug(p.path))),
+    ]);
+    const bySlug = new Map();
+    catalog.forEach((p, i) => slugs[i] && bySlug.set(slugs[i].toLowerCase(), p));
+    res.json({
+      directories: getConfig().directories,
+      repos: repos.map((r) => {
+        const p = bySlug.get(r.slug.toLowerCase());
+        return { ...r, local: p ? { projectId: p.id, name: p.name, state: p.state } : null };
+      }),
+    });
+  } catch (error) {
+    sendProjectError(res, error);
+  }
+});
+
+/**
+ * POST /api/github/clone { slug, dir }
+ * `gh repo clone` into <dir>/<name>, dir one of the scan directories; the clone is a project then
+ */
+app.post(
+  '/api/github/clone',
+  validate(z.object({ slug: z.string().max(200), dir: pathSchema }).strict()),
+  async (req, res) => {
+    try {
+      const target = cloneTarget(req.body.slug, req.body.dir, getConfig().directories);
+      await cloneRepo(req.body.slug, target);
+      const project = projectList().find((p) => p.paths.includes(target));
+      // A context with an explicit member list would not show the clone; it joins the active one
+      const { contexts, activeContextId } = settingsService.getContexts();
+      const active = contexts.find((c) => c.id === activeContextId);
+      if (project && active?.appIds && !active.appIds.includes(project.id))
+        settingsService.updateContext(active.id, { appIds: [...active.appIds, project.id] });
+      res.json({ path: target, projectId: project?.id ?? null });
+    } catch (error) {
+      sendProjectError(res, error);
+    }
+  }
+);
 
 /**
  * Context members that name no project (a worktree or non-git folder the old scan listed, a repo on
