@@ -2295,7 +2295,8 @@ app.get('/api/issues', agentLimiter, async (req, res) => {
     const { contexts, activeContextId } = settingsService.getContexts();
     const context = contexts.find((c) => c.id === (query.data.context ?? activeContextId));
     if (!context) return res.status(404).json({ error: 'Unknown context' });
-    const repos = await issueListService.contextRepos(context, scanAllDirectories());
+    // Active projects only: a disabled project's repo leaves the Issues list too
+    const repos = await issueListService.contextRepos(context, activeProjects());
     const { source } = settingsService.getBoardSettings();
     res.json(
       await issueListService.listIssues(repos, {
