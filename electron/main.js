@@ -19,7 +19,7 @@ import { createServer } from 'net';
 import dotenv from 'dotenv';
 import { isValidExternalUrl, validateDialogOptions, windowOpenRoute } from './validation.js';
 import { APP_NAME, LEGACY_USER_DATA_DIR } from './constants.js';
-import { wireBrowserViewNav, goHistory } from './browserViewNav.js';
+import { wireBrowserViewNav, goHistory, wireViewPopups } from './browserViewNav.js';
 import { persistSessionCookies } from './cookiePersistence.js';
 import { createChatSync } from './chatSync.js';
 import { PORTS } from '../config/defaults.js';
@@ -54,7 +54,7 @@ let mainWindow = null;
 let isShuttingDown = false;
 
 // BrowserView instances for embedded browser previews
-// Map of viewId -> { view: BrowserView, devToolsWindow: BrowserWindow | null }
+// Map of viewId -> { view: BrowserView, devToolsWindow: BrowserWindow | null, popups: Set<BrowserWindow> }
 const browserViews = new Map();
 const BROWSER_PREVIEW_PARTITION = 'persist:browser-preview';
 // Per launch: marks the main and quick window's requests to our server (electron/rendererSecret.js)
@@ -67,6 +67,7 @@ function destroyBrowserView(viewId) {
   if (!entry) return;
   browserViews.delete(viewId);
   if (entry.devToolsWindow && !entry.devToolsWindow.isDestroyed()) entry.devToolsWindow.close();
+  entry.popups.forEach((popup) => !popup.isDestroyed() && popup.close());
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.removeBrowserView(entry.view);
   // removeBrowserView only detaches; without close() the page keeps running (and playing audio)
   if (!entry.view.webContents.isDestroyed()) entry.view.webContents.close();
@@ -787,10 +788,11 @@ function setupIpcHandlers() {
         }
       );
 
-      // New windows from a page stay in this view instead of opening unsandboxed Electron windows
-      view.webContents.setWindowOpenHandler(({ url }) => {
-        if (windowOpenRoute(url) === 'renderer') view.webContents.loadURL(url).catch(() => {});
-        return { action: 'deny' };
+      // target=_blank stays in the view; sign-in popups become sandboxed child windows
+      const popups = wireViewPopups(view.webContents, {
+        parent: mainWindow,
+        partition: BROWSER_PREVIEW_PARTITION,
+        route: windowOpenRoute,
       });
 
       wireBrowserViewNav(view.webContents, (state) => {
@@ -814,7 +816,7 @@ function setupIpcHandlers() {
       mainWindow.addBrowserView(view);
 
       // Store reference
-      browserViews.set(viewId, { view, devToolsWindow: null });
+      browserViews.set(viewId, { view, devToolsWindow: null, popups });
 
       console.log(`[BrowserView] Created view ${viewId} with bounds:`, bounds);
       return { success: true };
