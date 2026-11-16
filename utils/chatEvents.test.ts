@@ -21,7 +21,7 @@ describe('chatEvents - reduceChat (AC-2)', () => {
 
   it('adds transcript user text as a user message', () => {
     const s = fold([{ type: 'devorbit_user', text: 'hi', history: true }]);
-    expect(s.messages[0]).toEqual({ kind: 'user', key: 'u0', text: 'hi' });
+    expect(s.messages[0]).toEqual({ kind: 'user', key: 'u0', text: 'hi', initial: true });
   });
 
   it('a full assistant turn (replay without deltas) fills blocks in order', () => {

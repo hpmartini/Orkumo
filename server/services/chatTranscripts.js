@@ -49,6 +49,17 @@ function claudeHistoryEvents(lines) {
   for (const line of lines) {
     const rec = parseLine(line);
     if (!rec || rec.isSidechain || rec.isMeta || rec.isCompactSummary) continue;
+    // A prompt typed while the agent works is logged here at once, its user record only when the
+    // turn takes it: the view shows it as queued in between (enqueue/dequeue FIFO, remove by text)
+    if (rec.type === 'queue-operation') {
+      if (['enqueue', 'dequeue', 'remove'].includes(rec.operation))
+        events.push({ type: 'devorbit_queue', op: rec.operation, text: str(rec.content) });
+      continue;
+    }
+    if (rec.type === 'system' && rec.subtype === 'compact_boundary') {
+      events.push({ type: 'system', subtype: 'compact_boundary' });
+      continue;
+    }
     if (rec.type === 'system' && rec.subtype === 'away_summary' && rec.content) {
       events.push({ type: 'system', subtype: 'away_summary', content: rec.content });
       continue;
@@ -91,6 +102,8 @@ function claudeHistoryEvents(lines) {
                 .map((b) => b.text)
                 .join('\n')
             : '';
+      if (text.includes('<command-name>/clear</command-name>'))
+        events.push({ type: 'system', subtype: 'clear' });
       // `<command-name>`, `<local-command-stdout>` and similar CLI wrappers are not user turns
       if (text.trim() && !text.trimStart().startsWith('<')) {
         events.push({ type: 'devorbit_user', text, history: true });
@@ -245,6 +258,10 @@ function sessionHistoryEvents(lines) {
   for (const line of lines) {
     const rec = parseLine(line);
     if (!rec) continue;
+    if (rec.type === 'compaction') {
+      events.push({ type: 'system', subtype: 'compact_boundary' });
+      continue;
+    }
     if (rec.type === 'model_change') {
       const model = modelOf(rec);
       if (model) events.push({ type: 'system', subtype: 'init', model });

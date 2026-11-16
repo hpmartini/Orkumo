@@ -17,8 +17,11 @@ export type ChatBlock =
     };
 
 export type ChatMessage =
-  /** `ts`: when the prompt was sent (ms), if the transcript says */
-  | { kind: 'user'; key: string; text: string; ts?: number }
+  /**
+   * `ts`: when the prompt was sent (ms), if the transcript says. `initial`: first prompt of the
+   * session or after a compaction / `/clear`
+   */
+  | { kind: 'user'; key: string; text: string; ts?: number; initial?: boolean }
   | {
       kind: 'assistant';
       key: string;
@@ -86,6 +89,13 @@ export interface ChatState {
   agents: { name: string; description: string }[];
   /** Sub-agent blocks by the Agent tool call that runs them */
   sub: Record<string, ChatBlock[]>;
+  /**
+   * Claude Code's prompt queue as the transcript logs it (`queue-operation`): a prompt typed while
+   * the agent works shows up as a user record only when the turn takes it, often minutes later
+   */
+  queued: string[];
+  /** The next user prompt starts a context (session start, compaction, `/clear`) */
+  boundary: boolean;
 }
 
 export const initialChatState: ChatState = {
@@ -96,7 +106,19 @@ export const initialChatState: ChatState = {
   commands: [],
   agents: [],
   sub: {},
+  queued: [],
+  boundary: true,
 };
+
+/** Queued prompts the user typed (task notifications and other `<…>` wrappers left out) */
+export const pendingPrompts = (state: ChatState): string[] =>
+  state.queued.filter((t) => t.trim() && !t.trimStart().startsWith('<'));
+
+/** Prompts that start a context: the session's first and each first after compaction / `/clear` */
+export const initialPrompts = (messages: ChatMessage[]) =>
+  messages.filter(
+    (m): m is Extract<ChatMessage, { kind: 'user' }> => m.kind === 'user' && !!m.initial
+  );
 
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
@@ -190,6 +212,8 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
   switch (event.type) {
     case 'system':
       if (event.subtype === 'init') return { ...state, model: str(event.model) || state.model };
+      if (event.subtype === 'compact_boundary' || event.subtype === 'clear')
+        return { ...state, boundary: true };
       if (event.subtype === 'away_summary' && str(event.content))
         return {
           ...state,
@@ -279,9 +303,19 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
       );
     }
 
+    case 'devorbit_queue': {
+      const text = str(event.text);
+      if (event.op === 'enqueue') return { ...state, queued: [...state.queued, text].slice(-50) };
+      // dequeue: the head goes to the next turn; remove: taken by the running turn or withdrawn
+      const at = event.op === 'dequeue' ? 0 : state.queued.indexOf(text);
+      if (at < 0 || at >= state.queued.length) return state; // tail started after its enqueue
+      return { ...state, queued: state.queued.filter((_, i) => i !== at) };
+    }
+
     case 'devorbit_user':
       return {
         ...state,
+        boundary: false,
         messages: [
           ...state.messages,
           {
@@ -289,6 +323,7 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
             key: `u${state.messages.length}`,
             text: str(event.text),
             ...(typeof event.ts === 'number' ? { ts: event.ts } : {}),
+            ...(state.boundary ? { initial: true } : {}),
           },
         ],
       };
