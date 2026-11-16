@@ -1,9 +1,10 @@
-import React, { useEffect, useLayoutEffect, useMemo, useState, useCallback } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Send, FolderOpen, PenSquare } from 'lucide-react';
 import type { AgentSubagent, AgentRepo, AgentSlashCommand, AgentHarness } from '../../types';
 import { HARNESSES, HARNESS_MODEL_FLAG, MODEL_SUGGESTIONS } from '../../utils/agentSessions';
 import { computeSuggestions, Suggestion } from '../../utils/agentInput';
 import { submitIntent } from '../../utils/composer';
+import { useAutoGrowTextarea } from '../../hooks/useAutoGrowTextarea';
 
 interface DispatchInputProps {
   value: string;
@@ -92,14 +93,11 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   const showSuggestions = suggestionsOpen && suggestions.length > 0;
 
   // Grow with the content; the scrollbar only exists once the maximum height is reached
-  useLayoutEffect(() => {
-    const el = inputRef.current;
-    if (!el) return;
-    el.style.height = 'auto';
-    const height = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, el.scrollHeight));
-    el.style.height = `${height}px`;
-    el.style.overflowY = el.scrollHeight > MAX_HEIGHT ? 'auto' : 'hidden';
-  }, [value, inputRef]);
+  // No drag handle here: the field sits in a modal, not at the bottom of a pane
+  useAutoGrowTextarea(inputRef, value, {
+    min: MIN_HEIGHT,
+    max: MAX_HEIGHT,
+  });
 
   // Open the popover automatically when typing @ or /
   useEffect(() => {
@@ -245,8 +243,8 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         aria-autocomplete="list"
         aria-controls={showSuggestions ? listId : undefined}
         aria-activedescendant={showSuggestions ? `${listId}-${highlighted}` : undefined}
-        style={{ minHeight: MIN_HEIGHT, maxHeight: MAX_HEIGHT, overflowY: 'hidden' }}
-        className="w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-50 placeholder-gray-400 resize-none outline-none font-mono leading-6 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/40"
+        style={{ minHeight: MIN_HEIGHT }}
+        className="block w-full bg-gray-900 border border-gray-600 rounded-lg px-3 py-2 text-sm text-gray-50 placeholder-gray-400 resize-none outline-none font-mono leading-6 focus:border-blue-400 focus:ring-2 focus:ring-blue-400/40"
         spellCheck={false}
       />
       {attachments}
