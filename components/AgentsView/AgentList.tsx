@@ -1,21 +1,37 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { clampMenuPosition } from '../../utils/menuPosition';
 import {
+  AppWindow,
   ArrowDown,
   ArrowUp,
+  Bookmark,
   ChevronDown,
   ChevronRight,
+  ChevronsDownUp,
   CircleDot,
+  CircleStop,
+  Code2,
+  Copy,
+  ExternalLink,
+  Eye,
+  FolderOpen,
   GitBranch,
   GitBranchPlus,
   Kanban,
+  MessageSquarePlus,
   MoreHorizontal,
   Network,
+  Pencil,
   Pin,
+  RotateCcw,
+  Send,
+  Settings,
   Smartphone,
   SquareTerminal,
   Star,
   Timer,
+  Trash2,
+  type LucideIcon,
 } from 'lucide-react';
 import type {
   AgentSession,
@@ -78,6 +94,8 @@ export const RAIL_SESSION_MIME = 'application/x-devorbit-rail-session';
 export interface AgentRowAction {
   id: string;
   label: string;
+  /** Overrides the context-menu icon picked by id (MENU_ICONS), e.g. for module modes */
+  icon?: LucideIcon;
   danger?: boolean;
   disabled?: boolean;
   onSelect: () => void;
@@ -188,6 +206,37 @@ const FavoriteButton: React.FC<{
     <Star size={11} className={active ? 'fill-current' : ''} />
   </button>
 );
+
+/** Context-menu icon per action id (row and group menus share ids where they mean the same) */
+const MENU_ICONS: Record<string, LucideIcon> = {
+  favorite: Star,
+  attach: AppWindow,
+  'claude-app': ExternalLink,
+  peek: Eye,
+  code: Code2,
+  'view-code': Code2,
+  terminal: SquareTerminal,
+  'open-terminal': SquareTerminal,
+  board: Kanban,
+  'view-board': Kanban,
+  pin: Pin,
+  rename: Pencil,
+  stop: CircleStop,
+  respawn: RotateCcw,
+  orchestrator: Network,
+  'copy-id': Copy,
+  delete: Trash2,
+  'delete-all': Trash2,
+  toggle: ChevronsDownUp,
+  'move-up': ArrowUp,
+  'move-down': ArrowDown,
+  'open-project': FolderOpen,
+  'project-settings': Settings,
+  'fixed-project': Bookmark,
+  'new-issue': CircleDot,
+  'dispatch-here': Send,
+  'new-agent': MessageSquarePlus,
+};
 
 /** Hover button for one menu action (same entry as in the context menu); takes no room until hovered, keyboard uses the menu */
 const ActionButton: React.FC<{
@@ -1172,30 +1221,43 @@ export const AgentList: React.FC<AgentListProps> = ({
 
       {menu && menuActions.length > 0 && (
         <div
-          className="fixed z-50 w-max min-w-[10rem] max-w-[14rem] max-h-[calc(100vh-16px)] overflow-y-auto thin-scrollbar bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 text-sm"
+          className="fixed z-50 w-max min-w-[10rem] max-w-[16rem] max-h-[calc(100vh-16px)] overflow-y-auto thin-scrollbar bg-gray-800 border border-gray-600 rounded-lg shadow-xl py-1 text-sm"
           role="menu"
           ref={menuRef}
           onKeyDown={onMenuKeyDown}
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {menuActions.map((action) => (
-            <button
-              key={action.id}
-              disabled={action.disabled}
-              onClick={() => {
-                setMenu(null);
-                action.onSelect();
-              }}
-              role="menuitem"
-              title={action.label}
-              className={`block w-full truncate text-left px-3 py-1.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed ${
-                action.danger ? 'text-red-300' : 'text-gray-200'
-              }`}
-            >
-              {action.label}
-            </button>
-          ))}
+          {menuActions.map((action) => {
+            const Icon = action.icon ?? MENU_ICONS[action.id];
+            return (
+              <button
+                key={action.id}
+                disabled={action.disabled}
+                onClick={() => {
+                  setMenu(null);
+                  action.onSelect();
+                }}
+                role="menuitem"
+                title={action.label}
+                className={`group/item flex w-full items-center gap-2.5 text-left px-3 py-1.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed ${
+                  action.danger ? 'text-red-300' : 'text-gray-200'
+                }`}
+              >
+                {Icon ? (
+                  <Icon
+                    size={14}
+                    strokeWidth={1.75}
+                    aria-hidden
+                    className={`shrink-0 ${action.danger ? '' : 'text-gray-400 group-hover/item:text-gray-200'}`}
+                  />
+                ) : (
+                  <span aria-hidden className="w-3.5 shrink-0" />
+                )}
+                <span className="truncate">{action.label}</span>
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

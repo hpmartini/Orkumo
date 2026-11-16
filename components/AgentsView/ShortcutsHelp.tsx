@@ -18,6 +18,7 @@ const SECTIONS: { title: string; rows: [string, string][] }[] = [
       ['Enter', 'Attach to the selected session'],
       ['→', 'Attach to the selected session'],
       ['Space', 'Open / close the peek panel'],
+      ['Ctrl+1 … Ctrl+9', 'Switch mode (Agents, Board, Issues, … in sidebar order)'],
       ['Alt+1 … Alt+9', 'Attach to session 1-9 in the focused directory'],
       ['Enter on a group', 'Collapse / expand the group'],
       ['Esc', 'Close peek panel'],
