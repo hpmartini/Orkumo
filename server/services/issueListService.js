@@ -50,11 +50,12 @@ async function cachedSlug(dir) {
  */
 export async function contextRepos(context, apps) {
   const members = context.appIds ? new Set(context.appIds) : null;
+  // A merged project carries its members' ids and paths (`mergedIds`, `paths`)
   const paths = [
     ...new Set(
       apps
-        .filter((a) => !members || members.has(a.id))
-        .map((a) => a.path)
+        .filter((a) => !members || members.has(a.id) || a.mergedIds?.some((id) => members.has(id)))
+        .flatMap((a) => a.paths || [a.path])
         .filter(Boolean)
     ),
   ];
