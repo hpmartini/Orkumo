@@ -1,4 +1,5 @@
 import React from 'react';
+import { Link, useInRouterContext } from 'react-router-dom';
 import {
   Brain,
   Clock,
@@ -8,8 +9,10 @@ import {
   CheckCircle2,
   XCircle,
   Sparkles,
+  Bot,
 } from 'lucide-react';
 import {
+  agentMessage,
   toolDiff,
   toolSummary,
   type ChatAnswer,
@@ -122,7 +125,45 @@ export const AssistantBlock: React.FC<{ block: ChatBlock }> = ({ block }) => {
 };
 
 /** `queued`: typed while the agent works, not taken by its turn yet */
+/** Message another agent sent with `orkumo send`: not the user's bubble, the sender links to it */
+const AgentMessage: React.FC<{ id: string | null; name: string | null; body: string }> = ({
+  id,
+  name,
+  body,
+}) => {
+  const routed = useInRouterContext();
+  const label = name || id || 'unknown agent';
+  return (
+    <div className="flex flex-col items-start my-3" data-agent-message>
+      <div className="max-w-[85%] rounded-lg border border-violet-800/60 bg-violet-950/40 px-3 py-2 text-sm text-gray-100">
+        <div className="mb-1 flex items-center gap-1.5 text-xs text-violet-300">
+          <Bot size={12} aria-hidden />
+          <span>Message from</span>
+          {id && routed ? (
+            <Link
+              to={`/agents?attach=${encodeURIComponent(id)}`}
+              title={`Open agent ${id}`}
+              className="font-medium text-violet-200 underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-blue-400"
+            >
+              {label}
+            </Link>
+          ) : (
+            <span className="font-medium text-violet-200">{label}</span>
+          )}
+        </div>
+        <div className="whitespace-pre-wrap break-words">{body}</div>
+      </div>
+    </div>
+  );
+};
+
 export const UserMessage: React.FC<{ text: string; queued?: boolean }> = ({ text, queued }) => {
+  const fromAgent = queued ? null : agentMessage(text);
+  if (fromAgent) return <AgentMessage {...fromAgent} />;
+  return <OwnMessage text={text} queued={queued} />;
+};
+
+const OwnMessage: React.FC<{ text: string; queued?: boolean }> = ({ text, queued }) => {
   const { text: body, images } = splitImages(text);
   const previews = images.map((p) => ({ path: p, url: agentImageUrl(p) }));
   return (
