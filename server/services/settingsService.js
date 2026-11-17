@@ -37,6 +37,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   grouping: 'project', // 'project' | 'state' | 'directory' | 'none'
   layout: 'tabs', // 'tabs' | 'columns' | 'rows' | 'grid'
   scopeCwd: null, // Only show sessions started under this path (claude agents --cwd)
+  taskCwd: null, // Start directory of new tasks (`~` = home); null: rail selection / last pick
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,

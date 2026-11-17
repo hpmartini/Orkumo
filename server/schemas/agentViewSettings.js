@@ -8,6 +8,7 @@ export const agentViewSettingsSchema = z
     grouping: z.enum(['state', 'directory', 'project', 'none']).optional(),
     layout: z.enum(['tabs', 'columns', 'rows', 'grid']).optional(),
     scopeCwd: z.string().max(500).nullable().optional(),
+    taskCwd: z.string().max(500).nullable().optional(),
     collapsedGroups: z.array(z.string().max(500)).max(200).optional(),
     notifications: z.boolean().optional(),
     desktopNotifications: z.boolean().optional(),

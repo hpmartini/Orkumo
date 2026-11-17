@@ -213,6 +213,12 @@ function isInsideTerminal(target: EventTarget | null): boolean {
   return !!el?.closest?.('.xterm');
 }
 
+/** New task: Cmd+N on macOS (also in a terminal), Ctrl+N elsewhere outside a terminal (the shell's there) */
+export function isNewTaskKey(e: KeyboardEvent): boolean {
+  if (e.code !== 'KeyN' || e.altKey || e.shiftKey) return false;
+  return isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey && !isInsideTerminal(e.target);
+}
+
 /**
  * Browser counterpart of `claude agents`: session list, dispatch input, peek panel
  * and attached sessions in tabs / tiles.
@@ -646,13 +652,18 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     defaultCwd,
   ]);
 
-  const openComposer = useCallback((mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
-    setComposerMode(mode);
-    if (mode !== 'task') setAgentCwd(cwd);
-    setComposerHarness(null);
-    setComposerModel('');
-    setComposerOpen(true);
-  }, []);
+  // Start directory of new tasks (settings `taskCwd`, `~` = home); unset: the rail selection decides
+  const taskCwd = settings.taskCwd?.replace(/^~(?=\/|$)/, homeDir ?? '~') || null;
+  const openComposer = useCallback(
+    (mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
+      setComposerMode(mode);
+      setAgentCwd(mode === 'task' ? taskCwd : cwd);
+      setComposerHarness(null);
+      setComposerModel('');
+      setComposerOpen(true);
+    },
+    [taskCwd]
+  );
   // Quick window (#251): its prompt opens the chat composer here, ready to send, without a project
   useEffect(
     () =>
@@ -663,12 +674,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }),
     [onOpenView, openComposer, chatsDir]
   );
-  const composerCwd =
-    composerMode === 'agent'
-      ? agentCwd || homeDir
-      : composerMode === 'chat'
-        ? agentCwd || targetCwd
-        : targetCwd;
+  const composerCwd = composerMode === 'agent' ? agentCwd || homeDir : agentCwd || targetCwd;
 
   // GitHub repos of the known sessions
   const issueRepos = useMemo(
@@ -1721,6 +1727,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         palette.isOpen ||
         panel !== null;
       if (modalOpen) return;
+      if (isNewTaskKey(e)) {
+        e.preventDefault();
+        openComposer('task');
+        return;
+      }
       if (isInsideTerminal(e.target)) return;
       const target = e.target as HTMLElement | null;
       // Explicit type: an inferred alias would narrow `target` to never below
@@ -1729,11 +1740,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
 
       // Global (also inside text inputs)
-      if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyN') {
-        e.preventDefault();
-        openComposer('task');
-        return;
-      }
       if (ctrl && key === 's' && !e.shiftKey) {
         e.preventDefault();
         toggleGrouping();
@@ -3060,8 +3066,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           home={homeDir}
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
-            if (composerMode !== 'task') setAgentCwd(path);
-            else pickDispatchCwd(path);
+            setAgentCwd(path);
+            if (composerMode === 'task') pickDispatchCwd(path);
             setPickDirOpen(false);
             inputRef.current?.focus();
           }}
