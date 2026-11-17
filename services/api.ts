@@ -1,6 +1,6 @@
 import { AppConfig, KeyboardShortcuts, ProjectEntry } from '../types';
 import { API_BASE_URL } from '../utils/apiConfig';
-import type { LinkTarget } from '../utils/links';
+import type { LinkKeys, LinkTarget } from '../utils/links';
 
 const API_BASE = API_BASE_URL;
 
@@ -220,6 +220,8 @@ export interface AppSettings {
   keyboardShortcuts?: KeyboardShortcuts;
   /** Where clicked links open (#140); missing on old servers means built-in */
   linkTarget?: LinkTarget;
+  /** Where each click gesture opens a link; missing means the defaults */
+  linkKeys?: LinkKeys;
   /** Desktop app: check and download updates automatically; missing means on */
   autoUpdate?: boolean;
   version: number;
@@ -279,13 +281,14 @@ export async function updateKeyboardShortcuts(
 /**
  * Set where clicked links open (#140)
  */
-export async function updateLinkTarget(
-  linkTarget: LinkTarget
-): Promise<{ linkTarget: LinkTarget }> {
+export async function updateLinkTarget(change: {
+  linkTarget?: LinkTarget;
+  linkKeys?: LinkKeys;
+}): Promise<{ linkTarget: LinkTarget; linkKeys: LinkKeys }> {
   const response = await fetch(`${API_BASE}/settings/link-target`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ linkTarget }),
+    body: JSON.stringify(change),
   });
   if (!response.ok) {
     throw new Error('Failed to update link target');

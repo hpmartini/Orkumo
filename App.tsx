@@ -48,7 +48,7 @@ import { ConnectedIssuesPage } from './components/IssuesView';
 import { ChatHistoryPage } from './components/ChatHistoryView/ChatHistoryPage';
 import { CodeView } from './components/CodeView';
 import { ShellBrowser } from './components/ShellBrowser';
-import { installAnchorInterception, openLink, setLinkTarget } from './utils/links';
+import { installAnchorInterception, openLink, setLinkKeys, setLinkTarget } from './utils/links';
 
 const HOST_TABS = ['dashboard', 'usage', 'agents', 'board', 'issues', 'code', 'pulls', 'chats'];
 
@@ -152,6 +152,8 @@ function AppContent() {
   useEffect(() => {
     if (linkTarget) setLinkTarget(linkTarget);
   }, [linkTarget]);
+  const linkKeys = settings?.linkKeys;
+  useEffect(() => setLinkKeys(linkKeys), [linkKeys]);
   useEffect(() => {
     const offAnchors = installAnchorInterception();
     const offOpenLink = window.electronAPI?.onOpenLink?.((url) => openLink(url));

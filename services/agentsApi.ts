@@ -1,6 +1,7 @@
 /**
  * API client for the Claude Code agent view (`/api/agents/*`).
  */
+import type { HarnessModel } from '../utils/modelMatrix';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { agentApiUrl, getAgentTarget, pinTarget, targetOf } from '../utils/agentTarget';
 import { fitImage } from '../utils/imageFit';
@@ -297,9 +298,12 @@ export async function fetchAgentRepos(
   return request(`/agents/repos${query({ cwd })}`);
 }
 
-export async function fetchAgentCommands(cwd?: string | null): Promise<AgentSlashCommand[]> {
+export async function fetchAgentCommands(
+  cwd?: string | null,
+  harness?: 'omp'
+): Promise<AgentSlashCommand[]> {
   const data = await request<{ commands: AgentSlashCommand[] }>(
-    `/agents/commands${query({ cwd })}`
+    `/agents/commands${query({ cwd, harness })}`
   );
   return data.commands;
 }
@@ -441,6 +445,11 @@ export const fetchChatStatus = (id: string) => request<ChatStatus>(chatPath(id, 
 export const fetchChatFiles = (id: string, q: string) =>
   request<{ files: string[] }>(`${chatPath(id, 'files')}?q=${encodeURIComponent(q)}`).then(
     (d) => d.files
+  );
+
+export const fetchChatDirs = (id: string, q: string) =>
+  request<{ dirs: string[] }>(`${chatPath(id, 'dirs')}?q=${encodeURIComponent(q)}`).then(
+    (d) => d.dirs
   );
 
 export const fetchChatShell = (id: string, shellId: string) =>
@@ -593,4 +602,19 @@ export function subscribeToChat(id: string, handlers: ChatHandlers): () => void 
       setChatWatch(own, sub, watch, 'DELETE').catch(() => {});
     }
   };
+}
+
+const modelLists = new Map<string, Promise<HarnessModel[]>>();
+
+/** Models and effort levels of a harness CLI; read once per page, a failed read retries */
+export function fetchHarnessModels(harness: 'claude' | 'omp'): Promise<HarnessModel[]> {
+  let list = modelLists.get(harness);
+  if (!list) {
+    list = request<{ models: HarnessModel[] }>(`/agents/models${query({ harness })}`).then(
+      (d) => d.models
+    );
+    list.catch(() => modelLists.delete(harness));
+    modelLists.set(harness, list);
+  }
+  return list;
 }

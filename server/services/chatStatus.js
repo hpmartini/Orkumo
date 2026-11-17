@@ -4,6 +4,8 @@
  */
 import { execFile } from 'child_process';
 import fsp from 'fs/promises';
+import os from 'os';
+import path from 'path';
 import { gitInfo, sessionCache } from './agentContextService.js';
 import { claudeLimits, defaultSources } from './usageService.js';
 
@@ -81,6 +83,40 @@ export function rankFiles(files, query, limit = 50) {
 
 export async function chatFiles(cwd, query) {
   return rankFiles(await listFiles(cwd), query);
+}
+
+const MAX_DIRS = 50;
+
+/**
+ * Path completion for `/cd <path>` and the like: subdirectories matching what is typed so far,
+ * each as the full argument to insert (`~/Mu` → `~/Music/`). Relative paths start at the chat's
+ * cwd; only directories inside the home directory are listed, names only.
+ */
+export async function chatDirs(cwd, typed, home = os.homedir()) {
+  const slash = typed.lastIndexOf('/');
+  const dirPart = typed.slice(0, slash + 1);
+  const prefix = typed.slice(slash + 1).toLowerCase();
+  const expanded = dirPart.startsWith('~') ? home + dirPart.slice(1) : dirPart;
+  const dir = path.resolve(cwd, expanded || '.');
+  if (dir !== home && !dir.startsWith(home + path.sep)) return [];
+  const entries = await fsp.readdir(dir, { withFileTypes: true }).catch(() => []);
+  const names = [];
+  for (const e of entries) {
+    if (e.name.startsWith('.') && !prefix.startsWith('.')) continue;
+    if (!e.name.toLowerCase().startsWith(prefix)) continue;
+    const isDir =
+      e.isDirectory() ||
+      (e.isSymbolicLink() &&
+        (await fsp.stat(path.join(dir, e.name)).then(
+          (s) => s.isDirectory(),
+          () => false
+        )));
+    if (isDir) names.push(e.name);
+  }
+  return names
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, MAX_DIRS)
+    .map((name) => `${dirPart}${name}/`);
 }
 
 const TAIL_BYTES = 64 * 1024;

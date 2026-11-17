@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { Fragment, useState, useEffect } from 'react';
 import {
   Settings,
   FolderPlus,
@@ -30,7 +30,25 @@ import {
   updateKeyboardShortcuts,
   updateLinkTarget,
 } from '../services/api';
-import { setLinkTarget as applyLinkTarget, type LinkTarget } from '../utils/links';
+import {
+  DEFAULT_LINK_KEYS,
+  setLinkKeys as applyLinkKeys,
+  setLinkTarget as applyLinkTarget,
+  type LinkKeys,
+  type LinkTarget,
+} from '../utils/links';
+
+const LINK_TARGETS = [
+  ['builtin', 'Split next to the agent'],
+  ['side', 'Side view'],
+  ['system', 'System browser'],
+] as const;
+const LINK_GESTURES = [
+  ['cmd', 'Cmd/Ctrl+click'],
+  ['middle', 'Middle click'],
+  ['shift', 'Shift+click'],
+  ['alt', 'Option/Alt+click'],
+] as const;
 import { fetchBoardSettings, updateBoardSettings } from '../services/boardApi';
 import {
   KeyboardShortcuts,
@@ -80,6 +98,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
   // Where clicked links open (#140)
   const [linkTarget, setLinkTarget] = useState<LinkTarget>('builtin');
+  const [linkKeys, setLinkKeys] = useState<LinkKeys>(DEFAULT_LINK_KEYS);
 
   // Board source state
   const [boardSource, setBoardSource] = useState<BoardSource>({ owner: '', number: 0 });
@@ -122,6 +141,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     try {
       const settings = await fetchSettings();
       setLinkTarget(settings.linkTarget ?? 'builtin');
+      setLinkKeys({ ...DEFAULT_LINK_KEYS, ...settings.linkKeys });
       if (settings.keyboardShortcuts) {
         setShortcuts(settings.keyboardShortcuts);
       }
@@ -151,10 +171,23 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
     setLinkTarget(target);
     setError(null);
     try {
-      applyLinkTarget((await updateLinkTarget(target)).linkTarget);
+      applyLinkTarget((await updateLinkTarget({ linkTarget: target })).linkTarget);
     } catch (err) {
       setLinkTarget(previous);
       setError(err instanceof Error ? err.message : 'Failed to save link target');
+    }
+  };
+
+  const handleLinkKeyChange = async (gesture: keyof LinkKeys, target: LinkTarget) => {
+    const previous = linkKeys;
+    const next = { ...linkKeys, [gesture]: target };
+    setLinkKeys(next);
+    setError(null);
+    try {
+      applyLinkKeys((await updateLinkTarget({ linkKeys: next })).linkKeys);
+    } catch (err) {
+      setLinkKeys(previous);
+      setError(err instanceof Error ? err.message : 'Failed to save link keys');
     }
   };
 
@@ -529,12 +562,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               Open links in
             </legend>
             <div className="flex flex-wrap gap-2">
-              {(
-                [
-                  ['builtin', 'Built-in browser'],
-                  ['system', 'System browser'],
-                ] as const
-              ).map(([value, label]) => (
+              {LINK_TARGETS.map(([value, label]) => (
                 <label
                   key={value}
                   className={`flex items-center gap-2 px-3 py-1.5 rounded border text-sm cursor-pointer transition-colors ${
@@ -555,10 +583,32 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 </label>
               ))}
             </div>
+            <div className="mt-3 grid grid-cols-[auto_minmax(0,14rem)] items-center gap-x-3 gap-y-1.5 text-sm">
+              {LINK_GESTURES.map(([gesture, label]) => (
+                <Fragment key={gesture}>
+                  <label htmlFor={`link-key-${gesture}`} className="text-gray-300">
+                    {label}
+                  </label>
+                  <select
+                    id={`link-key-${gesture}`}
+                    value={linkKeys[gesture]}
+                    onChange={(e) => handleLinkKeyChange(gesture, e.target.value as LinkTarget)}
+                    className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-gray-100"
+                  >
+                    {LINK_TARGETS.map(([value, name]) => (
+                      <option key={value} value={value}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </Fragment>
+              ))}
+            </div>
             <p className="mt-2 text-xs text-gray-500">
-              Links from terminals (Cmd/Ctrl-click), the app and VS Code (desktop app);
-              Cmd/Ctrl+Shift-click always opens the system browser. Pages in the built-in browser
-              keep an &quot;open externally&quot; button.
+              Links from agent chats, terminals, the app and VS Code (desktop app). A split detaches
+              into its own tab from its header; outside an agent it opens in the side view. In
+              terminals Cmd/Ctrl-click is the click itself, Shift and Option on top pick the target.
+              Pages in the built-in browser keep an &quot;open externally&quot; button.
             </p>
           </fieldset>
 

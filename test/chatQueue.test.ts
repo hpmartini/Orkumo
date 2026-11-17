@@ -87,3 +87,30 @@ describe('start prompts', () => {
     expect(initialPrompts(s.messages).map((m) => m.text)).toEqual(['a', 'c']);
   });
 });
+
+describe('wrappers Claude Code puts around prompts', () => {
+  it('shows pasted text without its <pasted_content> tags, queued or not', () => {
+    const pasted = '<pasted_content id="5fb8">\n- erster Punkt\n</pasted_content id="5fb8">';
+    const s1 = run([[q('enqueue', pasted)]]);
+    expect(pendingPrompts(s1)).toEqual(['- erster Punkt\n']);
+    const s2 = run([[q('remove', pasted), queuedCmd(pasted), user(pasted)]], s1);
+    expect(pendingPrompts(s2)).toEqual([]);
+    expect(users(s2)).toEqual(['- erster Punkt\n', '- erster Punkt\n']);
+  });
+
+  it('leaves out hand-backs of subagents and other sessions', () => {
+    const msg = '<agent-message from="a1">\n[Subagent hand-back] report\n</agent-message>';
+    const peer = line({
+      type: 'attachment',
+      attachment: {
+        type: 'queued_command',
+        prompt: msg,
+        commandMode: 'prompt',
+        origin: { kind: 'peer', from: 'a1' },
+      },
+    });
+    const s = run([[q('enqueue', msg), q('remove', msg), peer]]);
+    expect(pendingPrompts(s)).toEqual([]);
+    expect(users(s)).toEqual([]);
+  });
+});

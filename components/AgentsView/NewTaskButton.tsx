@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Bot, ChevronDown, CircleDot, MessageSquare, Network, Plus } from 'lucide-react';
 import { usePopover } from './PullRequestsPanel';
+import { isMac } from '../CommandPalette/CommandPaletteProvider';
 
 export type NewKind = 'task' | 'agent' | 'chat' | 'issue';
 /** Dropdown entries: the dialog kinds plus "New orchestrator", which starts right away */
@@ -66,7 +67,7 @@ export const NewTaskButton: React.FC<{ onNew: (kind: NewMenuKind) => void }> = (
         type="button"
         onClick={() => onNew('task')}
         className="flex items-center gap-1 pl-2 pr-2.5 py-0.5 rounded-l text-xs font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-white"
-        title="New task (N or Alt+N)"
+        title={`New task (N or ${isMac ? '⌘N' : 'Ctrl+N'})`}
       >
         <Plus size={13} aria-hidden /> New task
       </button>
