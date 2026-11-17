@@ -2140,7 +2140,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         },
         ...(isOrchestrator(session, settings.orchestrators) ? orchestratorRoles : []).map((r) => ({
           id: `role:${r.id}`,
-          label: `Assign role: ${r.id}`,
+          label: `Role: ${r.id}`,
           icon: Network,
           disabled: orchestratorRole(session, settings.orchestratorRoles) === r.id,
           onSelect: () => void assignRole(session, r),
