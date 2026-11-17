@@ -277,7 +277,7 @@ export function formatAgent(a, now = Date.now()) {
       a.harness,
       where,
       JSON.stringify(a.name || ''),
-      a.orchestrator ? '[orchestrator]' : '',
+      a.orchestrator ? (a.role ? `[orchestrator: ${a.role}]` : '[orchestrator]') : '',
     ]
       .filter(Boolean)
       .join('  '),

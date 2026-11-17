@@ -2125,6 +2125,7 @@ app.get('/api/orchestrator/overview', async (req, res) => {
         sessions,
         contexts,
         orchestrators: settingsService.getAgentViewSettings().orchestrators,
+        orchestratorRoles: settingsService.getAgentViewSettings().orchestratorRoles,
         all: req.query.all === '1',
         withText: req.query.text !== '0',
         readTranscript: (session, last) =>
@@ -2184,6 +2185,16 @@ app.get('/api/orchestrator/workspace', (req, res) => {
   });
 });
 
+/** Roles a new orchestrator can take (`<workspace>/roles/*.md`) with the briefing that assigns one */
+app.get('/api/orchestrator/roles', (req, res) => {
+  const { dir } = ensureOrchestratorWorkspace();
+  res.json({
+    roles: orchestrator
+      .listRoles(dir)
+      .map((r) => ({ ...r, briefing: orchestrator.roleBriefing(r.id, dir) })),
+  });
+});
+
 /** `orkumo start --harness omp`: an agent pane in a project, listed in the rail like any pane */
 app.post(
   '/api/orchestrator/panes',
@@ -2219,18 +2230,22 @@ app.post(
   }
 );
 
-/** "New orchestrator": the default harness (Claude Code when it has no pane) in the workspace */
+/** "New orchestrator": the default harness (Claude Code when it has no pane) in the workspace; `role` names a roles/<role>.md */
 app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, async (req, res) => {
   if (isRunningInDocker) return res.status(501).json({ error: 'Not available in Docker' });
   const { harness, model, permissionMode } = settingsService.getAgentViewSettings().dispatch;
   try {
     const { dir } = ensureOrchestratorWorkspace();
+    const role = req.body?.role == null ? null : orchestrator.assertRole(req.body.role, dir);
     res.status(201).json(
       await orchestrator.startAgentPane(
         {
           harness: orchestrator.PANE_HARNESSES.includes(harness) ? harness : 'claude',
           cwd: dir,
-          prompt: orchestrator.ORCHESTRATOR_START_PROMPT,
+          prompt: role
+            ? orchestrator.roleStartPrompt(role)
+            : orchestrator.ORCHESTRATOR_START_PROMPT,
+          name: role,
           model,
           permissionMode,
           orchestrator: true,

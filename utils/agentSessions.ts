@@ -196,6 +196,22 @@ export function isOrchestrator(
 export const orchestratorKey = (session: AgentSession): string =>
   session.kind === 'background' ? session.id : session.sessionId || session.paneId || session.id;
 
+/** Role of an orchestrator in `agentView.orchestratorRoles` (same keys as the mark); null when none */
+export function orchestratorRole(
+  session: Pick<AgentSession, 'id' | 'sessionId' | 'paneId'>,
+  roles: Readonly<Record<string, string>> | undefined
+): string | null {
+  const key = [session.id, session.sessionId, session.paneId].find((k) => !!k && roles?.[k]);
+  return key ? roles![key] : null;
+}
+
+/** `roles` without the entries of `session` (unmarking, reassigning) */
+export const withoutOrchestratorRole = (
+  roles: Readonly<Record<string, string>> | undefined,
+  session: AgentSession
+): Record<string, string> =>
+  Object.fromEntries(Object.entries(roles ?? {}).filter(([k]) => !isOrchestrator(session, [k])));
+
 /** `ids` without every id that names `session` (unmarking) */
 export const withoutOrchestrator = (ids: readonly string[], session: AgentSession): string[] =>
   ids.filter((id) => !isOrchestrator(session, [id]));

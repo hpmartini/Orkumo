@@ -19,7 +19,8 @@ orkumo agents [--all] [--json]
 
 One block per agent: `id`, state (`working`, `needs input`, `done`, …), harness, project@branch,
 name, then what it waits for, its PR links and the start of its last answer. Orchestrators are
-marked `[orchestrator]`. Without `--all` finished agents older than a day and terminals Orkumo does
+marked `[orchestrator]`, or `[orchestrator: <role>]` when they follow a role file
+(`roles/<role>.md`). Without `--all` finished agents older than a day and terminals Orkumo does
 not run are left out. `--json` prints the raw overview (`GET /api/orchestrator/overview`).
 
 ## show

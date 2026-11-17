@@ -46,6 +46,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   mainAgent: { name: 'main-orchestrator', keepAlive: true },
   // Orchestrator sessions (orchestratorService.js): row id, transcript uuid or pane id
   orchestrators: [],
+  orchestratorRoles: {}, // orchestrator session key -> role id (roles/<id>.md)
   cardDensity: 'comfortable', // 'comfortable' | 'compact'
   // Card element -> slot (#159); mirrors DEFAULT_AGENT_CARD_FIELDS in types.ts
   cardFields: {
