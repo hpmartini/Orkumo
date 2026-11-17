@@ -304,6 +304,24 @@ export function extractNumberedChoices(output: string): { number: number; label:
   return contiguous;
 }
 
+/** Claude Code's own status lines under the input (plugin panel, updater): no part of a question */
+const STATUS_LINE_RE = /plugin panel hidden|update installed|restart to (apply|update)|auto-updat/i;
+/** A dialog waiting for a key: a cursor on a numbered option, or the dialog's key hints */
+const CHOICE_CURSOR_RE = /^\s*[❯›→▶]\s*\d[.)]\s/;
+const DIALOG_HINT_RE = /esc to cancel|enter to (select|confirm)|\(y\/n\)|\[y\/n\]/i;
+
+/**
+ * The question on an agent's screen (permission or choice dialog) without the status lines, or
+ * null when no dialog waits: an answer that merely ends with open questions is no prompt
+ */
+export function screenPrompt(screen: string): string | null {
+  const lines = stripAnsi(screen)
+    .split(/\r?\n/)
+    .filter((l) => !STATUS_LINE_RE.test(l));
+  const asking = lines.some((l) => CHOICE_CURSOR_RE.test(l) || DIALOG_HINT_RE.test(l));
+  return asking ? lines.join('\n').trim() : null;
+}
+
 /** `claude --bg` refuses a folder whose trust prompt was never accepted (needs an interactive run there) */
 export function isUntrustedWorkspaceError(message: string): boolean {
   return /workspace not trusted/i.test(message);
