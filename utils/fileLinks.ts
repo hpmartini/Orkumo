@@ -60,15 +60,26 @@ export function findFilePaths(text: string): FilePathMatch[] {
   return result.sort((a, b) => a.start - b.start);
 }
 
-/** Wrapped rows around `y` (0-based) joined into one string, with each char's cell position */
-export function logicalLine(terminal: Terminal, y: number) {
+// A link never spans this many rows; a wrapped line can span the whole scrollback
+const WRAP_WINDOW = 100;
+
+/**
+ * Wrapped rows around `y` (0-based) joined into one string, with each char's cell position.
+ * Clipped to rows [from, to): reading a scrollback-long wrapped line per row ran the renderer out of heap.
+ */
+export function logicalLine(
+  terminal: Terminal,
+  y: number,
+  from = y - WRAP_WINDOW,
+  to = y + WRAP_WINDOW
+) {
   const buffer = terminal.buffer.active;
   let top = y;
-  while (top > 0 && buffer.getLine(top)?.isWrapped) top--;
+  while (top > 0 && top > from && buffer.getLine(top)?.isWrapped) top--;
   let text = '';
   const cells: Array<[number, number]> = [];
   const cell = buffer.getNullCell();
-  for (let row = top; ; row++) {
+  for (let row = top; row < to; row++) {
     const line = buffer.getLine(row);
     if (!line || (row > top && !line.isWrapped)) break;
     for (let x = 0; x < line.length; x++) {
