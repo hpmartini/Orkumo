@@ -87,3 +87,17 @@ describe('start prompts', () => {
     expect(initialPrompts(s.messages).map((m) => m.text)).toEqual(['a', 'c']);
   });
 });
+
+describe('UI view after /clear', () => {
+  it('follows the live session of the server row, not the id in the pane args', async () => {
+    const { viewSessionIdOf } = await import('../utils/agentSessions');
+    const pane = {
+      id: 'p1',
+      kind: 'claude',
+      ptyArgs: ['--session-id', 'aaaaaaaa-0000-0000-0000-000000000000'],
+    } as never;
+    const row = { id: 'interactive-1', sessionId: 'bbbbbbbb-0000-0000-0000-000000000000' } as never;
+    expect(viewSessionIdOf(pane, row)).toBe('bbbbbbbb-0000-0000-0000-000000000000');
+    expect(viewSessionIdOf(pane)).toBe('aaaaaaaa-0000-0000-0000-000000000000');
+  });
+});

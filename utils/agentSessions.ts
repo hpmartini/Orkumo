@@ -1262,6 +1262,14 @@ export function shortenPath(cwd: string, max = 40): string {
  * the id the server lists for another harness's session (omp). The UI view reads that transcript.
  * Harness panes without a listed session and cloud panes have none.
  */
+/**
+ * Transcript the UI view of a pane shows. The server row that claimed the pane comes first: it
+ * reports the live session, and `/clear` starts a new one while the pane's args keep the old id.
+ */
+export function viewSessionIdOf(pane: AgentSession, row?: AgentSession): string | null {
+  return (row ? resumableSessionId(row) : null) ?? resumableSessionId(pane);
+}
+
 export function resumableSessionId(session: AgentSession): string | null {
   // #220: the chat would start on the picked instance, not on the one this pane runs on
   if (targetOf(session.id) !== getAgentTarget()) return null;

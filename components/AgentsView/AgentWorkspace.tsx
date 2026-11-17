@@ -5,7 +5,7 @@ import { X, Columns2, Rows2, LayoutGrid, Bot, Maximize2, SquareTerminal } from '
 import type { AgentSession } from '../../types';
 import {
   stateGlyph,
-  resumableSessionId,
+  viewSessionIdOf,
   sessionHarness,
   UI_VIEW_HARNESSES,
 } from '../../utils/agentSessions';
@@ -366,7 +366,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
     const url = browserUrl(session.id);
     // A harness pane started here (#195): the server row that claimed it knows its state and session
     const row = sessions.find((s) => s.paneId === session.id);
-    const viewSessionId = resumableSessionId(session) ?? (row ? resumableSessionId(row) : null);
+    const viewSessionId = viewSessionIdOf(session, row);
     const viewable =
       url === null &&
       shellCwd(session.id) === null &&

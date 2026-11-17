@@ -1651,7 +1651,8 @@ let ompScheduler = null;
 let watches = null;
 
 function snapshotKey(session) {
-  return `${session.state}|${session.displayState}|${session.status}|${session.detail}|${session.name}|${session.pinned}|${session.order}|${session.links.length}|${session.waitingFor}`;
+  // sessionId: `/clear` gives a running terminal a new session, its UI view follows the row
+  return `${session.sessionId}|${session.state}|${session.displayState}|${session.status}|${session.detail}|${session.name}|${session.pinned}|${session.order}|${session.links.length}|${session.waitingFor}`;
 }
 
 async function refreshSessions() {
