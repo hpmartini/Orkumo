@@ -11,10 +11,11 @@ import { EventEmitter } from 'events';
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import { StringDecoder } from 'string_decoder';
 import { CLI_BUILTINS, CLI_INTERACTIVE_BUILTINS } from './claudeBuiltins.js';
 import { listOmpCommands, ompSnapshot } from './ompCommands.js';
 import { resolveHarnessBinary } from '../../config/harnesses.js';
-import { HISTORY_BYTES, TRANSCRIPT_READERS, commandsEvent } from './chatTranscripts.js';
+import { READ_CHUNK_BYTES, TRANSCRIPT_READERS, commandsEvent } from './chatTranscripts.js';
 import {
   artifactContent,
   createArtifactLog,
@@ -173,7 +174,8 @@ export function viewSession(opts, context = {}) {
   let file = null;
   let offset = 0;
   let rest = '';
-  let started = false;
+  // a chunk may end inside a multi-byte character
+  let decoder = new StringDecoder('utf8');
   let ticking = false;
   const read = () => {
     let size;
@@ -182,26 +184,28 @@ export function viewSession(opts, context = {}) {
     } catch {
       return;
     }
-    if (offset === 0 && size > HISTORY_BYTES) offset = size - HISTORY_BYTES;
     if (size < offset) {
       offset = 0; // rewritten
       rest = '';
+      decoder = new StringDecoder('utf8');
     }
     if (size === offset) return;
-    const buffer = Buffer.alloc(size - offset);
+    // The whole file from its start (the history before a compaction included), chunk by chunk;
+    // the replay buffer keeps the newest MAX_EVENTS
+    const buffer = Buffer.alloc(Math.min(size - offset, READ_CHUNK_BYTES));
     const fd = fs.openSync(file, 'r');
     try {
-      fs.readSync(fd, buffer, 0, buffer.length, offset);
+      while (offset < size) {
+        const n = fs.readSync(fd, buffer, 0, Math.min(buffer.length, size - offset), offset);
+        if (n <= 0) break;
+        offset += n;
+        const lines = (rest + decoder.write(buffer.subarray(0, n))).split('\n');
+        rest = lines.pop() ?? '';
+        for (const event of reader.historyEvents(lines)) record(s, event);
+      }
     } finally {
       fs.closeSync(fd);
     }
-    const midFile = !started && offset > 0;
-    started = true;
-    offset = size;
-    const lines = (rest + buffer.toString('utf8')).split('\n');
-    rest = lines.pop() ?? '';
-    if (midFile) lines.shift(); // started mid-file: partial first line
-    for (const event of reader.historyEvents(lines)) record(s, event);
   };
   const tick = async () => {
     if (ticking || !s.running) return;
