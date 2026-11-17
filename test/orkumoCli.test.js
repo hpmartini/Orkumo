@@ -322,9 +322,37 @@ describe('commands', () => {
     expect(calls[1]).toMatchObject({
       method: 'POST',
       route: '/agents/job1/reply',
-      body: { text: 'please rebase' },
+      body: { text: '[via orkumo send, Absender unbekannt]\n\nplease rebase' },
     });
     expect(out).toBe('Sent to job1 (fix login).');
+  });
+
+  // The receiver's harness logs a typed message as the user's own: the first line names the sender
+  it('send: heads the message with the sending agent (Claude, omp, explicit id), both routes', async () => {
+    const reply = { 'POST /agents/job1/reply': () => [200, { delivered: true }] };
+    const pane = { 'POST /agents/panes/work-1/message': () => [200, { delivered: true }] };
+    const claude = await cli(['send', 'job1', 'hi'], reply, {
+      env: { CLAUDE_CODE_SESSION_ID: 'uuid-tty' },
+    });
+    expect(claude.calls[1].body.text).toBe(
+      '[von Agent interactive-77 „tty“ via orkumo send]\n\nhi'
+    );
+    const omp = await cli(['send', 'interactive-77', 'hi'], pane, {
+      env: { PI_SESSION_ID: 'u3' },
+    });
+    expect(omp.calls[1]).toMatchObject({
+      route: '/agents/panes/work-1/message',
+      body: { text: '[von Agent omp-u3 „omp“ via orkumo send]\n\nhi' },
+    });
+    const explicit = await cli(['send', 'job1', 'hi'], reply, {
+      env: { ORKUMO_AGENT_ID: 'job1', CLAUDE_CODE_SESSION_ID: 'uuid-tty' },
+    });
+    expect(explicit.calls[1].body.text).toBe('[von Agent job1 „fix login“ via orkumo send]\n\nhi');
+    // a session Orkumo does not list: its id, no name
+    const unlisted = await cli(['send', 'job1', 'hi'], reply, {
+      env: { CLAUDE_CODE_SESSION_ID: 'abc-123' },
+    });
+    expect(unlisted.calls[1].body.text).toBe('[von Agent abc-123 via orkumo send]\n\nhi');
   });
 
   it('send: types into the pane of a pane agent, message from stdin', async () => {
@@ -335,7 +363,7 @@ describe('commands', () => {
     );
     expect(calls[1]).toMatchObject({
       route: '/agents/panes/work-1/message',
-      body: { text: 'line one\nline two' },
+      body: { text: '[via orkumo send, Absender unbekannt]\n\nline one\nline two' },
     });
   });
 
