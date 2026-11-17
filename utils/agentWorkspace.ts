@@ -398,10 +398,10 @@ export function openShell(ws: Workspace, cwd: string): Workspace {
   return openSession(ws, `${SHELL_PREFIX}${n}:${cwd}`);
 }
 
-/** Tab title: the name for one pane, "A + B" for two, "N agents" beyond */
-export function tabTitle(names: string[]): string {
+/** Tab title: the name for one pane, "A + B" for two, "N agents" (or `noun`) beyond */
+export function tabTitle(names: string[], noun = 'agents'): string {
   if (names.length <= 1) return names[0] ?? '';
-  return names.length === 2 ? `${names[0]} + ${names[1]}` : `${names.length} agents`;
+  return names.length === 2 ? `${names[0]} + ${names[1]}` : `${names.length} ${noun}`;
 }
 
 const isLayout = (v: unknown): v is PaneLayout =>

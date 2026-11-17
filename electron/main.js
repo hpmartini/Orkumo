@@ -22,6 +22,7 @@ import { APP_NAME, LEGACY_USER_DATA_DIR } from './constants.js';
 import { wireBrowserViewNav, goHistory, wireViewPopups } from './browserViewNav.js';
 import { persistSessionCookies } from './cookiePersistence.js';
 import { createChatSync } from './chatSync.js';
+import { findChatView, typeScript } from './chatPrompt.js';
 import { PORTS } from '../config/defaults.js';
 import electronUpdater from 'electron-updater';
 import {
@@ -996,7 +997,41 @@ function setupIpcHandlers() {
       };
       return { claude: unavailable, chatgpt: unavailable };
     }
-    chatSync ??= createChatSync({
+    return getChatSync().sync();
+  });
+
+  // Images of the chat view, fetched with the built-in browser's login (main process only)
+  ipcMain.handle('chat-asset', async (_event, { provider, ref }) => {
+    if (REMOTE_LINK) return null;
+    try {
+      return await getChatSync().asset(provider, ref);
+    } catch {
+      return null;
+    }
+  });
+
+  // "Continue writing": types into the provider's page of that conversation (chatPrompt.js)
+  ipcMain.handle('chat-type-prompt', async (_event, { provider, id, text, submit }) => {
+    if (typeof text !== 'string' || !text.trim() || text.length > 100_000) return 'no-field';
+    const webContents = findChatView(
+      [...browserViews.values()].map(({ view }) => ({
+        url: view.webContents.getURL(),
+        target: view.webContents,
+      })),
+      provider,
+      id
+    );
+    if (!webContents) return 'no-page';
+    if (webContents.isLoading()) return 'loading';
+    try {
+      return await webContents.executeJavaScript(typeScript(text, submit !== false), true);
+    } catch {
+      return 'no-field';
+    }
+  });
+
+  function getChatSync() {
+    return (chatSync ??= createChatSync({
       providerFetch: (url, init) =>
         session.fromPartition(BROWSER_PREVIEW_PARTITION).fetch(url, init),
       serverUrl: `http://127.0.0.1:${SERVER_PORT}`,
@@ -1004,9 +1039,8 @@ function setupIpcHandlers() {
         if (mainWindow && !mainWindow.isDestroyed())
           mainWindow.webContents.send('chat-sync-progress', { provider, ...progress });
       },
-    });
-    return chatSync.sync();
-  });
+    }));
+  }
 
   // Check if running in Electron
   ipcMain.handle('is-electron', () => {
