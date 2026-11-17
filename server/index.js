@@ -49,6 +49,7 @@ import { ideService } from './services/ideService.js';
 import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
 import { listOmpCommands } from './services/ompCommands.js';
+import { listHarnessModels } from './services/harnessModels.js';
 import * as chatService from './services/chatService.js';
 import * as chatStatus from './services/chatStatus.js';
 import { ompSkillsArgs } from './services/ompSkills.js';
@@ -1899,6 +1900,16 @@ async function ompStartCommands(cwd) {
     .filter((c) => !c.builtin)
     .map((c) => ({ name: c.name, description: c.description, source: 'omp' }));
 }
+
+/** Model × effort picker: the harness's models with their effort levels (?harness=claude|omp) */
+app.get('/api/agents/models', async (req, res) => {
+  const harness = req.query.harness === 'omp' ? 'omp' : 'claude';
+  try {
+    res.json({ models: await listHarnessModels(harness) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
 
 app.get('/api/agents/commands', async (req, res) => {
   try {

@@ -312,6 +312,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [composerImages, setComposerImages] = useState<File[]>([]);
   // Model of the next agent or chat (#19 AK-2); '' = the default (settings.dispatch.model)
   const [composerModel, setComposerModel] = useState('');
+  // Effort picked in the model × effort matrix, '' = default
+  const [composerEffort, setComposerEffort] = useState('');
   const [homeDir, setHomeDir] = useState<string | null>(null);
   // Where chats without a project run (#19 AK-1): `<data>/chats` of the agent target; `discovered`
   // once the discovery data is in (an older host has no chats folder)
@@ -666,6 +668,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     setPickedCwd(null);
     setComposerHarness(null);
     setComposerModel('');
+    setComposerEffort('');
     setComposerOpen(true);
   }, []);
   // Quick window (#251): its prompt opens the chat composer here, ready to send, without a project
@@ -1210,6 +1213,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         name?: string | null;
         idle?: boolean;
         model?: string;
+        effort?: string;
       },
       attachAfter = false,
       view: PaneView = 'terminal'
@@ -1393,6 +1397,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           `${composerHarness} · ${cwd.split('/').filter(Boolean).pop() || cwd}`,
           [
             ...(model && HARNESS_MODEL_FLAG[composerHarness] ? ['--model', model] : []),
+            ...(composerEffort && composerHarness === 'omp' ? ['--thinking', composerEffort] : []),
             ...(prompt ? ['--', prompt] : []),
           ],
           composerHarness,
@@ -1425,8 +1430,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             prompt: prompt || undefined,
             idle: true,
             cwd: composerCwd,
-            // '' keeps the default: settings.dispatch.model
+            // '' keeps the default: settings.dispatch.model / .effort
             ...(composerModel.trim() && { model: composerModel.trim() }),
+            ...(composerEffort && { effort: composerEffort }),
           },
           true,
           view
@@ -1477,6 +1483,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
               prompt: promptWithAttachments(parsed.prompt, stored),
               agent: parsed.agent ?? undefined,
               cwd: parsed.repo?.path || composerCwd || undefined,
+              ...(composerModel.trim() && { model: composerModel.trim() }),
+              ...(composerEffort && { effort: composerEffort }),
             },
             attachAfter
           );
@@ -1490,6 +1498,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       composerCwd,
       composerHarness,
       composerModel,
+      composerEffort,
       harnessInstalled,
       homeDir,
       composerImages.length,
@@ -2996,10 +3005,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           setComposerHarness(harness);
           // model names differ per CLI: a new harness starts from its default
           setComposerModel('');
+          setComposerEffort('');
         }}
         harnessInstalled={harnessInstalled}
         model={composerModel}
         onModelChange={setComposerModel}
+        effort={composerEffort}
+        onEffortChange={setComposerEffort}
         defaultModel={composerHarness === 'claude' ? settings.dispatch.model || null : null}
         images={composerImages}
         onImagesChange={setComposerImages}
