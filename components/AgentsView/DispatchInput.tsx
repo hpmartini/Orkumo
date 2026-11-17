@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import { Send, FolderOpen, PenSquare } from 'lucide-react';
 import type { AgentSubagent, AgentRepo, AgentSlashCommand, AgentHarness } from '../../types';
-import { HARNESSES, HARNESS_MODEL_FLAG, MODEL_SUGGESTIONS } from '../../utils/agentSessions';
+import { HARNESSES, HARNESS_MODEL_FLAG } from '../../utils/agentSessions';
 import { computeSuggestions, Suggestion } from '../../utils/agentInput';
 import { submitIntent } from '../../utils/composer';
 import { useAutoGrowTextarea } from '../../hooks/useAutoGrowTextarea';
+import { ModelEffortPicker } from './ModelEffortPicker';
 
 interface DispatchInputProps {
   value: string;
@@ -36,6 +37,9 @@ interface DispatchInputProps {
    */
   model?: string;
   onModelChange?: (model: string) => void;
+  /** Effort level ('' = default): Claude Code `--effort`, omp `--thinking` */
+  effort?: string;
+  onEffortChange?: (effort: string) => void;
   defaultModel?: string | null;
 }
 
@@ -70,6 +74,8 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
   harnessInstalled = {},
   model = '',
   onModelChange,
+  effort = '',
+  onEffortChange,
   defaultModel = null,
 }) => {
   // @agent, /command and ! are Claude Code syntax; other harnesses get the text as their first message
@@ -253,22 +259,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         spellCheck={false}
       />
       {attachments}
-      <div className="flex items-center gap-2 mt-3">
-        <button
-          type="button"
-          onClick={onPickDirectory}
-          className="flex items-center gap-1.5 min-w-0 px-2 py-1.5 rounded-md text-xs text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
-          title={
-            isAgent
-              ? 'Directory the agent starts in'
-              : 'Directory the new session starts in (mention @repo to override)'
-          }
-        >
-          <FolderOpen size={13} aria-hidden />
-          <span className="truncate max-w-[280px] font-mono">
-            {targetCwd || 'Pick a directory'}
-          </span>
-        </button>
+      <div className="flex flex-wrap items-center gap-2 mt-3">
         {harness !== undefined && (
           <label className="flex items-center gap-1.5 text-xs text-gray-200">
             <span>Harness</span>
@@ -288,33 +279,43 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
             </select>
           </label>
         )}
+        {harness !== undefined && onModelChange && (harness === 'claude' || harness === 'omp') && (
+          <ModelEffortPicker
+            harness={harness}
+            model={model}
+            effort={effort}
+            defaultModel={defaultModel}
+            disabled={disabled}
+            onPick={(m, e) => {
+              onModelChange(m);
+              onEffortChange?.(e);
+            }}
+            title={
+              harness === 'claude'
+                ? 'Model and effort (--model, --effort); default = the dispatch settings'
+                : 'Model and thinking level (--model, --thinking); default = the CLI default'
+            }
+          />
+        )}
         {harness !== undefined &&
           onModelChange &&
           isAgent &&
-          (harness === 'claude' || HARNESS_MODEL_FLAG[harness]) && (
+          harness !== 'claude' &&
+          harness !== 'omp' &&
+          HARNESS_MODEL_FLAG[harness] && (
             <label className="flex items-center gap-1.5 text-xs text-gray-200">
               <span>Model</span>
               <input
                 value={model}
                 onChange={(e) => onModelChange(e.target.value)}
                 disabled={disabled}
-                list={`model-suggestions-${harness}`}
                 placeholder={defaultModel ? `default (${defaultModel})` : 'default'}
                 aria-label="Model"
                 spellCheck={false}
                 maxLength={80}
                 className="w-36 bg-gray-900 border border-gray-600 rounded-md px-1.5 py-1 text-xs text-gray-50 placeholder-gray-400 font-mono focus-visible:outline-2 focus-visible:outline-blue-400"
-                title={
-                  harness === 'claude'
-                    ? 'Model of this chat: opus, sonnet, haiku or a full model name; empty = the dispatch default'
-                    : 'Model of this chat, passed as --model; empty = the CLI default'
-                }
+                title="Model of this chat, passed as --model; empty = the CLI default"
               />
-              <datalist id={`model-suggestions-${harness}`}>
-                {MODEL_SUGGESTIONS[harness].map((m) => (
-                  <option key={m} value={m} />
-                ))}
-              </datalist>
             </label>
           )}
         <span className="flex-1" />
@@ -332,7 +333,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
             type="button"
             onClick={() => onSubmit({ attach: true })}
             disabled={disabled}
-            className="px-3 py-1.5 rounded-md text-sm text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50"
+            className="shrink-0 whitespace-nowrap px-3 py-1.5 rounded-md text-sm text-gray-100 bg-gray-700 hover:bg-gray-600 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50"
             title="Dispatch and open the session (Cmd/Ctrl+Shift+Enter)"
           >
             Dispatch and attach
@@ -342,14 +343,29 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
           type="button"
           onClick={() => onSubmit({ attach: isAgent })}
           disabled={disabled}
-          className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
+          className="flex shrink-0 whitespace-nowrap items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-500 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white disabled:opacity-50"
           title={isAgent ? 'Start and attach (Cmd/Ctrl+Enter)' : 'Dispatch (Cmd/Ctrl+Enter)'}
         >
           <Send size={13} aria-hidden />{' '}
           {variant === 'chat' ? 'Start chat' : isAgent ? 'Start agent' : 'Dispatch'}
         </button>
       </div>
-      <div className="mt-2 min-h-[1.25rem] text-xs" role="status" aria-live="polite">
+      <button
+        type="button"
+        onClick={onPickDirectory}
+        className="mt-2 flex w-full items-start gap-1.5 px-2 py-1 rounded-md text-left text-xs text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
+        title={
+          isAgent
+            ? 'Directory the agent starts in'
+            : 'Directory the new session starts in (mention @repo to override)'
+        }
+      >
+        <FolderOpen size={13} aria-hidden className="mt-0.5 shrink-0" />
+        <span className="min-w-0 font-mono [overflow-wrap:anywhere]">
+          {targetCwd || 'Pick a directory'}
+        </span>
+      </button>
+      <div className="mt-1 min-h-[1.25rem] text-xs" role="status" aria-live="polite">
         {hint ? (
           <span
             className={

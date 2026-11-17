@@ -103,14 +103,21 @@ describe('harness policy (#195)', () => {
   });
 
   it('one model name rule for --model and the dispatch model: never a flag', () => {
-    for (const ok of ['opus', 'sonnet[1m]', 'claude-opus-4-1', 'gpt-5-codex', 'openai/gpt-5.2:high'])
+    for (const ok of [
+      'opus',
+      'sonnet[1m]',
+      'claude-opus-4-1',
+      'gpt-5-codex',
+      'openai/gpt-5.2:high',
+    ])
       expect(MODEL_NAME_RE.test(ok)).toBe(true);
     for (const bad of ['-x', '--settings=x', '', ' opus', 'opus sonnet', 'a\nb', 'x'.repeat(81)])
       expect(MODEL_NAME_RE.test(bad)).toBe(false);
   });
 
   it('the client offers --model exactly where the server allows it', () => {
-    for (const id of HARNESS_COMMANDS) expect(HARNESS_MODEL_FLAG[id]).toBe(HARNESS_MODEL_SUPPORT[id]);
+    for (const id of HARNESS_COMMANDS)
+      expect(HARNESS_MODEL_FLAG[id]).toBe(HARNESS_MODEL_SUPPORT[id]);
   });
 
   it('resolves only executables named after the harness, null when missing', () => {
@@ -125,5 +132,30 @@ describe('harness policy (#195)', () => {
     // the fixed dirs (/opt/homebrew/bin …) may still hold a real install; a fake name never resolves
     expect(resolveHarnessBinary('bash', empty)).toBeNull();
     fs.rmSync(dir, { recursive: true });
+  });
+});
+
+describe('effort level at the start', () => {
+  it('lets omp take --thinking with a known level after the model or alone', () => {
+    expect(
+      harnessArgsError('omp', [
+        '--model',
+        'anthropic/claude-fable-5',
+        '--thinking',
+        'high',
+        '--',
+        'hi',
+      ])
+    ).toBeNull();
+    expect(harnessArgsError('omp', ['--thinking', 'xhigh'])).toBeNull();
+  });
+
+  it('rejects other levels, other harnesses and a flag smuggled in as level', () => {
+    expect(harnessArgsError('omp', ['--thinking', 'turbo'])).toMatch(/effort/);
+    expect(harnessArgsError('omp', ['--thinking', '--config'])).toMatch(/effort/);
+    expect(harnessArgsError('codex', ['--thinking', 'high'])).not.toBeNull();
+    expect(
+      harnessArgsError('omp', ['--thinking', 'high', '-r', '0b2b8b1e-1111-4222-8333-444455556666'])
+    ).not.toBeNull();
   });
 });

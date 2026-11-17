@@ -1,6 +1,7 @@
 /**
  * API client for the Claude Code agent view (`/api/agents/*`).
  */
+import type { HarnessModel } from '../utils/modelMatrix';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { agentApiUrl, getAgentTarget, pinTarget, targetOf } from '../utils/agentTarget';
 import { fitImage } from '../utils/imageFit';
@@ -601,4 +602,19 @@ export function subscribeToChat(id: string, handlers: ChatHandlers): () => void 
       setChatWatch(own, sub, watch, 'DELETE').catch(() => {});
     }
   };
+}
+
+const modelLists = new Map<string, Promise<HarnessModel[]>>();
+
+/** Models and effort levels of a harness CLI; read once per page, a failed read retries */
+export function fetchHarnessModels(harness: 'claude' | 'omp'): Promise<HarnessModel[]> {
+  let list = modelLists.get(harness);
+  if (!list) {
+    list = request<{ models: HarnessModel[] }>(`/agents/models${query({ harness })}`).then(
+      (d) => d.models
+    );
+    list.catch(() => modelLists.delete(harness));
+    modelLists.set(harness, list);
+  }
+  return list;
 }
