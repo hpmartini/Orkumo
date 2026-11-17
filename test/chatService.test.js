@@ -147,6 +147,32 @@ describe('viewSession - Claude transcript', () => {
     expect(seen).toHaveLength(before);
   });
 
+  it('replays the whole transcript of a long session, the part before a compaction included', async () => {
+    // 'ä' is two bytes: an odd-length line puts a read chunk border inside a character
+    const big = 'ä'.repeat(5 * 1024 * 1024 + 1);
+    const { dir } = claudeProjects([
+      claudeUser('before compaction'),
+      { type: 'assistant', message: { id: 'm1', content: [{ type: 'text', text: big }] } },
+      { type: 'system', subtype: 'compact_boundary' },
+      claudeUser('after compaction'),
+    ]);
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir }
+    );
+    const { seen, off } = collect(s.id);
+    await vi.waitFor(() =>
+      expect(seen.filter((e) => e.type === 'devorbit_user').map((e) => e.text)).toEqual([
+        'before compaction',
+        'after compaction',
+      ])
+    );
+    const text = seen.find((e) => e.type === 'assistant')?.message.content[0].text;
+    expect(text === big).toBe(true);
+    off();
+    stopChat(s.id);
+  });
+
   it('offers the TUI built-ins and the skills in the `/` picker', async () => {
     const { dir } = claudeProjects([claudeUser('hi')]);
     const s = viewSession(
