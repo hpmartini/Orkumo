@@ -247,6 +247,23 @@ describe.each(MODES)('AgentsView rail in grouping "$grouping" (#50)', ({ groupin
     expect(selectedTitle()).toBe(start);
   });
 
+  it('the group menu is split into sections, delete last on its own', () => {
+    renderView();
+    fireEvent.contextMenu(header(group));
+    const menu = screen.getByRole('menu');
+    const kids = Array.from(menu.children);
+    const seps = kids.filter((k) => k.getAttribute('role') === 'separator');
+    expect(seps.length).toBeGreaterThan(0);
+    // no separator at the edges or twice in a row
+    expect(kids[0].getAttribute('role')).toBe('menuitem');
+    expect(kids.at(-2)?.getAttribute('role')).toBe('separator');
+    expect(kids.at(-1)).toHaveTextContent(/Delete all sessions/);
+    kids.forEach((k, i) => {
+      if (k.getAttribute('role') === 'separator')
+        expect(kids[i + 1].getAttribute('role')).toBe('menuitem');
+    });
+  });
+
   it('#164 AC-3: Alt+Arrow on a focused chevron moves the group, the selection stays on it', async () => {
     const user = userEvent.setup();
     renderView();
