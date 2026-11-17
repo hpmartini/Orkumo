@@ -190,6 +190,42 @@ export const UNSAFE_DISPATCH_FLAGS = [
   'pluginDirs',
 ];
 
+/**
+ * Role profiles: a fixed, server-known set of flags (no client-supplied paths, so no unsafe opt-in).
+ * `worker` (orkumo start): ~/.claude/profiles/worker.json hides dialog/plan/cron/remote/artifact
+ * tools; strict MCP keeps only fetch and playwright (no user-scope servers such as api-anything,
+ * and none that need API keys).
+ */
+const WORKER_MCP_CONFIG = JSON.stringify({
+  mcpServers: {
+    fetch: { command: 'uvx', args: ['mcp-server-fetch'] },
+    playwright: { command: 'npx', args: ['@playwright/mcp@latest'] },
+  },
+});
+export const DISPATCH_PROFILES = {
+  worker: () => [
+    '--settings',
+    path.join(CLAUDE_HOME, 'profiles', 'worker.json'),
+    '--strict-mcp-config',
+    '--mcp-config',
+    WORKER_MCP_CONFIG,
+  ],
+};
+
+/** Flags a session was started with that `--resume` must repeat, or the profile is lost */
+const RESUME_CARRY_FLAGS = new Set(['--settings', '--mcp-config']);
+export function resumeProfileArgs(respawnFlags = []) {
+  const args = [];
+  for (let i = 0; i < respawnFlags.length; i++) {
+    const flag = respawnFlags[i];
+    if (flag === '--strict-mcp-config') args.push(flag);
+    else if (RESUME_CARRY_FLAGS.has(flag) && typeof respawnFlags[i + 1] === 'string') {
+      args.push(flag, respawnFlags[++i]);
+    }
+  }
+  return args;
+}
+
 export function isUnsafeFlagsAllowed() {
   return process.env.DEVORBIT_AGENTS_ALLOW_UNSAFE_FLAGS === 'true';
 }
@@ -317,11 +353,17 @@ export function buildDispatchArgs(opts = {}) {
   pushRepeat('--plugin-dir', opts.pluginDirs);
   pushRepeat('--mcp-config', opts.mcpConfigs);
   if (opts.strictMcpConfig) args.push('--strict-mcp-config');
+  if (opts.profile) {
+    const profile = DISPATCH_PROFILES[opts.profile];
+    if (!profile) throw new Error(`Unknown profile: ${opts.profile}`);
+    args.push(...profile());
+  }
 
   if (opts.exec) {
     args.push('--exec', String(opts.exec));
   } else if (opts.prompt) {
-    args.push(String(opts.prompt));
+    // --mcp-config, --add-dir and --plugin-dir take several values and would swallow the prompt
+    args.push('--', String(opts.prompt));
   }
   return args;
 }
@@ -1178,7 +1220,15 @@ export async function replySession(id, text, options = {}) {
     }
   }
   if (!session.sessionId) throw new Error('Session has no resumable id');
-  const result = await runClaude(['--resume', session.sessionId, '--bg', message], {
+  const resumeArgs = [
+    '--resume',
+    session.sessionId,
+    '--bg',
+    ...resumeProfileArgs(session.respawnFlags),
+    '--',
+    message,
+  ];
+  const result = await runClaude(resumeArgs, {
     cwd: session.cwd,
     timeout: 90000,
   });
