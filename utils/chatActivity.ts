@@ -61,12 +61,13 @@ export interface ChatShell {
   description: string;
 }
 
-/** Bash calls started with run_in_background; the CLI names their id in the result */
-export function chatShells(messages: ChatMessage[]): ChatShell[] {
+/** Background shells still running: started by Bash `run_in_background`, no end reported yet */
+export function chatShells(messages: ChatMessage[], ended: string[] = []): ChatShell[] {
+  const done = new Set(ended);
   return toolBlocks(messages).flatMap((b) => {
     if (b.name !== 'Bash' || !b.input.run_in_background) return [];
     const id = b.result?.match(/running in background with ID: (\w+)/)?.[1];
-    return id
+    return id && !done.has(id)
       ? [
           {
             id,

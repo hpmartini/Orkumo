@@ -48,6 +48,8 @@ describe('shells, sub-agents, steps', () => {
     expect(chatShells(s.messages)).toEqual([
       { id: 'b4l5tktxs', command: 'npm run dev', description: '' },
     ]);
+    // A <task-notification> with an end status removes the chip
+    expect(chatShells(s.messages, ['b4l5tktxs'])).toEqual([]);
   });
   it('collects sub-agent blocks under their Agent call', () => {
     const s = fold([
