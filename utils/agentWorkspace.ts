@@ -480,3 +480,14 @@ export function migrateWorkspace(raw: unknown): Workspace {
   if (!tabs.some((t) => t.id === activeTabId)) activeTabId = tabs[tabs.length - 1]?.id ?? null;
   return { tabs, activeTabId };
 }
+
+/**
+ * Tabs not fully inside the visible part of an overflowing strip (by their on-screen edges);
+ * 1px of slack for rounding
+ */
+export function hiddenTabIds(
+  strip: { left: number; right: number },
+  tabs: { id: string; left: number; right: number }[]
+): string[] {
+  return tabs.filter((t) => t.left < strip.left - 1 || t.right > strip.right + 1).map((t) => t.id);
+}

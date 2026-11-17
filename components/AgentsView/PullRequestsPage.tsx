@@ -107,7 +107,7 @@ export const PullRequestsPage: React.FC<PullRequestsPageProps> = (props) => {
     // Only GitHub pages load in the embedded browser; narrow windows (md breakpoint) and other hosts open externally
     if (
       canEmbed &&
-      getLinkTarget() === 'builtin' &&
+      getLinkTarget() !== 'system' &&
       pr.url.startsWith('https://github.com/') &&
       window.innerWidth >= 768
     ) {

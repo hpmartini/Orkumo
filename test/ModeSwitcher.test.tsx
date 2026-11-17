@@ -1,9 +1,9 @@
 import React from 'react';
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { ModeSwitcher, MODES } from '../components/ModeSwitcher';
+import { ModeSwitcher, MODES, MODE_ORDER_KEY, orderModes } from '../components/ModeSwitcher';
 import { TitleBar } from '../components/TitleBar';
 
 const Location = () => {
@@ -11,10 +11,14 @@ const Location = () => {
   return <div data-testid="location">{pathname + search}</div>;
 };
 
-const renderAt = (route: string, modes = [{ id: 'workflows', label: 'Workflows' }]) =>
+const renderAt = (
+  route: string,
+  modes = [{ id: 'workflows', label: 'Workflows' }],
+  onToggleRail?: () => void
+) =>
   render(
     <MemoryRouter initialEntries={[route]}>
-      <ModeSwitcher modes={modes} />
+      <ModeSwitcher modes={modes} onToggleRail={onToggleRail} />
       <Location />
     </MemoryRouter>
   );
@@ -24,7 +28,10 @@ const button = (label: string) => screen.getByRole('button', { name: label });
 const pressed = () =>
   LABELS.filter((label) => button(label).getAttribute('aria-pressed') === 'true');
 
+const order = () => screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'));
+
 describe('ModeSwitcher (#184)', () => {
+  beforeEach(() => localStorage.removeItem(MODE_ORDER_KEY));
   it('offers the modes in order: Agents, module modes (Workflows), Board, Issues, Pull Requests, Code', () => {
     renderAt('/agents');
     expect(screen.getAllByRole('button').map((b) => b.getAttribute('aria-label'))).toEqual([
@@ -96,10 +103,53 @@ describe('ModeSwitcher (#184)', () => {
     expect(pressed()).toEqual(['Board']);
   });
 
-  it('a click on the active mode stays there', async () => {
-    renderAt('/code');
+  it('a click on the active mode stays there and shows or hides the side panel', async () => {
+    const toggle = vi.fn();
+    renderAt('/code', undefined, toggle);
     await userEvent.click(button('Code'));
     expect(screen.getByTestId('location')).toHaveTextContent(/^\/code$/);
+    expect(toggle).toHaveBeenCalledTimes(1);
+    await userEvent.click(button('Board'));
+    expect(toggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('Alt+Arrow keys reorder the modes, the order survives a remount', async () => {
+    const { unmount } = renderAt('/agents');
+    button('Chats').focus();
+    await userEvent.keyboard('{Alt>}{ArrowUp}{ArrowUp}{/Alt}');
+    expect(order()).toEqual([
+      'Agents',
+      'Workflows',
+      'Board',
+      'Issues',
+      'Chats',
+      'Pull Requests',
+      'Code',
+    ]);
+    // Ctrl+N follows the new order
+    await userEvent.keyboard('{Control>}{5}{/Control}');
+    expect(screen.getByTestId('location')).toHaveTextContent(/^\/chats$/);
+    unmount();
+    renderAt('/agents');
+    expect(order()).toEqual([
+      'Agents',
+      'Workflows',
+      'Board',
+      'Issues',
+      'Chats',
+      'Pull Requests',
+      'Code',
+    ]);
+  });
+
+  it('a mode the stored order does not name keeps its default place', () => {
+    const modes = ['/agents', '/workflows', '/board', '/chats'].map((path) => ({ path }));
+    expect(orderModes(modes, ['/chats', '/agents', '/board']).map((m) => m.path)).toEqual([
+      '/chats',
+      '/workflows',
+      '/agents',
+      '/board',
+    ]);
   });
 
   it('marks no mode on a dashboard', () => {

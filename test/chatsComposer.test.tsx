@@ -22,7 +22,11 @@ vi.mock('../hooks/useAgentSessions', () => ({
   useAgentSessions: () => {
     hoisted.settings ??= {
       ...DEFAULT_AGENT_VIEW_SETTINGS,
-      dispatch: { ...DEFAULT_AGENT_VIEW_SETTINGS.dispatch, harness: 'claude', model: hoisted.model },
+      dispatch: {
+        ...DEFAULT_AGENT_VIEW_SETTINGS.dispatch,
+        harness: 'claude',
+        model: hoisted.model,
+      },
     };
     return {
       sessions: hoisted.sessions,
@@ -98,6 +102,15 @@ beforeEach(() => {
         return json({ cwd: '/p', repos: [], home: '/home/dev', chats: CHATS });
       if (String(url).includes('/agents/subagents')) return json({ agents: [] });
       if (String(url).includes('/agents/commands')) return json({ commands: [] });
+      if (String(url).includes('/agents/models'))
+        return json({
+          models: ['fable', 'opus', 'sonnet'].map((id) => ({
+            id,
+            label: id,
+            group: 'Claude',
+            efforts: ['low', 'high', 'max'],
+          })),
+        });
       if (String(url).includes('/agents/dispatch')) {
         dispatched.push(JSON.parse(String(init?.body)));
         return json({ id: 'job-1', name: 'chat', alreadyRunning: false, output: '' }, 201);
@@ -126,23 +139,33 @@ describe('New chat without a project (#19)', () => {
     expect(dispatched[0]).toMatchObject({ prompt: 'Was ist Sauerteig?', cwd: CHATS, idle: true });
   });
 
-  it('AK-2: the model picked for the chat goes along; empty keeps the global default', async () => {
+  it('AK-2: model and effort picked in the matrix go along; empty keeps the global default', async () => {
     hoisted.model = 'sonnet';
     openNewChat();
     const composer = await dialog();
-    const model = within(composer).getByRole('combobox', { name: 'Model' });
-    expect(model).toHaveAttribute('placeholder', 'default (sonnet)');
-    const options = [...document.querySelectorAll('#model-suggestions-claude option')].map((o) =>
-      o.getAttribute('value')
-    );
-    expect(options).toEqual(['opus', 'sonnet', 'haiku']);
+    const picker = within(composer).getByRole('button', { name: /default \(sonnet\)/ });
+    fireEvent.click(picker);
+    const matrix = await screen.findByRole('dialog', { name: 'Model and effort' });
+    // models from the CLI help plus the aliases it leaves out; each with the CLI's levels
+    await within(matrix).findByRole('button', { name: 'haiku · max' });
+    expect(
+      within(matrix)
+        .getAllByRole('columnheader')
+        .map((h) => h.textContent)
+    ).toEqual(['Model', 'default', 'low', 'high', 'max']);
+    fireEvent.click(within(matrix).getByRole('button', { name: 'opus · high' }));
+    expect(picker).toHaveTextContent('opus · high');
     fireEvent.change(within(composer).getByLabelText('Task description'), {
       target: { value: 'Hallo' },
     });
-    fireEvent.change(model, { target: { value: 'opus' } });
     fireEvent.click(within(composer).getByRole('button', { name: /Start chat/ }));
     await waitFor(() => expect(dispatched).toHaveLength(1));
-    expect(dispatched[0]).toMatchObject({ prompt: 'Hallo', cwd: CHATS, model: 'opus' });
+    expect(dispatched[0]).toMatchObject({
+      prompt: 'Hallo',
+      cwd: CHATS,
+      model: 'opus',
+      effort: 'high',
+    });
 
     cleanup();
     dispatched = [];
@@ -163,7 +186,7 @@ describe('New chat without a project (#19)', () => {
     fireEvent.change(within(composer).getByRole('combobox', { name: /Harness/ }), {
       target: { value: 'codex' },
     });
-    const model = within(composer).getByRole('combobox', { name: 'Model' });
+    const model = within(composer).getByRole('textbox', { name: 'Model' });
     expect(model).toHaveAttribute('placeholder', 'default');
     fireEvent.change(model, { target: { value: 'gpt-5-codex' } });
     fireEvent.change(within(composer).getByLabelText('Task description'), {

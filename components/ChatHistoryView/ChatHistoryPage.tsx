@@ -331,18 +331,25 @@ export const ChatHistoryPage: React.FC = () => {
 
   const items = data?.items ?? [];
   const now = Date.now();
-  const groups: { label: string; items: ChatHistoryItem[] }[] = grouped
-    ? (data?.topics ?? [])
-        .map((t) => ({ label: t.name, items: items.filter((i) => i.topic === t.id) }))
-        .filter((g) => g.items.length > 0)
-    : RECENCY.map((label) => ({
-        label,
-        items: items.filter((i) => recencyOf(i.updatedAt, now) === label),
-      })).filter((g) => g.items.length > 0);
+  // pinned chats in a section of their own on top, the rest by topic or by recency
+  const rest = items.filter((i) => !i.pinned);
+  const groups: { label: string; items: ChatHistoryItem[] }[] = [
+    { label: 'Pinned', items: items.filter((i) => i.pinned) },
+    ...(grouped
+      ? (data?.topics ?? []).map((t) => ({
+          label: t.name,
+          items: rest.filter((i) => i.topic === t.id),
+        }))
+      : RECENCY.map((label) => ({
+          label,
+          items: rest.filter((i) => recencyOf(i.updatedAt, now) === label),
+        }))),
+  ].filter((g) => g.items.length > 0);
   const empty =
     data && !archived && data.counts.claude + data.counts.chatgpt + data.counts.orkumo === 0;
   const importShown = importOpen || !sync.available;
   const syncing = sync.running || PROVIDERS.some((p) => sync.statuses[p]?.status === 'syncing');
+  const allSynced = !syncing && PROVIDERS.every((p) => sync.statuses[p]?.status === 'ok');
   const extraFilters =
     [project, topic, folder, from, to].filter(Boolean).length +
     (grouped ? 1 : 0) +
@@ -357,35 +364,19 @@ export const ChatHistoryPage: React.FC = () => {
   const rail = (
     <div className="flex flex-col min-h-0 h-full" data-chat-rail>
       <div className="px-3 pt-2 pb-2 border-b border-gray-800 shrink-0 space-y-2">
-        <div className="flex items-center gap-2 text-sm">
+        <div className="flex items-center gap-1 text-sm">
           <History size={14} className="text-gray-400" aria-hidden />
-          <span className="font-medium">Chats</span>
-          {data && (
-            <span className="text-gray-400 tabular-nums text-xs truncate" data-testid="chat-counts">
-              {data.total} matching · Claude {data.counts.claude} · ChatGPT {data.counts.chatgpt}
-              {data.counts.orkumo ? ` · Orkumo ${data.counts.orkumo}` : ''}
-            </span>
-          )}
-          <div className="flex-1" />
-          <button
-            type="button"
-            onClick={newChat}
-            className={ICON_BTN}
-            title="New chat without a project (Claude Code, Codex or Oh My Pi), in its own folder"
-            aria-label="New chat"
-          >
-            <SquarePen size={12} aria-hidden /> New chat
-          </button>
+          <h2 className="font-medium text-gray-100 mr-auto">Chats</h2>
           {sync.available && (
             <button
               type="button"
               onClick={sync.run}
               disabled={syncing}
               className={`${ICON_BTN} disabled:opacity-50 disabled:hover:bg-transparent`}
-              title="Fetch new and changed conversations now"
+              title={syncing ? 'Syncing…' : 'Fetch new and changed conversations now'}
               aria-label="Sync now"
             >
-              <RefreshCw size={12} className={syncing ? 'animate-spin' : ''} aria-hidden />
+              <RefreshCw size={13} className={syncing ? 'animate-spin' : ''} aria-hidden />
             </button>
           )}
           <div className="relative">
@@ -427,9 +418,18 @@ export const ChatHistoryPage: React.FC = () => {
               </div>
             )}
           </div>
+          <button
+            type="button"
+            onClick={newChat}
+            className={`ml-1 inline-flex items-center gap-1.5 whitespace-nowrap rounded-md bg-blue-600 px-2.5 py-1 text-xs font-medium text-white hover:bg-blue-500 ${FOCUS}`}
+            title="New chat without a project (Claude Code, Codex or Oh My Pi), in its own folder"
+            aria-label="New chat"
+          >
+            <SquarePen size={12} aria-hidden /> New chat
+          </button>
         </div>
 
-        {sync.available && (
+        {sync.available && !allSynced && (
           <div className="flex flex-wrap items-center gap-1.5" aria-label="Sync status">
             {PROVIDERS.map((p) => (
               <SyncChip key={p} provider={p} status={sync.statuses[p]} onLogin={sync.login} />
@@ -478,8 +478,12 @@ export const ChatHistoryPage: React.FC = () => {
         )}
 
         <div className="flex items-center gap-1.5 text-xs">
-          <label className="flex items-center gap-1 flex-1 min-w-0">
-            <Search size={12} className="text-gray-400 shrink-0" aria-hidden />
+          <label className="relative flex items-center flex-1 min-w-0">
+            <Search
+              size={12}
+              className="pointer-events-none absolute left-2 text-gray-400"
+              aria-hidden
+            />
             <input
               type="search"
               aria-label="Search chats"
@@ -494,7 +498,7 @@ export const ChatHistoryPage: React.FC = () => {
                 }
               }}
               placeholder="Search titles and messages"
-              className={`${SELECT_CLS} !max-w-none w-full`}
+              className={`${SELECT_CLS} !max-w-none w-full !pl-6`}
             />
           </label>
           <button
@@ -508,16 +512,26 @@ export const ChatHistoryPage: React.FC = () => {
             Filters{extraFilters ? ` (${extraFilters})` : ''}
           </button>
         </div>
-        <div role="group" aria-label="Provider" className="flex items-center gap-1 text-xs">
+        <div
+          role="group"
+          aria-label="Provider"
+          className="flex items-center gap-0.5 rounded-md bg-gray-900 p-0.5 text-xs"
+          data-testid="chat-counts"
+        >
           {([null, ...SOURCES] as (ChatSource | null)[]).map((p) => (
             <button
               key={p ?? 'all'}
               type="button"
               aria-pressed={provider === p}
               onClick={() => filter(setProvider)(p)}
-              className={`px-2 py-0.5 rounded border ${FOCUS} ${provider === p ? 'border-blue-500/60 bg-blue-500/15 text-blue-200' : 'border-gray-700 text-gray-300 hover:text-white hover:bg-gray-800'}`}
+              className={`flex flex-1 items-center justify-center gap-1 rounded px-2 py-1 ${FOCUS} ${provider === p ? 'bg-gray-700 text-white shadow-sm' : 'text-gray-400 hover:text-gray-100'}`}
             >
-              {p ? PROVIDER_LABEL[p] : 'All'}
+              {p ? PROVIDER_LABEL[p] : 'All'}{' '}
+              {data && (
+                <span className="tabular-nums text-[10px] text-gray-400">
+                  {p ? data.counts[p] : SOURCES.reduce((n, s) => n + data.counts[s], 0)}
+                </span>
+              )}
             </button>
           ))}
         </div>
@@ -632,6 +646,7 @@ export const ChatHistoryPage: React.FC = () => {
           groups.map((group) => (
             <section key={group.label} aria-label={group.label}>
               <h3 className="sticky top-0 z-[1] px-3 py-1 text-[11px] font-medium uppercase tracking-wide text-gray-400 bg-gray-950/95 border-b border-gray-800 flex items-center gap-2">
+                {group.label === 'Pinned' && <Pin size={10} aria-hidden />}
                 {group.label}
                 <span className="text-gray-400 tabular-nums">{group.items.length}</span>
               </h3>

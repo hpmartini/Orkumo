@@ -79,3 +79,24 @@ export function taskToIssueDraft(text: string): { title: string; body: string } 
 export function issueDraftToTask(draft: { title: string; body: string }): string {
   return [draft.title.trim(), draft.body.trim()].filter(Boolean).join('\n\n');
 }
+
+/**
+ * Directory a new task, agent or chat starts in, the same one the composer shows: a pick in the
+ * composer first, then per kind the task default (settings `taskCwd`) or the directory handed
+ * over on open, then the rail target (task, chat) or home (agent)
+ */
+export function composerStartCwd(
+  kind: 'task' | 'agent' | 'chat',
+  dirs: {
+    picked: string | null;
+    opened: string | null;
+    taskCwd: string | null;
+    targetCwd: string | null;
+    homeDir: string | null;
+  }
+): string | null {
+  if (dirs.picked) return dirs.picked;
+  if (kind === 'task') return dirs.taskCwd || dirs.targetCwd;
+  if (kind === 'agent') return dirs.opened || dirs.homeDir;
+  return dirs.opened || dirs.targetCwd;
+}

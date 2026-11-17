@@ -20,6 +20,7 @@ import {
   updateChatMeta,
   type ChatHistoryConversation,
   type ChatHistoryItem,
+  type ChatPart,
   type ChatMetaPatch,
   type ChatProvider,
   type ChatSource,
@@ -39,7 +40,6 @@ import {
 import { harnessLabel } from '../../utils/agentSessions';
 import { openInSystemBrowser } from '../../utils/links';
 import { ICON_BTN, SELECT_CLS } from '../AgentsView/PullRequestsPage';
-import { ChatMarkdown } from '../AgentsView/Chat/ChatMarkdown';
 import { ChatComposer } from '../AgentsView/Chat/ChatComposer';
 import { ChatParts } from './ChatParts';
 
@@ -57,6 +57,18 @@ const SEND_RETRY_MS = 700;
 
 const day = (time: number | null) =>
   time ? new Date(time).toLocaleDateString(undefined, { dateStyle: 'medium' }) : '';
+/** A tool round splits one answer into several messages: they show as one turn */
+const turns = (messages: ChatHistoryConversation['messages']) => {
+  const out: { key: number; user: boolean; parts: ChatPart[] }[] = [];
+  messages.forEach((message, i) => {
+    const user = message.role === 'user';
+    const parts: ChatPart[] = message.parts ?? [{ type: 'text', text: message.text }];
+    const last = out[out.length - 1];
+    if (!user && last && !last.user) last.parts.push(...parts);
+    else out.push({ key: i, user, parts: [...parts] }); // a copy: the turn grows, the message must not
+  });
+  return out;
+};
 const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export const ProviderBadge: React.FC<{ provider: ChatSource }> = ({ provider }) => (
@@ -553,38 +565,32 @@ export const ChatReader: React.FC<ChatReaderProps> = ({
               )}
             </header>
             <article className="max-w-3xl mx-auto px-4 py-3">
-              {open.messages.map((message, i) => {
-                const user = message.role === 'user';
-                const body = message.parts ? (
-                  <ChatParts
-                    parts={message.parts}
-                    provider={open.provider as ChatProvider}
-                    user={user}
-                  />
-                ) : user ? (
-                  message.text
-                ) : (
-                  <ChatMarkdown text={message.text} />
-                );
-                // a tool round splits one answer into several messages: one label per answer
-                const label = !user && open.messages[i - 1]?.role !== 'assistant';
-                return user ? (
-                  <div key={i} className="flex justify-end my-3">
-                    <div className="max-w-[85%] rounded-lg bg-blue-900/50 border border-blue-800/60 px-3 py-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
-                      {body}
+              {turns(open.messages).map((turn) =>
+                turn.user ? (
+                  <div key={turn.key} className="flex justify-end my-3">
+                    <div className="max-w-[85%] rounded-2xl rounded-br-md bg-blue-900/50 border border-blue-800/60 px-3.5 py-2 text-sm text-gray-100 whitespace-pre-wrap break-words">
+                      <ChatParts parts={turn.parts} provider={open.provider as ChatProvider} user />
                     </div>
                   </div>
                 ) : (
-                  <div key={i} className={label ? 'mt-3' : ''}>
-                    {label && (
-                      <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
-                        {assistant}
-                      </div>
-                    )}
-                    {body}
-                  </div>
-                );
-              })}
+                  // one answer, over all its tool rounds, in one card
+                  <section
+                    key={turn.key}
+                    className="my-3 rounded-xl border border-gray-800 bg-gray-950/40 px-4 py-3 shadow-sm"
+                    data-answer
+                  >
+                    <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-gray-400">
+                      <Bot size={13} aria-hidden />
+                      {assistant}
+                    </div>
+                    <ChatParts
+                      parts={turn.parts}
+                      provider={open.provider as ChatProvider}
+                      onOpenUrl={onOpenSite}
+                    />
+                  </section>
+                )
+              )}
             </article>
           </div>
         )}
