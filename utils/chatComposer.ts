@@ -83,7 +83,7 @@ export function browseHistory(
 }
 
 export interface ChatSuggestion {
-  kind: 'command' | 'agent' | 'file';
+  kind: 'command' | 'agent' | 'file' | 'dir';
   label: string;
   insert: string;
   description: string;
@@ -94,14 +94,28 @@ export interface SuggestionContext {
   commands: { name: string; description: string; argumentHint?: string; builtin?: boolean }[];
   agents: { name: string; description: string }[];
   files: string[];
+  /** Directories for a path argument, each the whole argument (`~/Music/`) */
+  dirs?: string[];
 }
 
-/** Token at the caret that opens the picker: `/cmd` at line start, `@x` anywhere */
+/** A command whose argument is a path (`/cd <path>`, `add-dir <path>`): its picker lists directories */
+export const takesPath = (c: { argumentHint?: string } | undefined): boolean =>
+  /path|dir/i.test(c?.argumentHint ?? '');
+
+export type SuggestionTrigger = '/' | '@' | 'arg';
+
+/**
+ * Token at the caret that opens the picker: `/cmd` at line start, `@x` anywhere, or the argument
+ * of a command on a one-line message (`/cd ~/Mu`, `command` = cd)
+ */
 export function suggestionQuery(
   text: string,
   caret: number
-): { trigger: '/' | '@'; query: string; start: number } | null {
+): { trigger: SuggestionTrigger; query: string; start: number; command?: string } | null {
   const before = text.slice(0, caret);
+  // `@` in an argument still opens the file picker below
+  const arg = before.match(/^\s*\/([\w:.-]+) +((?!@)\S*)$/);
+  if (arg) return { trigger: 'arg', query: arg[2], start: caret - arg[2].length, command: arg[1] };
   const slash = before.match(/(?:^|\s)\/([^\s/]*)$/);
   if (slash) return { trigger: '/', query: slash[1], start: caret - slash[1].length - 1 };
   const at = before.match(/(?:^|\s)@([^\s@]*)$/);
@@ -129,11 +143,19 @@ function rank<T>(items: T[], query: string, name: (t: T) => string, desc: (t: T)
 
 /** `limit` caps `@` results (files run into thousands); commands are never cut */
 export function chatSuggestions(
-  trigger: '/' | '@',
+  trigger: SuggestionTrigger,
   query: string,
   ctx: SuggestionContext,
   limit = 50
 ): ChatSuggestion[] {
+  if (trigger === 'arg')
+    return (ctx.dirs ?? []).map((d) => ({
+      kind: 'dir',
+      label: d.split('/').slice(-2).join('/'),
+      insert: d,
+      description: d,
+      hint: '',
+    }));
   if (trigger === '/') {
     return (
       rank(

@@ -10,6 +10,7 @@ import {
   splitAtBuiltin,
   splitImages,
   suggestionQuery,
+  takesPath,
 } from '../utils/chatComposer';
 
 describe('homeKey', () => {
@@ -145,5 +146,34 @@ describe('splitAtBuiltin', () => {
     expect(splitAtBuiltin('/compact jetzt', builtins)).toEqual(['/compact jetzt']);
     expect(splitAtBuiltin('mach /review bitte', builtins)).toEqual(['mach /review bitte']);
     expect(splitAtBuiltin('see a/compact', builtins)).toEqual(['see a/compact']);
+  });
+});
+
+describe('path argument completion', () => {
+  it('reads the argument of a one-line command, leaving @ to the file picker', () => {
+    expect(suggestionQuery('/cd ~/Mu', 8)).toEqual({
+      trigger: 'arg',
+      query: '~/Mu',
+      start: 4,
+      command: 'cd',
+    });
+    expect(suggestionQuery('/cd ', 4)).toEqual({
+      trigger: 'arg',
+      query: '',
+      start: 4,
+      command: 'cd',
+    });
+    expect(suggestionQuery('/skill:tdd @src', 15)?.trigger).toBe('@');
+    expect(suggestionQuery('fix this\n/cd ~', 14)).toBeNull();
+  });
+
+  it('only path arguments list directories', () => {
+    expect(takesPath({ argumentHint: '<path>' })).toBe(true);
+    expect(takesPath({ argumentHint: '[model]' })).toBe(false);
+    expect(
+      chatSuggestions('arg', '~/M', { commands: [], agents: [], files: [], dirs: ['~/Music/'] })
+    ).toEqual([
+      { kind: 'dir', label: 'Music/', insert: '~/Music/', description: '~/Music/', hint: '' },
+    ]);
   });
 });

@@ -446,6 +446,11 @@ export const fetchChatFiles = (id: string, q: string) =>
     (d) => d.files
   );
 
+export const fetchChatDirs = (id: string, q: string) =>
+  request<{ dirs: string[] }>(`${chatPath(id, 'dirs')}?q=${encodeURIComponent(q)}`).then(
+    (d) => d.dirs
+  );
+
 export const fetchChatShell = (id: string, shellId: string) =>
   request<{ output: string; updatedAt: number; truncated: boolean }>(
     chatPath(id, `shells/${encodeURIComponent(shellId)}`)

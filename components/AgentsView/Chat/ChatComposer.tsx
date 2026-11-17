@@ -9,10 +9,11 @@ import {
   homeKey,
   indentList,
   suggestionQuery,
+  takesPath,
   type ChatSuggestion,
   type Edit,
 } from '../../../utils/chatComposer';
-import { fetchChatFiles } from '../../../services/agentsApi';
+import { fetchChatDirs, fetchChatFiles } from '../../../services/agentsApi';
 import { useAutoGrowTextarea } from '../../../hooks/useAutoGrowTextarea';
 import { ResizeGrip } from '../../ResizeGrip';
 
@@ -24,6 +25,7 @@ const KIND_LABEL: Record<ChatSuggestion['kind'], string> = {
   command: 'command',
   agent: 'agent',
   file: 'file',
+  dir: 'directory',
 };
 
 interface ChatComposerProps {
@@ -63,6 +65,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const historyIndex = useRef(-1);
   const draft = useRef('');
   const [files, setFiles] = useState<string[]>([]);
+  const [dirs, setDirs] = useState<string[]>([]);
   const [highlighted, setHighlighted] = useState(0);
   const [dismissed, setDismissed] = useState<string | null>(null);
   const listRef = useRef<React.ElementRef<'ul'>>(null);
@@ -86,6 +89,24 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const query = suggestionQuery(value, caret);
   const queryKey = query ? `${query.trigger}${query.start}:${query.query}` : null;
   const fileQuery = query?.trigger === '@' ? query.query : null;
+  const dirQuery =
+    query?.trigger === 'arg' && takesPath(commands.find((c) => c.name === query.command))
+      ? query.query
+      : null;
+
+  useEffect(() => {
+    if (dirQuery === null || !chatId) return;
+    let cancelled = false;
+    const timer = setTimeout(() => {
+      fetchChatDirs(chatId, dirQuery)
+        .then((list) => !cancelled && setDirs(list))
+        .catch(() => !cancelled && setDirs([]));
+    }, 80);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [chatId, dirQuery]);
 
   useEffect(() => {
     if (fileQuery === null || !chatId) return;
@@ -102,9 +123,12 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   }, [chatId, fileQuery]);
 
   const suggestions = useMemo(
-    () => (query ? chatSuggestions(query.trigger, query.query, { commands, agents, files }) : []),
+    () =>
+      query && (query.trigger !== 'arg' || dirQuery !== null)
+        ? chatSuggestions(query.trigger, query.query, { commands, agents, files, dirs })
+        : [],
     // eslint-disable-next-line react-hooks/exhaustive-deps -- queryKey covers query
-    [queryKey, commands, agents, files]
+    [queryKey, commands, agents, files, dirs, dirQuery]
   );
   const open = suggestions.length > 0 && dismissed !== queryKey;
   const current = open ? suggestions[Math.min(highlighted, suggestions.length - 1)] : null;
@@ -144,7 +168,10 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         setHighlighted((h) => (h + step + suggestions.length) % suggestions.length);
         return;
       }
-      if ((e.key === 'Enter' && !e.shiftKey && plain) || (e.key === 'Tab' && !e.shiftKey)) {
+      // On a finished path (`~/Music/`) Enter sends; Tab still walks into the subdirectories
+      const pathDone = current.kind === 'dir' && query?.query.endsWith('/');
+      const enterPicks = e.key === 'Enter' && !e.shiftKey && plain && !pathDone;
+      if (enterPicks || (e.key === 'Tab' && !e.shiftKey)) {
         e.preventDefault();
         pick(current);
         return;
@@ -259,7 +286,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
               </p>
             )}
             <p className="mt-3 text-[11px] text-gray-500">
-              ↑↓ choose · Enter/Tab insert · Esc close
+              {current.kind === 'dir'
+                ? '↑↓ choose · Tab opens the folder · Enter on a finished path sends · Esc close'
+                : '↑↓ choose · Enter/Tab insert · Esc close'}
             </p>
           </div>
         </div>
