@@ -11,6 +11,7 @@
  *   a:<name> s:<state> #<n> URL  filter the list instead of dispatching
  */
 import type { AgentSession, AgentSubagent, AgentRepo } from '../types';
+import { chatSuggestions } from './chatComposer';
 
 export const MIN_PROMPT_LENGTH = 4;
 
@@ -215,17 +216,17 @@ export function computeSuggestions(
   // Slash command at the very beginning
   const slash = before.match(/^\/(\S*)$/);
   if (slash) {
-    const needle = slash[1].toLowerCase();
     return {
-      suggestions: context.commands
-        .filter((c) => c.name.toLowerCase().startsWith(needle))
-        .slice(0, 12)
-        .map((c) => ({
-          type: 'command',
-          label: `/${c.name}`,
-          description: c.description,
-          insert: `/${c.name} `,
-        })),
+      suggestions: chatSuggestions('/', slash[1], {
+        commands: context.commands,
+        agents: [],
+        files: [],
+      }).map((c) => ({
+        type: 'command',
+        label: c.label,
+        description: c.description,
+        insert: c.insert,
+      })),
       replaceStart: 0,
       replaceEnd: caret,
     };

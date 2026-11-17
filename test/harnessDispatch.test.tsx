@@ -1,6 +1,6 @@
 import React from 'react';
 import { describe, it, expect, vi } from 'vitest';
-import { cleanup, render, screen, fireEvent } from '@testing-library/react';
+import { cleanup, render, screen, fireEvent, within } from '@testing-library/react';
 import { DispatchInput } from '../components/AgentsView/DispatchInput';
 import { agentViewSettingsSchema } from '../server/schemas/agentViewSettings.js';
 import { resumableSessionId, sessionHarness } from '../utils/agentSessions';
@@ -106,5 +106,27 @@ describe('sessionHarness / resumableSessionId (#195)', () => {
   it('never offers another harness for `claude --resume`', () => {
     expect(resumableSessionId({ ...base, ptyArgs: ['--session-id', 'abc'] })).toBe('abc');
     expect(resumableSessionId({ ...base, ptyCommand: 'codex', ptyArgs: ['--', 'x'] })).toBeNull();
+  });
+});
+
+describe('slash list in the composer', () => {
+  const commands = [
+    { name: 'skill:grilling', description: 'Grill the user about a plan', source: 'omp' },
+    { name: 'skill:tdd', description: 'Test-driven development', source: 'omp' },
+  ] as React.ComponentProps<typeof DispatchInput>['commands'];
+
+  it('offers omp its own commands, filtered on name and description', () => {
+    renderInput('omp', { value: '/', commands });
+    fireEvent.select(screen.getByRole('textbox'), { target: { selectionStart: 1 } });
+    const opts = () => within(screen.getByRole('listbox')).getAllByRole('option');
+    expect(opts().map((o) => o.textContent)).toEqual([
+      expect.stringContaining('/skill:grilling'),
+      expect.stringContaining('/skill:tdd'),
+    ]);
+    cleanup();
+    renderInput('omp', { value: '/driven', commands });
+    fireEvent.select(screen.getByRole('textbox'), { target: { selectionStart: 7 } });
+    expect(opts()).toHaveLength(1);
+    expect(opts()[0]).toHaveTextContent('Test-driven development');
   });
 });

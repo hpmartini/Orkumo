@@ -333,6 +333,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [subagents, setSubagents] = useState<AgentSubagent[]>([]);
   const [repos, setRepos] = useState<AgentRepo[]>([]);
   const [commands, setCommands] = useState<AgentSlashCommand[]>([]);
+  // omp's own `/` list (skills, file commands) for the composer, fetched per start directory
+  const [ompCommands, setOmpCommands] = useState<AgentSlashCommand[]>([]);
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
   // Cloud/remote PTY tabs live client-side only (not in the `claude agents` list)
   const [cloudSessions, setCloudSessions] = useState<AgentSession[]>([]);
@@ -684,6 +686,17 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     targetCwd,
     homeDir,
   });
+
+  useEffect(() => {
+    if (!composerOpen || composerHarness !== 'omp' || !composerCwd) return;
+    let cancelled = false;
+    fetchAgentCommands(composerCwd, 'omp')
+      .then((list) => !cancelled && setOmpCommands(list))
+      .catch(() => !cancelled && setOmpCommands([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [composerOpen, composerHarness, composerCwd]);
 
   // GitHub repos of the known sessions
   const issueRepos = useMemo(
@@ -2995,7 +3008,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         disabled={dispatching}
         subagents={subagents}
         repos={repos}
-        commands={commands}
+        commands={
+          composerHarness === 'omp' ? ompCommands : composerHarness === 'claude' ? commands : []
+        }
         inputRef={inputRef}
       />
       {pendingCopy && (
