@@ -119,6 +119,7 @@ describe('ensureOrchestratorWorkspace', () => {
       'AGENTS.md',
       'CLAUDE.md',
       'NOTES.md',
+      'roles',
     ]);
     expect(bootstrap().changed).toEqual([]);
   });
@@ -209,6 +210,7 @@ describe('overview', () => {
       paneId: 'p1',
       pid: 42,
       orchestrator: true,
+      role: null,
     });
   });
 

@@ -15,11 +15,27 @@ const ENTRIES: { kind: NewMenuKind; label: string; hint: string; icon: typeof Pl
   { kind: 'orchestrator', label: 'New orchestrator', hint: 'coordinates agents', icon: Network },
 ];
 
-const NewMenu: React.FC<{ onPick: (kind: NewMenuKind) => void; onClose: () => void }> = ({
-  onPick,
-  onClose,
-}) => {
+/** An orchestrator role (`<workspace>/roles/<id>.md`) offered under "New orchestrator" */
+export interface NewOrchestratorRole {
+  id: string;
+  title: string;
+}
+
+const NewMenu: React.FC<{
+  onPick: (kind: NewMenuKind, role?: string) => void;
+  onClose: () => void;
+  roles: readonly NewOrchestratorRole[];
+}> = ({ onPick, onClose, roles }) => {
   const ref = usePopover(onClose);
+  // With roles, "New orchestrator" is the general one and each role gets an entry below it
+  const entries = ENTRIES.flatMap((e) =>
+    e.kind === 'orchestrator' && roles.length > 0
+      ? [
+          { ...e, hint: 'general' },
+          ...roles.map((r) => ({ ...e, role: r.id, label: r.id, hint: 'role', title: r.title })),
+        ]
+      : [e]
+  );
   // ↑/↓ move between the entries, as in a native menu
   const onKeyDown = (e: React.KeyboardEvent) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
@@ -38,20 +54,21 @@ const NewMenu: React.FC<{ onPick: (kind: NewMenuKind) => void; onClose: () => vo
       onKeyDown={onKeyDown}
       className="absolute left-0 top-full mt-1 z-40 min-w-[240px] bg-gray-800 border border-gray-700 rounded-lg shadow-xl py-1 outline-none"
     >
-      {ENTRIES.map(({ kind, label, hint, icon: Icon }) => (
+      {entries.map((entry) => (
         <button
-          key={kind}
+          key={'role' in entry ? `role:${entry.role}` : entry.kind}
           type="button"
           role="menuitem"
+          title={'title' in entry ? entry.title : undefined}
           onClick={() => {
             onClose();
-            onPick(kind);
+            onPick(entry.kind, 'role' in entry ? entry.role : undefined);
           }}
-          className="w-full flex items-center gap-2 text-left px-3 py-1.5 text-xs text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:bg-gray-700 focus-visible:outline-none"
+          className={`w-full flex items-center gap-2 text-left ${'role' in entry ? 'pl-7' : 'pl-3'} pr-3 py-1.5 text-xs text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:bg-gray-700 focus-visible:outline-none`}
         >
-          <Icon size={13} aria-hidden className="shrink-0 text-gray-400" />
-          <span className="flex-1 whitespace-nowrap">{label}</span>
-          <span className="text-[11px] text-gray-500 whitespace-nowrap">{hint}</span>
+          <entry.icon size={13} aria-hidden className="shrink-0 text-gray-400" />
+          <span className="flex-1 whitespace-nowrap">{entry.label}</span>
+          <span className="text-[11px] text-gray-500 whitespace-nowrap">{entry.hint}</span>
         </button>
       ))}
     </div>
@@ -59,7 +76,12 @@ const NewMenu: React.FC<{ onPick: (kind: NewMenuKind) => void; onClose: () => vo
 };
 
 /** [New task | ⌄]: the main part starts a task, the chevron offers agent, chat, issue and orchestrator */
-export const NewTaskButton: React.FC<{ onNew: (kind: NewMenuKind) => void }> = ({ onNew }) => {
+export const NewTaskButton: React.FC<{
+  onNew: (kind: NewMenuKind, role?: string) => void;
+  /** Orchestrator roles offered in the menu; onOpenMenu lets the caller reload them */
+  roles?: readonly NewOrchestratorRole[];
+  onOpenMenu?: () => void;
+}> = ({ onNew, roles = [], onOpenMenu }) => {
   const [open, setOpen] = useState(false);
   return (
     <div className="relative flex shrink-0">
@@ -73,7 +95,10 @@ export const NewTaskButton: React.FC<{ onNew: (kind: NewMenuKind) => void }> = (
       </button>
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => {
+          if (!open) onOpenMenu?.();
+          setOpen(!open);
+        }}
         data-popover-trigger
         aria-haspopup="menu"
         aria-expanded={open}
@@ -83,7 +108,7 @@ export const NewTaskButton: React.FC<{ onNew: (kind: NewMenuKind) => void }> = (
       >
         <ChevronDown size={13} aria-hidden />
       </button>
-      {open && <NewMenu onPick={onNew} onClose={() => setOpen(false)} />}
+      {open && <NewMenu onPick={onNew} onClose={() => setOpen(false)} roles={roles} />}
     </div>
   );
 };
