@@ -1,0 +1,32 @@
+              Tip: Need a cheap nested model call? Use `completion(x...)`. Have a big
+                               batch of tasks? Ask clanker to use it!
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Update Available
+ New version 18.22.0 is available. Run: omp update
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ Use your ask tool exactly once: one checkbox (multi) question 'Welche Tools?' options Git, Bun,
+ Node. Then echo my answer. Nothing else.
+╭─── ? Ask ────────────────────────────────────────────────────────────────────────────────────────╮
+│  Welche Tools?                                                                                   │
+│  ✔ Bun, Other: Deno 2                                                                            │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯
+ Deine Antwort: Bun, Deno 2
+ Use your ask tool exactly once: one single-choice (radio) question 'Wohin?' options Staging, Prod.
+ Then echo my answer. Nothing else.
+╭─── Ask ──────────────────────────────────────────────────────────────────────────────────────────╮
+│  Wohin?                                                                                          │
+│  ○ Staging                                                                                       │
+│  ○ Prod                                                                                          │
+│  ○ Other…                                                                                        │
+╰─── 1 field ──────────────────────────────────────────────────────────────────────────────────────╯
+  ⎋ Asking deploy target
+╭─ Ask ────────────────────────────────────────────────────────────────────────────────────────────╮
+│ Wohin?                                                                                           │
+│ ❯ ○ Staging                                                                                      │
+│   ○ Prod                                                                                         │
+│   ○ Other: type your own                                                                         │
+│                                                                                                  │
+│   Submit                                                                                         │
+├──────────────────────────────────────────────────────────────────────────────────────────────────┤
+│ ⏎ choose · n note · ↑/↓ move · ⇥ next field · ⎋ cancel · ⌥H hide                                 │
+╰──────────────────────────────────────────────────────────────────────────────────────────────────╯

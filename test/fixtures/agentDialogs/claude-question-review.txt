@@ -1,0 +1,26 @@
+  ⎿  Rejected update to a.txt
+      1 -x
+      1 +y
+❯ Call AskUserQuestion once, ONE question, header 'Ziel' question 'Wohin deployen?' options Staging
+  (Testumgebung), Prod (Live). Then echo my answer verbatim.
+⏺ Antwort: Prod
+  Your answer: Prod
+✻ Brewed for 4s · done 19:21
+❯ Call AskUserQuestion once, ONE question, header 'Ziel' question 'Wohin deployen?' options
+  Staging, Prod. Then echo my answer verbatim.
+⏺ Antwort: Version 2 auf eu-1
+  Your answer: Version 2 auf eu-1
+  - Kein Deploy gestartet; Ziel und Version sind nur notiert.
+  - Offen: soll ich deployen, und wenn ja, womit (Befehl, Pipeline)?
+✻ Cooked for 4s · done 19:22
+❯ Call AskUserQuestion once, ONE question, multiSelect true, header 'Tools' question 'Welche
+  Tools?' options Git, Bun, Node. Then echo my answer verbatim.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Tools  ✔ Submit  →
+Review your answers
+ ● Welche Tools?
+   → Bun, Deno 2
+Ready to submit your answers?
+❯ 1. Submit answers
+  2. Cancel
+─────────────────────────────────────────────────────────────────── Sitzungstitel ─
