@@ -67,7 +67,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const [dismissed, setDismissed] = useState<string | null>(null);
   const listRef = useRef<React.ElementRef<'ul'>>(null);
 
-  const { handleProps } = useAutoGrowTextarea(inputRef, value, {
+  const { handleProps, pinned, reset } = useAutoGrowTextarea(inputRef, value, {
     min: MIN_HEIGHT,
     max: MAX_HEIGHT,
     storageKey: CHAT_COMPOSER_HEIGHT_KEY,
@@ -265,7 +265,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         </div>
       )}
       <div className="relative">
-        <ResizeGrip {...handleProps} />
+        <ResizeGrip {...handleProps} pinned={pinned} onReset={reset} />
         <textarea
           id={`chat-input-${domId}`}
           ref={inputRef}

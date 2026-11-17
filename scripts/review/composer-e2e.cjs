@@ -89,6 +89,19 @@ const measure = (p) =>
     const kept = (await measure(p)).height;
     check('height remembered after reload', Math.abs(kept - dragged) <= 1, `${kept}`);
     await shot(p, `${out}/${label}-3-dragged.png`);
+    const reset = p.locator('[data-grip-reset]');
+    check('reset button shown while pinned', (await reset.count()) === 1);
+    if (await reset.count()) await reset.click();
+    m = await measure(p);
+    check(
+      'reset button fits to text again',
+      Math.abs(m.height - before) <= 1 && !m.clipped,
+      `${m.height}`
+    );
+    check('reset button gone after reset', (await reset.count()) === 0);
+    await p.keyboard.press('Tab'); // pin again by keyboard, then double-click resets
+    await p.focus('[role="separator"]');
+    await p.keyboard.press('ArrowUp');
     await p.dblclick('[role="separator"]');
     m = await measure(p);
     check(

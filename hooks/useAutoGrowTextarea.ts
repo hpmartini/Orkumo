@@ -116,6 +116,8 @@ export function useAutoGrowTextarea(
 
   return {
     pinned: pinned !== null,
+    /** Back to growing with the text */
+    reset: () => pin(null),
     handleProps: {
       role: 'separator',
       'aria-orientation': 'horizontal' as const,
