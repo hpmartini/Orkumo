@@ -1085,10 +1085,12 @@ export const AgentList: React.FC<AgentListProps> = ({
                         {slot.left}
                       </div>
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-1.5 min-w-0 leading-5">
+                        {/* Wraps instead of truncating: a short title keeps its badges beside it, a long
+                            one fills its own lines and the badges move below */}
+                        <div className="flex flex-wrap items-center gap-x-1.5 min-w-0 leading-5">
                           <span className="sr-only">{glyph.label}: </span>
                           <span
-                            className={`truncate ${highlightedId === session.id ? 'font-bold' : 'font-medium'}`}
+                            className={`min-w-0 [overflow-wrap:anywhere] ${highlightedId === session.id ? 'font-bold' : 'font-medium'}`}
                           >
                             {displayName}
                           </span>
