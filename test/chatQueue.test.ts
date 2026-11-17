@@ -87,3 +87,15 @@ describe('start prompts', () => {
     expect(initialPrompts(s.messages).map((m) => m.text)).toEqual(['a', 'c']);
   });
 });
+
+describe('background task end (<task-notification>)', () => {
+  const note = (id: string, status: string) =>
+    user(
+      `<task-notification>\n<task-id>${id}</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>${status}</status>\n<summary>Background command "x" ${status}</summary>\n</task-notification>`
+    );
+  it('records ended tasks, not as a user turn; a running one stays', () => {
+    const s = run([[note('b1', 'completed'), note('b2', 'killed'), note('b3', 'running')]]);
+    expect(s.endedTasks).toEqual(['b1', 'b2']);
+    expect(users(s)).toEqual([]);
+  });
+});

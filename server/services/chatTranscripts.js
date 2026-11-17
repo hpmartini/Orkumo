@@ -104,6 +104,11 @@ function claudeHistoryEvents(lines) {
             : '';
       if (text.includes('<command-name>/clear</command-name>'))
         events.push({ type: 'system', subtype: 'clear' });
+      // A background shell / task ended: the view drops its running chip
+      const ended = text.match(
+        /<task-notification>[\s\S]*?<task-id>([\w-]+)<\/task-id>[\s\S]*?<status>(?:completed|failed|killed|stopped)<\/status>/
+      );
+      if (ended) events.push({ type: 'devorbit_task_ended', id: ended[1] });
       // `<command-name>`, `<local-command-stdout>` and similar CLI wrappers are not user turns
       if (text.trim() && !text.trimStart().startsWith('<')) {
         events.push({ type: 'devorbit_user', text, history: true });

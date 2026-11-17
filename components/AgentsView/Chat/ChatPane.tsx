@@ -557,7 +557,13 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           </div>
         )}
         {chatId && (
-          <ChatActivity chatId={chatId} messages={state.messages} sub={state.sub} busy={busy} />
+          <ChatActivity
+            chatId={chatId}
+            messages={state.messages}
+            sub={state.sub}
+            busy={busy}
+            endedTasks={state.endedTasks}
+          />
         )}
         {error && (
           <div role="alert" className="mb-1 text-xs text-red-300">
