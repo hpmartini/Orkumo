@@ -6,6 +6,7 @@ import {
   Code2,
   FileText,
   Globe,
+  ExternalLink,
   ImageIcon,
   Link2,
   Wrench,
@@ -14,6 +15,7 @@ import type { ChatPart, ChatProvider } from '../../services/chatHistoryApi';
 import { ChatMarkdown, CopyButton } from '../AgentsView/Chat/ChatMarkdown';
 
 type Artifact = Extract<ChatPart, { type: 'artifact' }>;
+type Tool = Extract<ChatPart, { type: 'tool' }>;
 
 const FOCUS = 'focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
 const CARD = 'my-2 rounded-lg border border-gray-700 bg-gray-950/60';
@@ -253,8 +255,124 @@ const Sources: React.FC<{ items: { title: string; url: string }[] }> = ({ items 
   );
 };
 
-/** Everything of one message in the order the provider showed it */
-export const ChatParts: React.FC<{ parts: ChatPart[]; provider: ChatProvider; user?: boolean }> = ({
+/** A page published on claude.ai by the Artifact tool (Claude Code on the web, Cowork) */
+export interface PublishedArtifact {
+  url: string;
+  title: string;
+  version?: number;
+  /** the title came from the call itself, not from the file name */
+  named?: boolean;
+}
+
+const PUBLISHED =
+  /(?:Published (\S+) at|(?:Created a new|Updated the) Artifact at) (https:\/\/claude\.ai\/artifact\/[\w-]+)/;
+
+/** The artifact a publish call created or updated; reads and data writes are no artifact of their own */
+export function publishedArtifact(part: Tool): PublishedArtifact | null {
+  const hit =
+    part.name === 'Artifact' && part.output && !part.error ? PUBLISHED.exec(part.output) : null;
+  if (!hit) return null;
+  let title: string | undefined;
+  try {
+    const input: unknown = JSON.parse(part.input ?? '');
+    if (input && typeof input === 'object' && 'title' in input && typeof input.title === 'string')
+      title = input.title;
+  } catch {
+    // input was not JSON (shortened to the artifact URL): the file name stands in
+  }
+  const version = /\(Version (\d+)/.exec(part.output ?? '');
+  return {
+    url: hit[2],
+    title:
+      title ??
+      (hit[1] ?? / with (\S+)/.exec(part.output ?? '')?.[1])?.split('/').pop() ??
+      'Artifact',
+    version: version ? Number(version[1]) : undefined,
+    named: title !== undefined,
+  };
+}
+
+/** Card of a published artifact; it opens next to the chat, where the login of the site is */
+const PublishedCard: React.FC<{ artifact: PublishedArtifact; onOpen?: (url: string) => void }> = ({
+  artifact,
+  onOpen,
+}) => (
+  <a
+    href={artifact.url}
+    target="_blank"
+    rel="noreferrer noopener"
+    onClick={(e) => {
+      if (!onOpen) return;
+      e.preventDefault();
+      onOpen(artifact.url);
+    }}
+    className={`${CARD} flex items-center gap-2 px-3 py-2 hover:bg-gray-900 ${FOCUS}`}
+    data-part="published-artifact"
+  >
+    <Code2 size={16} className="shrink-0 text-amber-300" aria-hidden />
+    <span className="min-w-0">
+      <span className="block truncate text-sm text-gray-100">{artifact.title}</span>
+      <span className="block text-[11px] text-gray-400">
+        Artifact{artifact.version && artifact.version > 1 ? ` · version ${artifact.version}` : ''}
+      </span>
+    </span>
+    <ExternalLink size={14} className="ml-auto shrink-0 text-gray-400" aria-hidden />
+  </a>
+);
+
+/** Parts that stay in sight when the work before an answer folds away */
+const KEPT = new Set<ChatPart['type']>(['artifact', 'file', 'image', 'sources']);
+
+const isStep = (part: ChatPart) => part.type === 'thinking' || part.type === 'tool';
+
+/**
+ * Thinking and tool calls in a row fold into one line, as in the Claude and ChatGPT apps; the
+ * artifacts they published stay visible below it (the last version of each).
+ */
+const Steps: React.FC<{
+  parts: ChatPart[];
+  provider: ChatProvider;
+  onOpenUrl?: (url: string) => void;
+  kept: ChatPart[];
+}> = ({ parts, provider, onOpenUrl, kept }) => {
+  const tools = parts.filter((p): p is Tool => p.type === 'tool');
+  const thought = parts.some((p) => p.type === 'thinking');
+  const published = new Map<string, PublishedArtifact>();
+  for (const tool of tools) {
+    const artifact = publishedArtifact(tool);
+    // a later update often names only the URL: the title it was published with stays
+    if (artifact)
+      published.set(artifact.url, {
+        ...artifact,
+        title: artifact.named
+          ? artifact.title
+          : (published.get(artifact.url)?.title ?? artifact.title),
+      });
+  }
+  const summary = [
+    thought && 'Thinking',
+    tools.length && `${tools.length} tool call${tools.length === 1 ? '' : 's'}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  return (
+    <>
+      <Disclosure
+        part="steps"
+        icon={tools.length ? <Wrench size={12} aria-hidden /> : <Brain size={12} aria-hidden />}
+        summary={summary}
+      >
+        <PartList parts={parts.filter((p) => !KEPT.has(p.type))} provider={provider} />
+      </Disclosure>
+      <PartList parts={kept} provider={provider} />
+      {[...published.values()].map((a) => (
+        <PublishedCard key={a.url} artifact={a} onOpen={onOpenUrl} />
+      ))}
+    </>
+  );
+};
+
+const PartList: React.FC<{ parts: ChatPart[]; provider: ChatProvider; user?: boolean }> = ({
   parts,
   provider,
   user = false,
@@ -297,3 +415,31 @@ export const ChatParts: React.FC<{ parts: ChatPart[]; provider: ChatProvider; us
     })}
   </>
 );
+
+/**
+ * Everything of one message, or of one answer over several tool rounds, in the order shown. As in
+ * the Claude and ChatGPT apps, the work before the final text (thinking, tool calls, the notes in
+ * between) folds into one line; artifacts, files, images and sources from it stay visible.
+ */
+export const ChatParts: React.FC<{
+  parts: ChatPart[];
+  provider: ChatProvider;
+  user?: boolean;
+  onOpenUrl?: (url: string) => void;
+}> = ({ parts, provider, user = false, onOpenUrl }) => {
+  let end = parts.length;
+  while (end > 0 && !isStep(parts[end - 1])) end--;
+  if (user || end === 0) return <PartList parts={parts} provider={provider} user={user} />;
+  const work = parts.slice(0, end);
+  return (
+    <>
+      <Steps
+        parts={work}
+        provider={provider}
+        onOpenUrl={onOpenUrl}
+        kept={work.filter((p) => KEPT.has(p.type))}
+      />
+      <PartList parts={parts.slice(end)} provider={provider} />
+    </>
+  );
+};
