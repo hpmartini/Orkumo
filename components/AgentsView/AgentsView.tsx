@@ -144,6 +144,7 @@ import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo, type IssueDraft } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
 import {
+  composerStartCwd,
   issueDraftToTask,
   promptWithAttachments,
   taskToIssueDraft,
@@ -291,10 +292,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     query: '',
   });
   const [composerOpen, setComposerOpen] = useState(false);
-  // 'agent' = New agent (#105): interactive session in agentCwd, attached right away
+  // 'agent' = New agent (#105): interactive session in composerCwd, attached right away
   // 'chat' = New chat (#189): the same agent, shown in the UI view
   const [composerMode, setComposerMode] = useState<'task' | 'agent' | 'chat'>('task');
-  const [agentCwd, setAgentCwd] = useState<string | null>(null);
+  // Directory handed over on open (a group's "New agent here") and one picked in the composer; a
+  // pick outlives switching between Task, Agent and Chat, a new open starts from the defaults
+  const [openCwd, setOpenCwd] = useState<string | null>(null);
+  const [pickedCwd, setPickedCwd] = useState<string | null>(null);
   // Harness of the next agent (#195), preset from the default on every open
   // null follows the default harness, also when the settings arrive after the composer opened
   const [pickedHarness, setComposerHarness] = useState<AgentHarness | null>(null);
@@ -654,16 +658,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
 
   // Start directory of new tasks (settings `taskCwd`, `~` = home); unset: the rail selection decides
   const taskCwd = settings.taskCwd?.replace(/^~(?=\/|$)/, homeDir ?? '~') || null;
-  const openComposer = useCallback(
-    (mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
-      setComposerMode(mode);
-      setAgentCwd(mode === 'task' ? taskCwd : cwd);
-      setComposerHarness(null);
-      setComposerModel('');
-      setComposerOpen(true);
-    },
-    [taskCwd]
-  );
+  const openComposer = useCallback((mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
+    setComposerMode(mode);
+    setOpenCwd(cwd);
+    setPickedCwd(null);
+    setComposerHarness(null);
+    setComposerModel('');
+    setComposerOpen(true);
+  }, []);
   // Quick window (#251): its prompt opens the chat composer here, ready to send, without a project
   useEffect(
     () =>
@@ -674,7 +676,14 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }),
     [onOpenView, openComposer, chatsDir]
   );
-  const composerCwd = composerMode === 'agent' ? agentCwd || homeDir : agentCwd || targetCwd;
+  // What the composer shows is what every start path uses
+  const composerCwd = composerStartCwd(composerMode, {
+    picked: pickedCwd,
+    opened: openCwd,
+    taskCwd,
+    targetCwd,
+    homeDir,
+  });
 
   // GitHub repos of the known sessions
   const issueRepos = useMemo(
@@ -1344,11 +1353,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }
       if (composerHarness !== 'claude') {
         // Other harnesses (#195) run interactively in a terminal pane; the server checks the args
-        const cwd = chat
-          ? composerCwd
-          : composerMode === 'agent'
-            ? agentCwd || targetCwd
-            : targetCwd;
+        const cwd = composerCwd;
         if (!cwd) {
           showHint('Pick a project directory first', 'error');
           return;
@@ -1458,7 +1463,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             {
               prompt: promptWithAttachments(parsed.prompt, stored),
               agent: parsed.agent ?? undefined,
-              cwd: parsed.repo?.path || undefined,
+              cwd: parsed.repo?.path || composerCwd || undefined,
             },
             attachAfter
           );
@@ -1473,8 +1478,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       composerHarness,
       composerModel,
       harnessInstalled,
-      agentCwd,
-      targetCwd,
       homeDir,
       composerImages.length,
       uploadComposerImages,
@@ -2964,7 +2967,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         targetCwd={composerCwd}
         variant={composerMode}
         onKindChange={(kind) => {
-          if (kind !== 'issue') return openComposer(kind);
+          // Switching tabs keeps directory, harness and model as they are
+          if (kind !== 'issue') return setComposerMode(kind);
           // The text moves into the issue dialog, so it is not left behind in the composer
           setComposerOpen(false);
           setIssueDialog({
@@ -3066,7 +3070,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           home={homeDir}
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
-            setAgentCwd(path);
+            setPickedCwd(path);
             if (composerMode === 'task') pickDispatchCwd(path);
             setPickDirOpen(false);
             inputRef.current?.focus();
