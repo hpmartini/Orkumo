@@ -291,6 +291,15 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     agent?.displayState === 'waiting' ||
     (agent?.displayState === 'needs-input' && agent?.status === 'waiting');
   const busy = agent?.displayState === 'working';
+  // Back to idle: an echoed prompt still unlogged was withdrawn in the TUI (a few s for the poll)
+  useEffect(() => {
+    if (busy) return;
+    const t = window.setTimeout(
+      () => dispatch({ type: 'event', event: { type: 'devorbit_sent_clear' } }),
+      3000
+    );
+    return () => window.clearTimeout(t);
+  }, [busy]);
   const prompt = usePanePrompt(pane.id, prompting);
   const choices = prompt ? extractNumberedChoices(prompt) : [];
   const notConnected = 'The terminal is not connected: switch to the terminal view and reattach';
@@ -315,10 +324,15 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     setError(null);
     try {
       const stored = await Promise.all(images.map(uploadAttachment));
-      if (!typeIntoPane(pane.id, promptWithAttachments(text, stored))) {
+      const prompt = promptWithAttachments(text, stored);
+      if (!typeIntoPane(pane.id, prompt)) {
         setError(notConnected);
         return;
       }
+      // Claude logs a typed prompt at once (or as queued); others only once the agent takes it.
+      // Commands never show up as a user turn.
+      if (harness !== 'claude' && !prompt.trimStart().startsWith('/'))
+        dispatch({ type: 'event', event: { type: 'devorbit_sent', text: prompt } });
       setText('');
       setImages([]);
       stickToBottom.current = true;

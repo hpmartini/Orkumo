@@ -20,8 +20,8 @@ import { findOmpSessionFile, ompSessionsDir } from './ompSessions.js';
 export const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Replay events kept from a transcript; the view's replay buffer has the same cap */
 export const MAX_HISTORY_EVENTS = 5000;
-/** Transcript bytes a view starts with (newest part of the file) */
-export const HISTORY_BYTES = 8 * 1024 * 1024;
+/** Transcript bytes read per step: a long session's file runs to tens of MB, all of it is read */
+export const READ_CHUNK_BYTES = 8 * 1024 * 1024;
 
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v) => (typeof v === 'string' ? v : '');

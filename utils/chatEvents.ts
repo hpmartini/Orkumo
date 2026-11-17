@@ -94,6 +94,11 @@ export interface ChatState {
    * the agent works shows up as a user record only when the turn takes it, often minutes later
    */
   queued: string[];
+  /**
+   * Prompts this view typed into a harness without such a log (omp logs a prompt only once the
+   * agent takes it): shown at once, the oldest gives way to each logged user turn
+   */
+  sent: string[];
   /** The next user prompt starts a context (session start, compaction, `/clear`) */
   boundary: boolean;
 }
@@ -107,12 +112,15 @@ export const initialChatState: ChatState = {
   agents: [],
   sub: {},
   queued: [],
+  sent: [],
   boundary: true,
 };
 
 /** Queued prompts the user typed (task notifications and other `<…>` wrappers left out) */
-export const pendingPrompts = (state: ChatState): string[] =>
-  state.queued.filter((t) => t.trim() && !t.trimStart().startsWith('<'));
+export const pendingPrompts = (state: ChatState): string[] => [
+  ...state.queued.filter((t) => t.trim() && !t.trimStart().startsWith('<')),
+  ...state.sent,
+];
 
 /** Prompts that start a context: the session's first and each first after compaction / `/clear` */
 export const initialPrompts = (messages: ChatMessage[]) =>
@@ -312,9 +320,19 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
       return { ...state, queued: state.queued.filter((_, i) => i !== at) };
     }
 
+    case 'devorbit_sent':
+      return str(event.text).trim()
+        ? { ...state, sent: [...state.sent, str(event.text)].slice(-50) }
+        : state;
+
+    case 'devorbit_sent_clear':
+      return state.sent.length ? { ...state, sent: [] } : state;
+
     case 'devorbit_user':
       return {
         ...state,
+        // by count: the logged text differs (attachments, omp's own wrapping)
+        sent: state.sent.length ? state.sent.slice(1) : state.sent,
         boundary: false,
         messages: [
           ...state.messages,
