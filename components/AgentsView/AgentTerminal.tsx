@@ -12,6 +12,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ImageAddon } from '@xterm/addon-image';
 import { getLinkKeys, getLinkTarget, linkTargetFor, openLink } from '../../utils/links';
 import { createFileLinkProvider } from '../../utils/fileLinks';
+import { styleTerminalLinks } from '../../utils/terminalLinkStyle';
 import { openFile } from '../../utils/openFile';
 import '@xterm/xterm/css/xterm.css';
 import {
@@ -210,6 +211,7 @@ function createPaneTerminal(
     })
   );
   terminal.open(container);
+  styleTerminalLinks(terminal); // as long as the terminal lives; its dispose drops the decorations
   try {
     fit.fit();
   } catch {
