@@ -85,7 +85,8 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
       computeSuggestions(
         value,
         caret,
-        otherHarness ? { subagents: [], repos: [], commands: [] } : { subagents, repos, commands }
+        // `@agent` and `@repo` are Claude syntax; the caller hands each harness its own commands
+        otherHarness ? { subagents: [], repos: [], commands } : { subagents, repos, commands }
       ),
     [otherHarness, value, caret, subagents, repos, commands]
   );
@@ -196,7 +197,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
           id={listId}
           role="listbox"
           aria-label="Suggestions"
-          className="absolute top-full left-0 right-0 mt-1 max-h-64 overflow-y-auto bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-30"
+          className="absolute top-full left-0 right-0 mt-1 max-h-80 overflow-y-auto bg-gray-800 border border-gray-600 rounded-lg shadow-xl z-30"
         >
           {suggestions.map((s, index) => (
             <li
@@ -208,13 +209,17 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
                 e.preventDefault();
                 applySuggestion(s);
               }}
-              className={`px-3 py-1.5 text-sm flex items-center gap-3 cursor-pointer ${
+              className={`px-3 py-1.5 text-sm cursor-pointer ${
                 index === highlighted ? 'bg-blue-500/30 text-white' : 'text-gray-100'
               }`}
             >
-              <span className="font-mono text-blue-300">{s.label}</span>
-              <span className="text-xs text-gray-300 truncate">{s.description}</span>
-              <span className="ml-auto text-[10px] text-gray-300">{s.type}</span>
+              <div className="flex items-center gap-3">
+                <span className="font-mono text-blue-300">{s.label}</span>
+                <span className="ml-auto text-[10px] text-gray-300">{s.type}</span>
+              </div>
+              {s.description && (
+                <div className="line-clamp-2 text-xs text-gray-300">{s.description}</div>
+              )}
             </li>
           ))}
         </ul>
@@ -360,7 +365,7 @@ export const DispatchInput: React.FC<DispatchInputProps> = ({
         ) : (
           <span className="text-gray-300">
             {otherHarness
-              ? 'Runs interactively in a terminal pane · Cmd/Ctrl+Enter to start · Enter for a new line'
+              ? `Runs interactively in a terminal pane${harness === 'omp' ? ' · /skill' : ''} · Cmd/Ctrl+Enter to start · Enter for a new line`
               : '@agent · @repo · /command · ! shell command · Cmd/Ctrl+Enter to send · Enter for a new line'}
           </span>
         )}

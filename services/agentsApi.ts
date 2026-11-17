@@ -297,9 +297,12 @@ export async function fetchAgentRepos(
   return request(`/agents/repos${query({ cwd })}`);
 }
 
-export async function fetchAgentCommands(cwd?: string | null): Promise<AgentSlashCommand[]> {
+export async function fetchAgentCommands(
+  cwd?: string | null,
+  harness?: 'omp'
+): Promise<AgentSlashCommand[]> {
   const data = await request<{ commands: AgentSlashCommand[] }>(
-    `/agents/commands${query({ cwd })}`
+    `/agents/commands${query({ cwd, harness })}`
   );
   return data.commands;
 }

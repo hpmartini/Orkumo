@@ -48,6 +48,7 @@ import { settingsService } from './services/settingsService.js';
 import { ideService } from './services/ideService.js';
 import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
+import { listOmpCommands } from './services/ompCommands.js';
 import * as chatService from './services/chatService.js';
 import * as chatStatus from './services/chatStatus.js';
 import { ompSkillsArgs } from './services/ompSkills.js';
@@ -1877,10 +1878,24 @@ app.get('/api/agents/subagents', async (req, res) => {
   }
 });
 
+/**
+ * omp's `/` entries for a start prompt: skills and file/extension commands. Its built-ins are left
+ * out, a start prompt hands `/model` and the like to the model as plain text
+ */
+async function ompStartCommands(cwd) {
+  const list = await listOmpCommands(cwd, { bin: resolveHarnessBinary('omp') });
+  return list
+    .filter((c) => !c.builtin)
+    .map((c) => ({ name: c.name, description: c.description, source: 'omp' }));
+}
+
 app.get('/api/agents/commands', async (req, res) => {
   try {
     res.json({
-      commands: await agentService.listSlashCommands(agentScopeCwd(req) || process.env.HOME),
+      commands:
+        req.query.harness === 'omp'
+          ? await ompStartCommands(agentScopeCwd(req) || process.env.HOME)
+          : await agentService.listSlashCommands(agentScopeCwd(req) || process.env.HOME),
     });
   } catch (error) {
     sendAgentError(res, error);
