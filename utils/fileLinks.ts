@@ -61,7 +61,7 @@ export function findFilePaths(text: string): FilePathMatch[] {
 }
 
 /** Wrapped rows around `y` (0-based) joined into one string, with each char's cell position */
-function logicalLine(terminal: Terminal, y: number) {
+export function logicalLine(terminal: Terminal, y: number) {
   const buffer = terminal.buffer.active;
   let top = y;
   while (top > 0 && buffer.getLine(top)?.isWrapped) top--;
@@ -79,7 +79,7 @@ function logicalLine(terminal: Terminal, y: number) {
       text += chars;
     }
   }
-  return { text, cells };
+  return { text, cells, start: top };
 }
 
 /** Link provider for file paths; `activate` gets the click and the match */

@@ -18,7 +18,9 @@ import { pollWhileVisible } from '../../../utils/visiblePoll';
 import { AssistantBlock } from './ChatMessages';
 
 const chip =
-  'flex items-center gap-1 px-2 py-0.5 rounded-full border text-[11px] focus-visible:outline-2 focus-visible:outline-blue-400 transition-colors';
+  'flex max-w-full items-start gap-1 px-2 py-0.5 rounded-xl border text-[11px] focus-visible:outline-2 focus-visible:outline-blue-400 transition-colors';
+// Chips wrap instead of truncating: what a background shell or sub-agent does must be readable
+const chipText = 'min-w-0 text-left [overflow-wrap:anywhere]';
 
 /** One-line label of the latest step: "Bash npm test", "Thinking" */
 function stepLabel(block: ChatBlock | undefined): string {
@@ -187,11 +189,11 @@ export const ChatActivity: React.FC<ChatActivityProps> = ({
                 )
               }
               aria-pressed={detail?.id === s.id}
-              title={s.command}
+              title={`Background shell: ${s.command}`}
               className={`${chip} ${detail?.id === s.id ? 'border-blue-400 text-white bg-blue-500/15' : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}
             >
-              <SquareTerminal size={11} aria-hidden />
-              <span className="max-w-[12rem] truncate">{s.description || s.command}</span>
+              <SquareTerminal size={11} aria-hidden className="mt-0.5 shrink-0" />
+              <span className={chipText}>{s.description || s.command}</span>
             </button>
           ))}
           {agents.map((a) => (
@@ -206,22 +208,23 @@ export const ChatActivity: React.FC<ChatActivityProps> = ({
                 )
               }
               aria-pressed={detail?.id === a.toolId}
+              title={`Sub-agent ${a.type}: ${a.description}`}
               className={`${chip} ${detail?.id === a.toolId ? 'border-blue-400 text-white bg-blue-500/15' : 'border-gray-700 text-gray-300 hover:border-gray-500'}`}
             >
               {a.done ? (
                 <Bot
                   size={11}
                   aria-hidden
-                  className={a.isError ? 'text-red-400' : 'text-emerald-400'}
+                  className={`mt-0.5 shrink-0 ${a.isError ? 'text-red-400' : 'text-emerald-400'}`}
                 />
               ) : (
                 <Loader2
                   size={11}
                   aria-hidden
-                  className="animate-spin motion-reduce:animate-none text-blue-300"
+                  className="mt-0.5 shrink-0 animate-spin motion-reduce:animate-none text-blue-300"
                 />
               )}
-              <span className="max-w-[12rem] truncate">
+              <span className={chipText}>
                 {a.type} · {a.description}
               </span>
             </button>
@@ -240,7 +243,7 @@ export const ChatActivity: React.FC<ChatActivityProps> = ({
             ) : (
               <Bot size={12} aria-hidden />
             )}
-            <span className="truncate min-w-0">{detail.title}</span>
+            <span className="min-w-0 [overflow-wrap:anywhere]">{detail.title}</span>
             <button
               type="button"
               onClick={() => setDetail(null)}

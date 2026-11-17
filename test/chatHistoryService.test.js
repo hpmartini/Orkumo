@@ -9,8 +9,14 @@ import {
   parseAs,
   parseExport,
   NO_TOPIC,
+  CHAT_FORMAT,
 } from '../server/services/chatHistoryService.js';
-import { gizmoProjects, stripChatgpt, stripClaude } from '../electron/chatSync.js';
+import {
+  CHAT_FORMAT as SYNC_FORMAT,
+  gizmoProjects,
+  stripChatgpt,
+  stripClaude,
+} from '../electron/chatSync.js';
 
 // Invented data in the shape of the official exports; no real conversation, account or project
 const FIXTURES = path.join(__dirname, 'fixtures/chat-exports');
@@ -57,7 +63,7 @@ describe('parseExport', () => {
     expect(branch.messages).toHaveLength(2);
   });
 
-  it('reads a ChatGPT export: current path of the tree, no system / tool / hidden turns', () => {
+  it('reads a ChatGPT export: current path of the tree, tool calls as parts, no system / hidden turns', () => {
     const result = parseExport(json('chatgpt/conversations.json'));
     expect(result).toMatchObject({ provider: 'chatgpt', found: 4 });
     expect(result.skipped).toEqual({ 'no messages': 1 });
@@ -70,7 +76,12 @@ describe('parseExport', () => {
     expect(bike.project).toBe('g-p-0123456789abcdef0123456789abcdef');
     expect(bike.messages.map((m) => m.text)).toEqual([
       'Wie flicke ich einen Reifen am Fahrrad?',
+      // a tool call: no text of its own, shown through its part
+      '',
       'Loch suchen, anrauen, Flicken aufkleben.',
+    ]);
+    expect(bike.messages[1].parts).toEqual([
+      { type: 'tool', name: 'Code', input: "print('suche')" },
     ]);
     // no title, no update time, an image part
     expect(zebra.title).toBe('Zeig mir ein Bild von einem Zebra');
@@ -248,7 +259,7 @@ describe('desktop sync: API responses and ingest (#280)', () => {
   const lines = () =>
     fs.readFileSync(path.join(dir, 'conversations.jsonl'), 'utf8').split('\n').filter(Boolean);
 
-  it('reads a claude.ai detail response: current branch, files, no tool blocks', () => {
+  it('reads a claude.ai detail response: current branch, files, tools as parts', () => {
     const raw = api('claude-conversation.json');
     for (const input of [raw, stripClaude(raw)]) {
       const { conversations, skipped } = parseAs('claude', [input]);
@@ -267,10 +278,10 @@ describe('desktop sync: API responses and ingest (#280)', () => {
       ]);
     }
     // only what the parser reads goes to the server
-    expect(JSON.stringify(stripClaude(raw))).not.toMatch(/preview_url|extracted_content|thinking/);
+    expect(JSON.stringify(stripClaude(raw))).not.toMatch(/sync_sources|"index"|settings|model/);
   });
 
-  it('reads a ChatGPT detail response: shown path, no tool calls, project name from the sidebar', () => {
+  it('reads a ChatGPT detail response: shown path, tool calls as parts, project name from the sidebar', () => {
     const raw = api('chatgpt-conversation.json');
     const projects = gizmoProjects(api('chatgpt-sidebar.json'));
     expect(projects).toEqual([{ id: 'g-p-0123456789abcdef0123456789abcdef', name: 'Werkstatt' }]);
@@ -286,10 +297,15 @@ describe('desktop sync: API responses and ingest (#280)', () => {
         'Wie flicke ich einen Reifen?',
         'Loch suchen, anrauen, Flicken drauf.',
         '[image_asset_pointer]\nHier ein Foto vom Ventil',
+        '',
         'Ein Sclaverand-Ventil: Mutter oben aufdrehen.',
       ]);
+      expect(conversation.messages[2].parts[0]).toEqual({ type: 'image', asset: 'file-abc' });
+      expect(conversation.messages[3].parts).toEqual([
+        { type: 'tool', name: 'Web search', input: 'search("sclaverand ventil")' },
+      ]);
     }
-    expect(JSON.stringify(stripChatgpt(raw))).not.toMatch(/safe_urls|file-service|request_id/);
+    expect(JSON.stringify(stripChatgpt(raw))).not.toMatch(/safe_urls|request_id|model_slug|width/);
   });
 
   it('a synced conversation replaces the imported one with the same id', async () => {
@@ -386,6 +402,13 @@ describe('desktop sync: API responses and ingest (#280)', () => {
       state: { lastUpdatedAt: 42, orgId: 'org-1' },
     });
     await history.ingest({ provider: 'claude', conversations: [], state: { lastUpdatedAt: 43 } });
+    // a stop mark from before the parts format does not count: everything is read once more
+    expect((await createChatHistory(dir).syncState()).claude.lastUpdatedAt).toBeNull();
+    await history.ingest({
+      provider: 'claude',
+      conversations: [],
+      state: { lastUpdatedAt: 43, format: CHAT_FORMAT },
+    });
     const after = await createChatHistory(dir).syncState();
     expect(after.claude).toMatchObject({ lastUpdatedAt: 43, orgId: 'org-1' });
     expect(after.chatgpt.lastUpdatedAt).toBeNull();
@@ -467,5 +490,85 @@ describe('local marks: pin, rename, folder, archive (#19 AK-5)', () => {
     const history = createChatHistory(dir);
     expect(await history.setMeta('claude:nope', { pinned: true })).toBeNull();
     expect(fs.existsSync(path.join(dir, 'meta.json'))).toBe(false);
+  });
+});
+
+describe('artifacts, files, tools and sources as parts (chat view)', () => {
+  const parts = (provider, file, strip) => {
+    const raw = api(file);
+    const direct = parseAs(provider, [raw]).conversations[0];
+    // the sync keeps everything the parser reads: same result from the stripped response
+    expect(parseAs(provider, [strip(raw)]).conversations[0]).toEqual(direct);
+    return direct.messages;
+  };
+
+  it('the sync and the store agree on the format', () => expect(SYNC_FORMAT).toBe(CHAT_FORMAT));
+
+  it('claude.ai: uploads, artifacts with their versions, citations, code results', () => {
+    const [ask, answer, , second] = parts('claude', 'claude-artifacts.json', stripClaude);
+    expect(ask.parts.map((p) => p.type)).toEqual(['file', 'image', 'text']);
+    expect(ask.parts[0]).toMatchObject({ name: 'auftraege.csv', mime: 'text/csv', size: 214 });
+    expect(ask.parts[0].content).toContain('Meyer;Gazelle;Kette');
+    expect(ask.parts[1]).toEqual({
+      type: 'image',
+      name: 'werkstatt.png',
+      asset: '/api/org-1/files/img-1/preview',
+    });
+    // artifacts in place, between the texts; the tool's "OK" is no line of its own
+    expect(answer.parts.map((p) => p.type)).toEqual([
+      'thinking',
+      'text',
+      'artifact',
+      'artifact',
+      'text',
+    ]);
+    expect(answer.parts[3]).toMatchObject({ id: 'seite', kind: 'text/html', version: 1 });
+    // an update shows the whole artifact as it stood after that turn
+    const plan = second.parts.find((p) => p.type === 'artifact');
+    expect(plan).toMatchObject({ id: 'plan', title: 'Wochenplan', version: 2 });
+    expect(plan.content).toContain('| Mi | Becker | Licht |');
+    expect(plan.content).toContain('| Mo | Meyer | Kette |');
+    expect(second.parts.find((p) => p.name === 'repl')).toEqual({
+      type: 'tool',
+      name: 'repl',
+      input: 'console.log(3 * 25)',
+      output: '75',
+    });
+    expect(second.parts.find((p) => p.type === 'sources').items[0].url).toBe(
+      'https://example.org/bremse'
+    );
+    // search, export and "continue" still read the text
+    expect(answer.text).toBe('Hier ist der Plan:\nSag Bescheid, wenn noch etwas fehlt.');
+  });
+
+  it('ChatGPT: attachments, canvas and its edit, code output, generated image, safe sources', () => {
+    const messages = parts('chatgpt', 'chatgpt-canvas.json', stripChatgpt);
+    expect(messages[0].parts.slice(0, 2)).toEqual([
+      { type: 'file', name: 'preise.pdf', mime: 'application/pdf', size: 48000 },
+      { type: 'image', name: 'rad.jpg', asset: 'file-rad' },
+    ]);
+    const canvases = messages.flatMap((m) => m.parts ?? []).filter((p) => p.type === 'artifact');
+    expect(canvases.map((c) => c.version)).toEqual([1, 2]);
+    expect(canvases[1].content).toContain('**Summe: 64 €**');
+    expect(messages.flatMap((m) => m.parts ?? []).find((p) => p.type === 'tool')).toEqual({
+      type: 'tool',
+      name: 'Code',
+      input: '39 + 25',
+      output: '64',
+    });
+    expect(messages.some((m) => m.parts?.[0]?.asset === 'file_logo')).toBe(true);
+    const cited = messages.at(-1).parts.find((p) => p.type === 'sources');
+    // javascript: and other schemes never become links
+    expect(cited.items.map((i) => i.url)).toEqual([
+      'https://example.com/ratgeber',
+      'https://example.org/ketten',
+    ]);
+  });
+
+  it('caps a huge artifact so one chat cannot bloat the store', () => {
+    const raw = api('claude-artifacts.json');
+    raw.chat_messages[1].content[2].input.content = 'x'.repeat(300_000);
+    const plan = parseAs('claude', [raw]).conversations[0].messages[1].parts[2];
+    expect(plan.content.length).toBeLessThan(200_010);
   });
 });

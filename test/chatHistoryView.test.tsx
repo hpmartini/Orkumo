@@ -133,6 +133,15 @@ function mockElectron(result: ChatSyncResult) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // open chat tabs persist; every test starts without any
+  localStorage.clear();
+  // jsdom lacks these; the tab strip and the reader's scroll-to-end use them
+  window.Element.prototype.scrollIntoView ??= () => {};
+  globalThis.ResizeObserver ??= class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
   vi.mocked(fetchChatHistory).mockResolvedValue(list(ITEMS));
 });
 afterEach(() => {
@@ -148,9 +157,23 @@ describe('ChatHistoryPage (#280)', () => {
       expect.stringContaining('ChatGPTChat 2'),
       expect.stringContaining('ClaudeChat 1'),
     ]);
-    expect(screen.getByTestId('chat-counts')).toHaveTextContent(
-      '3 matching · Claude 2 · ChatGPT 1'
+    // the counts sit on the provider switch
+    const counts = screen.getByRole('group', { name: 'Provider' });
+    expect(within(counts).getByRole('button', { name: 'All 3' })).toBeInTheDocument();
+    expect(within(counts).getByRole('button', { name: 'Claude 2' })).toBeInTheDocument();
+    expect(within(counts).getByRole('button', { name: 'ChatGPT 1' })).toBeInTheDocument();
+  });
+
+  it('pinned chats get a section of their own on top, not repeated below', async () => {
+    vi.mocked(fetchChatHistory).mockResolvedValue(
+      list(ITEMS.map((i) => (i.title === 'Chat 1' ? { ...i, pinned: true } : i)))
     );
+    show();
+    const pinned = await screen.findByRole('region', { name: 'Pinned' });
+    expect(within(pinned).getByRole('button', { name: /Chat 1/ })).toBeInTheDocument();
+    const sections = screen.getAllByRole('region').map((r) => r.getAttribute('aria-label'));
+    expect(sections[0]).toBe('Pinned');
+    expect(screen.getAllByRole('button', { name: /Chat 1/ })).toHaveLength(1);
   });
 
   it('groups the rail by recency: Today, Yesterday, This week, Older', async () => {
@@ -437,7 +460,10 @@ describe('ChatHistoryPage (#280)', () => {
     expect(promptLimit('claude')).toBe(DISPATCH_PROMPT_MAX);
     expect(promptLimit('omp')).toBe(MAX_HARNESS_PROMPT);
     // a short one goes whole
-    const short = continuePrompt({ ...ITEMS[0], messages: [{ role: 'user', text: 'hi', at: null }] });
+    const short = continuePrompt({
+      ...ITEMS[0],
+      messages: [{ role: 'user', text: 'hi', at: null }],
+    });
     expect(short).toContain('This is the conversation so far:\n\nUser: hi');
   });
 
@@ -471,7 +497,9 @@ describe('ChatHistoryPage (#280)', () => {
         '',
       ].join('\n')
     );
-    expect(markdownFileName({ title: 'Brot: Sauerteig? / Teil 2' })).toBe('Brot-Sauerteig-Teil-2.md');
+    expect(markdownFileName({ title: 'Brot: Sauerteig? / Teil 2' })).toBe(
+      'Brot-Sauerteig-Teil-2.md'
+    );
     expect(markdownFileName({ title: '???' })).toBe('chat.md');
   });
 
@@ -535,9 +563,11 @@ describe('ChatHistoryPage: Orkumo chats, order, export (#19)', () => {
     expect(row).toHaveTextContent('Orkumo');
     expect(within(row).getByLabelText('Pinned')).toBeTruthy();
     expect(row).toHaveTextContent('Arbeit');
-    expect(screen.getByTestId('chat-counts')).toHaveTextContent(
-      '4 matching · Claude 2 · ChatGPT 1 · Orkumo 1'
-    );
+    expect(
+      within(screen.getByRole('group', { name: 'Provider' })).getByRole('button', {
+        name: 'Orkumo 1',
+      })
+    ).toBeInTheDocument();
     await user.click(within(screen.getByRole('group', { name: 'Provider' })).getByText('Orkumo'));
     await waitFor(() => expect(lastQuery()).toMatchObject({ provider: 'orkumo' }));
 
@@ -584,7 +614,9 @@ describe('ChatHistoryPage: Orkumo chats, order, export (#19)', () => {
     expect(updateChatMeta).toHaveBeenLastCalledWith('claude:3', { pinned: true });
     expect(await screen.findByRole('button', { name: 'Unpin' })).toBeInTheDocument();
     // the list follows
-    await waitFor(() => expect(vi.mocked(fetchChatHistory).mock.calls.length).toBeGreaterThan(loads));
+    await waitFor(() =>
+      expect(vi.mocked(fetchChatHistory).mock.calls.length).toBeGreaterThan(loads)
+    );
 
     await user.click(screen.getByRole('button', { name: 'Rename' }));
     const title = screen.getByLabelText('Chat title');
@@ -617,11 +649,11 @@ describe('ChatHistoryPage: Orkumo chats, order, export (#19)', () => {
     });
     Object.assign(URL, { createObjectURL, revokeObjectURL: vi.fn() });
     let downloaded: { href: string; download: string } | null = null;
-    const click = vi
-      .spyOn(HTMLAnchorElement.prototype, 'click')
-      .mockImplementation(function (this: HTMLAnchorElement) {
-        downloaded = { href: this.href, download: this.download };
-      });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (
+      this: HTMLAnchorElement
+    ) {
+      downloaded = { href: this.href, download: this.download };
+    });
     const user = userEvent.setup();
     show();
     await user.click(await screen.findByRole('button', { name: /Eigener Chat/ }));

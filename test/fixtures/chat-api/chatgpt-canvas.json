@@ -1,0 +1,136 @@
+{
+  "title": "Rechnung für Reparatur",
+  "create_time": 1777900000.0,
+  "update_time": 1777900600.0,
+  "conversation_id": "33333333-0000-4000-8000-000000000003",
+  "current_node": "a9",
+  "mapping": {
+    "root": { "message": null, "parent": null },
+    "u1": {
+      "parent": "root",
+      "message": {
+        "author": { "role": "user" },
+        "create_time": 1777900000.0,
+        "content": {
+          "content_type": "multimodal_text",
+          "parts": [
+            { "content_type": "image_asset_pointer", "asset_pointer": "file-service://file-rad" },
+            "Schreib eine Rechnung für die Reparatur auf dem Foto, Preise im PDF."
+          ]
+        },
+        "metadata": {
+          "attachments": [
+            { "id": "file-rad", "name": "rad.jpg", "mime_type": "image/jpeg", "size": 120000 },
+            {
+              "id": "file-pdf",
+              "name": "preise.pdf",
+              "mime_type": "application/pdf",
+              "size": 48000
+            }
+          ]
+        },
+        "recipient": "all"
+      }
+    },
+    "a1": {
+      "parent": "u1",
+      "message": {
+        "author": { "role": "assistant" },
+        "create_time": 1777900010.0,
+        "content": {
+          "content_type": "text",
+          "text": "{\"name\":\"Rechnung\",\"type\":\"document\",\"content\":\"# Rechnung 2026-17\\n\\n- Kette: 39 €\\n- Arbeit: 25 €\"}"
+        },
+        "metadata": {},
+        "recipient": "canmore.create_textdoc"
+      }
+    },
+    "t1": {
+      "parent": "a1",
+      "message": {
+        "author": { "role": "tool", "name": "canmore.create_textdoc" },
+        "create_time": 1777900011.0,
+        "content": {
+          "content_type": "text",
+          "parts": ["Successfully created text document 'Rechnung'"]
+        },
+        "metadata": {},
+        "recipient": "all"
+      }
+    },
+    "a2": {
+      "parent": "t1",
+      "message": {
+        "author": { "role": "assistant" },
+        "create_time": 1777900020.0,
+        "content": { "content_type": "code", "text": "39 + 25" },
+        "metadata": {},
+        "recipient": "python"
+      }
+    },
+    "t2": {
+      "parent": "a2",
+      "message": {
+        "author": { "role": "tool", "name": "python" },
+        "create_time": 1777900021.0,
+        "content": { "content_type": "execution_output", "text": "64" },
+        "metadata": {},
+        "recipient": "all"
+      }
+    },
+    "a3": {
+      "parent": "t2",
+      "message": {
+        "author": { "role": "assistant" },
+        "create_time": 1777900030.0,
+        "content": {
+          "content_type": "text",
+          "text": "{\"updates\":[{\"pattern\":\"- Arbeit: 25 €\",\"replacement\":\"- Arbeit: 25 €\\n\\n**Summe: 64 €**\"}]}"
+        },
+        "metadata": {},
+        "recipient": "canmore.update_textdoc"
+      }
+    },
+    "t3": {
+      "parent": "a3",
+      "message": {
+        "author": { "role": "tool", "name": "dalle.text2im" },
+        "create_time": 1777900040.0,
+        "content": {
+          "content_type": "multimodal_text",
+          "parts": [
+            { "content_type": "image_asset_pointer", "asset_pointer": "sediment://file_logo" }
+          ]
+        },
+        "metadata": {},
+        "recipient": "all"
+      }
+    },
+    "a9": {
+      "parent": "t3",
+      "message": {
+        "author": { "role": "assistant" },
+        "create_time": 1777900600.0,
+        "content": {
+          "content_type": "text",
+          "parts": [
+            "Die Rechnung steht im Canvas, Summe 64 €. Richtwerte für Kettenpreise findest du bei den Quellen."
+          ]
+        },
+        "metadata": {
+          "content_references": [
+            {
+              "type": "grouped_webpages",
+              "items": [{ "title": "Kettenpreise 2026", "url": "https://example.org/ketten" }]
+            }
+          ],
+          "citations": [
+            { "metadata": { "title": "Fahrrad-Ratgeber", "url": "https://example.com/ratgeber" } },
+            { "metadata": { "title": "bad", "url": "javascript:alert(1)" } }
+          ]
+        },
+        "recipient": "all"
+      }
+    }
+  }
+}

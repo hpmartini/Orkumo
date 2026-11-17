@@ -111,4 +111,57 @@ export const CLI_INTERACTIVE_BUILTINS = [
     description: 'Ask a quick side question without interrupting the main conversation',
   },
   { name: 'tasks', description: 'View and manage everything running in the background' },
+  // Read from Claude Code 2.1.326's command table; hidden, plan-gated and setup-only ones left out
+  {
+    name: 'cd',
+    description: 'Move this session to a new working directory',
+    argumentHint: '<path>',
+  },
+  {
+    name: 'branch',
+    description: 'Create a branch of the current conversation at this point',
+    argumentHint: '[name]',
+  },
+  {
+    name: 'fork',
+    description: 'Start a background agent with the full conversation',
+    argumentHint: '<directive>',
+  },
+  {
+    name: 'subtask',
+    description: 'Send a subagent off with your full context; its result comes back here',
+    argumentHint: '<task>',
+  },
+  {
+    name: 'plan',
+    description: 'Turn on plan mode or view the plan',
+    argumentHint: '[open|<description>]',
+  },
+  { name: 'brief', description: 'Toggle brief-only mode' },
+  {
+    name: 'copy',
+    description: 'Copy the last response to clipboard (/copy 2 for the one before)',
+  },
+  { name: 'skills', description: 'List available skills' },
+  { name: 'stop', description: 'Stop this background session; transcript and worktree are kept' },
+  { name: 'daemon', description: 'Manage background services and routines' },
+  { name: 'autofix-pr', description: 'Monitor and autofix any issues with the current PR' },
+  {
+    name: 'feedback',
+    description: 'Send feedback to Anthropic or report a bug',
+    argumentHint: '[report]',
+  },
+  {
+    name: 'tui',
+    description: 'Set the terminal UI renderer (default | fullscreen)',
+    argumentHint: '[default|fullscreen]',
+  },
+  { name: 'voice', description: 'Toggle voice mode', argumentHint: '[hold|tap|off]' },
+  { name: 'powerup', description: 'Learn Claude Code features in short lessons' },
+  { name: 'remote-env', description: 'Choose the default environment for cloud agents' },
+  { name: 'web-setup', description: 'Set up cloud sessions with your GitHub account' },
+  {
+    name: 'cloud-plugins',
+    description: 'Choose whether cloud sessions use the plugins enabled on this machine',
+  },
 ];

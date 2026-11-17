@@ -11,8 +11,6 @@ import {
   Power,
   X,
   ArrowLeft,
-  PanelLeftClose,
-  PanelLeftOpen,
 } from 'lucide-react';
 import type { AgentConfigLike } from './types';
 import type {
@@ -119,8 +117,8 @@ import { PullRequestModal } from './PullRequestModal';
 import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
 import { ServersPanel, type ServerRow } from './ServersPanel';
 import {
-  isMac,
   TaskComposerModal,
+  isMac,
   useCommandPalette,
   useRegisterCommands,
 } from '../CommandPalette';
@@ -146,6 +144,7 @@ import type { BoardData } from '../../types';
 import { IssueCreateModal, lastIssueRepo, type IssueDraft } from '../BoardView/IssueCreateModal';
 import { IssueModal } from '../BoardView/IssueModal';
 import {
+  composerStartCwd,
   issueDraftToTask,
   promptWithAttachments,
   taskToIssueDraft,
@@ -210,11 +209,15 @@ function isEditableTarget(target: EventTarget | null): target is HTMLElement {
   return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
 }
 
-const RAIL_COLLAPSED_KEY = 'orkumo.railCollapsed';
-
 function isInsideTerminal(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
   return !!el?.closest?.('.xterm');
+}
+
+/** New task: Cmd+N on macOS (also in a terminal), Ctrl+N elsewhere outside a terminal (the shell's there) */
+export function isNewTaskKey(e: KeyboardEvent): boolean {
+  if (e.code !== 'KeyN' || e.altKey || e.shiftKey) return false;
+  return isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey && !isInsideTerminal(e.target);
 }
 
 /**
@@ -289,10 +292,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     query: '',
   });
   const [composerOpen, setComposerOpen] = useState(false);
-  // 'agent' = New agent (#105): interactive session in agentCwd, attached right away
+  // 'agent' = New agent (#105): interactive session in composerCwd, attached right away
   // 'chat' = New chat (#189): the same agent, shown in the UI view
   const [composerMode, setComposerMode] = useState<'task' | 'agent' | 'chat'>('task');
-  const [agentCwd, setAgentCwd] = useState<string | null>(null);
+  // Directory handed over on open (a group's "New agent here") and one picked in the composer; a
+  // pick outlives switching between Task, Agent and Chat, a new open starts from the defaults
+  const [openCwd, setOpenCwd] = useState<string | null>(null);
+  const [pickedCwd, setPickedCwd] = useState<string | null>(null);
   // Harness of the next agent (#195), preset from the default on every open
   // null follows the default harness, also when the settings arrive after the composer opened
   const [pickedHarness, setComposerHarness] = useState<AgentHarness | null>(null);
@@ -306,6 +312,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [composerImages, setComposerImages] = useState<File[]>([]);
   // Model of the next agent or chat (#19 AK-2); '' = the default (settings.dispatch.model)
   const [composerModel, setComposerModel] = useState('');
+  // Effort picked in the model × effort matrix, '' = default
+  const [composerEffort, setComposerEffort] = useState('');
   const [homeDir, setHomeDir] = useState<string | null>(null);
   // Where chats without a project run (#19 AK-1): `<data>/chats` of the agent target; `discovered`
   // once the discovery data is in (an older host has no chats folder)
@@ -327,6 +335,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   const [subagents, setSubagents] = useState<AgentSubagent[]>([]);
   const [repos, setRepos] = useState<AgentRepo[]>([]);
   const [commands, setCommands] = useState<AgentSlashCommand[]>([]);
+  // omp's own `/` list (skills, file commands) for the composer, fetched per start directory
+  const [ompCommands, setOmpCommands] = useState<AgentSlashCommand[]>([]);
   const [defaultCwd, setDefaultCwd] = useState<string | null>(null);
   // Cloud/remote PTY tabs live client-side only (not in the `claude agents` list)
   const [cloudSessions, setCloudSessions] = useState<AgentSession[]>([]);
@@ -392,29 +402,24 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [listedSessions, filter]
   );
   const railRef = useRef<HTMLDivElement>(null);
-  // Cmd/Ctrl+B hides the rail (and a route's rail outlet) on md+, like VS Code's side bar
-  const [railCollapsed, setRailCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(RAIL_COLLAPSED_KEY) === '1';
-    } catch {
-      return false;
-    }
-  });
-  const toggleRail = useCallback(
-    () =>
-      setRailCollapsed((v) => {
-        try {
-          localStorage.setItem(RAIL_COLLAPSED_KEY, v ? '0' : '1');
-        } catch {
-          /* private mode: the toggle still works for this page */
-        }
-        return !v;
-      }),
-    []
-  );
   // Rail column handed to `children` while `railOutlet` (RailOutletContext)
   const [outlet, setOutlet] = useState<HTMLDivElement | null>(null);
   const outletShown = railOutlet && !active;
+  // Side panel (agents rail or a route's outlet) hidden from md up, like VS Code's sidebar
+  const [railCollapsed, toggleRail] = useStoredToggle('orkumo.railCollapsed');
+  // Cmd+B on macOS, Ctrl+B elsewhere outside a terminal (Ctrl+B belongs to the shell there)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyB' || e.altKey || e.shiftKey) return;
+      if (isMac ? !e.metaKey || e.ctrlKey : !e.ctrlKey || e.metaKey) return;
+      if (!isMac && e.target instanceof HTMLElement && e.target.closest('.xterm')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleRail();
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  }, [toggleRail]);
   const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
@@ -655,11 +660,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     defaultCwd,
   ]);
 
+  // Start directory of new tasks (settings `taskCwd`, `~` = home); unset: the rail selection decides
+  const taskCwd = settings.taskCwd?.replace(/^~(?=\/|$)/, homeDir ?? '~') || null;
   const openComposer = useCallback((mode: 'task' | 'agent' | 'chat', cwd: string | null = null) => {
     setComposerMode(mode);
-    if (mode !== 'task') setAgentCwd(cwd);
+    setOpenCwd(cwd);
+    setPickedCwd(null);
     setComposerHarness(null);
     setComposerModel('');
+    setComposerEffort('');
     setComposerOpen(true);
   }, []);
   // Quick window (#251): its prompt opens the chat composer here, ready to send, without a project
@@ -672,12 +681,25 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }),
     [onOpenView, openComposer, chatsDir]
   );
-  const composerCwd =
-    composerMode === 'agent'
-      ? agentCwd || homeDir
-      : composerMode === 'chat'
-        ? agentCwd || targetCwd
-        : targetCwd;
+  // What the composer shows is what every start path uses
+  const composerCwd = composerStartCwd(composerMode, {
+    picked: pickedCwd,
+    opened: openCwd,
+    taskCwd,
+    targetCwd,
+    homeDir,
+  });
+
+  useEffect(() => {
+    if (!composerOpen || composerHarness !== 'omp' || !composerCwd) return;
+    let cancelled = false;
+    fetchAgentCommands(composerCwd, 'omp')
+      .then((list) => !cancelled && setOmpCommands(list))
+      .catch(() => !cancelled && setOmpCommands([]));
+    return () => {
+      cancelled = true;
+    };
+  }, [composerOpen, composerHarness, composerCwd]);
 
   // GitHub repos of the known sessions
   const issueRepos = useMemo(
@@ -1191,6 +1213,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         name?: string | null;
         idle?: boolean;
         model?: string;
+        effort?: string;
       },
       attachAfter = false,
       view: PaneView = 'terminal'
@@ -1347,11 +1370,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       }
       if (composerHarness !== 'claude') {
         // Other harnesses (#195) run interactively in a terminal pane; the server checks the args
-        const cwd = chat
-          ? composerCwd
-          : composerMode === 'agent'
-            ? agentCwd || targetCwd
-            : targetCwd;
+        const cwd = composerCwd;
         if (!cwd) {
           showHint('Pick a project directory first', 'error');
           return;
@@ -1378,6 +1397,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           `${composerHarness} · ${cwd.split('/').filter(Boolean).pop() || cwd}`,
           [
             ...(model && HARNESS_MODEL_FLAG[composerHarness] ? ['--model', model] : []),
+            ...(composerEffort && composerHarness === 'omp' ? ['--thinking', composerEffort] : []),
             ...(prompt ? ['--', prompt] : []),
           ],
           composerHarness,
@@ -1410,8 +1430,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             prompt: prompt || undefined,
             idle: true,
             cwd: composerCwd,
-            // '' keeps the default: settings.dispatch.model
+            // '' keeps the default: settings.dispatch.model / .effort
             ...(composerModel.trim() && { model: composerModel.trim() }),
+            ...(composerEffort && { effort: composerEffort }),
           },
           true,
           view
@@ -1461,7 +1482,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             {
               prompt: promptWithAttachments(parsed.prompt, stored),
               agent: parsed.agent ?? undefined,
-              cwd: parsed.repo?.path || undefined,
+              cwd: parsed.repo?.path || composerCwd || undefined,
+              ...(composerModel.trim() && { model: composerModel.trim() }),
+              ...(composerEffort && { effort: composerEffort }),
             },
             attachAfter
           );
@@ -1475,9 +1498,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       composerCwd,
       composerHarness,
       composerModel,
+      composerEffort,
       harnessInstalled,
-      agentCwd,
-      targetCwd,
       homeDir,
       composerImages.length,
       uploadComposerImages,
@@ -1717,22 +1739,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Keyboard shortcuts
   // ---------------------------------------------------------------------
 
-  // Cmd+N new task, Cmd+B toggle the rail: in every mode and from the terminal (Cmd never reaches
-  // the PTY on macOS). Elsewhere Ctrl+N / Ctrl+B are readline keys, so a terminal keeps them.
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
-      if (!mod || e.altKey || e.shiftKey || (e.code !== 'KeyN' && e.code !== 'KeyB')) return;
-      if (!isMac && isInsideTerminal(e.target)) return;
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.code === 'KeyN') openComposer('task');
-      else toggleRail();
-    };
-    document.addEventListener('keydown', handler, { capture: true });
-    return () => document.removeEventListener('keydown', handler, { capture: true });
-  }, [openComposer, toggleRail]);
-
   useEffect(() => {
     if (!active) return;
     const handler = (e: KeyboardEvent) => {
@@ -1746,6 +1752,11 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         palette.isOpen ||
         panel !== null;
       if (modalOpen) return;
+      if (isNewTaskKey(e)) {
+        e.preventDefault();
+        openComposer('task');
+        return;
+      }
       if (isInsideTerminal(e.target)) return;
       const target = e.target as HTMLElement | null;
       // Explicit type: an inferred alias would narrow `target` to never below
@@ -1754,11 +1765,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       const ctrl = e.ctrlKey && !e.metaKey && !e.altKey;
 
       // Global (also inside text inputs)
-      if (e.altKey && !e.ctrlKey && !e.metaKey && e.code === 'KeyN') {
-        e.preventDefault();
-        openComposer('task');
-        return;
-      }
       if (ctrl && key === 's' && !e.shiftKey) {
         e.preventDefault();
         toggleGrouping();
@@ -2473,7 +2479,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         aria-label="Activity bar"
         className={`${active ? 'flex' : 'hidden md:flex'} w-12 shrink-0 flex-col py-1 border-r border-gray-800 bg-gray-950`}
       >
-        <ModeSwitcher modes={nav.modes} />
+        <ModeSwitcher modes={nav.modes} onToggleRail={toggleRail} />
         <button
           onClick={nav.onOpenSettings}
           className="mt-auto flex items-center justify-center h-11 text-gray-500 hover:text-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor"
@@ -2495,16 +2501,6 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             aria-label="Open context dashboard"
           >
             <Bot size={18} />
-          </button>
-          <button
-            onClick={toggleRail}
-            className="hidden md:block p-1 -m-1 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-            title={`${railCollapsed ? 'Show' : 'Hide'} agent list (${isMac ? '⌘B' : 'Ctrl+B'})`}
-            aria-label={railCollapsed ? 'Show agent list' : 'Hide agent list'}
-            aria-pressed={!railCollapsed}
-            aria-keyshortcuts={isMac ? 'Meta+B' : 'Control+B'}
-          >
-            {railCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
           </button>
           <NewTaskButton
             onNew={(kind) =>
@@ -2631,6 +2627,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           {outletShown && (
             <div
               ref={setOutlet}
+              data-collapsed={railCollapsed || undefined}
               className={`hidden ${railCollapsed ? '' : 'md:flex'} md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40`}
             />
           )}
@@ -2641,7 +2638,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             data-focus-zone="rail"
             data-rail-focused={railFocused}
             // On small screens the rail is the agents page; other routes show their main area instead
-            className={`${outletShown ? 'hidden' : active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} ${railCollapsed ? 'md:hidden' : ''} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+            data-collapsed={railCollapsed || undefined}
+            className={`${outletShown ? 'hidden' : active && !narrowWorkspace ? `flex ${railCollapsed ? 'md:hidden' : ''}` : `hidden ${railCollapsed ? '' : 'md:flex'}`} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
           >
             {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
             {railFocused && (
@@ -2991,7 +2989,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         targetCwd={composerCwd}
         variant={composerMode}
         onKindChange={(kind) => {
-          if (kind !== 'issue') return openComposer(kind);
+          // Switching tabs keeps directory, harness and model as they are
+          if (kind !== 'issue') return setComposerMode(kind);
           // The text moves into the issue dialog, so it is not left behind in the composer
           setComposerOpen(false);
           setIssueDialog({
@@ -3006,10 +3005,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           setComposerHarness(harness);
           // model names differ per CLI: a new harness starts from its default
           setComposerModel('');
+          setComposerEffort('');
         }}
         harnessInstalled={harnessInstalled}
         model={composerModel}
         onModelChange={setComposerModel}
+        effort={composerEffort}
+        onEffortChange={setComposerEffort}
         defaultModel={composerHarness === 'claude' ? settings.dispatch.model || null : null}
         images={composerImages}
         onImagesChange={setComposerImages}
@@ -3018,7 +3020,9 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         disabled={dispatching}
         subagents={subagents}
         repos={repos}
-        commands={commands}
+        commands={
+          composerHarness === 'omp' ? ompCommands : composerHarness === 'claude' ? commands : []
+        }
         inputRef={inputRef}
       />
       {pendingCopy && (
@@ -3093,8 +3097,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           home={homeDir}
           onCancel={() => setPickDirOpen(false)}
           onPick={(path) => {
-            if (composerMode !== 'task') setAgentCwd(path);
-            else pickDispatchCwd(path);
+            setPickedCwd(path);
+            if (composerMode === 'task') pickDispatchCwd(path);
             setPickDirOpen(false);
             inputRef.current?.focus();
           }}

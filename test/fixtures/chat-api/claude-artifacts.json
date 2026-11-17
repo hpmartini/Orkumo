@@ -1,0 +1,143 @@
+{
+  "uuid": "11111111-0000-4000-8000-000000000003",
+  "name": "Wochenplan Fahrradwerkstatt",
+  "created_at": "2026-05-04T08:00:00.000000Z",
+  "updated_at": "2026-05-04T08:20:00.000000Z",
+  "current_leaf_message_uuid": "d6",
+  "chat_messages": [
+    {
+      "uuid": "d1",
+      "parent_message_uuid": "00000000-0000-4000-8000-000000000000",
+      "sender": "human",
+      "created_at": "2026-05-04T08:00:00.000000Z",
+      "text": "",
+      "content": [
+        {
+          "type": "text",
+          "text": "Mach mir aus der Liste einen Wochenplan als Tabelle und eine kleine HTML-Seite dazu."
+        }
+      ],
+      "attachments": [
+        {
+          "file_name": "auftraege.csv",
+          "file_type": "text/csv",
+          "file_size": 214,
+          "extracted_content": "Kunde;Rad;Arbeit\nMeyer;Gazelle;Kette\nSchulz;Cube;Bremse"
+        }
+      ],
+      "files": [
+        {
+          "file_kind": "image",
+          "file_uuid": "img-1",
+          "file_name": "werkstatt.png",
+          "preview_url": "/api/org-1/files/img-1/preview",
+          "thumbnail_url": "/api/org-1/files/img-1/thumbnail"
+        }
+      ]
+    },
+    {
+      "uuid": "d2",
+      "parent_message_uuid": "d1",
+      "sender": "assistant",
+      "created_at": "2026-05-04T08:01:00.000000Z",
+      "text": "",
+      "content": [
+        { "type": "thinking", "thinking": "Drei Aufträge, fünf Tage." },
+        { "type": "text", "text": "Hier ist der Plan:" },
+        {
+          "type": "tool_use",
+          "name": "artifacts",
+          "input": {
+            "id": "plan",
+            "command": "create",
+            "type": "text/markdown",
+            "title": "Wochenplan",
+            "content": "| Tag | Kunde | Arbeit |\n|---|---|---|\n| Mo | Meyer | Kette |\n| Di | Schulz | Bremse |"
+          }
+        },
+        {
+          "type": "tool_result",
+          "name": "artifacts",
+          "content": [{ "type": "text", "text": "OK" }]
+        },
+        {
+          "type": "tool_use",
+          "name": "artifacts",
+          "input": {
+            "id": "seite",
+            "command": "create",
+            "type": "text/html",
+            "title": "Aushang",
+            "content": "<!doctype html><html><body style=\"font-family:sans-serif;background:#fff\"><h1>Werkstatt diese Woche</h1><p>Mo: Meyer · Di: Schulz</p></body></html>"
+          }
+        },
+        { "type": "text", "text": "Sag Bescheid, wenn noch etwas fehlt." }
+      ]
+    },
+    {
+      "uuid": "d3",
+      "parent_message_uuid": "d2",
+      "sender": "human",
+      "created_at": "2026-05-04T08:10:00.000000Z",
+      "text": "",
+      "content": [
+        {
+          "type": "text",
+          "text": "Mittwoch kommt Becker mit Licht dazu. Und wie lange dauert ein Bremsenwechsel üblicherweise?"
+        }
+      ]
+    },
+    {
+      "uuid": "d4",
+      "parent_message_uuid": "d3",
+      "sender": "assistant",
+      "created_at": "2026-05-04T08:12:00.000000Z",
+      "text": "",
+      "content": [
+        {
+          "type": "tool_use",
+          "name": "web_search",
+          "input": { "query": "Bremsbeläge wechseln Dauer Fahrrad" }
+        },
+        {
+          "type": "tool_result",
+          "name": "web_search",
+          "content": [
+            {
+              "type": "knowledge",
+              "title": "Bremsbeläge wechseln – Anleitung",
+              "url": "https://example.org/bremse",
+              "text": "…"
+            },
+            {
+              "type": "knowledge",
+              "title": "Werkstatt-Zeiten",
+              "url": "https://example.com/zeiten",
+              "text": "…"
+            }
+          ]
+        },
+        {
+          "type": "text",
+          "text": "Ein Belagwechsel dauert etwa 20 bis 30 Minuten.",
+          "citations": [
+            { "url": "https://example.org/bremse", "title": "Bremsbeläge wechseln – Anleitung" }
+          ]
+        },
+        {
+          "type": "tool_use",
+          "name": "artifacts",
+          "input": {
+            "id": "plan",
+            "command": "update",
+            "old_str": "| Di | Schulz | Bremse |",
+            "new_str": "| Di | Schulz | Bremse |\n| Mi | Becker | Licht |"
+          }
+        },
+        { "type": "tool_use", "name": "repl", "input": { "code": "console.log(3 * 25)" } },
+        { "type": "tool_result", "name": "repl", "content": [{ "type": "text", "text": "75" }] },
+        { "type": "text", "text": "Plan ergänzt; drei Bremsen schaffst du in gut 75 Minuten." }
+      ]
+    }
+  ]
+}

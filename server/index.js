@@ -48,6 +48,8 @@ import { settingsService } from './services/settingsService.js';
 import { ideService } from './services/ideService.js';
 import { getToolVersions } from './services/toolVersionsService.js';
 import * as agentService from './services/agentService.js';
+import { listOmpCommands } from './services/ompCommands.js';
+import { listHarnessModels } from './services/harnessModels.js';
 import * as chatService from './services/chatService.js';
 import * as chatStatus from './services/chatStatus.js';
 import { ompSkillsArgs } from './services/ompSkills.js';
@@ -527,16 +529,32 @@ app.put('/api/settings/keyboard-shortcuts', (req, res) => {
   }
 });
 
+const LINK_TARGET = z.enum(['builtin', 'side', 'system']);
+
 /**
  * PUT /api/settings/link-target
  * Where clicked links open (#140): built-in browser or system browser
  */
 app.put(
   '/api/settings/link-target',
-  validate(z.object({ linkTarget: z.enum(['builtin', 'system']) }).strict()),
+  validate(
+    z
+      .object({
+        linkTarget: LINK_TARGET.optional(),
+        linkKeys: z
+          .object({ cmd: LINK_TARGET, shift: LINK_TARGET, alt: LINK_TARGET, middle: LINK_TARGET })
+          .strict()
+          .optional(),
+      })
+      .strict()
+  ),
   (req, res) => {
     try {
-      res.json({ linkTarget: settingsService.setLinkTarget(req.body.linkTarget) });
+      const { linkTarget, linkKeys } = req.body;
+      if (linkTarget) settingsService.setLinkTarget(linkTarget);
+      if (linkKeys) settingsService.setLinkKeys(linkKeys);
+      const settings = settingsService.getSettings();
+      res.json({ linkTarget: settings.linkTarget, linkKeys: settings.linkKeys });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -1694,6 +1712,17 @@ app.get('/api/agents/chat/:chatId/files', validateParams(chatIdSchema), async (r
   }
 });
 
+/** Path completion for `/cd` and other path arguments: directories matching ?q= */
+app.get('/api/agents/chat/:chatId/dirs', validateParams(chatIdSchema), async (req, res) => {
+  try {
+    const { cwd } = chatService.chatSummary(req.params.chatId);
+    const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 500) : '';
+    res.json({ dirs: await chatStatus.chatDirs(cwd, q) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 /** Output tail of a background shell the chat's own CLI reported */
 app.get(
   '/api/agents/chat/:chatId/shells/:shellId',
@@ -1877,10 +1906,34 @@ app.get('/api/agents/subagents', async (req, res) => {
   }
 });
 
+/**
+ * omp's `/` entries for a start prompt: skills and file/extension commands. Its built-ins are left
+ * out, a start prompt hands `/model` and the like to the model as plain text
+ */
+async function ompStartCommands(cwd) {
+  const list = await listOmpCommands(cwd, { bin: resolveHarnessBinary('omp') });
+  return list
+    .filter((c) => !c.builtin)
+    .map((c) => ({ name: c.name, description: c.description, source: 'omp' }));
+}
+
+/** Model × effort picker: the harness's models with their effort levels (?harness=claude|omp) */
+app.get('/api/agents/models', async (req, res) => {
+  const harness = req.query.harness === 'omp' ? 'omp' : 'claude';
+  try {
+    res.json({ models: await listHarnessModels(harness) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 app.get('/api/agents/commands', async (req, res) => {
   try {
     res.json({
-      commands: await agentService.listSlashCommands(agentScopeCwd(req) || process.env.HOME),
+      commands:
+        req.query.harness === 'omp'
+          ? await ompStartCommands(agentScopeCwd(req) || process.env.HOME)
+          : await agentService.listSlashCommands(agentScopeCwd(req) || process.env.HOME),
     });
   } catch (error) {
     sendAgentError(res, error);
@@ -2767,6 +2820,7 @@ const chatIngestSchema = z.object({
     .object({
       lastUpdatedAt: z.number().int().nonnegative().optional(),
       orgId: z.string().max(100).optional(),
+      format: z.number().int().positive().optional(),
     })
     .strict()
     .optional(),

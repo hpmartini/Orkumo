@@ -20,8 +20,8 @@ import { findOmpSessionFile, ompSessionsDir } from './ompSessions.js';
 export const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** Replay events kept from a transcript; the view's replay buffer has the same cap */
 export const MAX_HISTORY_EVENTS = 5000;
-/** Transcript bytes a view starts with (newest part of the file) */
-export const HISTORY_BYTES = 8 * 1024 * 1024;
+/** Transcript bytes read per step: a long session's file runs to tens of MB, all of it is read */
+export const READ_CHUNK_BYTES = 8 * 1024 * 1024;
 
 const isObj = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v) => (typeof v === 'string' ? v : '');
@@ -43,6 +43,14 @@ export function parseLine(line) {
 // Claude Code transcripts: already stream-json shaped
 // ---------------------------------------------------------------------------
 
+/** Pasted text arrives wrapped in `<pasted_content id="…">…</pasted_content id="…">`: show it bare */
+export function unwrapPasted(text) {
+  return text.replace(/<\/?pasted_content(?:\s+id="[^"]*")?>\n?/g, '');
+}
+
+/** Hand-backs of subagents and other sessions (`<agent-message …>`) are no prompts of the user */
+const isPeerMessage = (text) => /^\s*<(agent-message|task-notification)\b/.test(text);
+
 /** Claude transcript JSONL lines → view events (user turns, assistant messages, tool results) */
 function claudeHistoryEvents(lines) {
   const events = [];
@@ -52,8 +60,10 @@ function claudeHistoryEvents(lines) {
     // A prompt typed while the agent works is logged here at once, its user record only when the
     // turn takes it: the view shows it as queued in between (enqueue/dequeue FIFO, remove by text)
     if (rec.type === 'queue-operation') {
+      const text = str(rec.content);
+      // peer messages stay in: they hold their place in the FIFO, the view hides `<…` entries
       if (['enqueue', 'dequeue', 'remove'].includes(rec.operation))
-        events.push({ type: 'devorbit_queue', op: rec.operation, text: str(rec.content) });
+        events.push({ type: 'devorbit_queue', op: rec.operation, text: unwrapPasted(text) });
       continue;
     }
     if (rec.type === 'system' && rec.subtype === 'compact_boundary') {
@@ -79,8 +89,10 @@ function claudeHistoryEvents(lines) {
     // queued-command attachment when it hands it to the running turn (task notifications too)
     const queued = rec.type === 'attachment' ? rec.attachment : null;
     if (queued?.type === 'queued_command') {
-      if (queued.commandMode === 'prompt' && str(queued.prompt).trim())
-        events.push({ type: 'devorbit_user', text: queued.prompt, history: true });
+      const human = !queued.origin || queued.origin.kind === 'human';
+      const text = str(queued.prompt);
+      if (queued.commandMode === 'prompt' && human && text.trim() && !isPeerMessage(text))
+        events.push({ type: 'devorbit_user', text: unwrapPasted(text), history: true });
       continue;
     }
     if (!rec.message) continue;
@@ -93,7 +105,7 @@ function claudeHistoryEvents(lines) {
         history: true,
       });
     } else if (rec.type === 'user') {
-      const text =
+      const raw =
         typeof content === 'string'
           ? content
           : Array.isArray(content)
@@ -102,6 +114,7 @@ function claudeHistoryEvents(lines) {
                 .map((b) => b.text)
                 .join('\n')
             : '';
+      const text = unwrapPasted(raw);
       if (text.includes('<command-name>/clear</command-name>'))
         events.push({ type: 'system', subtype: 'clear' });
       // A background shell / task ended: the view drops its running chip

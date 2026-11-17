@@ -88,6 +88,53 @@ describe('start prompts', () => {
   });
 });
 
+describe('wrappers Claude Code puts around prompts', () => {
+  it('shows pasted text without its <pasted_content> tags, queued or not', () => {
+    const pasted = '<pasted_content id="5fb8">\n- erster Punkt\n</pasted_content id="5fb8">';
+    const s1 = run([[q('enqueue', pasted)]]);
+    expect(pendingPrompts(s1)).toEqual(['- erster Punkt\n']);
+    const s2 = run([[q('remove', pasted), queuedCmd(pasted), user(pasted)]], s1);
+    expect(pendingPrompts(s2)).toEqual([]);
+    expect(users(s2)).toEqual(['- erster Punkt\n', '- erster Punkt\n']);
+  });
+
+  it('leaves out hand-backs of subagents and other sessions', () => {
+    const msg = '<agent-message from="a1">\n[Subagent hand-back] report\n</agent-message>';
+    const peer = line({
+      type: 'attachment',
+      attachment: {
+        type: 'queued_command',
+        prompt: msg,
+        commandMode: 'prompt',
+        origin: { kind: 'peer', from: 'a1' },
+      },
+    });
+    const s = run([[q('enqueue', msg), q('remove', msg), peer]]);
+    expect(pendingPrompts(s)).toEqual([]);
+    expect(users(s)).toEqual([]);
+  });
+});
+
+// omp logs a prompt only once the agent takes it (typed mid-turn: at the next tool boundary)
+describe('prompt sent from the UI view to a harness without a queue log', () => {
+  it('shows at once, then gives way to the logged user turn (by count, not text)', () => {
+    let s = reduceChat(initialChatState, { type: 'devorbit_sent', text: 'eins' });
+    s = reduceChat(s, { type: 'devorbit_sent', text: 'zwei' });
+    expect(pendingPrompts(s)).toEqual(['eins', 'zwei']);
+    s = reduceChat(s, { type: 'devorbit_user', text: 'eins\n[Image: /tmp/a.png]' });
+    expect(pendingPrompts(s)).toEqual(['zwei']);
+    s = reduceChat(s, { type: 'devorbit_user', text: 'zwei' });
+    expect(pendingPrompts(s)).toEqual([]);
+    expect(users(s)).toEqual(['eins\n[Image: /tmp/a.png]', 'zwei']);
+  });
+  it('drops leftovers (withdrawn in the TUI) on clear', () => {
+    const s = reduceChat(reduceChat(initialChatState, { type: 'devorbit_sent', text: 'weg' }), {
+      type: 'devorbit_sent_clear',
+    });
+    expect(pendingPrompts(s)).toEqual([]);
+  });
+});
+
 describe('background task end (<task-notification>)', () => {
   const note = (id: string, status: string) =>
     user(

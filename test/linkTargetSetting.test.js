@@ -29,4 +29,16 @@ describe('linkTarget setting (#140)', () => {
     expect(onDisk.linkTarget).toBe('system');
     expect(settingsService.getSettings().linkTarget).toBe('system');
   });
+
+  it('click gestures default to Cmd/middle system, Shift side, Option split, and persist', () => {
+    expect(settingsService.getSettings().linkKeys).toEqual({
+      cmd: 'system',
+      middle: 'system',
+      shift: 'side',
+      alt: 'builtin',
+    });
+    const keys = { cmd: 'builtin', middle: 'side', shift: 'system', alt: 'side' };
+    settingsService.setLinkKeys(keys);
+    expect(settingsService.getSettings().linkKeys).toEqual(keys);
+  });
 });

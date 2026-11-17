@@ -133,6 +133,18 @@ export const AgentSettingsPanel: React.FC<AgentSettingsPanelProps> = ({
                 </select>
               </div>
               <div>
+                <label className={label} htmlFor="agent-task-cwd">
+                  New tasks start in
+                </label>
+                <input
+                  id="agent-task-cwd"
+                  className={field}
+                  placeholder="Selected project or last pick, e.g. ~/MAGOS"
+                  defaultValue={settings.taskCwd || ''}
+                  onBlur={(e) => onUpdate({ taskCwd: e.target.value.trim() || null })}
+                />
+              </div>
+              <div>
                 <label className={label}>Group by</label>
                 <select
                   className={field}

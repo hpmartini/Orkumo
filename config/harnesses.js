@@ -42,6 +42,10 @@ export const HARNESS_MODEL_SUPPORT = Object.freeze({
   pi: true,
 });
 
+/** Harnesses whose interactive start takes an effort level after the model, and its flag */
+export const HARNESS_EFFORT_FLAG = Object.freeze({ omp: '--thinking' });
+const EFFORT_LEVELS = new Set(['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'auto']);
+
 /**
  * A model name: `opus`, `sonnet[1m]`, `gpt-5-codex`, `anthropic/claude-sonnet-4-5:high`; never a
  * flag. Also the rule for the dispatch `model` / `fallbackModel` (server/index.js)
@@ -54,7 +58,8 @@ export function isHarnessCommand(command) {
 
 /**
  * Allowed argument shapes: `[]`, `['--', prompt]` (prompt only where supported), each optionally
- * after `['--model', name]` (where supported, a plain model name), or `[resumeFlag, sessionId]`
+ * after `['--model', name]` (where supported, a plain model name) and then an effort level
+ * (`['--thinking', 'high']`, omp only), or `[resumeFlag, sessionId]`
  * (a session UUID only, where the harness can resume).
  * Anything else, including any other flag, is rejected: a flag like `--config` or `--api-key`
  * would let a client reconfigure the harness.
@@ -69,6 +74,11 @@ export function harnessArgsError(command, given) {
   if (args[0] === '--model') {
     if (!HARNESS_MODEL_SUPPORT[command]) return `${command} takes no model here`;
     if (!MODEL_NAME_RE.test(args[1] ?? '')) return 'Invalid model name';
+    args = args.slice(2);
+  }
+  const effortFlag = HARNESS_EFFORT_FLAG[command];
+  if (effortFlag && args[0] === effortFlag) {
+    if (!EFFORT_LEVELS.has(args[1])) return 'Invalid effort level';
     args = args.slice(2);
   }
   if (args.length === 0) return null;

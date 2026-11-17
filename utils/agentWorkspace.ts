@@ -398,10 +398,10 @@ export function openShell(ws: Workspace, cwd: string): Workspace {
   return openSession(ws, `${SHELL_PREFIX}${n}:${cwd}`);
 }
 
-/** Tab title: the name for one pane, "A + B" for two, "N agents" beyond */
-export function tabTitle(names: string[]): string {
+/** Tab title: the name for one pane, "A + B" for two, "N agents" (or `noun`) beyond */
+export function tabTitle(names: string[], noun = 'agents'): string {
   if (names.length <= 1) return names[0] ?? '';
-  return names.length === 2 ? `${names[0]} + ${names[1]}` : `${names.length} agents`;
+  return names.length === 2 ? `${names[0]} + ${names[1]}` : `${names.length} ${noun}`;
 }
 
 const isLayout = (v: unknown): v is PaneLayout =>
@@ -479,4 +479,15 @@ export function migrateWorkspace(raw: unknown): Workspace {
   }
   if (!tabs.some((t) => t.id === activeTabId)) activeTabId = tabs[tabs.length - 1]?.id ?? null;
   return { tabs, activeTabId };
+}
+
+/**
+ * Tabs not fully inside the visible part of an overflowing strip (by their on-screen edges);
+ * 1px of slack for rounding
+ */
+export function hiddenTabIds(
+  strip: { left: number; right: number },
+  tabs: { id: string; left: number; right: number }[]
+): string[] {
+  return tabs.filter((t) => t.left < strip.left - 1 || t.right > strip.right + 1).map((t) => t.id);
 }

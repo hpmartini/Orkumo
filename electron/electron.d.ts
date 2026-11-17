@@ -137,6 +137,18 @@ export interface ElectronAPI {
   chatSync?: {
     /** One run of both providers; a call during a run shares it */
     run: () => Promise<ChatSyncResult>;
+    /** An image of a conversation as a data URL; null when it cannot be fetched */
+    asset: (provider: 'claude' | 'chatgpt', ref: string) => Promise<string | null>;
+    /**
+     * Types a prompt into the provider's page of conversation `id` (a built-in browser pane must
+     * show it) and presses send unless `submit` is false
+     */
+    typePrompt: (
+      provider: 'claude' | 'chatgpt',
+      id: string,
+      text: string,
+      submit?: boolean
+    ) => Promise<'sent' | 'typed' | 'no-field' | 'no-page' | 'loading'>;
     /** Progress of a run per provider. Returns cleanup */
     onProgress: (
       callback: (progress: ChatSyncStatus & { provider: 'claude' | 'chatgpt' }) => void

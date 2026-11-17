@@ -1,7 +1,20 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { tabSessionLabel } from '../../utils/sessionCopies';
 import { Group, Panel, Separator } from 'react-resizable-panels';
-import { X, Columns2, Rows2, LayoutGrid, Bot, Maximize2, SquareTerminal } from 'lucide-react';
+import {
+  X,
+  Columns2,
+  Rows2,
+  LayoutGrid,
+  Bot,
+  Maximize2,
+  SquareTerminal,
+  ChevronDown,
+  Eye,
+  EyeOff,
+} from 'lucide-react';
+import { usePopover } from './PullRequestsPanel';
+import { registerPaneBrowser } from '../../utils/links';
 import type { AgentSession } from '../../types';
 import {
   stateGlyph,
@@ -19,6 +32,7 @@ import {
   shellCwd,
   insertPosition,
   stepIndices,
+  hiddenTabIds,
   tabTitle,
   type DropZone,
   type InsertPosition,
@@ -61,6 +75,26 @@ interface AgentWorkspaceProps {
   views?: Record<string, PaneView>;
   /** Switches a pane between terminal and UI view; its process is untouched */
   onSetView?: (sessionId: string, view: PaneView) => void;
+  /**
+   * Own content for a pane (Chats mode: a conversation reader); null keeps the default. Such a
+   * pane never gets a terminal, so no process starts for it.
+   */
+  renderCustomPane?: (session: AgentSession, pane: CustomPaneProps) => React.ReactNode | null;
+  /** Shown while no tab is open */
+  emptyState?: React.ReactNode;
+  /** What a tab of three or more panes counts ("3 chats"); agents by default */
+  paneNoun?: string;
+}
+
+export interface CustomPaneProps {
+  active: boolean;
+  visible: boolean;
+  onFocus: () => void;
+  onClose: () => void;
+  /** Own tab; only while the tab holds several panes */
+  onMaximize?: () => void;
+  /** Drag handle for rearranging; only while the tab holds several panes */
+  headerProps?: React.HTMLAttributes<HTMLDivElement>;
 }
 
 /** What is being dragged: a whole tab (moves its active session on split) or one pane */
@@ -238,6 +272,9 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   onToggleChatSteps,
   views = {},
   onSetView,
+  renderCustomPane,
+  emptyState,
+  paneNoun,
   hidden = false,
 }) => {
   const [drag, setDrag] = useState<DragState | null>(null);
@@ -281,6 +318,55 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
 
   const findTab = (id: string) =>
     stripRef.current?.querySelector<HTMLElement>(`[data-tab-id="${window.CSS.escape(id)}"]`);
+
+  // Links in a UI view (plain anchors) open a split next to their pane, like terminal links
+  const paneIds = useRef<string[]>([]);
+  paneIds.current = workspace.tabs.flatMap((t) => t.panes);
+  useEffect(() => {
+    if (!onOpenLink) return;
+    return registerPaneBrowser((paneId, url) => {
+      if (!paneIds.current.includes(paneId)) return false;
+      onOpenLink(paneId, url);
+      return true;
+    });
+  }, [onOpenLink]);
+
+  // Overflowing strip: the wheel scrolls it sideways, a list on the right reaches every tab
+  const [hiddenTabs, setHiddenTabs] = useState<string[]>([]);
+  const [overflow, setOverflow] = useState(false);
+  const [tabListOpen, setTabListOpen] = useState(false);
+  useEffect(() => {
+    const strip = stripRef.current;
+    if (!strip) return;
+    const measure = () => {
+      setOverflow(strip.scrollWidth > strip.clientWidth + 1);
+      const tabsEls = [...strip.querySelectorAll<HTMLElement>('[data-tab-id]')];
+      const next = hiddenTabIds(
+        strip.getBoundingClientRect(),
+        tabsEls.map((el) => {
+          const r = el.getBoundingClientRect();
+          return { id: el.dataset.tabId ?? '', left: r.left, right: r.right };
+        })
+      );
+      setHiddenTabs((prev) => (prev.join('|') === next.join('|') ? prev : next));
+    };
+    // React's onWheel is passive: preventDefault needs a native listener
+    const onWheel = (e: WheelEvent) => {
+      if (strip.scrollWidth <= strip.clientWidth || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+      e.preventDefault();
+      strip.scrollLeft += e.deltaY;
+    };
+    measure();
+    strip.addEventListener('scroll', measure, { passive: true });
+    strip.addEventListener('wheel', onWheel, { passive: false });
+    const observer = new ResizeObserver(measure);
+    observer.observe(strip);
+    return () => {
+      strip.removeEventListener('scroll', measure);
+      strip.removeEventListener('wheel', onWheel);
+      observer.disconnect();
+    };
+  }, [order.join('|'), noTabs]);
 
   // Keep the active tab visible in an overflowing strip
   useEffect(() => {
@@ -343,6 +429,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
   };
 
   if (tabs.length === 0) {
+    if (emptyState) return <>{emptyState}</>;
     return (
       <div className="h-full flex flex-col items-center justify-center text-gray-500 gap-3 p-8 text-center">
         <Bot size={40} className="text-gray-700" />
@@ -383,9 +470,19 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
           className: drag?.id === session.id ? 'opacity-50' : '',
         }
       : undefined;
+    const custom = renderCustomPane?.(session, {
+      active,
+      visible,
+      onFocus: () => onFocusPane(session.id),
+      onClose: () => onClosePane(session.id),
+      onMaximize: multi ? () => onDetach(session.id) : undefined,
+      headerProps: dragHeader,
+    });
     return (
       <div className="relative h-full min-h-0">
-        {url !== null ? (
+        {custom ? (
+          custom
+        ) : url !== null ? (
           <BrowserPane
             url={url}
             active={active}
@@ -420,7 +517,7 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             />
           </div>
         )}
-        {chatView && (
+        {chatView && !custom && (
           <div className="absolute inset-0">
             <ChatPane
               pane={session}
@@ -510,7 +607,10 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             const lead = panes.find((s) => s.id === tab.activeSessionId) ?? panes[0];
             const needsInput = panes.some((s) => s.displayState === 'needs-input');
             const glyph = stateGlyph(needsInput ? 'needs-input' : lead.displayState);
-            const title = tabTitle(panes.map((s) => s.name));
+            const title = tabTitle(
+              panes.map((s) => s.name),
+              paneNoun
+            );
             const indicator = dropTarget?.id === tab.id ? dropTarget.position : null;
             return (
               <div
@@ -710,6 +810,44 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
             }}
           />
         </div>
+        {overflow && (
+          <div className="relative shrink-0 h-full border-l border-gray-800">
+            <button
+              type="button"
+              data-popover-trigger
+              aria-expanded={tabListOpen}
+              aria-haspopup="menu"
+              onClick={() => setTabListOpen((o) => !o)}
+              className={`flex items-center gap-1 h-full px-2 text-xs text-gray-300 hover:bg-gray-800 hover:text-white ${focusRing}`}
+              title="All tabs"
+              aria-label={`All tabs, ${hiddenTabs.length} hidden`}
+            >
+              {hiddenTabs.length > 0 && (
+                <span className="tabular-nums text-[11px] text-gray-400">+{hiddenTabs.length}</span>
+              )}
+              <ChevronDown size={13} aria-hidden />
+            </button>
+            {tabListOpen && (
+              <TabList
+                items={tabs.map(({ tab, sessions: panes }) => ({
+                  id: tab.id,
+                  title: tabTitle(
+                    panes.map((s) => s.name),
+                    paneNoun
+                  ),
+                  active: tab.id === activeTabId,
+                  hidden: hiddenTabs.includes(tab.id),
+                }))}
+                onPick={(id) => {
+                  setTabListOpen(false);
+                  onActivateTab(id);
+                  findTab(id)?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+                }}
+                onClose={() => setTabListOpen(false)}
+              />
+            )}
+          </div>
+        )}
         {(() => {
           const activeTab = tabs.find((t) => t.tab.id === activeTabId);
           if (!activeTab || activeTab.sessions.length < 2) return null;
@@ -761,6 +899,48 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
           );
         })}
       </div>
+    </div>
+  );
+};
+
+/** Every tab of the strip, marked visible or hidden (scrolled out); a pick activates it */
+const TabList: React.FC<{
+  items: { id: string; title: string; active: boolean; hidden: boolean }[];
+  onPick: (id: string) => void;
+  onClose: () => void;
+}> = ({ items, onPick, onClose }) => {
+  const ref = usePopover(onClose, true);
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      role="menu"
+      aria-label="All tabs"
+      className="absolute right-0 top-full z-50 mt-1 w-72 max-h-[60vh] overflow-y-auto rounded-lg border border-gray-600 bg-gray-900 py-1 shadow-2xl outline-none"
+    >
+      {items.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="menuitem"
+          onClick={() => onPick(t.id)}
+          className={`flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs hover:bg-gray-800 focus-visible:bg-gray-800 focus-visible:outline-none ${
+            t.active ? 'text-white' : t.hidden ? 'text-gray-400' : 'text-gray-200'
+          }`}
+        >
+          {t.hidden ? (
+            <EyeOff size={12} aria-hidden className="shrink-0 text-gray-500" />
+          ) : (
+            <Eye size={12} aria-hidden className="shrink-0 text-emerald-400" />
+          )}
+          <span className="min-w-0 flex-1 truncate" title={t.title}>
+            {t.title}
+          </span>
+          <span className="shrink-0 text-[10px] text-gray-500">
+            {t.active ? 'active' : t.hidden ? 'hidden' : 'visible'}
+          </span>
+        </button>
+      ))}
     </div>
   );
 };

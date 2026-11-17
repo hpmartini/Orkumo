@@ -247,6 +247,23 @@ describe.each(MODES)('AgentsView rail in grouping "$grouping" (#50)', ({ groupin
     expect(selectedTitle()).toBe(start);
   });
 
+  it('the group menu is split into sections, delete last on its own', () => {
+    renderView();
+    fireEvent.contextMenu(header(group));
+    const menu = screen.getByRole('menu');
+    const kids = Array.from(menu.children);
+    const seps = kids.filter((k) => k.getAttribute('role') === 'separator');
+    expect(seps.length).toBeGreaterThan(0);
+    // no separator at the edges or twice in a row
+    expect(kids[0].getAttribute('role')).toBe('menuitem');
+    expect(kids.at(-2)?.getAttribute('role')).toBe('separator');
+    expect(kids.at(-1)).toHaveTextContent(/Delete all sessions/);
+    kids.forEach((k, i) => {
+      if (k.getAttribute('role') === 'separator')
+        expect(kids[i + 1].getAttribute('role')).toBe('menuitem');
+    });
+  });
+
   it('#164 AC-3: Alt+Arrow on a focused chevron moves the group, the selection stays on it', async () => {
     const user = userEvent.setup();
     renderView();
@@ -259,34 +276,5 @@ describe.each(MODES)('AgentsView rail in grouping "$grouping" (#50)', ({ groupin
     const after = headers().map(headerTitle);
     expect(after.findIndex((t) => group.test(t))).toBe(at === 0 ? 1 : at - 1);
     expect(header(group).getAttribute('aria-selected')).toBe('true');
-  });
-});
-
-describe('AgentsView rail toggle and new task shortcuts', () => {
-  const renderView = () =>
-    render(
-      <MemoryRouter>
-        <AgentsView active apps={APPS} onExit={() => {}} nav={nav} onOpenView={() => {}} />
-      </MemoryRouter>
-    );
-  const rail = () => document.querySelector<HTMLElement>('[data-focus-zone="rail"]')!;
-
-  it('Ctrl+B (Cmd+B on macOS) hides and shows the rail and remembers it', () => {
-    localStorage.removeItem('orkumo.railCollapsed');
-    renderView();
-    expect(rail().className).not.toContain('md:hidden');
-    fireEvent.keyDown(document.body, { key: 'b', code: 'KeyB', ctrlKey: true });
-    expect(rail().className).toContain('md:hidden');
-    expect(localStorage.getItem('orkumo.railCollapsed')).toBe('1');
-    expect(screen.getByRole('button', { name: 'Show agent list' })).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Show agent list' }));
-    expect(rail().className).not.toContain('md:hidden');
-  });
-
-  it('Ctrl+N (Cmd+N on macOS) opens the task composer', () => {
-    renderView();
-    expect(screen.queryByRole('dialog')).toBeNull();
-    fireEvent.keyDown(document.body, { key: 'n', code: 'KeyN', ctrlKey: true });
-    expect(screen.getByRole('dialog')).toBeTruthy();
   });
 });
