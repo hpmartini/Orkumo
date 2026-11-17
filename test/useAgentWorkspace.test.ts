@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { act, renderHook } from '@testing-library/react';
 import { useAgentWorkspace, STORAGE_KEY } from '../hooks/useAgentWorkspace';
+import { hiddenTabIds } from '../utils/agentWorkspace';
 
 describe('useAgentWorkspace context switch', () => {
   beforeEach(() => localStorage.clear());
@@ -24,5 +25,18 @@ describe('useAgentWorkspace context switch', () => {
     rerender({ ctx: 'a' });
     expect(result.current.workspace).toEqual(inA);
     expect(result.current.parked).toEqual({ b: inB });
+  });
+});
+
+describe('hiddenTabIds', () => {
+  it('lists tabs cut off on either side of the strip', () => {
+    const strip = { left: 100, right: 500 };
+    const tabs = [
+      { id: 'a', left: 40, right: 160 },
+      { id: 'b', left: 160, right: 280 },
+      { id: 'c', left: 280, right: 500.5 },
+      { id: 'd', left: 500, right: 620 },
+    ];
+    expect(hiddenTabIds(strip, tabs)).toEqual(['a', 'd']);
   });
 });
