@@ -38,6 +38,11 @@ const ALLOWED = {
   ],
 };
 
+// Images of the chat view (electron `chat-asset`): Claude's preview paths, OpenAI's file hosts
+const CLAUDE_ASSET = /^\/api\/[\w-]+\/files\/[\w-]+\/(preview|thumbnail)$/;
+const ASSET_HOSTS = /(^|\.)(oaiusercontent\.com|chatgpt\.com|openai\.com)$/;
+const MAX_ASSET_BYTES = 15 * 1024 * 1024;
+
 const PAGE = { claude: 50, chatgpt: 100 };
 // A list page is cheap, a conversation can be MBs: batches stay well below the route's cap
 const BATCH_COUNT = 10;
@@ -68,10 +73,37 @@ const pick = (obj, keys) =>
     ? Object.fromEntries(keys.filter((k) => obj[k] !== undefined).map((k) => [k, obj[k]]))
     : undefined;
 
-const fileNames = (list) =>
-  Array.isArray(list)
-    ? list.map((f) => ({ file_name: f?.file_name })).filter((f) => typeof f.file_name === 'string')
-    : [];
+/** Version of the conversations this sync delivers; equals CHAT_FORMAT in chatHistoryService.js */
+export const CHAT_FORMAT = 2;
+
+const list = (value, fn) => (Array.isArray(value) ? value.map(fn).filter(Boolean) : undefined);
+const link = (s) => pick(s, ['title', 'url']);
+
+/** Claude content blocks the reader shows: text with citations, thinking, tool calls and results */
+const claudeBlock = (b) => {
+  switch (b?.type) {
+    case 'text':
+      return {
+        type: 'text',
+        text: b.text,
+        citations: list(b.citations, (c) => ({ ...link(c), details: link(c?.details) })),
+      };
+    case 'thinking':
+      return pick(b, ['type', 'thinking']);
+    case 'tool_use':
+      return pick(b, ['type', 'name', 'input']);
+    case 'tool_result':
+      return {
+        ...pick(b, ['type', 'name', 'is_error']),
+        content:
+          typeof b.content === 'string'
+            ? b.content
+            : list(b.content, (c) => pick(c, ['type', 'text', 'title', 'url'])),
+      };
+    default:
+      return null;
+  }
+};
 
 /** A claude.ai detail response reduced to what the parser reads */
 export function stripClaude(raw) {
@@ -87,40 +119,59 @@ export function stripClaude(raw) {
     ...(raw?.project ? { project: pick(raw.project, ['uuid', 'name']) } : {}),
     chat_messages: (Array.isArray(raw?.chat_messages) ? raw.chat_messages : []).map((m) => ({
       ...pick(m, ['uuid', 'parent_message_uuid', 'sender', 'text', 'created_at']),
-      content: Array.isArray(m?.content)
-        ? m.content.filter((b) => b?.type === 'text').map((b) => pick(b, ['type', 'text']))
-        : undefined,
-      attachments: fileNames(m?.attachments),
-      files: fileNames(m?.files),
+      content: list(m?.content, claudeBlock),
+      attachments: list(m?.attachments, (f) =>
+        pick(f, ['file_name', 'file_type', 'file_size', 'extracted_content'])
+      ),
+      files: list(m?.files, (f) =>
+        pick(f, ['file_kind', 'file_uuid', 'file_name', 'preview_url', 'thumbnail_url'])
+      ),
+      files_v2: list(m?.files_v2, (f) =>
+        pick(f, ['file_kind', 'file_uuid', 'file_name', 'preview_url', 'thumbnail_url'])
+      ),
     })),
   };
 }
 
-/** A ChatGPT detail response reduced to what the parser reads (tree, roles, text parts) */
+/** A ChatGPT detail response reduced to what the parser reads (tree, roles, parts, tools, sources) */
 export function stripChatgpt(raw) {
   const mapping = {};
   for (const [key, node] of Object.entries(raw?.mapping ?? {})) {
     const m = node?.message;
+    const meta = m?.metadata ?? {};
     mapping[key] = {
       parent: node?.parent ?? null,
       message: m
         ? {
-            author: pick(m.author, ['role']),
+            author: pick(m.author, ['role', 'name']),
             content: m.content && {
               ...pick(m.content, ['content_type', 'text']),
               ...(Array.isArray(m.content.parts)
                 ? {
                     parts: m.content.parts.map((p) =>
-                      typeof p === 'string' ? p : pick(p, ['content_type', 'text'])
+                      typeof p === 'string' ? p : pick(p, ['content_type', 'text', 'asset_pointer'])
                     ),
                   }
                 : {}),
+              thoughts: list(m.content.thoughts, (t) => pick(t, ['content'])),
             },
             create_time: m.create_time,
             recipient: m.recipient,
-            metadata: m.metadata?.is_visually_hidden_from_conversation
-              ? { is_visually_hidden_from_conversation: true }
-              : undefined,
+            metadata: {
+              ...pick(meta, ['is_visually_hidden_from_conversation']),
+              attachments: list(meta.attachments, (a) =>
+                pick(a, ['id', 'name', 'mime_type', 'size'])
+              ),
+              citations: list(meta.citations, (c) => ({ metadata: link(c?.metadata) })),
+              content_references: list(meta.content_references, (r) => ({
+                ...link(r),
+                items: list(r?.items, link),
+                sources: list(r?.sources, link),
+              })),
+              search_result_groups: list(meta.search_result_groups, (g) => ({
+                entries: list(g?.entries, link),
+              })),
+            },
           }
         : null,
     };
@@ -401,7 +452,7 @@ export function createChatSync({
       // The stop mark moves only when every changed conversation arrived: a lost one is retried
       await flush({
         ...source.state,
-        ...(failed === 0 && newest != null ? { lastUpdatedAt: newest } : {}),
+        ...(failed === 0 && newest != null ? { lastUpdatedAt: newest, format: CHAT_FORMAT } : {}),
       });
       return failed
         ? report('error', {
@@ -431,9 +482,49 @@ export function createChatSync({
     return result;
   }
 
+  /**
+   * An image of a conversation (upload or generated) as a data URL, for the chat view: Claude by
+   * its preview path, ChatGPT by its file id (a signed download link first). Images only, capped;
+   * the renderer never sees a cookie or token. Asked for by the user opening a chat: no pause.
+   */
+  async function asset(provider, ref) {
+    let url;
+    const headers = {};
+    if (provider === 'claude' && CLAUDE_ASSET.test(ref ?? '')) {
+      url = new URL(ref, bases.claude).href;
+    } else if (provider === 'chatgpt' && /^file[-_][\w-]{1,100}$/.test(ref ?? '')) {
+      const session = await (
+        await providerFetch(new URL('/api/auth/session', bases.chatgpt).href, {
+          credentials: 'include',
+        })
+      )
+        .json()
+        .catch(() => null);
+      if (typeof session?.accessToken !== 'string') return null;
+      headers.authorization = `Bearer ${session.accessToken}`;
+      const meta = await providerFetch(
+        new URL(`/backend-api/files/download/${ref}`, bases.chatgpt).href,
+        { headers, credentials: 'include' }
+      );
+      const link = meta.ok ? (await meta.json().catch(() => null))?.download_url : null;
+      if (typeof link !== 'string') return null;
+      url = new URL(link, bases.chatgpt);
+      // the signed link points at OpenAI's file hosts; nothing else is fetched
+      if (url.protocol !== 'https:' || !ASSET_HOSTS.test(url.hostname)) return null;
+      url = url.href;
+      if (!url.startsWith(bases.chatgpt)) delete headers.authorization;
+    } else return null;
+    const res = await providerFetch(url, { headers, credentials: 'include' });
+    const type = res.headers.get('content-type') ?? '';
+    if (!res.ok || !type.startsWith('image/')) return null;
+    const body = Buffer.from(await res.arrayBuffer());
+    if (body.length > MAX_ASSET_BYTES) return null;
+    return `data:${type.split(';')[0]};base64,${body.toString('base64')}`;
+  }
+
   let running = null;
   /** One run at a time: a second caller (interval, Sync now) shares the running one */
   const sync = () => (running ??= run().finally(() => (running = null)));
 
-  return { sync };
+  return { sync, asset };
 }

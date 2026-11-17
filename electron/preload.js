@@ -96,6 +96,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Chats mode (#280): the sync runs in main, only its status comes here
   chatSync: {
     run: () => ipcRenderer.invoke('chat-sync'),
+    asset: (provider, ref) => ipcRenderer.invoke('chat-asset', { provider, ref }),
+    typePrompt: (provider, id, text, submit) =>
+      ipcRenderer.invoke('chat-type-prompt', { provider, id, text, submit }),
     onProgress: (callback) => {
       if (typeof callback !== 'function') {
         throw new TypeError('Callback must be a function');

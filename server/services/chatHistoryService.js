@@ -21,6 +21,13 @@ import os from 'os';
 import path from 'path';
 import { setImmediate } from 'timers/promises';
 import { getDataPath } from './dataPath.js';
+import { artifactBook, chatgptMessages, claudeParts } from './chatParts.js';
+
+/**
+ * Version of what a stored conversation carries; 2 adds `parts` (artifacts, files, tools,
+ * sources). A provider whose last complete sync predates it is fetched in full once more.
+ */
+export const CHAT_FORMAT = 2;
 
 const EXPORT_FILE = /^(conversations(-\d+)?|projects)\.json$/;
 // shortcut: a file is parsed in one piece, V8 caps a string near 512 MB; stream-parse when an
@@ -60,13 +67,18 @@ function parseClaude(raw, projectNames) {
       chain.unshift(m);
     list = chain;
   }
+  const book = artifactBook();
   const messages = list
-    .map((m) => ({
-      role: m?.sender === 'human' ? 'user' : 'assistant',
-      text: claudeText(m ?? {}),
-      at: ms(m?.created_at),
-    }))
-    .filter((m) => m.text);
+    .map((m) => {
+      const parts = claudeParts(m ?? {}, book);
+      return {
+        role: m?.sender === 'human' ? 'user' : 'assistant',
+        text: claudeText(m ?? {}),
+        at: ms(m?.created_at),
+        ...(parts && { parts }),
+      };
+    })
+    .filter((m) => m.text || m.parts);
   if (messages.length === 0) return { reason: 'no messages' };
   const project = raw.project_uuid ?? raw.project?.uuid ?? null;
   return {
@@ -78,6 +90,7 @@ function parseClaude(raw, projectNames) {
       updatedAt: ms(raw.updated_at) ?? messages[messages.length - 1].at ?? ms(raw.created_at),
       project: typeof project === 'string' ? project : null,
       projectName: raw.project?.name ?? projectNames.get(project) ?? null,
+      format: CHAT_FORMAT,
       messages,
     },
   };
@@ -115,19 +128,11 @@ function parseChatgpt(raw, projectNames) {
     seen.add(node);
     chain.unshift(node);
   }
-  const messages = chain
-    .map((node) => node.message)
-    .filter(
-      (m) =>
-        m &&
-        (m.author?.role === 'user' || m.author?.role === 'assistant') &&
-        !m.metadata?.is_visually_hidden_from_conversation &&
-        // an assistant turn addressed to a tool is a tool call, not an answer
-        (m.recipient ?? 'all') === 'all' &&
-        ['text', 'multimodal_text', 'code'].includes(m.content?.content_type ?? 'text')
-    )
-    .map((m) => ({ role: m.author.role, text: chatgptText(m.content), at: ms(m.create_time) }))
-    .filter((m) => m.text);
+  const messages = chatgptMessages(
+    chain.map((node) => node.message),
+    chatgptText,
+    ms
+  );
   if (messages.length === 0) return { reason: 'no messages' };
   // Chats of a ChatGPT project carry the project as gizmo `g-p-…`; the export lacks its name,
   // the sync brings it from the sidebar
@@ -144,12 +149,14 @@ function parseChatgpt(raw, projectNames) {
       projectName: project
         ? (projectNames.get(project) ?? `Project ${project.slice(4, 12)}`)
         : null,
+      format: CHAT_FORMAT,
       messages,
     },
   };
 }
 
-const firstLine = (messages) => messages[0].text.split('\n')[0].slice(0, 80);
+const firstLine = (messages) =>
+  (messages.find((m) => m.text) ?? messages[0]).text.split('\n')[0].slice(0, 80);
 
 /** What a parsed export file holds, told by its content (both providers name it conversations.json) */
 export function detectExport(json) {
@@ -279,6 +286,7 @@ export function createChatHistory(
     project: c.project,
     projectName: c.projectName,
     ...(c.provider === 'orkumo' && { harness: c.harness, sessionId: c.sessionId, cwd: c.cwd }),
+    format: c.format ?? 1,
     messageCount: c.messages.length,
     firstMessage: (c.messages.find((m) => m.role === 'user') ?? c.messages[0]).text.slice(0, 400),
     hay: haystack(c).toLowerCase(),
@@ -428,12 +436,16 @@ export function createChatHistory(
     const all = await load();
     const state = {};
     for (const provider of ['claude', 'chatgpt']) {
+      // Before a complete sync in the current format, stored conversations of an older one count
+      // as unknown and the list is read to its end: they come again with their parts
+      const current = saved[provider]?.format === CHAT_FORMAT;
       const known = {};
       for (const e of all)
-        if (e.provider === provider) known[e.id.slice(provider.length + 1)] = e.updatedAt ?? 0;
+        if (e.provider === provider && (current || e.format >= CHAT_FORMAT))
+          known[e.id.slice(provider.length + 1)] = e.updatedAt ?? 0;
       const mark = saved[provider]?.lastUpdatedAt;
       state[provider] = {
-        lastUpdatedAt: Number.isFinite(mark) ? mark : null,
+        lastUpdatedAt: current && Number.isFinite(mark) ? mark : null,
         ...(provider === 'claude' && typeof saved.claude?.orgId === 'string'
           ? { orgId: saved.claude.orgId }
           : {}),
