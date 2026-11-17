@@ -114,3 +114,24 @@ describe('wrappers Claude Code puts around prompts', () => {
     expect(users(s)).toEqual([]);
   });
 });
+
+// omp logs a prompt only once the agent takes it (typed mid-turn: at the next tool boundary)
+describe('prompt sent from the UI view to a harness without a queue log', () => {
+  it('shows at once, then gives way to the logged user turn (by count, not text)', () => {
+    let s = reduceChat(initialChatState, { type: 'devorbit_sent', text: 'eins' });
+    s = reduceChat(s, { type: 'devorbit_sent', text: 'zwei' });
+    expect(pendingPrompts(s)).toEqual(['eins', 'zwei']);
+    s = reduceChat(s, { type: 'devorbit_user', text: 'eins\n[Image: /tmp/a.png]' });
+    expect(pendingPrompts(s)).toEqual(['zwei']);
+    s = reduceChat(s, { type: 'devorbit_user', text: 'zwei' });
+    expect(pendingPrompts(s)).toEqual([]);
+    expect(users(s)).toEqual(['eins\n[Image: /tmp/a.png]', 'zwei']);
+  });
+  it('drops leftovers (withdrawn in the TUI) on clear', () => {
+    const s = reduceChat(
+      reduceChat(initialChatState, { type: 'devorbit_sent', text: 'weg' }),
+      { type: 'devorbit_sent_clear' }
+    );
+    expect(pendingPrompts(s)).toEqual([]);
+  });
+});
