@@ -45,6 +45,13 @@ describe('question on the agent screen (yellow box)', () => {
     ).toContain('Which branch?');
   });
 
+  it("omp's ask box counts: its key hints are glyphs", () => {
+    expect(
+      screenPrompt('│ Wohin?  │\n│ ❯ ○ Staging │\n├────┤\n│ ⏎ choose · ↑/↓ move · ⎋ cancel │')
+    ).toContain('Wohin?');
+    expect(screenPrompt('╭── π > Opus\n╰─ ⇧⇥ to change thinking effort ─╯')).toBeNull();
+  });
+
   it('no box when the last answer only ends with open questions', () => {
     expect(screenPrompt(ANSWER_WITH_QUESTIONS)).toBeNull();
     expect(screenPrompt('')).toBeNull();

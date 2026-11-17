@@ -306,9 +306,9 @@ export function extractNumberedChoices(output: string): { number: number; label:
 
 /** Claude Code's own status lines under the input (plugin panel, updater): no part of a question */
 const STATUS_LINE_RE = /plugin panel hidden|update installed|restart to (apply|update)|auto-updat/i;
-/** A dialog waiting for a key: a cursor on a numbered option, or the dialog's key hints */
+/** A dialog waiting for a key: a cursor on a numbered option, or the dialog's key hints (omp: ⎋) */
 const CHOICE_CURSOR_RE = /^\s*[❯›→▶]\s*\d[.)]\s/;
-const DIALOG_HINT_RE = /esc to cancel|enter to (select|confirm)|\(y\/n\)|\[y\/n\]/i;
+const DIALOG_HINT_RE = /esc to cancel|enter to (select|confirm)|⎋ cancel|\(y\/n\)|\[y\/n\]/i;
 
 /**
  * The question on an agent's screen (permission or choice dialog) without the status lines, or
