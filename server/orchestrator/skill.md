@@ -42,6 +42,10 @@ Background Claude Code jobs get the message as a reply; agents running in an Ork
 typed into their terminal and submitted. Agents running outside Orkumo cannot be reached: start a
 new one instead.
 
+Every message starts with `[von Agent <id> „<name>“ via orkumo send]` (sender from
+`ORKUMO_AGENT_ID`, else the calling Claude Code or omp session), so the receiver knows it is not
+from Hape. Don't write your own sender line.
+
 ## start
 
 ```

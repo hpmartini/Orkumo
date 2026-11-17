@@ -131,6 +131,18 @@ export const initialPrompts = (messages: ChatMessage[]) =>
     (m): m is Extract<ChatMessage, { kind: 'user' }> => m.kind === 'user' && !!m.initial
   );
 
+/** First line `orkumo send` puts before a message (server/orchestrator/orkumo.mjs senderLine) */
+const AGENT_MESSAGE_RE =
+  /^\[(?:von Agent (\S+)(?: „([^“]*)“)? via orkumo send|via orkumo send, Absender unbekannt)\]\n*/;
+
+/** A user turn another agent sent with `orkumo send`: its sender (null = unknown) and text */
+export function agentMessage(
+  text: string
+): { id: string | null; name: string | null; body: string } | null {
+  const m = AGENT_MESSAGE_RE.exec(text);
+  return m ? { id: m[1] ?? null, name: m[2] ?? null, body: text.slice(m[0].length) } : null;
+}
+
 type Json = Record<string, unknown>;
 const isObj = (v: unknown): v is Json => typeof v === 'object' && v !== null && !Array.isArray(v);
 const str = (v: unknown): string => (typeof v === 'string' ? v : '');

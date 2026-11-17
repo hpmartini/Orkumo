@@ -207,6 +207,22 @@ export function sendRoute(agent) {
   return null;
 }
 
+/**
+ * First line of a message from `orkumo send`. The receiver's harness logs typed text as the user's
+ * own; this line names the agent that sent it (Orkumo's chat view renders it as that agent's).
+ * Sender: ORKUMO_AGENT_ID, else the calling harness's session (Claude Code, omp's bash tool).
+ */
+export function senderLine(agents, env) {
+  const ref = env.ORKUMO_AGENT_ID || env.CLAUDE_CODE_SESSION_ID || '';
+  const omp = !ref && env.PI_SESSION_ID ? `omp-${env.PI_SESSION_ID}` : '';
+  const id = ref || omp;
+  if (!id) return '[via orkumo send, Absender unbekannt]';
+  const me = agents.find((a) => a.id === id || a.sessionId === id);
+  return me
+    ? `[von Agent ${me.id} „${me.name || me.harness}“ via orkumo send]`
+    : `[von Agent ${id} via orkumo send]`;
+}
+
 /** How `agent` is stopped: jobs and omp sessions by id, other pane agents by their pane */
 export function stopRoute(agent) {
   if (agent.kind === 'background' || agent.id.startsWith('omp-'))
@@ -295,10 +311,10 @@ const readAllStdin = async () => {
 };
 
 /** Resolves an agent ref against every listed agent (no transcript reads) */
-async function agentByRef(api, ref) {
+async function agentByRef(api, ref, all = false) {
   if (!ref) throw usage('Which agent? Pass its id from "orkumo agents".');
   const { agents } = await api('GET', '/orchestrator/overview?all=1&text=0');
-  return findAgent(agents, ref);
+  return all ? { agent: findAgent(agents, ref), agents } : findAgent(agents, ref);
 }
 
 /** Realpath of `target`, also when its last parts do not exist yet (a file about to be written) */
@@ -423,7 +439,7 @@ export async function run(argv, deps = {}) {
         return 0;
       }
       case 'send': {
-        const agent = await agentByRef(api, args[0]);
+        const { agent, agents } = await agentByRef(api, args[0], true);
         const text = await textArg(args.slice(1), readStdin, 'message');
         const route = sendRoute(agent);
         if (!route) {
@@ -431,7 +447,8 @@ export async function run(argv, deps = {}) {
             `${agent.id} runs outside Orkumo (no pane, no background job) and cannot be reached. Start a new agent with "orkumo start".`
           );
         }
-        await api('POST', route, { text });
+        const from = senderLine(agents, deps.env ?? process.env);
+        await api('POST', route, { text: `${from}\n\n${text}` });
         out(`Sent to ${agent.id} (${agent.name || agent.harness}).`);
         return 0;
       }

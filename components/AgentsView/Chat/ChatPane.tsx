@@ -25,6 +25,7 @@ import {
   initialChatState,
   initialPrompts,
   pendingPrompts,
+  agentMessage,
   reduceChat,
   type ChatState,
   type ChatSubmitKey,
@@ -46,7 +47,7 @@ import { ChatStatusLine } from './ChatStatusLine';
 import { ModelEffortPicker } from '../ModelEffortPicker';
 import { switchCommands } from '../../../utils/modelMatrix';
 import { splitImages } from '../../../utils/chatComposer';
-import { extractNumberedChoices } from '../../../utils/agentInput';
+import { extractNumberedChoices, screenPrompt } from '../../../utils/agentInput';
 import { harnessLabel, sessionHarness } from '../../../utils/agentSessions';
 import { paneScreen, pressKeys, typeIntoPane, usePaneConnected } from '../AgentTerminal';
 
@@ -236,6 +237,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     () =>
       state.messages
         .filter((m): m is Extract<typeof m, { kind: 'user' }> => m.kind === 'user')
+        .filter((m) => !agentMessage(m.text))
         .map((m) => splitImages(m.text).text)
         .filter(Boolean),
     [state.messages]
@@ -258,7 +260,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   const shown = useMemo(
     () =>
       promptsOnly
-        ? items.filter((item) => item.kind === 'user')
+        ? items.filter((item) => item.kind === 'user' && !agentMessage(item.text))
         : items.filter((item) => item !== recap),
     [items, promptsOnly, recap]
   );
@@ -300,7 +302,9 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     );
     return () => window.clearTimeout(t);
   }, [busy]);
-  const prompt = usePanePrompt(pane.id, prompting);
+  // The agent's state only says it may wait; the box needs a dialog on its screen
+  const screen = usePanePrompt(pane.id, prompting);
+  const prompt = screen ? screenPrompt(screen) : null;
   const choices = prompt ? extractNumberedChoices(prompt) : [];
   const notConnected = 'The terminal is not connected: switch to the terminal view and reattach';
 
@@ -588,7 +592,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
               The agent is asking: pick an answer or type it below
             </div>
             <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap text-xs text-gray-200 font-mono">
-              {prompt || '…'}
+              {prompt}
             </pre>
             {choices.length > 0 && (
               <div className="mt-2 flex flex-wrap gap-1.5">
