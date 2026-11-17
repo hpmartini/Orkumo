@@ -1,5 +1,11 @@
 import { describe, it, expect } from 'vitest';
-import { effortColumns, matrixRows, pickLabel, switchCommands } from '../utils/modelMatrix';
+import {
+  effortColumns,
+  matrixRows,
+  pickLabel,
+  switchCommands,
+  isCurrentModel,
+} from '../utils/modelMatrix';
 
 const models = [
   {
@@ -43,5 +49,16 @@ describe('switching a running session', () => {
     ]);
     expect(switchCommands('omp', '', 'xhigh')).toEqual(['/effort xhigh']);
     expect(switchCommands('claude', '', '')).toEqual([]);
+  });
+});
+
+describe('isCurrentModel', () => {
+  it('matches the alias inside a full model id, not a prefix', () => {
+    expect(isCurrentModel('opus', 'claude-opus-5-5')).toBe(true);
+    expect(isCurrentModel('opus', 'anthropic/claude-opus-5-5')).toBe(true);
+    expect(isCurrentModel('claude-opus-5-5', 'claude-opus-5-5')).toBe(true);
+    expect(isCurrentModel('op', 'claude-opus-5-5')).toBe(false);
+    expect(isCurrentModel('sonnet', 'claude-opus-5-5')).toBe(false);
+    expect(isCurrentModel('opus', null)).toBe(false);
   });
 });

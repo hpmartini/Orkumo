@@ -82,6 +82,8 @@ export interface ChatState {
   messages: ChatMessage[];
   sessionId: string | null;
   model: string | null;
+  /** Effort of the latest main-thread answer (Claude Code logs it per assistant record) */
+  effort: string | null;
   /** Assistant message id → index of the next block a full `assistant` event fills */
   filled: Record<string, number>;
   /** Slash commands (built-ins, skills) and agents the CLI reported */
@@ -109,6 +111,7 @@ export const initialChatState: ChatState = {
   messages: [],
   sessionId: null,
   model: null,
+  effort: null,
   filled: {},
   commands: [],
   agents: [],
@@ -288,7 +291,18 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
           ...(model ? { model } : {}),
         };
       });
-      return { ...next, filled: { ...next.filled, [id]: filled } };
+      // The latest answer names what runs now (`<synthetic>` marks CLI-made error messages)
+      const model = str(msg.model);
+      const effort = str(event.effort);
+      return {
+        ...next,
+        filled: { ...next.filled, [id]: filled },
+        // omp names it with its provider (`anthropic/claude-…`) at init: keep that spelling
+        ...(model && model !== '<synthetic>' && !state.model?.endsWith(`/${model}`)
+          ? { model }
+          : {}),
+        ...(effort ? { effort } : {}),
+      };
     }
 
     case 'user': {

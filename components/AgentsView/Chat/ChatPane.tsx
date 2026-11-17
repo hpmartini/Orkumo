@@ -14,6 +14,7 @@ import {
   Maximize2,
   MessageSquare,
   MessagesSquare,
+  RefreshCw,
   Send,
   Square,
   SquareTerminal,
@@ -48,7 +49,13 @@ import { switchCommands } from '../../../utils/modelMatrix';
 import { splitImages } from '../../../utils/chatComposer';
 import { extractNumberedChoices } from '../../../utils/agentInput';
 import { harnessLabel, sessionHarness } from '../../../utils/agentSessions';
-import { paneScreen, pressKeys, typeIntoPane, usePaneConnected } from '../AgentTerminal';
+import {
+  paneScreen,
+  pressKeys,
+  reattachPane,
+  typeIntoPane,
+  usePaneConnected,
+} from '../AgentTerminal';
 
 /** Sessions whose view shows only the user's prompts (answers hidden) */
 const PROMPTS_ONLY_KEY = 'devOrbitChatPromptsOnly';
@@ -302,7 +309,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   }, [busy]);
   const prompt = usePanePrompt(pane.id, prompting);
   const choices = prompt ? extractNumberedChoices(prompt) : [];
-  const notConnected = 'The terminal is not connected: switch to the terminal view and reattach';
+  const notConnected = 'The terminal is not connected: use Reattach above, then send again';
 
   // Model × effort of the running session: typed as its own commands, one after the other (a
   // second paste before the first Enter would land in the same line)
@@ -396,6 +403,20 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         >
           {status}
         </span>
+        {!connected && (
+          <button
+            type="button"
+            onClick={() => {
+              setError(null);
+              if (!reattachPane(pane.id)) setError('No terminal to reattach: reopen the agent');
+            }}
+            className="shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-md text-[11px] text-amber-100 bg-amber-500/15 border border-amber-400/40 hover:bg-amber-500/25 focus-visible:outline-2 focus-visible:outline-blue-400"
+            title="Reattach the terminal behind this view (the session keeps running)"
+          >
+            <RefreshCw size={11} aria-hidden />
+            Reattach
+          </button>
+        )}
         {meta && (
           <div className="flex items-center gap-x-2 min-w-0 overflow-hidden text-[11px] text-gray-400">
             {meta}
@@ -667,6 +688,8 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
                       model=""
                       effort=""
                       keepLabel="current"
+                      currentModel={state.model}
+                      currentEffort={state.effort}
                       placement="up"
                       disabled={busy || !connected}
                       onPick={switchModel}
