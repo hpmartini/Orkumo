@@ -10,7 +10,7 @@ import { Terminal as XTerm, type ITerminalOptions } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { ImageAddon } from '@xterm/addon-image';
-import { openLink } from '../../utils/links';
+import { getLinkKeys, getLinkTarget, linkTargetFor, openLink } from '../../utils/links';
 import { createFileLinkProvider } from '../../utils/fileLinks';
 import { openFile } from '../../utils/openFile';
 import '@xterm/xterm/css/xterm.css';
@@ -168,14 +168,15 @@ function createPaneTerminal(
   options: ITerminalOptions,
   props: Pick<PaneTerminal, 'onClose' | 'onOpenLink' | 'cwd'>
 ): PaneTerminal {
-  // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140), Cmd/Ctrl+Shift
-  // in the system browser. Shared by plain-text URLs (WebLinksAddon) and OSC 8 hyperlinks, which
+  // Like other terminals: a plain click selects text, Cmd/Ctrl-click opens (#140); Shift and
+  // Option on top pick the target set in the settings. Shared by plain-text URLs (WebLinksAddon) and OSC 8 hyperlinks, which
   // xterm otherwise opens through its own confirm() + window.open, a dead end in the desktop app
   const activateLink = (event: MouseEvent, uri: string) => {
     if (!(event.metaKey || event.ctrlKey)) return;
     const open = pane.onOpenLink;
     // after xterm's own mouseup handling: opening the split remounts this pane
-    setTimeout(() => openLink(uri, open, event.shiftKey ? 'system' : undefined));
+    const target = linkTargetFor(event, getLinkTarget(), getLinkKeys(), true);
+    setTimeout(() => openLink(uri, open, target));
   };
   const terminal = new XTerm({
     ...options,
