@@ -66,11 +66,10 @@ export function styleTerminalLinks(terminal: Terminal): IDisposable {
     signature = next;
     clear();
     const cursor = buffer.baseY + buffer.cursorY;
-    const seen = new Set<number>();
     for (let y = top; y < bottom; y++) {
-      const { text, cells, start } = logicalLine(terminal, y);
-      if (seen.has(start)) continue;
-      seen.add(start);
+      // a continuation row was read with the row above it: build each wrapped line once, clipped near the viewport
+      if (y > top && buffer.getLine(y)?.isWrapped) continue;
+      const { text, cells } = logicalLine(terminal, y, top - terminal.rows, bottom + terminal.rows);
       for (const [from, to] of findLinkRanges(text)) {
         // one decoration per row the link covers (soft-wrapped links)
         for (let i = from; i < to; ) {
