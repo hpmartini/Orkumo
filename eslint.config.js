@@ -38,6 +38,7 @@ export default [
         HTMLIFrameElement: 'readonly',
         MouseEvent: 'readonly',
         KeyboardEvent: 'readonly',
+        WheelEvent: 'readonly',
         MediaQueryList: 'readonly',
         MediaQueryListEvent: 'readonly',
         Node: 'readonly',
