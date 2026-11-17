@@ -103,6 +103,7 @@ function claudeHistoryEvents(lines) {
         message: rec.message,
         parent_tool_use_id: null,
         history: true,
+        ...(typeof rec.effort === 'string' ? { effort: rec.effort } : {}),
       });
     } else if (rec.type === 'user') {
       const raw =
