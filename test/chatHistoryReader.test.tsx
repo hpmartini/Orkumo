@@ -125,7 +125,9 @@ describe('chat view: artifacts, files, tools, sources in place', () => {
     expect(frame.getAttribute('sandbox')).toBe('allow-scripts');
     // an updated artifact shows its version
     expect(reader.getByText(/Document · version 2/)).toBeInTheDocument();
-    // code run with its result
+    // code run with its result, inside the folded steps
+    for (const steps of reader.getAllByRole('button', { name: /tool call/ }))
+      await user.click(steps);
     await user.click(reader.getByRole('button', { name: /repl/ }));
     expect(reader.getByText('75')).toBeInTheDocument();
     expect(reader.getAllByRole('link').map((a) => a.getAttribute('href'))).toContain(
@@ -144,10 +146,86 @@ describe('chat view: artifacts, files, tools, sources in place', () => {
     // attachments: a file and an image (named placeholder without the desktop app)
     expect(reader.getByRole('button', { name: /preise\.pdf/ })).toBeInTheDocument();
     expect(reader.getByText('rad.jpg')).toBeInTheDocument();
-    await user.click(reader.getByRole('button', { name: /^Code/ }));
+    for (const steps of reader.getAllByRole('button', { name: /tool call/ }))
+      await user.click(steps);
+    for (const code of reader.getAllByRole('button', { name: /^Code/ })) await user.click(code);
     expect(reader.getByText('64')).toBeInTheDocument();
     for (const link of reader.queryAllByRole('link'))
       expect(link.getAttribute('href')).toMatch(/^https?:/);
+  });
+});
+
+describe('chat view: folded steps, answer cards, published artifacts', () => {
+  const tool = (input: string, output: string) => ({
+    type: 'tool' as const,
+    name: 'Artifact',
+    input,
+    output,
+  });
+  const WORK: ChatHistoryConversation = {
+    ...item('work-1', 'claude', 'Werkstatt-Seite bauen'),
+    messages: [
+      {
+        role: 'user',
+        text: 'Bau die Werkstatt-Seite',
+        parts: [{ type: 'text', text: 'Bau die Werkstatt-Seite' }],
+      },
+      {
+        role: 'assistant',
+        text: '',
+        parts: [
+          { type: 'thinking', text: 'Plan' },
+          { type: 'tool', name: 'Bash', input: 'ls', output: 'a' },
+          tool(
+            '{"action":"publish","title":"Werkstatt"}',
+            'Created a new Artifact at https://claude.ai/artifact/AbC123 (version 1-x) from the Artifact type'
+          ),
+        ],
+      },
+      {
+        role: 'assistant',
+        text: '',
+        parts: [
+          tool(
+            'https://claude.ai/artifact/AbC123',
+            'Updated the Artifact at https://claude.ai/artifact/AbC123 (Version 2, version id 2-x) with /tmp/seite.html'
+          ),
+          tool('https://claude.ai/artifact/AbC123', 'Asset uploaded: "preise.json"'),
+          { type: 'text', text: 'Fertig.' },
+        ],
+      },
+    ],
+  };
+
+  it('steps of one answer fold into one line; its artifact shows once, last version, opens beside', async () => {
+    vi.mocked(fetchChatHistory).mockResolvedValue({
+      total: 1,
+      counts: { claude: 1, chatgpt: 0, orkumo: 0 },
+      projects: [],
+      folders: [],
+      topics: [],
+      items: [{ ...WORK, snippet: '' }],
+      tookMs: 1,
+    });
+    vi.mocked(fetchChatConversation).mockResolvedValue(WORK);
+    const user = userEvent.setup();
+    show();
+    const list = await screen.findByLabelText('Chat list');
+    await user.click(await within(list).findByRole('button', { name: /Werkstatt-Seite bauen/ }));
+    const pane = await screen.findByTestId('reader-work-1');
+    const reader = within(pane);
+    await reader.findByText('Fertig.');
+    // both tool rounds are one answer card with one folded steps line
+    expect(pane.querySelectorAll('[data-answer]')).toHaveLength(1);
+    const steps = reader.getByRole('button', { name: 'Thinking · 4 tool calls' });
+    expect(steps).toHaveAttribute('aria-expanded', 'false');
+    expect(reader.queryByRole('button', { name: /Bash/ })).toBeNull();
+    // the published page as one card, its newest version
+    const card = reader.getByRole('link', { name: /Werkstatt/ });
+    expect(card).toHaveAttribute('href', 'https://claude.ai/artifact/AbC123');
+    expect(card).toHaveTextContent('version 2');
+    await user.click(steps);
+    expect(reader.getByRole('button', { name: /Bash/ })).toBeInTheDocument();
   });
 });
 
