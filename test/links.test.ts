@@ -221,7 +221,7 @@ describe('click gestures', () => {
       document.body.appendChild(pane);
       return a;
     };
-    const fire = (a: HTMLAnchorElement, init: MouseEventInit = {}) => {
+    const fire = (a: HTMLAnchorElement, init: { shiftKey?: boolean } = {}) => {
       const event = new MouseEvent('click', { cancelable: true, ...init });
       Object.defineProperty(event, 'target', { value: a });
       interceptAnchorClick(event);
