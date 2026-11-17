@@ -430,6 +430,8 @@ export interface AgentViewSettings {
   mainAgent: { name: string; keepAlive: boolean };
   /** Orchestrator sessions (row id, transcript uuid or pane id): own rail group and badge */
   orchestrators: string[];
+  /** Orchestrator session key -> role id (`<workspace>/roles/<id>.md`) */
+  orchestratorRoles: Record<string, string>;
   dispatch: AgentDispatchDefaults;
   version: number;
 }
@@ -553,6 +555,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   agentOpenView: 'chat',
   mainAgent: { name: 'main-orchestrator', keepAlive: true },
   orchestrators: [],
+  orchestratorRoles: {},
   dispatch: DEFAULT_AGENT_DISPATCH_DEFAULTS,
   version: 1,
 };

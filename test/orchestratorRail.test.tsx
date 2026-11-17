@@ -11,6 +11,8 @@ import {
   isOrchestrator,
   orchestratorKey,
   withoutOrchestrator,
+  orchestratorRole,
+  withoutOrchestratorRole,
   ORCHESTRATORS_GROUP_KEY,
   type NavItem,
 } from '../utils/agentSessions';
@@ -97,7 +99,7 @@ describe('withOrchestratorSessions', () => {
   });
 });
 
-function renderRail(items: NavItem[]) {
+function renderRail(items: NavItem[], roles?: Record<string, string>) {
   return render(
     <AgentList
       items={items}
@@ -115,6 +117,7 @@ function renderRail(items: NavItem[]) {
       groupActions={() => [{ id: 'toggle', label: 'Collapse', onSelect: () => {} }]}
       collapsedKeys={new Set()}
       orchestratorIds={marked}
+      orchestratorRoles={roles}
       onMoveGroup={() => {}}
     />
   );
@@ -147,5 +150,22 @@ describe('AgentList', () => {
       .find((el) => el.getAttribute('data-session-id') === 'job-w')!;
     expect(within(workerCard).queryByTestId('orchestrator-badge')).toBeNull();
     expect(badges[0].textContent).toBe('Orchestrator');
+  });
+
+  it('the badge names the role of an orchestrator that has one', () => {
+    renderRail(items, { 'job-o': 'board-orchestrator' });
+    const card = screen
+      .getAllByRole('option')
+      .find((el) => el.getAttribute('data-session-id') === 'job-o')!;
+    expect(within(card).getByTestId('orchestrator-badge').textContent).toBe('board-orchestrator');
+  });
+});
+
+describe('orchestrator roles', () => {
+  it('finds a role by any id of the session and drops it with every alias', () => {
+    const roles = { 'orch-1': 'board-orchestrator', other: 'review' };
+    expect(orchestratorRole(tty, roles)).toBe('board-orchestrator');
+    expect(orchestratorRole(worker, roles)).toBeNull();
+    expect(withoutOrchestratorRole(roles, tty)).toEqual({ other: 'review' });
   });
 });
