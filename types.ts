@@ -412,6 +412,8 @@ export interface AgentViewSettings {
   grouping: AgentGrouping;
   layout: AgentLayout;
   scopeCwd: string | null;
+  /** Start directory of new tasks (`~` = home); null: the selected rail item or the last pick */
+  taskCwd: string | null;
   collapsedGroups: string[];
   notifications: boolean;
   desktopNotifications: boolean;
@@ -539,6 +541,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS: AgentViewSettings = {
   grouping: 'project',
   layout: 'tabs',
   scopeCwd: null,
+  taskCwd: null,
   collapsedGroups: [],
   notifications: true,
   desktopNotifications: false,
