@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { effortColumns, matrixRows, pickLabel } from '../utils/modelMatrix';
+import { effortColumns, matrixRows, pickLabel, switchCommands } from '../utils/modelMatrix';
 
 const models = [
   {
@@ -32,5 +32,16 @@ describe('model × effort matrix', () => {
     expect(pickLabel('opus', 'high')).toBe('opus · high');
     expect(pickLabel('', '', 'sonnet')).toBe('default (sonnet)');
     expect(pickLabel('', 'low')).toBe('default · low');
+  });
+});
+
+describe('switching a running session', () => {
+  it('types one command per change, in each CLI’s own words', () => {
+    expect(switchCommands('claude', 'opus', 'high')).toEqual(['/model opus', '/effort high']);
+    expect(switchCommands('omp', 'anthropic/claude-fable-5', '')).toEqual([
+      '/switch anthropic/claude-fable-5',
+    ]);
+    expect(switchCommands('omp', '', 'xhigh')).toEqual(['/effort xhigh']);
+    expect(switchCommands('claude', '', '')).toEqual([]);
   });
 });

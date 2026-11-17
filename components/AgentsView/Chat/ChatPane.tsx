@@ -43,6 +43,8 @@ import {
 import { ChatComposer } from './ChatComposer';
 import { ChatActivity } from './ChatActivity';
 import { ChatStatusLine } from './ChatStatusLine';
+import { ModelEffortPicker } from '../ModelEffortPicker';
+import { switchCommands } from '../../../utils/modelMatrix';
 import { splitImages } from '../../../utils/chatComposer';
 import { extractNumberedChoices } from '../../../utils/agentInput';
 import { harnessLabel, sessionHarness } from '../../../utils/agentSessions';
@@ -292,6 +294,16 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   const prompt = usePanePrompt(pane.id, prompting);
   const choices = prompt ? extractNumberedChoices(prompt) : [];
   const notConnected = 'The terminal is not connected: switch to the terminal view and reattach';
+
+  // Model × effort of the running session: typed as its own commands, one after the other (a
+  // second paste before the first Enter would land in the same line)
+  const switchModel = (model: string, effort: string) => {
+    if (harness !== 'claude' && harness !== 'omp') return;
+    const [first, ...rest] = switchCommands(harness, model, effort);
+    if (!first) return;
+    if (!typeIntoPane(pane.id, first)) return setError(notConnected);
+    rest.forEach((cmd, i) => window.setTimeout(() => typeIntoPane(pane.id, cmd), 600 * (i + 1)));
+  };
 
   const answerPrompt = (answer: string) => {
     setError(pressKeys(pane.id, answer) ? null : notConnected);
@@ -624,7 +636,29 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         {chatId && (
           <div className="flex items-end gap-3">
             <div className="flex-1 min-w-0">
-              <ChatStatusLine chatId={chatId} turns={turns} visible={active} />
+              <ChatStatusLine
+                chatId={chatId}
+                turns={turns}
+                visible={active}
+                picker={
+                  (harness === 'claude' || harness === 'omp') && (
+                    <ModelEffortPicker
+                      harness={harness}
+                      model=""
+                      effort=""
+                      keepLabel="current"
+                      placement="up"
+                      disabled={busy || !connected}
+                      onPick={switchModel}
+                      title={
+                        busy
+                          ? 'Switch model and effort once the agent is idle'
+                          : `Switch model and effort of this session (${harness === 'omp' ? '/switch, /effort' : '/model, /effort'})`
+                      }
+                    />
+                  )
+                }
+              />
             </div>
             <div className="mt-2">
               <ChatArtifactsButton count={artifacts.length} onOpen={() => setArtifactsOpen(true)} />

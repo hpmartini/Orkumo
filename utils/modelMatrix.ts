@@ -38,6 +38,17 @@ export function matrixRows(
   return rows.filter((m) => `${m.id} ${m.label} ${m.group}`.toLowerCase().includes(q));
 }
 
+/**
+ * What the UI view types into a running session to switch model and effort; '' keeps the
+ * current one. Claude Code: `/model`, `/effort`; omp: `/switch` (this session only), `/effort`
+ */
+export function switchCommands(harness: 'claude' | 'omp', model: string, effort: string): string[] {
+  const cmds: string[] = [];
+  if (model) cmds.push(harness === 'omp' ? `/switch ${model}` : `/model ${model}`);
+  if (effort) cmds.push(`/effort ${effort}`);
+  return cmds;
+}
+
 /** Button text: `opus · high`, `default` for what the CLI picks itself */
 export const pickLabel = (model: string, effort: string, defaultModel?: string | null) =>
   `${model || (defaultModel ? `default (${defaultModel})` : 'default')}${effort ? ` · ${effort}` : ''}`;

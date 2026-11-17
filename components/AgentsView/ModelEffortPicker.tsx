@@ -16,6 +16,8 @@ interface ModelEffortPickerProps {
   /** Where the matrix opens: below the button (dialog) or above it (status line) */
   placement?: 'down' | 'up';
   title?: string;
+  /** Name of the '' row and column: "default" at a start, "current" in a running session */
+  keepLabel?: string;
 }
 
 /**
@@ -32,6 +34,7 @@ export const ModelEffortPicker: React.FC<ModelEffortPickerProps> = ({
   disabled,
   placement = 'down',
   title,
+  keepLabel = 'default',
 }) => {
   const [open, setOpen] = useState(false);
   return (
@@ -47,7 +50,11 @@ export const ModelEffortPicker: React.FC<ModelEffortPickerProps> = ({
         className="flex items-center gap-1.5 max-w-[16rem] bg-gray-900 border border-gray-600 rounded-md px-1.5 py-1 text-xs text-gray-50 font-mono hover:border-gray-400 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-50"
       >
         <Gauge size={12} aria-hidden className="shrink-0 text-gray-400" />
-        <span className="truncate">{pickLabel(model, effort, defaultModel)}</span>
+        <span className="truncate">
+          {model || effort || keepLabel === 'default'
+            ? pickLabel(model, effort, defaultModel)
+            : 'Model · effort'}
+        </span>
         <ChevronDown size={12} aria-hidden className="shrink-0 text-gray-400" />
       </button>
       {open && (
@@ -56,6 +63,7 @@ export const ModelEffortPicker: React.FC<ModelEffortPickerProps> = ({
           model={model}
           effort={effort}
           placement={placement}
+          keepLabel={keepLabel}
           onClose={() => setOpen(false)}
           onPick={(m, e) => {
             onPick(m, e);
@@ -72,9 +80,10 @@ const Matrix: React.FC<{
   model: string;
   effort: string;
   placement: 'down' | 'up';
+  keepLabel: string;
   onClose: () => void;
   onPick: (model: string, effort: string) => void;
-}> = ({ harness, model, effort, placement, onClose, onPick }) => {
+}> = ({ harness, model, effort, placement, keepLabel, onClose, onPick }) => {
   const ref = usePopover(onClose, true);
   const [models, setModels] = useState<HarnessModel[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -106,8 +115,8 @@ const Matrix: React.FC<{
             type="button"
             onClick={() => onPick(id, level)}
             aria-pressed={selected}
-            aria-label={`${label} · ${level || 'default effort'}`}
-            title={`${label} · ${level || 'default effort'}`}
+            aria-label={`${label} · ${level || `${keepLabel} effort`}`}
+            title={`${label} · ${level || `${keepLabel} effort`}`}
             className={`h-6 w-full min-w-[2.5rem] rounded text-[11px] focus-visible:outline-2 focus-visible:outline-blue-400 ${
               selected
                 ? 'bg-blue-600 text-white'
@@ -154,7 +163,7 @@ const Matrix: React.FC<{
             <thead className="sticky top-0 bg-gray-900">
               <tr>
                 <th className="px-2 py-1 text-left font-normal text-gray-500">Model</th>
-                <th className="px-1 py-1 font-normal text-gray-500">default</th>
+                <th className="px-1 py-1 font-normal text-gray-500">{keepLabel}</th>
                 {columns.map((c) => (
                   <th key={c} className="px-1 py-1 font-normal text-gray-300">
                     {c}
@@ -165,9 +174,10 @@ const Matrix: React.FC<{
             <tbody>
               {!typed && (
                 <tr className="border-t border-gray-800">
-                  <td className="px-2 py-1 text-gray-300 italic">default</td>
-                  {cell('', '', true, 'Default model')}
-                  {columns.map((c) => cell('', c, true, 'Default model'))}
+                  <td className="px-2 py-1 text-gray-300 italic">{keepLabel}</td>
+                  {keepLabel === 'default' && cell('', '', true, 'Default model')}
+                  {keepLabel !== 'default' && <td />}
+                  {columns.map((c) => cell('', c, true, `${keepLabel} model`))}
                 </tr>
               )}
               {rows.map((m, i) => (
