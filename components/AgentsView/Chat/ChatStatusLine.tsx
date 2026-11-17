@@ -13,11 +13,13 @@ const POLL_MS = 15_000;
  * TUI-like status line: branch with untracked (?) / changed (±) counts, prompt cache and
  * context, 5h / 7d plan limits. Refreshes while visible and after each finished turn.
  */
-export const ChatStatusLine: React.FC<{ chatId: string; turns: number; visible: boolean }> = ({
-  chatId,
-  turns,
-  visible,
-}) => {
+export const ChatStatusLine: React.FC<{
+  chatId: string;
+  turns: number;
+  visible: boolean;
+  /** Model × effort picker of the session, shown under the branch */
+  picker?: React.ReactNode;
+}> = ({ chatId, turns, visible, picker }) => {
   const [status, setStatus] = useState<ChatStatus | null>(null);
 
   useEffect(() => {
@@ -43,22 +45,23 @@ export const ChatStatusLine: React.FC<{ chatId: string; turns: number; visible: 
 
   return (
     <div className="mt-2 grid grid-cols-2 sm:grid-cols-[auto_minmax(9rem,1fr)_minmax(6rem,0.6fr)_minmax(9rem,1fr)] items-end gap-x-4 gap-y-2 text-xs text-gray-300">
-      {git?.branch ? (
-        <span
-          className="flex items-center gap-1.5 font-mono self-center"
-          title={`${git.untracked} untracked, ${git.changed} uncommitted changes${git.ahead || git.behind ? `, ${git.ahead} ahead, ${git.behind} behind` : ''}`}
-        >
-          <GitBranch size={13} aria-hidden className="text-gray-400" />
-          <span className="text-gray-100 font-medium">{git.branch}</span>
-          {git.untracked > 0 && <span className="text-amber-300">?{git.untracked}</span>}
-          {git.changed > 0 && <span className="text-sky-300">±{git.changed}</span>}
-          {git.ahead > 0 && <span className="text-emerald-300">↑{git.ahead}</span>}
-          {git.behind > 0 && <span className="text-red-300">↓{git.behind}</span>}
-          {!git.untracked && !git.changed && <span className="text-emerald-400">✓</span>}
-        </span>
-      ) : (
-        <span />
-      )}
+      <div className="flex flex-col items-start gap-1.5 self-center min-w-0">
+        {git?.branch && (
+          <span
+            className="flex items-center gap-1.5 font-mono"
+            title={`${git.untracked} untracked, ${git.changed} uncommitted changes${git.ahead || git.behind ? `, ${git.ahead} ahead, ${git.behind} behind` : ''}`}
+          >
+            <GitBranch size={13} aria-hidden className="text-gray-400" />
+            <span className="text-gray-100 font-medium">{git.branch}</span>
+            {git.untracked > 0 && <span className="text-amber-300">?{git.untracked}</span>}
+            {git.changed > 0 && <span className="text-sky-300">±{git.changed}</span>}
+            {git.ahead > 0 && <span className="text-emerald-300">↑{git.ahead}</span>}
+            {git.behind > 0 && <span className="text-red-300">↓{git.behind}</span>}
+            {!git.untracked && !git.changed && <span className="text-emerald-400">✓</span>}
+          </span>
+        )}
+        {picker}
+      </div>
       {context ? (
         <div className="min-w-0">
           <div className="flex items-baseline justify-between gap-2">
