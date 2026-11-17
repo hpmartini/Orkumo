@@ -1695,6 +1695,17 @@ app.get('/api/agents/chat/:chatId/files', validateParams(chatIdSchema), async (r
   }
 });
 
+/** Path completion for `/cd` and other path arguments: directories matching ?q= */
+app.get('/api/agents/chat/:chatId/dirs', validateParams(chatIdSchema), async (req, res) => {
+  try {
+    const { cwd } = chatService.chatSummary(req.params.chatId);
+    const q = typeof req.query.q === 'string' ? req.query.q.slice(0, 500) : '';
+    res.json({ dirs: await chatStatus.chatDirs(cwd, q) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
 /** Output tail of a background shell the chat's own CLI reported */
 app.get(
   '/api/agents/chat/:chatId/shells/:shellId',
