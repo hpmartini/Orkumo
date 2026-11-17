@@ -128,10 +128,21 @@ describe('prompt sent from the UI view to a harness without a queue log', () => 
     expect(users(s)).toEqual(['eins\n[Image: /tmp/a.png]', 'zwei']);
   });
   it('drops leftovers (withdrawn in the TUI) on clear', () => {
-    const s = reduceChat(
-      reduceChat(initialChatState, { type: 'devorbit_sent', text: 'weg' }),
-      { type: 'devorbit_sent_clear' }
-    );
+    const s = reduceChat(reduceChat(initialChatState, { type: 'devorbit_sent', text: 'weg' }), {
+      type: 'devorbit_sent_clear',
+    });
     expect(pendingPrompts(s)).toEqual([]);
+  });
+});
+
+describe('background task end (<task-notification>)', () => {
+  const note = (id: string, status: string) =>
+    user(
+      `<task-notification>\n<task-id>${id}</task-id>\n<tool-use-id>toolu_1</tool-use-id>\n<status>${status}</status>\n<summary>Background command "x" ${status}</summary>\n</task-notification>`
+    );
+  it('records ended tasks, not as a user turn; a running one stays', () => {
+    const s = run([[note('b1', 'completed'), note('b2', 'killed'), note('b3', 'running')]]);
+    expect(s.endedTasks).toEqual(['b1', 'b2']);
+    expect(users(s)).toEqual([]);
   });
 });

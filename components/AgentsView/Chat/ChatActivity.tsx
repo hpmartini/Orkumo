@@ -93,12 +93,20 @@ interface ChatActivityProps {
   messages: ChatMessage[];
   sub: Record<string, ChatBlock[]>;
   busy: boolean;
+  /** Ids of background tasks that reported their end (ChatState.endedTasks) */
+  endedTasks?: string[];
 }
 
 /** Above the input: plan with checkmarks, shells and sub-agents to look into, the running turn */
-export const ChatActivity: React.FC<ChatActivityProps> = ({ chatId, messages, sub, busy }) => {
+export const ChatActivity: React.FC<ChatActivityProps> = ({
+  chatId,
+  messages,
+  sub,
+  busy,
+  endedTasks,
+}) => {
   const plan = useMemo(() => chatPlan(messages), [messages]);
-  const shells = useMemo(() => chatShells(messages), [messages]);
+  const shells = useMemo(() => chatShells(messages, endedTasks), [messages, endedTasks]);
   const agents = useMemo(() => chatSubagents(messages), [messages]);
   const steps = useMemo(() => turnSteps(messages), [messages]);
   const [planOpen, setPlanOpen] = useState(true);

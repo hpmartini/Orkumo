@@ -101,6 +101,8 @@ export interface ChatState {
   sent: string[];
   /** The next user prompt starts a context (session start, compaction, `/clear`) */
   boundary: boolean;
+  /** Background tasks (shells) whose `<task-notification>` reported an end */
+  endedTasks: string[];
 }
 
 export const initialChatState: ChatState = {
@@ -114,6 +116,7 @@ export const initialChatState: ChatState = {
   queued: [],
   sent: [],
   boundary: true,
+  endedTasks: [],
 };
 
 /** Queued prompts the user typed (task notifications and other `<…>` wrappers left out) */
@@ -327,6 +330,9 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
 
     case 'devorbit_sent_clear':
       return state.sent.length ? { ...state, sent: [] } : state;
+
+    case 'devorbit_task_ended':
+      return { ...state, endedTasks: [...state.endedTasks, str(event.id)].slice(-500) };
 
     case 'devorbit_user':
       return {
