@@ -529,16 +529,32 @@ app.put('/api/settings/keyboard-shortcuts', (req, res) => {
   }
 });
 
+const LINK_TARGET = z.enum(['builtin', 'side', 'system']);
+
 /**
  * PUT /api/settings/link-target
  * Where clicked links open (#140): built-in browser or system browser
  */
 app.put(
   '/api/settings/link-target',
-  validate(z.object({ linkTarget: z.enum(['builtin', 'system']) }).strict()),
+  validate(
+    z
+      .object({
+        linkTarget: LINK_TARGET.optional(),
+        linkKeys: z
+          .object({ cmd: LINK_TARGET, shift: LINK_TARGET, alt: LINK_TARGET, middle: LINK_TARGET })
+          .strict()
+          .optional(),
+      })
+      .strict()
+  ),
   (req, res) => {
     try {
-      res.json({ linkTarget: settingsService.setLinkTarget(req.body.linkTarget) });
+      const { linkTarget, linkKeys } = req.body;
+      if (linkTarget) settingsService.setLinkTarget(linkTarget);
+      if (linkKeys) settingsService.setLinkKeys(linkKeys);
+      const settings = settingsService.getSettings();
+      res.json({ linkTarget: settings.linkTarget, linkKeys: settings.linkKeys });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }

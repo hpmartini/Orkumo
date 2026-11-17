@@ -14,6 +14,7 @@ import {
   EyeOff,
 } from 'lucide-react';
 import { usePopover } from './PullRequestsPanel';
+import { registerPaneBrowser } from '../../utils/links';
 import type { AgentSession } from '../../types';
 import {
   stateGlyph,
@@ -317,6 +318,18 @@ export const AgentWorkspace: React.FC<AgentWorkspaceProps> = ({
 
   const findTab = (id: string) =>
     stripRef.current?.querySelector<HTMLElement>(`[data-tab-id="${window.CSS.escape(id)}"]`);
+
+  // Links in a UI view (plain anchors) open a split next to their pane, like terminal links
+  const paneIds = useRef<string[]>([]);
+  paneIds.current = workspace.tabs.flatMap((t) => t.panes);
+  useEffect(() => {
+    if (!onOpenLink) return;
+    return registerPaneBrowser((paneId, url) => {
+      if (!paneIds.current.includes(paneId)) return false;
+      onOpenLink(paneId, url);
+      return true;
+    });
+  }, [onOpenLink]);
 
   // Overflowing strip: the wheel scrolls it sideways, a list on the right reaches every tab
   const [hiddenTabs, setHiddenTabs] = useState<string[]>([]);

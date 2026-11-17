@@ -20,7 +20,8 @@ const defaultSettings = {
   favoritesSortMode: 'manual', // 'manual' | 'alpha-asc' | 'alpha-desc'
   apiKeys: {}, // Map of provider -> API key (e.g. { provider: "key" })
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides
-  linkTarget: 'builtin', // Where clicked links open (#140): 'builtin' | 'system'
+  linkTarget: 'builtin', // Where clicked links open (#140): 'builtin' (split) | 'side' | 'system'
+  linkKeys: { cmd: 'system', middle: 'system', shift: 'side', alt: 'builtin' }, // per click gesture
   autoUpdate: true, // Desktop app: check/download updates automatically (read by electron/updater.js)
   agentView: {}, // Claude Code agent view preferences (grouping, layout, dispatch defaults)
   board: {}, // Agent task board: GitHub project source + slice favorites/order/hidden
@@ -519,6 +520,17 @@ class SettingsService {
     settings.linkTarget = target;
     writeSettings(settings);
     return target;
+  }
+
+  /**
+   * Where each click gesture opens a link (Cmd/Ctrl, Shift, Option, middle button)
+   * @param {{cmd: string, shift: string, alt: string, middle: string}} keys - validated by the route
+   */
+  setLinkKeys(keys) {
+    const settings = readSettings();
+    settings.linkKeys = keys;
+    writeSettings(settings);
+    return keys;
   }
 
   /**
