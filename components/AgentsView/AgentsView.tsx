@@ -116,7 +116,12 @@ import { PullRequestsPanel } from './PullRequestsPanel';
 import { PullRequestModal } from './PullRequestModal';
 import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
 import { ServersPanel, type ServerRow } from './ServersPanel';
-import { TaskComposerModal, useCommandPalette, useRegisterCommands } from '../CommandPalette';
+import {
+  TaskComposerModal,
+  isMac,
+  useCommandPalette,
+  useRegisterCommands,
+} from '../CommandPalette';
 import type { PaletteCommand } from '../../utils/commandPalette';
 import { CloudSessionBar } from './CloudSessionBar';
 import { PeekPanel } from './PeekPanel';
@@ -386,6 +391,21 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Rail column handed to `children` while `railOutlet` (RailOutletContext)
   const [outlet, setOutlet] = useState<HTMLDivElement | null>(null);
   const outletShown = railOutlet && !active;
+  // Side panel (agents rail or a route's outlet) hidden from md up, like VS Code's sidebar
+  const [railCollapsed, toggleRail] = useStoredToggle('orkumo.railCollapsed');
+  // Cmd+B on macOS, Ctrl+B elsewhere outside a terminal (Ctrl+B belongs to the shell there)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== 'KeyB' || e.altKey || e.shiftKey) return;
+      if (isMac ? !e.metaKey || e.ctrlKey : !e.ctrlKey || e.metaKey) return;
+      if (!isMac && e.target instanceof HTMLElement && e.target.closest('.xterm')) return;
+      e.preventDefault();
+      e.stopPropagation();
+      toggleRail();
+    };
+    window.addEventListener('keydown', onKey, { capture: true });
+    return () => window.removeEventListener('keydown', onKey, { capture: true });
+  }, [toggleRail]);
   const { zone: focusZone, focusZone: moveFocus } = useAgentFocusZone(active, railRef);
   const servers = useMemo(
     () => new Map(sessions.map((s) => [s.id, mergeServers(s, apps, contexts[s.id])])),
@@ -2428,7 +2448,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         aria-label="Activity bar"
         className={`${active ? 'flex' : 'hidden md:flex'} w-12 shrink-0 flex-col py-1 border-r border-gray-800 bg-gray-950`}
       >
-        <ModeSwitcher modes={nav.modes} />
+        <ModeSwitcher modes={nav.modes} onToggleRail={toggleRail} />
         <button
           onClick={nav.onOpenSettings}
           className="mt-auto flex items-center justify-center h-11 text-gray-500 hover:text-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-cursor"
@@ -2576,7 +2596,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           {outletShown && (
             <div
               ref={setOutlet}
-              className="hidden md:flex md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40"
+              data-collapsed={railCollapsed || undefined}
+              className={`hidden ${railCollapsed ? '' : 'md:flex'} md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40`}
             />
           )}
           {/* Session list + dispatch input; hidden, not unmounted, while a route uses the outlet */}
@@ -2586,7 +2607,8 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             data-focus-zone="rail"
             data-rail-focused={railFocused}
             // On small screens the rail is the agents page; other routes show their main area instead
-            className={`${outletShown ? 'hidden' : active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+            data-collapsed={railCollapsed || undefined}
+            className={`${outletShown ? 'hidden' : active && !narrowWorkspace ? `flex ${railCollapsed ? 'md:hidden' : ''}` : `hidden ${railCollapsed ? '' : 'md:flex'}`} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
           >
             {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
             {railFocused && (
