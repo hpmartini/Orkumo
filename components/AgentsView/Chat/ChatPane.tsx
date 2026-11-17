@@ -9,6 +9,7 @@ import React, {
 } from 'react';
 import {
   ChevronRight,
+  History,
   ListTree,
   Maximize2,
   MessageSquare,
@@ -244,9 +245,20 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   // One card per answer; regrouped per event, cards memoize on their messages
   const items = useMemo(() => groupAnswers(state.messages), [state.messages]);
   const [promptsOnly, togglePromptsOnly] = usePromptsOnly(sessionId);
+  // Latest recap (Claude's away summary) stays pinned above the input instead of in the log
+  const recap = useMemo(() => {
+    for (let i = state.messages.length - 1; i >= 0; i--) {
+      const m = state.messages[i];
+      if (m.kind === 'recap') return m;
+    }
+    return null;
+  }, [state.messages]);
   const shown = useMemo(
-    () => (promptsOnly ? items.filter((item) => item.kind === 'user') : items),
-    [items, promptsOnly]
+    () =>
+      promptsOnly
+        ? items.filter((item) => item.kind === 'user')
+        : items.filter((item) => item !== recap),
+    [items, promptsOnly, recap]
   );
   const pending = useMemo(() => pendingPrompts(state), [state]);
   const starts = useMemo(() => initialPrompts(state.messages), [state.messages]);
@@ -528,6 +540,19 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       </div>
 
       <div className="shrink-0 border-t border-gray-800 p-2">
+        {recap && (
+          <section
+            aria-label="Recap"
+            data-chat-recap
+            className="mb-2 flex gap-2 rounded-md border border-gray-700/70 bg-gray-900/70 px-3 py-2 text-sm text-gray-300"
+          >
+            <History size={14} aria-hidden className="mt-0.5 shrink-0 text-gray-500" />
+            <p className="max-h-24 min-w-0 overflow-y-auto whitespace-pre-wrap">
+              <span className="text-gray-500">Recap: </span>
+              {recap.text}
+            </p>
+          </section>
+        )}
         {prompt !== null && (
           <div
             role="status"
