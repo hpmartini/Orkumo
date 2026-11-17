@@ -11,6 +11,8 @@ import {
   Power,
   X,
   ArrowLeft,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react';
 import type { AgentConfigLike } from './types';
 import type {
@@ -116,7 +118,12 @@ import { PullRequestsPanel } from './PullRequestsPanel';
 import { PullRequestModal } from './PullRequestModal';
 import { PullRequestsDataContext, type PullRequestsPageProps } from './PullRequestsPage';
 import { ServersPanel, type ServerRow } from './ServersPanel';
-import { TaskComposerModal, useCommandPalette, useRegisterCommands } from '../CommandPalette';
+import {
+  isMac,
+  TaskComposerModal,
+  useCommandPalette,
+  useRegisterCommands,
+} from '../CommandPalette';
 import type { PaletteCommand } from '../../utils/commandPalette';
 import { CloudSessionBar } from './CloudSessionBar';
 import { PeekPanel } from './PeekPanel';
@@ -202,6 +209,8 @@ function isEditableTarget(target: EventTarget | null): target is HTMLElement {
   if (!el) return false;
   return el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable;
 }
+
+const RAIL_COLLAPSED_KEY = 'orkumo.railCollapsed';
 
 function isInsideTerminal(target: EventTarget | null): boolean {
   const el = target as HTMLElement | null;
@@ -383,6 +392,26 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     [listedSessions, filter]
   );
   const railRef = useRef<HTMLDivElement>(null);
+  // Cmd/Ctrl+B hides the rail (and a route's rail outlet) on md+, like VS Code's side bar
+  const [railCollapsed, setRailCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(RAIL_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const toggleRail = useCallback(
+    () =>
+      setRailCollapsed((v) => {
+        try {
+          localStorage.setItem(RAIL_COLLAPSED_KEY, v ? '0' : '1');
+        } catch {
+          /* private mode: the toggle still works for this page */
+        }
+        return !v;
+      }),
+    []
+  );
   // Rail column handed to `children` while `railOutlet` (RailOutletContext)
   const [outlet, setOutlet] = useState<HTMLDivElement | null>(null);
   const outletShown = railOutlet && !active;
@@ -1688,6 +1717,22 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
   // Keyboard shortcuts
   // ---------------------------------------------------------------------
 
+  // Cmd+N new task, Cmd+B toggle the rail: in every mode and from the terminal (Cmd never reaches
+  // the PTY on macOS). Elsewhere Ctrl+N / Ctrl+B are readline keys, so a terminal keeps them.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+      if (!mod || e.altKey || e.shiftKey || (e.code !== 'KeyN' && e.code !== 'KeyB')) return;
+      if (!isMac && isInsideTerminal(e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      if (e.code === 'KeyN') openComposer('task');
+      else toggleRail();
+    };
+    document.addEventListener('keydown', handler, { capture: true });
+    return () => document.removeEventListener('keydown', handler, { capture: true });
+  }, [openComposer, toggleRail]);
+
   useEffect(() => {
     if (!active) return;
     const handler = (e: KeyboardEvent) => {
@@ -2451,6 +2496,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           >
             <Bot size={18} />
           </button>
+          <button
+            onClick={toggleRail}
+            className="hidden md:block p-1 -m-1 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
+            title={`${railCollapsed ? 'Show' : 'Hide'} agent list (${isMac ? '⌘B' : 'Ctrl+B'})`}
+            aria-label={railCollapsed ? 'Show agent list' : 'Hide agent list'}
+            aria-pressed={!railCollapsed}
+            aria-keyshortcuts={isMac ? 'Meta+B' : 'Control+B'}
+          >
+            {railCollapsed ? <PanelLeftOpen size={18} /> : <PanelLeftClose size={18} />}
+          </button>
           <NewTaskButton
             onNew={(kind) =>
               kind === 'issue'
@@ -2576,7 +2631,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           {outletShown && (
             <div
               ref={setOutlet}
-              className="hidden md:flex md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40"
+              className={`hidden ${railCollapsed ? '' : 'md:flex'} md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40`}
             />
           )}
           {/* Session list + dispatch input; hidden, not unmounted, while a route uses the outlet */}
@@ -2586,7 +2641,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             data-focus-zone="rail"
             data-rail-focused={railFocused}
             // On small screens the rail is the agents page; other routes show their main area instead
-            className={`${outletShown ? 'hidden' : active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
+            className={`${outletShown ? 'hidden' : active && !narrowWorkspace ? 'flex' : 'hidden md:flex'} ${railCollapsed ? 'md:hidden' : ''} w-full md:w-[340px] xl:w-[440px] shrink-0 flex-col min-h-0 border-r border-gray-800 bg-gray-950/40 outline-none relative`}
           >
             {/* Overlay, not a ring: the cards inside would paint over an inset shadow */}
             {railFocused && (

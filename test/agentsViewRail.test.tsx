@@ -261,3 +261,32 @@ describe.each(MODES)('AgentsView rail in grouping "$grouping" (#50)', ({ groupin
     expect(header(group).getAttribute('aria-selected')).toBe('true');
   });
 });
+
+describe('AgentsView rail toggle and new task shortcuts', () => {
+  const renderView = () =>
+    render(
+      <MemoryRouter>
+        <AgentsView active apps={APPS} onExit={() => {}} nav={nav} onOpenView={() => {}} />
+      </MemoryRouter>
+    );
+  const rail = () => document.querySelector<HTMLElement>('[data-focus-zone="rail"]')!;
+
+  it('Ctrl+B (Cmd+B on macOS) hides and shows the rail and remembers it', () => {
+    localStorage.removeItem('orkumo.railCollapsed');
+    renderView();
+    expect(rail().className).not.toContain('md:hidden');
+    fireEvent.keyDown(document.body, { key: 'b', code: 'KeyB', ctrlKey: true });
+    expect(rail().className).toContain('md:hidden');
+    expect(localStorage.getItem('orkumo.railCollapsed')).toBe('1');
+    expect(screen.getByRole('button', { name: 'Show agent list' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Show agent list' }));
+    expect(rail().className).not.toContain('md:hidden');
+  });
+
+  it('Ctrl+N (Cmd+N on macOS) opens the task composer', () => {
+    renderView();
+    expect(screen.queryByRole('dialog')).toBeNull();
+    fireEvent.keyDown(document.body, { key: 'n', code: 'KeyN', ctrlKey: true });
+    expect(screen.getByRole('dialog')).toBeTruthy();
+  });
+});
