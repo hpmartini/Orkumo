@@ -238,6 +238,41 @@ const MENU_ICONS: Record<string, LucideIcon> = {
   'new-agent': MessageSquarePlus,
 };
 
+/** Context-menu sections in display order: view, open, organize, create, run, delete */
+const MENU_SECTIONS: string[][] = [
+  ['toggle', 'move-up', 'move-down'],
+  [
+    'open-project',
+    'attach',
+    'claude-app',
+    'peek',
+    'code',
+    'view-code',
+    'terminal',
+    'open-terminal',
+    'board',
+    'view-board',
+    'mode:',
+  ],
+  ['favorite', 'pin', 'rename', 'orchestrator', 'fixed-project', 'project-settings', 'copy-id'],
+  ['new-issue', 'dispatch-here', 'new-agent'],
+  ['stop', 'respawn'],
+  ['delete', 'delete-all'],
+];
+const sectionOf = (id: string) => {
+  const at = MENU_SECTIONS.findIndex((ids) =>
+    ids.some((known) => (known.endsWith(':') ? id.startsWith(known) : id === known))
+  );
+  return at < 0 ? MENU_SECTIONS.length : at;
+};
+
+/** Menu actions split into their sections (in order, empty ones left out); unknown ids come last */
+export function menuSections(actions: AgentRowAction[]): AgentRowAction[][] {
+  const out: AgentRowAction[][] = [];
+  for (const action of actions) (out[sectionOf(action.id)] ??= []).push(action);
+  return out.filter(Boolean);
+}
+
 /** Hover button for one menu action (same entry as in the context menu); takes no room until hovered, keyboard uses the menu */
 const ActionButton: React.FC<{
   action?: AgentRowAction;
@@ -1230,36 +1265,41 @@ export const AgentList: React.FC<AgentListProps> = ({
           style={{ left: menu.x, top: menu.y }}
           onMouseDown={(e) => e.stopPropagation()}
         >
-          {menuActions.map((action) => {
-            const Icon = action.icon ?? MENU_ICONS[action.id];
-            return (
-              <button
-                key={action.id}
-                disabled={action.disabled}
-                onClick={() => {
-                  setMenu(null);
-                  action.onSelect();
-                }}
-                role="menuitem"
-                title={action.label}
-                className={`group/item flex w-full items-center gap-2.5 text-left px-3 py-1.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed ${
-                  action.danger ? 'text-red-300' : 'text-gray-200'
-                }`}
-              >
-                {Icon ? (
-                  <Icon
-                    size={14}
-                    strokeWidth={1.75}
-                    aria-hidden
-                    className={`shrink-0 ${action.danger ? '' : 'text-gray-400 group-hover/item:text-gray-200'}`}
-                  />
-                ) : (
-                  <span aria-hidden className="w-3.5 shrink-0" />
-                )}
-                <span className="truncate">{action.label}</span>
-              </button>
-            );
-          })}
+          {menuSections(menuActions).map((section, i) => [
+            i > 0 && (
+              <div key={`sep-${i}`} role="separator" className="my-1 border-t border-gray-700/70" />
+            ),
+            ...section.map((action) => {
+              const Icon = action.icon ?? MENU_ICONS[action.id];
+              return (
+                <button
+                  key={action.id}
+                  disabled={action.disabled}
+                  onClick={() => {
+                    setMenu(null);
+                    action.onSelect();
+                  }}
+                  role="menuitem"
+                  title={action.label}
+                  className={`group/item flex w-full items-center gap-2.5 text-left px-3 py-1.5 hover:bg-gray-700 disabled:opacity-40 disabled:cursor-not-allowed ${
+                    action.danger ? 'text-red-300' : 'text-gray-200'
+                  }`}
+                >
+                  {Icon ? (
+                    <Icon
+                      size={14}
+                      strokeWidth={1.75}
+                      aria-hidden
+                      className={`shrink-0 ${action.danger ? '' : 'text-gray-400 group-hover/item:text-gray-200'}`}
+                    />
+                  ) : (
+                    <span aria-hidden className="w-3.5 shrink-0" />
+                  )}
+                  <span className="truncate">{action.label}</span>
+                </button>
+              );
+            }),
+          ])}
         </div>
       )}
     </div>
