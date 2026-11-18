@@ -104,6 +104,13 @@ interface PaneTerminal {
   rerender: (() => void) | null;
   /** pending release of an unmounted pane */
   release?: number;
+  /** Opens a new PTY connection (the mounted pane's Reattach); null while unmounted */
+  reconnect?: (() => void) | null;
+  /** The user detached on purpose (Detach, Ctrl+Z): no automatic reattach */
+  userDetached?: boolean;
+  /** Automatic reattach attempts since the last successful connection */
+  retries?: number;
+  retryTimer?: number;
   // latest props, read by the handlers bound once at creation
   onClose: () => void;
   onOpenLink?: (url: string) => void;
@@ -141,6 +148,49 @@ export function typeIntoPane(id: string, text: string): boolean {
   // A TUI that just received a paste treats an Enter in the same chunk as part of it
   window.setTimeout(() => sendTo(pane, { type: 'input', data: '\r' }), 80);
   return true;
+}
+
+/** Reattaches pane `id` (UI view's button); false when no mounted pane can */
+export function reattachPane(id: string): boolean {
+  const pane = paneTerminals.get(id);
+  if (!pane?.reconnect) return false;
+  pane.userDetached = false;
+  pane.retries = 0;
+  window.clearTimeout(pane.retryTimer);
+  pane.retryTimer = undefined;
+  pane.reconnect();
+  return true;
+}
+
+const RETRY_MS = [1000, 2000, 5000, 10_000, 30_000];
+/**
+ * An agent pane whose connection dropped without the user detaching (server restart, app update,
+ * sleep, network) reattaches by itself: the PTY lives on in its holder (ptyHolder.js), so a new
+ * socket picks it up. Gives up after RETRY_MS; the window coming back or going online retries.
+ */
+function scheduleReattach(pane: PaneTerminal) {
+  if (pane.userDetached || !pane.reconnect || pane.retryTimer !== undefined) return;
+  const attempt = pane.retries ?? 0;
+  if (attempt >= RETRY_MS.length) return;
+  pane.retryTimer = window.setTimeout(() => {
+    pane.retryTimer = undefined;
+    if (pane.connected || pane.userDetached) return;
+    pane.retries = attempt + 1;
+    pane.reconnect?.();
+  }, RETRY_MS[attempt]);
+}
+
+if (typeof window !== 'undefined') {
+  const retryAll = () => {
+    if (document.visibilityState !== 'visible') return;
+    for (const pane of paneTerminals.values()) {
+      if (pane.connected || pane.userDetached || !pane.reconnect) continue;
+      pane.retries = 0;
+      scheduleReattach(pane);
+    }
+  };
+  window.addEventListener('online', retryAll);
+  document.addEventListener('visibilitychange', retryAll);
 }
 
 /** Sends raw keys to pane `id`'s PTY (Esc, a choice number); false when not connected */
@@ -217,7 +267,10 @@ function createPaneTerminal(
   } catch {
     // container not laid out yet
   }
-  const input = (data: string) => sendTo(pane, { type: 'input', data });
+  const input = (data: string) => {
+    if (data === '\x1a') pane.userDetached = true; // Ctrl+Z: `claude attach` detaches
+    sendTo(pane, { type: 'input', data });
+  };
   terminal.onData(input);
   terminal.onResize(({ cols, rows }) => sendTo(pane, { type: 'resize', cols, rows }));
   attachTerminalKeys(
@@ -311,6 +364,9 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     const held = current;
     return () => {
       held.rerender = null;
+      held.reconnect = null;
+      window.clearTimeout(held.retryTimer);
+      held.retryTimer = undefined;
       held.release = window.setTimeout(() => {
         held.ws?.close();
         held.terminal.dispose();
@@ -381,6 +437,8 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     if (generation > 0) terminal.reset();
 
     ws.onopen = () => {
+      current.retries = 0;
+      current.userDetached = false;
       update({ connected: true });
       syncSize();
     };
@@ -412,6 +470,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
               `\r\n\x1b[2m# ${shell ? 'shell exited' : 'detached'} (exit code ${data.exitCode})\x1b[0m\r\n`
             );
             update({ connected: false, exited: true });
+            if (!shell) scheduleReattach(current);
             break;
           case 'error':
             terminal.write(`\x1b[31m${data.message}\x1b[0m\r\n`);
@@ -425,7 +484,10 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
     ws.onclose = () => {
       // a superseded socket (Reattach) must not flag the live one as detached
       if (current.ws !== ws) return;
+      const wasUp = current.connected;
       update({ connected: false, exited: true });
+      // 'exit' already scheduled one; a dropped socket (server restart, sleep) did not
+      if (!shell && wasUp) scheduleReattach(current);
     };
     ws.onerror = () => terminal.write('\x1b[31mWebSocket connection error\x1b[0m\r\n');
     // no cleanup: the socket belongs to the pane terminal, released with it
@@ -466,6 +528,7 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
 
   const glyph = stateGlyph(session.displayState);
   const reconnect = () => setGeneration((g) => g + 1);
+  if (pane) pane.reconnect = reconnect;
   const moveToTab = onMaximize
     ? [
         {
@@ -508,13 +571,17 @@ export const AgentTerminal: React.FC<AgentTerminalProps> = ({
           label: 'Detach',
           title: 'Detach (Ctrl+Z) - the session keeps running',
           icon: <LogOut size={12} />,
-          run: () => sendInput('\x1a'),
+          run: () => {
+            const current = paneTerminals.get(session.id);
+            if (current) current.userDetached = true;
+            sendInput('\x1a');
+          },
         }
       : {
           label: 'Reattach',
           title: 'Reattach',
           icon: <RefreshCw size={12} />,
-          run: reconnect,
+          run: () => reattachPane(session.id),
           showLabel: true,
         },
     // Ghostty attaches locally only: a pane of another instance (#220) has no local session to open

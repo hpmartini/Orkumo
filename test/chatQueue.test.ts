@@ -146,3 +146,22 @@ describe('background task end (<task-notification>)', () => {
     expect(users(s)).toEqual([]);
   });
 });
+
+describe('model and effort in use', () => {
+  it('follows the latest main-thread answer; synthetic error messages keep the model', () => {
+    const a = (id: string, model: string, effort?: string) =>
+      line({
+        type: 'assistant',
+        ...(effort ? { effort } : {}),
+        message: { id, model, content: [{ type: 'text', text: 'x' }] },
+      });
+    const s = run([
+      [
+        a('m1', 'claude-opus-5-5', 'medium'),
+        a('m2', 'claude-fable-5-2', 'high'),
+        a('m3', '<synthetic>'),
+      ],
+    ]);
+    expect([s.model, s.effort]).toEqual(['claude-fable-5-2', 'high']);
+  });
+});

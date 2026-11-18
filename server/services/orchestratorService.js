@@ -139,7 +139,8 @@ export function ensureOrchestratorWorkspace({
       changed.push(`orchestrator-bin/${name}`);
   };
 
-  fs.mkdirSync(dir, { recursive: true });
+  // roles/ holds Hape's role files: created, never written
+  fs.mkdirSync(rolesDir(dir), { recursive: true });
   // Before 2026-11 the CLI lived in <workspace>/bin, writable by the orchestrator
   fs.rmSync(path.join(dir, 'bin'), { recursive: true, force: true });
   write('AGENTS.md', fill(template('agents.md')));
@@ -186,6 +187,51 @@ export function orchestratorBriefing(dir = orchestratorDir()) {
     `Start with "${cli}" agents and give Hape a short status in German.`
   );
 }
+
+/** Role files of specialised orchestrators (`<workspace>/roles/<id>.md`), written by Hape */
+export const rolesDir = (dir = orchestratorDir()) => path.join(dir, 'roles');
+/** A role id is a plain file name: no path separators, no leading dot */
+const ROLE_ID_RE = /^[a-z0-9][\w.-]{0,63}$/i;
+
+/** Roles in `roles/`, by file name, titled by their first `#` heading */
+export function listRoles(dir = orchestratorDir()) {
+  let files;
+  try {
+    files = fs.readdirSync(rolesDir(dir));
+  } catch {
+    return [];
+  }
+  return files
+    .filter((f) => f.endsWith('.md') && ROLE_ID_RE.test(f.slice(0, -3)))
+    .sort()
+    .map((f) => {
+      const id = f.slice(0, -3);
+      const text = fs.readFileSync(path.join(rolesDir(dir), f), 'utf8');
+      return { id, title: /^#\s+(.+)$/m.exec(text)?.[1].trim() || id };
+    });
+}
+
+/** `id` when it names an existing role file, else a 400 */
+export function assertRole(id, dir = orchestratorDir()) {
+  if (typeof id !== 'string' || !ROLE_ID_RE.test(id) || !listRoles(dir).some((r) => r.id === id)) {
+    throw httpError(400, 'Unknown orchestrator role');
+  }
+  return id;
+}
+
+/** First message of a new orchestrator with a role (it starts in the workspace) */
+export const roleStartPrompt = (role) =>
+  `Read AGENTS.md and roles/${role}.md in this workspace; the role applies in addition to AGENTS.md. ` +
+  'Start as described there under "Start".';
+
+/** Typed into / replied to a running orchestrator that is given a role */
+export const roleBriefing = (role, dir = orchestratorDir()) =>
+  `From now on you take the orchestrator role in ${path.join(rolesDir(dir), `${role}.md`)}; ` +
+  'it applies in addition to AGENTS.md. Read it and start as described there under "Start".';
+
+/** Role of a session in `agentView.orchestratorRoles` (by row id, transcript uuid or pane id) */
+export const sessionRole = (session, roles = {}) =>
+  [session.id, session.sessionId, session.paneId].map((k) => k && roles[k]).find(Boolean) ?? null;
 
 /** First message of a new orchestrator started in the workspace (AGENTS.md is loaded already) */
 export const ORCHESTRATOR_START_PROMPT =
@@ -246,7 +292,11 @@ export function lastAssistantText(entries) {
 }
 
 /** One agent of the overview: what an orchestrator needs to judge it, nothing more */
-export function overviewAgent(session, ctx, { orchestrators = [], lastText = null } = {}) {
+export function overviewAgent(
+  session,
+  ctx,
+  { orchestrators = [], orchestratorRoles = {}, lastText = null } = {}
+) {
   const at = activityMs(session);
   return {
     id: session.id,
@@ -266,6 +316,7 @@ export function overviewAgent(session, ctx, { orchestrators = [], lastText = nul
     paneId: session.paneId ?? null,
     pid: session.pid ?? null,
     orchestrator: isOrchestratorSession(session, orchestrators),
+    role: sessionRole(session, orchestratorRoles),
   };
 }
 
@@ -279,6 +330,7 @@ export async function buildOverview({
   sessions,
   contexts = {},
   orchestrators = [],
+  orchestratorRoles = {},
   all = false,
   withText = true,
   readTranscript,
@@ -300,7 +352,11 @@ export async function buildOverview({
     generatedAt: new Date(now).toISOString(),
     workspace,
     agents: listed.map((session, i) =>
-      overviewAgent(session, contexts[session.id], { orchestrators, lastText: texts[i] })
+      overviewAgent(session, contexts[session.id], {
+        orchestrators,
+        orchestratorRoles,
+        lastText: texts[i],
+      })
     ),
   };
 }
@@ -356,7 +412,7 @@ export function projectList(apps, sessions, now = Date.now()) {
  * Starts an agent as a held Orkumo pane (listed in the rail, opened like any pane): a worker in a
  * project (`orkumo start --harness omp`), or a new orchestrator in the workspace, which finds the
  * CLI on PATH. Same start as a quick window agent (quickAgent.js).
- * @param {{ harness: string, cwd: string, prompt: string, orchestrator?: boolean, model?: string|null,
+ * @param {{ harness: string, cwd: string, prompt: string, orchestrator?: boolean, name?: string|null, model?: string|null,
  *   permissionMode?: string|null }} opts
  * @param {object} deps - startQuickAgent's deps, plus `workspace`
  */
@@ -370,6 +426,7 @@ export function startAgentPane(opts, deps) {
       harness: opts.harness,
       cwd: opts.cwd,
       prompt: opts.prompt,
+      name: opts.name ?? null,
       model: opts.model ?? null,
       permissionMode: opts.permissionMode ?? null,
       paneId: `${opts.orchestrator ? 'orch' : 'work'}-${crypto.randomUUID()}`,

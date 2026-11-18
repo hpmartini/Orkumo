@@ -19,13 +19,18 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * PTY command line of a quick agent: Claude Code with a known session id (its transcript name),
  * omp with the user's Claude skills; the prompt is the first message.
  */
-export function quickAgentCommand({ harness, prompt, sessionId, model, permissionMode }, deps) {
+export function quickAgentCommand(
+  { harness, prompt, sessionId, name, model, permissionMode },
+  deps
+) {
   if (harness === 'claude') {
     return {
       command: 'claude',
       args: [
         '--session-id',
         sessionId,
+        // omp has no such flag: it titles its session itself
+        ...(name ? ['--name', name] : []),
         ...(model ? ['--model', model] : []),
         ...(permissionMode ? ['--permission-mode', permissionMode] : []),
         // `--` ends the options: a prompt like `--settings=…` stays the first message
