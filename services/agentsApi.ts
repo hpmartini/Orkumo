@@ -468,8 +468,30 @@ export interface ChatArtifact {
   exists: boolean;
 }
 
+/** A page on claude.ai the chat's agent published (newest version), only read, or linked to */
+export interface ClaudeArtifact {
+  url: string;
+  source: 'published' | 'read' | 'linked';
+  title: string | null;
+  label: string | null;
+  description: string | null;
+  version: number | null;
+  updatedAt: number | null;
+  /** local HTML source of a published page */
+  file: string | null;
+  /** Slides, Dashboard, Design, Document or Page */
+  type: string;
+}
+
+export interface ChatArtifacts {
+  files: ChatArtifact[];
+  pages: ClaudeArtifact[];
+}
+
 export const fetchChatArtifacts = (id: string) =>
-  request<{ artifacts: ChatArtifact[] }>(chatPath(id, 'artifacts')).then((d) => d.artifacts);
+  request<{ artifacts: ChatArtifact[]; claudeArtifacts?: ClaudeArtifact[] }>(
+    chatPath(id, 'artifacts')
+  ).then((d): ChatArtifacts => ({ files: d.artifacts, pages: d.claudeArtifacts ?? [] }));
 
 /** Text of a listed artifact; throws with the server's reason (binary, too large, outside) */
 export const fetchChatArtifactContent = (id: string, path: string) =>

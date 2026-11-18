@@ -1742,10 +1742,13 @@ app.get(
   }
 );
 
-/** Artifacts of a chat: files its tools created / edited and omp's `local://` documents */
+/** Artifacts of a chat: files its tools created / edited, omp's `local://` documents, claude.ai pages */
 app.get('/api/agents/chat/:chatId/artifacts', validateParams(chatIdSchema), (req, res) => {
   try {
-    res.json({ artifacts: chatService.chatArtifacts(req.params.chatId) });
+    res.json({
+      artifacts: chatService.chatArtifacts(req.params.chatId),
+      claudeArtifacts: chatService.chatClaudeArtifacts(req.params.chatId),
+    });
   } catch (error) {
     sendAgentError(res, error);
   }
