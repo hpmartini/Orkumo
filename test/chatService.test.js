@@ -17,6 +17,7 @@ const {
   watchChatStream,
   unwatchChatStream,
   chatHistoryPage,
+  chatImage,
 } = await import('../server/services/chatService.js');
 const { reduceChat, initialChatState, prependHistory } = await import('../utils/chatEvents.ts');
 
@@ -534,5 +535,95 @@ describe('history pages', () => {
     let state = initialChatState;
     watchChat(s.id, (e) => (state = reduceChat(state, e)));
     expect(state.queued).toEqual(['later']);
+  });
+});
+
+describe('images by URL', () => {
+  const PNG = Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex').toString('base64');
+  const image = (media_type, data = PNG, type = 'base64') => ({
+    type: 'image',
+    source: { type, media_type, data },
+  });
+  const toolCall = (id) => ({
+    type: 'assistant',
+    message: {
+      id: `m-${id}`,
+      role: 'assistant',
+      content: [{ type: 'tool_use', id, name: 'Screenshot', input: {} }],
+    },
+  });
+  const toolResult = (id, content) => ({
+    type: 'user',
+    message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: id, content }] },
+  });
+  const blocks = (events) =>
+    events
+      .filter((e) => e.type === 'user')
+      .flatMap((e) => e.message.content.flatMap((b) => (Array.isArray(b.content) ? b.content : [])))
+      .filter((b) => b.type === 'image');
+  const noBase64 = (events) => expect(JSON.stringify(events)).not.toContain(PNG);
+
+  it('replay, older pages and live events carry a ref instead of the bytes', async () => {
+    const records = [];
+    for (let i = 1; i <= 25; i++) records.push(claudeUser(`p${i}`), toolCall(`t${i}`));
+    records.push(toolResult('t1', [{ type: 'text', text: 'shot' }, image('image/png')]));
+    records.splice(4, 0, toolResult('t2', [image('image/jpeg')]));
+    const { dir, file } = claudeProjects(records);
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir }
+    );
+    await sleep(80);
+    const seen = [];
+    watchChat(s.id, (e) => seen.push(e));
+    noBase64(seen);
+    const [first] = blocks(seen);
+    expect(first).toEqual({ type: 'image', ref: expect.stringMatching(/^[0-9a-f]{32}$/) });
+    expect(chatImage(s.id, first.ref)).toEqual({
+      mime: 'image/png',
+      data: Buffer.from(PNG, 'base64'),
+    });
+
+    const page = chatHistoryPage(s.id, seen.find((e) => e.type === 'devorbit_page').before);
+    noBase64(page.events);
+    expect(chatImage(s.id, blocks(page.events)[0].ref).mime).toBe('image/jpeg');
+
+    fs.appendFileSync(file, jsonl([toolResult('t3', [image('image/webp')])]));
+    await sleep(120);
+    noBase64(seen);
+    expect(chatImage(s.id, blocks(seen).at(-1).ref).mime).toBe('image/webp');
+  });
+
+  it('serves only base64 png/jpeg/gif/webp of its own view', async () => {
+    const { dir } = claudeProjects([
+      claudeUser('p'),
+      toolCall('t'),
+      toolResult('t', [image('image/svg+xml'), image('image/png', 'x', 'url')]),
+    ]);
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir }
+    );
+    await sleep(80);
+    const seen = [];
+    watchChat(s.id, (e) => seen.push(e));
+    expect(blocks(seen)).toEqual([{ type: 'image' }, { type: 'image' }]);
+    expect(chatImage(s.id, '0'.repeat(32))).toBeNull();
+    expect(chatImage(s.id, '../x')).toBeNull();
+  });
+
+  it('the client keeps the refs on the tool call', () => {
+    let state = reduceChat(initialChatState, toolCall('t'));
+    state = reduceChat(
+      state,
+      toolResult('t', [
+        { type: 'text', text: 'shot' },
+        { type: 'image', ref: 'a'.repeat(32) },
+        { type: 'image' },
+      ])
+    );
+    const tool = state.messages.flatMap((m) => m.blocks ?? []).find((b) => b.type === 'tool');
+    expect(tool.images).toEqual(['a'.repeat(32)]);
+    expect(tool.result).toBe('shot\n[image]\n[image]');
   });
 });

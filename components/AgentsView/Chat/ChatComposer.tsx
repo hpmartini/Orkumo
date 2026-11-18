@@ -209,6 +209,12 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
     }
     // Any Enter that did not send inserts a newline (Shift+Enter in both submit modes)
     const newline = e.key === 'Enter' && !e.nativeEvent.isComposing && plain;
+    // A click on an open agent's card hands focus here; the Enter meant for the card must not
+    // start the prompt with a blank line (and hide the suggestion)
+    if (newline && !value) {
+      e.preventDefault();
+      return;
+    }
     if (newline && collapsed) {
       const edit = continueList(value, pos);
       if (edit) {

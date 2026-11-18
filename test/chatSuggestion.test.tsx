@@ -5,7 +5,13 @@ import { ChatComposer } from '../components/AgentsView/Chat/ChatComposer';
 
 // The agent's prompt suggestion (Claude Code's ghost text) in the UI view's input
 
-function Composer({ suggestion }: { suggestion: string | null }) {
+function Composer({
+  suggestion,
+  submitKey = 'enter',
+}: {
+  suggestion: string | null;
+  submitKey?: 'enter' | 'mod+enter';
+}) {
   const [value, setValue] = useState('');
   const inputRef = useRef<HTMLTextAreaElement>(null);
   return (
@@ -17,7 +23,7 @@ function Composer({ suggestion }: { suggestion: string | null }) {
       onStop={() => {}}
       busy={false}
       disabled={false}
-      submitKey="enter"
+      submitKey={submitKey}
       history={[]}
       commands={[]}
       agents={[]}
@@ -67,5 +73,20 @@ describe('prompt suggestion in the chat input', () => {
     fireEvent.change(input(), { target: { value: '' } });
     rerender(<Composer suggestion="teste es" />);
     expect(input().placeholder).toContain('teste es');
+  });
+
+  // A click on an open agent's card focuses this input; the next Enter was meant for the card
+  it('Enter in the empty input writes no newline and keeps the suggestion', () => {
+    render(<Composer suggestion="weiter" submitKey="mod+enter" />);
+    const kept = fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(kept).toBe(false); // default (the newline) prevented
+    expect(input().value).toBe('');
+    expect(input().placeholder).toContain('weiter');
+  });
+
+  it('Enter after text still makes a newline', () => {
+    render(<Composer suggestion={null} submitKey="mod+enter" />);
+    fireEvent.change(input(), { target: { value: 'a' } });
+    expect(fireEvent.keyDown(input(), { key: 'Enter' })).toBe(true);
   });
 });

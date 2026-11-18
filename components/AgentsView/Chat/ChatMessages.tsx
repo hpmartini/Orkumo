@@ -21,7 +21,7 @@ import {
   type ResultMessage,
 } from '../../../utils/chatEvents';
 import { splitImages } from '../../../utils/chatComposer';
-import { agentImageUrl } from '../../../services/agentsApi';
+import { agentImageUrl, chatImageUrl } from '../../../services/agentsApi';
 import { ChatMarkdown, CopyButton } from './ChatMarkdown';
 
 const focusRing = 'focus-visible:outline-2 focus-visible:outline-blue-400';
@@ -67,6 +67,32 @@ const DiffView: React.FC<{ lines: { sign: string; text: string }[] }> = ({ lines
   </pre>
 );
 
+/** The chat a message list belongs to: its tool results' images load from there */
+export const ChatIdContext = React.createContext<string | null>(null);
+
+/** A tool result's screenshots, loaded only once the step is open and in view */
+const ResultImages: React.FC<{ refs: string[] }> = ({ refs }) => {
+  const chatId = React.useContext(ChatIdContext);
+  if (!chatId) return null;
+  return (
+    <div className="mt-1.5 flex flex-wrap gap-1.5">
+      {refs.map((ref) => {
+        const url = chatImageUrl(chatId, ref);
+        return (
+          <a key={ref} href={url} target="_blank" rel="noreferrer" title="Open image">
+            <img
+              src={url}
+              alt="Tool result image"
+              loading="lazy"
+              className="h-32 w-48 rounded border border-gray-800 bg-gray-900 object-contain hover:opacity-90"
+            />
+          </a>
+        );
+      })}
+    </div>
+  );
+};
+
 const ToolBlock: React.FC<{ block: Extract<ChatBlock, { type: 'tool' }> }> = ({ block }) => {
   const diff = toolDiff(block.name, block.input);
   const pending = block.result === undefined;
@@ -100,6 +126,7 @@ const ToolBlock: React.FC<{ block: Extract<ChatBlock, { type: 'tool' }> }> = ({ 
           {block.result || '(no output)'}
         </pre>
       )}
+      {block.images && <ResultImages refs={block.images} />}
     </Collapsible>
   );
 };
