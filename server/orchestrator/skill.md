@@ -39,8 +39,9 @@ orkumo send <id> <message…>
 orkumo send <id> -          # message from stdin (long or multi-line)
 ```
 
-Background Claude Code jobs get the message as a reply; agents running in an Orkumo pane get it
-typed into their terminal and submitted. Agents running outside Orkumo cannot be reached: start a
+Background Claude Code jobs get the message as a reply ("Queued for …" while a turn runs: it
+arrives when the turn ends, no second job); agents running in an Orkumo pane get it typed into
+their terminal and submitted. Agents running outside Orkumo cannot be reached: start a
 new one instead.
 
 Every message starts with `[von Agent <id> „<name>“ via orkumo send]` (sender from
