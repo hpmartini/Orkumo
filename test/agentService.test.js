@@ -21,6 +21,7 @@ describe('agentService - buildDispatchArgs', () => {
   it('builds a plain background prompt', () => {
     expect(buildDispatchArgs({ prompt: 'investigate flaky test' })).toEqual([
       '--bg',
+      '--',
       'investigate flaky test',
     ]);
   });
@@ -69,6 +70,7 @@ describe('agentService - buildDispatchArgs', () => {
       '--mcp-config',
       './mcp.json',
       '--strict-mcp-config',
+      '--',
       'do it',
     ]);
   });
@@ -79,6 +81,7 @@ describe('agentService - buildDispatchArgs', () => {
       '--bg',
       '--resume',
       'abc',
+      '--',
       'finish the migration',
     ]);
     expect(buildDispatchArgs({ resume: 'abc' })).toEqual(['--bg', '--resume', 'abc']);

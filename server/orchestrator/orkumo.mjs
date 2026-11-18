@@ -277,7 +277,7 @@ export function formatAgent(a, now = Date.now()) {
       a.harness,
       where,
       JSON.stringify(a.name || ''),
-      a.orchestrator ? '[orchestrator]' : '',
+      a.orchestrator ? (a.role ? `[orchestrator: ${a.role}]` : '[orchestrator]') : '',
     ]
       .filter(Boolean)
       .join('  '),
@@ -467,6 +467,8 @@ export async function run(argv, deps = {}) {
           const result = await api('POST', '/agents/dispatch', {
             prompt,
             cwd,
+            // worker profile: no dialog/plan/remote/artifact tools, strict MCP (agentService.js)
+            profile: 'worker',
             ...(flags.name ? { name: String(flags.name) } : {}),
           });
           if (flags.json) return json(result);

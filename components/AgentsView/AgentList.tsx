@@ -63,6 +63,7 @@ import {
   harnessLabel,
   appOriginLabel,
   isOrchestrator,
+  orchestratorRole,
   ORCHESTRATORS_GROUP_KEY,
 } from '../../utils/agentSessions';
 import { FAVORITES_GROUP_KEY, groupNeighbour } from '../../hooks/useRailPreferences';
@@ -170,6 +171,8 @@ interface AgentListProps {
   onOpenIssue?: (issueKey: string) => void;
   /** `agentView.orchestrators`: marked sessions get the Orchestrator badge */
   orchestratorIds?: readonly string[];
+  /** `agentView.orchestratorRoles`: the badge names the role */
+  orchestratorRoles?: Readonly<Record<string, string>>;
 }
 
 /** Selected row/header: filled while the rail has focus, outline only while it does not */
@@ -254,7 +257,16 @@ const MENU_SECTIONS: string[][] = [
     'view-board',
     'mode:',
   ],
-  ['favorite', 'pin', 'rename', 'orchestrator', 'fixed-project', 'project-settings', 'copy-id'],
+  [
+    'favorite',
+    'pin',
+    'rename',
+    'orchestrator',
+    'role:',
+    'fixed-project',
+    'project-settings',
+    'copy-id',
+  ],
   ['new-issue', 'dispatch-here', 'new-agent'],
   ['stop', 'respawn'],
   ['delete', 'delete-all'],
@@ -337,6 +349,7 @@ export const AgentList: React.FC<AgentListProps> = ({
   issuesByAgent,
   onOpenIssue,
   orchestratorIds,
+  orchestratorRoles,
 }) => {
   // One card per group (its header plus rows); ungrouped items form a single card
   const clusters = items.reduce<number[][]>((acc, item, i) => {
@@ -1136,7 +1149,7 @@ export const AgentList: React.FC<AgentListProps> = ({
                               data-testid="orchestrator-badge"
                             >
                               <Network size={9} aria-hidden />
-                              Orchestrator
+                              {orchestratorRole(session, orchestratorRoles) ?? 'Orchestrator'}
                             </span>
                           )}
                           {slot.title.length > 0 && (

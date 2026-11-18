@@ -272,6 +272,11 @@ describe('routing helpers', () => {
     );
   });
 
+  it('names the role of an orchestrator in its line', () => {
+    const line = formatAgent(agent({ orchestrator: true, role: 'board-orchestrator' }), NOW);
+    expect(line.split('\n')[0]).toMatch(/\[orchestrator: board-orchestrator\]$/);
+  });
+
   it('caps the PR lines of an agent that touched many', () => {
     const prs = [1, 2, 3, 4, 5].map((n) => ({ number: n, state: 'open', url: `u${n}` }));
     const lines = formatAgent(agent({ prs }), NOW).split('\n');
@@ -385,7 +390,7 @@ describe('commands', () => {
     expect(code).toBe(0);
     expect(calls[1]).toMatchObject({
       route: '/agents/dispatch',
-      body: { prompt: 'Fix the login', cwd: '/p/app', name: 'login-fix' },
+      body: { prompt: 'Fix the login', cwd: '/p/app', name: 'login-fix', profile: 'worker' },
     });
     expect(out).toMatch(/^Started new1 \(login-fix\): background Claude Code session in \/p\/app/);
   });

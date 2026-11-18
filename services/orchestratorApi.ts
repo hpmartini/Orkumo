@@ -29,6 +29,16 @@ export interface OrchestratorWorkspace {
 export const fetchOrchestratorWorkspace = (): Promise<OrchestratorWorkspace> =>
   request('/orchestrator/workspace');
 
-/** "New orchestrator": the default harness as an agent pane in the orchestrator workspace */
-export const startOrchestrator = (): Promise<QuickAgent> =>
-  request('/orchestrator/start', { method: 'POST' });
+/** A role file `<workspace>/roles/<id>.md`; briefing assigns it to a running orchestrator */
+export interface OrchestratorRole {
+  id: string;
+  title: string;
+  briefing: string;
+}
+
+export const fetchOrchestratorRoles = (): Promise<{ roles: OrchestratorRole[] }> =>
+  request('/orchestrator/roles');
+
+/** "New orchestrator": the default harness as an agent pane in the orchestrator workspace, optionally with a role */
+export const startOrchestrator = (role?: string): Promise<QuickAgent> =>
+  request('/orchestrator/start', { method: 'POST', body: JSON.stringify(role ? { role } : {}) });

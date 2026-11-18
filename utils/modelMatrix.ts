@@ -50,5 +50,15 @@ export function switchCommands(harness: 'claude' | 'omp', model: string, effort:
 }
 
 /** Button text: `opus · high`, `default` for what the CLI picks itself */
+/** Row `id` names the running `current` model: same id, or an alias part of it (opus ⊂ claude-opus-5-5) */
+export const isCurrentModel = (id: string, current: string | null | undefined): boolean =>
+  !!id &&
+  !!current &&
+  (id === current ||
+    current
+      .toLowerCase()
+      .split(/[-/:.]/)
+      .includes(id.toLowerCase()));
+
 export const pickLabel = (model: string, effort: string, defaultModel?: string | null) =>
   `${model || (defaultModel ? `default (${defaultModel})` : 'default')}${effort ? ` · ${effort}` : ''}`;

@@ -48,6 +48,10 @@ export const agentViewSettingsSchema = z
       .array(z.string().regex(/^[\w.:-]{1,200}$/))
       .max(200)
       .optional(),
+    // Role of an orchestrator session (same keys) -> role file id in <workspace>/roles
+    orchestratorRoles: z
+      .record(z.string().regex(/^[\w.:-]{1,200}$/), z.string().regex(/^[a-z0-9][\w.-]{0,63}$/i))
+      .optional(),
     dispatch: z
       .object({
         harness: z.enum(['claude', 'omp', 'opencode', 'codex', 'pi']).optional(),

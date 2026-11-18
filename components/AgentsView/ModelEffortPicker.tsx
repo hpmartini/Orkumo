@@ -2,7 +2,13 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ChevronDown, Gauge } from 'lucide-react';
 import { fetchHarnessModels } from '../../services/agentsApi';
 import { MODEL_SUGGESTIONS } from '../../utils/agentSessions';
-import { effortColumns, matrixRows, pickLabel, type HarnessModel } from '../../utils/modelMatrix';
+import {
+  effortColumns,
+  isCurrentModel,
+  matrixRows,
+  pickLabel,
+  type HarnessModel,
+} from '../../utils/modelMatrix';
 import { usePopover } from './PullRequestsPanel';
 
 interface ModelEffortPickerProps {
@@ -18,6 +24,9 @@ interface ModelEffortPickerProps {
   title?: string;
   /** Name of the '' row and column: "default" at a start, "current" in a running session */
   keepLabel?: string;
+  /** What the running session uses now: its cell is marked and the button names it */
+  currentModel?: string | null;
+  currentEffort?: string | null;
 }
 
 /**
@@ -35,8 +44,11 @@ export const ModelEffortPicker: React.FC<ModelEffortPickerProps> = ({
   placement = 'down',
   title,
   keepLabel = 'default',
+  currentModel = null,
+  currentEffort = null,
 }) => {
   const [open, setOpen] = useState(false);
+  const current = [currentModel, currentEffort].filter(Boolean).join(' · ');
   return (
     <div className="relative">
       <button
@@ -53,7 +65,7 @@ export const ModelEffortPicker: React.FC<ModelEffortPickerProps> = ({
         <span className="truncate">
           {model || effort || keepLabel === 'default'
             ? pickLabel(model, effort, defaultModel)
-            : 'Model · effort'}
+            : current || 'Model · effort'}
         </span>
         <ChevronDown size={12} aria-hidden className="shrink-0 text-gray-400" />
       </button>
@@ -64,6 +76,8 @@ export const ModelEffortPicker: React.FC<ModelEffortPickerProps> = ({
           effort={effort}
           placement={placement}
           keepLabel={keepLabel}
+          currentModel={currentModel}
+          currentEffort={currentEffort}
           onClose={() => setOpen(false)}
           onPick={(m, e) => {
             onPick(m, e);
@@ -81,9 +95,21 @@ const Matrix: React.FC<{
   effort: string;
   placement: 'down' | 'up';
   keepLabel: string;
+  currentModel: string | null;
+  currentEffort: string | null;
   onClose: () => void;
   onPick: (model: string, effort: string) => void;
-}> = ({ harness, model, effort, placement, keepLabel, onClose, onPick }) => {
+}> = ({
+  harness,
+  model,
+  effort,
+  placement,
+  keepLabel,
+  currentModel,
+  currentEffort,
+  onClose,
+  onPick,
+}) => {
   const ref = usePopover(onClose, true);
   const [models, setModels] = useState<HarnessModel[] | null>(null);
   const [failed, setFailed] = useState(false);
@@ -106,8 +132,11 @@ const Matrix: React.FC<{
   );
   const typed = filter.trim();
 
+  // The model row the session runs in; without one ('' row) the effort alone marks "current"
+  const currentRow = rows.find((m) => isCurrentModel(m.id, currentModel))?.id ?? '';
   const cell = (id: string, level: string, available: boolean, label: string) => {
     const selected = model === id && effort === level;
+    const isCurrent = !selected && !!currentEffort && id === currentRow && level === currentEffort;
     return (
       <td key={level} className="p-0.5 text-center">
         {available && (
@@ -115,15 +144,17 @@ const Matrix: React.FC<{
             type="button"
             onClick={() => onPick(id, level)}
             aria-pressed={selected}
-            aria-label={`${label} · ${level || `${keepLabel} effort`}`}
-            title={`${label} · ${level || `${keepLabel} effort`}`}
+            aria-label={`${label} · ${level || `${keepLabel} effort`}${isCurrent ? ' (in use)' : ''}`}
+            title={`${label} · ${level || `${keepLabel} effort`}${isCurrent ? ' · in use now' : ''}`}
             className={`h-6 w-full min-w-[2.5rem] rounded text-[11px] focus-visible:outline-2 focus-visible:outline-blue-400 ${
               selected
                 ? 'bg-blue-600 text-white'
-                : 'bg-gray-800/70 text-gray-400 hover:bg-blue-500/30 hover:text-white'
+                : isCurrent
+                  ? 'bg-emerald-500/20 text-emerald-200 ring-1 ring-inset ring-emerald-400/70 hover:bg-blue-500/30'
+                  : 'bg-gray-800/70 text-gray-400 hover:bg-blue-500/30 hover:text-white'
             }`}
           >
-            {selected ? '●' : '·'}
+            {selected || isCurrent ? '●' : '·'}
           </button>
         )}
       </td>
@@ -193,7 +224,10 @@ const Matrix: React.FC<{
                     </tr>
                   )}
                   <tr className="border-t border-gray-800">
-                    <td className="px-2 py-1 text-gray-100 font-mono break-all" title={m.id}>
+                    <td
+                      className={`px-2 py-1 font-mono break-all ${m.id === currentRow ? 'text-emerald-200' : 'text-gray-100'}`}
+                      title={m.id === currentRow ? `${m.id} · in use now (${currentModel})` : m.id}
+                    >
                       {m.label}
                     </td>
                     {cell(m.id, '', true, m.label)}

@@ -11,6 +11,7 @@ import {
   Power,
   X,
   ArrowLeft,
+  Network,
 } from 'lucide-react';
 import type { AgentConfigLike } from './types';
 import type {
@@ -102,9 +103,16 @@ import {
   isOrchestrator,
   orchestratorKey,
   withoutOrchestrator,
+  orchestratorRole,
+  withoutOrchestratorRole,
   ORCHESTRATORS_GROUP_KEY,
 } from '../../utils/agentSessions';
-import { fetchOrchestratorWorkspace, startOrchestrator } from '../../services/orchestratorApi';
+import {
+  fetchOrchestratorRoles,
+  fetchOrchestratorWorkspace,
+  startOrchestrator,
+  type OrchestratorRole,
+} from '../../services/orchestratorApi';
 import { AgentList, AgentRowAction } from './AgentList';
 import { FoldButtons, GroupingPicker, ProjectsSection, RailNavProps } from './ProjectsRail';
 import { NewTaskButton } from './NewTaskButton';
@@ -218,6 +226,24 @@ function isInsideTerminal(target: EventTarget | null): boolean {
 export function isNewTaskKey(e: KeyboardEvent): boolean {
   if (e.code !== 'KeyN' || e.altKey || e.shiftKey) return false;
   return isMac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey && !isInsideTerminal(e.target);
+}
+
+/**
+ * Hands a briefing to a running agent: replied to a background job, typed into a pane; false
+ * when it runs outside Orkumo and cannot be reached
+ */
+async function briefSession(session: AgentSession, text: string): Promise<boolean> {
+  if (session.kind === 'background') {
+    await replyToAgent(session.id, text);
+    return true;
+  }
+  const pane =
+    session.kind === 'interactive'
+      ? session.paneId || (sessionHarness(session) !== 'claude' ? session.id : null)
+      : null;
+  if (!pane) return false;
+  await sendToPane(pane, text);
+  return true;
 }
 
 /**
@@ -885,22 +911,46 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     }, 30000);
     return () => clearTimeout(timer);
   }, [orchestratorPane, orchestratorPaneListed, attach, showHint]);
-  const newOrchestrator = useCallback(async () => {
-    if (startingOrchestrator) return;
-    setStartingOrchestrator(true);
-    showHint('Starting an orchestrator…', 'info');
-    try {
-      const agent = await startOrchestrator();
-      await updateSettings({ orchestrators: [...settings.orchestrators, agent.sessionId] });
-      setOrchestratorPane(agent.paneId);
-      refresh();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      showHint(`Orchestrator did not start: ${message}`, 'error', 8000);
-    } finally {
-      setStartingOrchestrator(false);
-    }
-  }, [startingOrchestrator, showHint, updateSettings, settings.orchestrators, refresh]);
+  // Roles (<workspace>/roles/*.md): loaded on mount and whenever the "New" menu opens
+  const [orchestratorRoles, setOrchestratorRoles] = useState<OrchestratorRole[]>([]);
+  const loadOrchestratorRoles = useCallback(() => {
+    fetchOrchestratorRoles().then(
+      (r) => setOrchestratorRoles(r.roles),
+      () => setOrchestratorRoles([])
+    );
+  }, []);
+  useEffect(loadOrchestratorRoles, [loadOrchestratorRoles]);
+  const newOrchestrator = useCallback(
+    async (role?: string) => {
+      if (startingOrchestrator) return;
+      setStartingOrchestrator(true);
+      showHint(`Starting ${role ?? 'an orchestrator'}…`, 'info');
+      try {
+        const agent = await startOrchestrator(role);
+        await updateSettings({
+          orchestrators: [...settings.orchestrators, agent.sessionId],
+          ...(role
+            ? { orchestratorRoles: { ...settings.orchestratorRoles, [agent.sessionId]: role } }
+            : {}),
+        });
+        setOrchestratorPane(agent.paneId);
+        refresh();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        showHint(`Orchestrator did not start: ${message}`, 'error', 8000);
+      } finally {
+        setStartingOrchestrator(false);
+      }
+    },
+    [
+      startingOrchestrator,
+      showHint,
+      updateSettings,
+      settings.orchestrators,
+      settings.orchestratorRoles,
+      refresh,
+    ]
+  );
 
   // `/agents?attach=<jobId>` (e.g. from the board): attach once the session list has it
   const location = useLocation();
@@ -1928,19 +1978,16 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
     async (session: AgentSession) => {
       const ids = settings.orchestrators;
       if (isOrchestrator(session, ids)) {
-        await updateSettings({ orchestrators: withoutOrchestrator(ids, session) });
+        await updateSettings({
+          orchestrators: withoutOrchestrator(ids, session),
+          orchestratorRoles: withoutOrchestratorRole(settings.orchestratorRoles, session),
+        });
         return;
       }
       await updateSettings({ orchestrators: [...ids, orchestratorKey(session)] });
-      const pane =
-        session.kind === 'interactive'
-          ? session.paneId || (sessionHarness(session) !== 'claude' ? session.id : null)
-          : null;
       try {
         const { briefing, dir } = await fetchOrchestratorWorkspace();
-        if (session.kind === 'background') await replyToAgent(session.id, briefing);
-        else if (pane) await sendToPane(pane, briefing);
-        else {
+        if (!(await briefSession(session, briefing))) {
           showHint(
             `Marked as orchestrator. It runs outside Orkumo: point it to ${dir}/AGENTS.md yourself`,
             'info',
@@ -1954,7 +2001,32 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
         toast.error(`Marked as orchestrator, but the briefing did not arrive: ${message}`);
       }
     },
-    [settings.orchestrators, updateSettings, showHint]
+    [settings.orchestrators, settings.orchestratorRoles, updateSettings, showHint]
+  );
+
+  // Same delivery as the mark: the role briefing is typed into the pane or replied to the job
+  const assignRole = useCallback(
+    async (session: AgentSession, role: OrchestratorRole) => {
+      await updateSettings({
+        orchestratorRoles: {
+          ...withoutOrchestratorRole(settings.orchestratorRoles, session),
+          [orchestratorKey(session)]: role.id,
+        },
+      });
+      try {
+        if (await briefSession(session, role.briefing)) toast.success(`Role ${role.id} assigned`);
+        else
+          showHint(
+            `Role assigned. It runs outside Orkumo: point it to roles/${role.id}.md yourself`,
+            'info',
+            8000
+          );
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error(`Role assigned, but the briefing did not arrive: ${message}`);
+      }
+    },
+    [settings.orchestratorRoles, updateSettings, showHint]
   );
 
   const scopedModes = useMemo(() => nav.modes?.filter((m) => m.scoped) ?? [], [nav.modes]);
@@ -2066,6 +2138,13 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
           disabled: session.kind === 'app',
           onSelect: () => void toggleOrchestrator(session),
         },
+        ...(isOrchestrator(session, settings.orchestrators) ? orchestratorRoles : []).map((r) => ({
+          id: `role:${r.id}`,
+          label: `Role: ${r.id}`,
+          icon: Network,
+          disabled: orchestratorRole(session, settings.orchestratorRoles) === r.id,
+          onSelect: () => void assignRole(session, r),
+        })),
         {
           id: 'copy-id',
           label: 'Copy session id',
@@ -2097,7 +2176,10 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
       openShell,
       scopedModes,
       settings.orchestrators,
+      settings.orchestratorRoles,
       toggleOrchestrator,
+      orchestratorRoles,
+      assignRole,
     ]
   );
 
@@ -2503,13 +2585,15 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
             <Bot size={18} />
           </button>
           <NewTaskButton
-            onNew={(kind) =>
+            onNew={(kind, role) =>
               kind === 'issue'
                 ? openIssueDialog(selectedRepo)
                 : kind === 'orchestrator'
-                  ? void newOrchestrator()
+                  ? void newOrchestrator(role)
                   : openComposer(kind)
             }
+            roles={orchestratorRoles}
+            onOpenMenu={loadOrchestratorRoles}
           />
           <AgentsRailSlot ids={nav.railSlots} />
           <div className="min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -2737,6 +2821,7 @@ export const AgentsView: React.FC<AgentsViewProps> = ({
                 issuesByAgent={issuesByAgent}
                 onOpenIssue={setIssueModalKey}
                 orchestratorIds={settings.orchestrators}
+                orchestratorRoles={settings.orchestratorRoles}
                 top={
                   settings.grouping === 'state' ? (
                     <ProjectsSection apps={apps} nav={nav} filtered={filterActive || !!filter} />
