@@ -337,7 +337,7 @@ describe('commands', () => {
     const reply = { 'POST /agents/job1/reply': () => [200, { delivered: true }] };
     const pane = { 'POST /agents/panes/work-1/message': () => [200, { delivered: true }] };
     const claude = await cli(['send', 'job1', 'hi'], reply, {
-      env: { CLAUDE_CODE_SESSION_ID: 'uuid-tty' },
+      env: { CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'uuid-tty' },
     });
     expect(claude.calls[1].body.text).toBe(
       '[von Agent interactive-77 „tty“ via orkumo send]\n\nhi'
@@ -355,9 +355,23 @@ describe('commands', () => {
     expect(explicit.calls[1].body.text).toBe('[von Agent job1 „fix login“ via orkumo send]\n\nhi');
     // a session Orkumo does not list: its id, no name
     const unlisted = await cli(['send', 'job1', 'hi'], reply, {
-      env: { CLAUDE_CODE_SESSION_ID: 'abc-123' },
+      env: { CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'abc-123' },
     });
     expect(unlisted.calls[1].body.text).toBe('[von Agent abc-123 via orkumo send]\n\nhi');
+  });
+
+  // Orkumo restarted from a Claude shell: every pane inherits that shell's session id
+  it('send: an omp session wins over a Claude session id it inherited', async () => {
+    const reply = { 'POST /agents/job1/reply': () => [200, { delivered: true }] };
+    const omp = await cli(['send', 'job1', 'hi'], reply, {
+      env: { CLAUDECODE: '1', CLAUDE_CODE_SESSION_ID: 'uuid-tty', PI_SESSION_ID: 'u3' },
+    });
+    expect(omp.calls[1].body.text).toBe('[von Agent omp-u3 „omp“ via orkumo send]\n\nhi');
+    // a stray id outside Claude Code (no CLAUDECODE) names nobody
+    const stray = await cli(['send', 'job1', 'hi'], reply, {
+      env: { CLAUDE_CODE_SESSION_ID: 'uuid-tty' },
+    });
+    expect(stray.calls[1].body.text).toBe('[via orkumo send, Absender unbekannt]\n\nhi');
   });
 
   it('send: types into the pane of a pane agent, message from stdin', async () => {

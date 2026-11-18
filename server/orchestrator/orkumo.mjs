@@ -210,12 +210,16 @@ export function sendRoute(agent) {
 /**
  * First line of a message from `orkumo send`. The receiver's harness logs typed text as the user's
  * own; this line names the agent that sent it (Orkumo's chat view renders it as that agent's).
- * Sender: ORKUMO_AGENT_ID, else the calling harness's session (Claude Code, omp's bash tool).
+ * Sender: ORKUMO_AGENT_ID, else the calling harness's session: omp's bash tool first, since a
+ * Claude session id may be inherited from the shell that started Orkumo; Claude Code's only
+ * inside Claude Code (CLAUDECODE=1).
  */
 export function senderLine(agents, env) {
-  const ref = env.ORKUMO_AGENT_ID || env.CLAUDE_CODE_SESSION_ID || '';
-  const omp = !ref && env.PI_SESSION_ID ? `omp-${env.PI_SESSION_ID}` : '';
-  const id = ref || omp;
+  const id =
+    env.ORKUMO_AGENT_ID ||
+    (env.PI_SESSION_ID && `omp-${env.PI_SESSION_ID}`) ||
+    (env.CLAUDECODE === '1' && env.CLAUDE_CODE_SESSION_ID) ||
+    '';
   if (!id) return '[via orkumo send, Absender unbekannt]';
   const me = agents.find((a) => a.id === id || a.sessionId === id);
   return me
