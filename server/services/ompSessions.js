@@ -193,7 +193,7 @@ const IDLE_STOPS = new Set(['stop', 'aborted', 'error', 'length']);
 
 /**
  * What one session record says about the turn: 'working' (a model call or tool runs next),
- * 'idle' (the turn ended), 'unknown' (an assistant message without a known stop reason), or null
+ * 'asking' (the ask tool waits for the user's answer in the TUI), 'idle' (the turn ended), 'unknown' (an assistant message without a known stop reason), or null
  * when it says nothing (title, usage, reminders and other bookkeeping written while idle).
  * omp writes a record when it is complete, so an assistant `toolUse` stays the last record
  * while its tools run, and a user message while the model answers.
@@ -209,7 +209,8 @@ export function turnSignal(record) {
       return role === 'user' || role === 'toolResult' || role === 'developer' ? 'working' : null;
     }
     case 'custom':
-      if (record.customType === 'tool_execution_start') return 'working';
+      if (record.customType === 'tool_execution_start')
+        return record.data?.toolName === 'ask' ? 'asking' : 'working';
       return record.customType === 'session_exit' ? 'idle' : null;
     case 'custom_message':
       return record.attribution === 'user' || TURN_NOTICES.has(record.customType)
@@ -357,14 +358,19 @@ export async function listOmpSessions({
       // Only when the whole file was read; a running one still shows
       if (!pid && !head.prompted && stat.size <= HEAD_BYTES) continue;
       const pane = pid ? panes.get(pid) : null;
-      const working = pid ? await isWorking(file, stat, { now, pane }) : false;
-      rows.push(toRow(head, { pid, updatedAt: stat.mtimeMs, paneId: pane?.paneId, working }));
+      const asking =
+        !!pid &&
+        (await readTurnState(file, stat.size, stat.mtimeMs).catch(() => null)) === 'asking';
+      const working = pid && !asking ? await isWorking(file, stat, { now, pane }) : false;
+      rows.push(
+        toRow(head, { pid, updatedAt: stat.mtimeMs, paneId: pane?.paneId, working, asking })
+      );
     }
   }
   return rows.sort((a, b) => b.updatedAt - a.updatedAt).slice(0, MAX_LISTED);
 }
 
-function toRow(head, { pid, updatedAt, paneId, working }) {
+function toRow(head, { pid, updatedAt, paneId, working, asking = false }) {
   const busy = Boolean(pid && working);
   return {
     id: `omp-${head.id}`,
@@ -378,14 +384,14 @@ function toRow(head, { pid, updatedAt, paneId, working }) {
     updatedAt,
     name: head.title || `omp ${head.id.slice(0, 8)}`,
     pid,
-    status: pid ? (busy ? 'busy' : 'idle') : null,
+    status: pid ? (asking ? 'waiting' : busy ? 'busy' : 'idle') : null,
     state: pid ? null : 'done',
-    waitingFor: null,
+    waitingFor: asking ? 'ask' : null,
     detail: pid ? (paneId ? 'running in Orkumo' : `running in a terminal (PID ${pid})`) : null,
     pinned: false,
     order: null,
     links: [],
-    displayState: pid ? (busy ? 'working' : 'idle') : 'completed',
+    displayState: pid ? (asking ? 'needs-input' : busy ? 'working' : 'idle') : 'completed',
   };
 }
 

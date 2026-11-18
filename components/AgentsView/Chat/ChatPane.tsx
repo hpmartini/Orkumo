@@ -45,10 +45,12 @@ import {
 import { ChatComposer } from './ChatComposer';
 import { ChatActivity } from './ChatActivity';
 import { ChatStatusLine } from './ChatStatusLine';
+import { QuestionCard } from './QuestionCard';
 import { ModelEffortPicker } from '../ModelEffortPicker';
 import { switchCommands } from '../../../utils/modelMatrix';
 import { splitImages } from '../../../utils/chatComposer';
 import { extractNumberedChoices, screenPrompt } from '../../../utils/agentInput';
+import { dialogKeys, parseAgentDialog, type DialogAnswer } from '../../../utils/agentDialog';
 import { harnessLabel, sessionHarness } from '../../../utils/agentSessions';
 import {
   paneScreen,
@@ -92,13 +94,17 @@ function usePromptsOnly(sessionId: string | null): [boolean, () => void] {
 
 /** How often the screen of an agent that asks something is read for its question */
 const PROMPT_POLL_MS = 1000;
+/** Screen lines read for a question: a two-question dialog with descriptions takes ~30 */
+const PROMPT_LINES = 40;
+/** A sent answer keeps its card locked this long when the screen does not move on (keys lost) */
+const SENT_LOCK_MS = 5000;
 
 /** Screen tail of pane `paneId` while its agent waits on a question or permission (not in its transcript) */
 function usePanePrompt(paneId: string, prompting: boolean): string | null {
   const [text, setText] = useState('');
   useEffect(() => {
     if (!prompting) return;
-    const read = () => setText(paneScreen(paneId));
+    const read = () => setText(paneScreen(paneId, PROMPT_LINES));
     read();
     const timer = setInterval(read, PROMPT_POLL_MS);
     return () => {
@@ -312,7 +318,16 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   // The agent's state only says it may wait; the box needs a dialog on its screen
   const screen = usePanePrompt(pane.id, prompting);
   const prompt = screen ? screenPrompt(screen) : null;
-  const choices = prompt ? extractNumberedChoices(prompt) : [];
+  // A dialog the parser knows becomes a card; any other prompt stays the screen excerpt below
+  const dialog = useMemo(() => (prompt ? parseAgentDialog(screen ?? '') : null), [prompt, screen]);
+  const dialogId = dialog ? JSON.stringify(dialog) : null;
+  const [sentFor, setSentFor] = useState<string | null>(null);
+  useEffect(() => {
+    if (!sentFor) return;
+    const t = window.setTimeout(() => setSentFor(null), SENT_LOCK_MS);
+    return () => window.clearTimeout(t);
+  }, [sentFor]);
+  const choices = prompt && !dialog ? extractNumberedChoices(prompt) : [];
   const notConnected = 'The terminal is not connected: use Reattach above, then send again';
 
   // Model × effort of the running session: typed as its own commands, one after the other (a
@@ -327,6 +342,17 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
 
   const answerPrompt = (answer: string) => {
     setError(pressKeys(pane.id, answer) ? null : notConnected);
+  };
+
+  // Keys go to what is on the screen now: the card may be a poll old, and a click on "Yes"
+  // must not approve a different command
+  const answerDialog = (answer: DialogAnswer) => {
+    const now = parseAgentDialog(paneScreen(pane.id, PROMPT_LINES));
+    if (!now || JSON.stringify(now) !== dialogId)
+      return setError('The question on the agent’s screen changed: check it and answer again');
+    if (!pressKeys(pane.id, dialogKeys(now, answer))) return setError(notConnected);
+    setError(null);
+    setSentFor(dialogId);
   };
 
   const submit = async () => {
@@ -604,7 +630,15 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             </p>
           </section>
         )}
-        {prompt !== null && (
+        {dialog && (
+          <QuestionCard
+            dialog={dialog}
+            sent={sentFor === dialogId}
+            disabled={!connected}
+            onAnswer={answerDialog}
+          />
+        )}
+        {prompt !== null && !dialog && (
           <div
             role="status"
             className="mb-2 rounded-md border border-amber-400/40 bg-amber-500/10 p-2"

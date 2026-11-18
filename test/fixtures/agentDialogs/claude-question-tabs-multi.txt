@@ -1,0 +1,30 @@
+❯ Call AskUserQuestion once, ONE question, header 'Ziel' question 'Wohin deployen?' options
+  Staging, Prod. Then echo my answer verbatim.
+⏺ Antwort: Version 2 auf eu-1
+  Your answer: Version 2 auf eu-1
+  - Kein Deploy gestartet; Ziel und Version sind nur notiert.
+  - Offen: soll ich deployen, und wenn ja, womit (Befehl, Pipeline)?
+✻ Cooked for 4s · done 19:22
+❯ Call AskUserQuestion once, ONE question, multiSelect true, header 'Tools' question 'Welche
+  Tools?' options Git, Bun, Node. Then echo my answer verbatim.
+⏺ Antwort: Bun, Deno 2
+  Your answer: Bun, Deno 2
+  - Nichts ausgeführt; nur notiert.
+  - Offen: Soll ich Bun und Deno 2 für ein bestimmtes Vorhaben einrichten oder prüfen?
+✻ Churned for 9s · done 19:22
+❯ Call AskUserQuestion once with two questions: Q1 header 'Farbe' question 'Welche Farbe?' options
+  Rot (warm), Blau (kalt). Q2 header 'Extras' question 'Welche Extras?' options Käse, Salat,
+  multiSelect true. Then echo my answers verbatim.
+────────────────────────────────────────────────────────────────────────────────────────────────────
+←  ☒ Farbe  ☐ Extras  ✔ Submit  →
+Welche Extras?
+❯ 1. [ ] Käse
+         Käse
+  2. [ ] Salat
+         Salat
+  3. [ ] Type something
+     Submit
+────────────────────────────────────────────────────────────────────────────────────────────────────
+  4. Chat about this
+Enter to select · Tab/Arrow keys to navigate · Esc to cancel
+─────────────────────────────────────────────────────────────────── Sitzungstitel ─
