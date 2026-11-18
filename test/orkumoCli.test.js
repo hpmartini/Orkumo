@@ -332,6 +332,16 @@ describe('commands', () => {
     expect(out).toBe('Sent to job1 (fix login).');
   });
 
+  it('send: says "queued" when the job is mid-turn', async () => {
+    const { code, out } = await cli(['send', 'job1', 'later'], {
+      'POST /agents/job1/reply': () => [200, { delivered: false, queued: true, mode: 'attach' }],
+    });
+    expect(code).toBe(0);
+    expect(out).toBe(
+      'Queued for job1 (fix login): it is mid-turn and reads the message when the turn ends.'
+    );
+  });
+
   // The receiver's harness logs a typed message as the user's own: the first line names the sender
   it('send: heads the message with the sending agent (Claude, omp, explicit id), both routes', async () => {
     const reply = { 'POST /agents/job1/reply': () => [200, { delivered: true }] };

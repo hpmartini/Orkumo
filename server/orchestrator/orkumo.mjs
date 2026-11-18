@@ -452,8 +452,13 @@ export async function run(argv, deps = {}) {
           );
         }
         const from = senderLine(agents, deps.env ?? process.env);
-        await api('POST', route, { text: `${from}\n\n${text}` });
-        out(`Sent to ${agent.id} (${agent.name || agent.harness}).`);
+        const result = await api('POST', route, { text: `${from}\n\n${text}` });
+        const label = `${agent.id} (${agent.name || agent.harness})`;
+        out(
+          result?.queued
+            ? `Queued for ${label}: it is mid-turn and reads the message when the turn ends.`
+            : `Sent to ${label}.`
+        );
         return 0;
       }
       case 'start': {
