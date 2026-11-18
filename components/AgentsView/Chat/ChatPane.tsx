@@ -708,7 +708,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
               />
             </div>
             <div className="mt-2">
-              <ChatArtifactsButton count={artifacts.length} onOpen={() => setArtifactsOpen(true)} />
+              <ChatArtifactsButton artifacts={artifacts} onOpen={() => setArtifactsOpen(true)} />
             </div>
           </div>
         )}
