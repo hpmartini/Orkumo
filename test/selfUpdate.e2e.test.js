@@ -2,15 +2,27 @@
 // ORKUMO_UPDATE_FEED: release feed → *-mac.yml → zip download + sha512 → ditto staging → quarantine cleared
 // → codesign check → swap helper (no relaunch) replaces a fake installed Orkumo.app.
 import { spawn, spawnSync } from 'child_process';
+import { createRequire } from 'module';
 import crypto from 'crypto';
 import fs from 'fs';
 import net from 'net';
 import os from 'os';
 import path from 'path';
+import { pathToFileURL } from 'url';
 import { afterAll, beforeAll, describe, it, expect } from 'vitest';
 import { setupUpdater } from '../electron/updater.js';
 
 const quiet = { log: () => {}, error: () => {} };
+const require = createRequire(import.meta.url);
+/** the real app's shape needs an app.asar: Electron's fs reads it as a directory (rm → ENOTDIR) */
+let electron = null;
+let asar = null;
+try {
+  electron = require('electron');
+  asar = require('@electron/asar');
+} catch {
+  // no Electron binary or asar packer: the fixture apps go without app.asar, the Electron case is skipped
+}
 const arch = process.arch === 'arm64' ? 'arm64' : 'x64';
 
 function sh(file, args) {
@@ -19,8 +31,8 @@ function sh(file, args) {
   return r.stdout.trim();
 }
 
-/** A minimal, ad-hoc signed Orkumo.app at `version`. */
-function makeApp(dir, version) {
+/** A minimal, ad-hoc signed Orkumo.app at `version`, with Contents/Resources/app.asar where possible. */
+async function makeApp(dir, version) {
   const app = path.join(dir, 'Orkumo.app');
   fs.mkdirSync(path.join(app, 'Contents', 'MacOS'), { recursive: true });
   fs.writeFileSync(path.join(app, 'Contents', 'MacOS', 'Orkumo'), '#!/bin/sh\nexit 0\n', {
@@ -34,6 +46,13 @@ function makeApp(dir, version) {
     ['CFBundleExecutable', 'Orkumo'],
   ]) {
     sh('/usr/bin/plutil', ['-insert', key, '-string', value, plist]);
+  }
+  if (asar) {
+    const src = fs.mkdtempSync(path.join(os.tmpdir(), 'orkumo-asar-'));
+    fs.writeFileSync(path.join(src, 'package.json'), `{"name":"orkumo","version":"${version}"}`);
+    fs.mkdirSync(path.join(app, 'Contents', 'Resources'));
+    await asar.createPackage(src, path.join(app, 'Contents', 'Resources', 'app.asar'));
+    fs.rmSync(src, { recursive: true, force: true });
   }
   sh('/usr/bin/codesign', ['-s', '-', '--force', app]);
   return app;
@@ -50,9 +69,9 @@ const plistVersion = (app) =>
   ]);
 
 /** Release dir as electron-builder + merge-mac-yml leave it: both zips and one latest-mac.yml. */
-function publish(feedRoot, version, { corruptSha = false } = {}) {
+async function publish(feedRoot, version, { corruptSha = false } = {}) {
   const build = fs.mkdtempSync(path.join(os.tmpdir(), 'orkumo-build-'));
-  const app = makeApp(build, version);
+  const app = await makeApp(build, version);
   // like a browser download: the update must come out without it
   sh('/usr/bin/xattr', ['-w', 'com.apple.quarantine', '0081;00000000;Safari;', app]);
   const release = path.join(feedRoot, `v${version}`);
@@ -93,8 +112,8 @@ describe.runIf(process.platform === 'darwin')('macOS self-update against a local
     work = fs.mkdtempSync(path.join(os.tmpdir(), 'orkumo-e2e-'));
     feedRoot = path.join(work, 'feed');
     fs.mkdirSync(feedRoot);
-    publish(feedRoot, '1.0.0-rc.8');
-    publish(feedRoot, '1.0.0-rc.9');
+    await publish(feedRoot, '1.0.0-rc.8');
+    await publish(feedRoot, '1.0.0-rc.9');
     const port = await freePort();
     feed = `http://127.0.0.1:${port}`;
     server = spawn(
@@ -115,10 +134,10 @@ describe.runIf(process.platform === 'darwin')('macOS self-update against a local
     if (work) fs.rmSync(work, { recursive: true, force: true });
   });
 
-  function updater(currentVersion, dir) {
+  async function updater(currentVersion, dir) {
     const applications = path.join(dir, 'Applications');
     fs.mkdirSync(applications, { recursive: true });
-    const bundlePath = makeApp(applications, currentVersion);
+    const bundlePath = await makeApp(applications, currentVersion);
     const statuses = [];
     const u = setupUpdater({
       mode: 'swap',
@@ -137,7 +156,7 @@ describe.runIf(process.platform === 'darwin')('macOS self-update against a local
 
   it('downloads, verifies, stages the newest rc and swaps it in', async () => {
     const dir = path.join(work, 'ok');
-    const { u, statuses, bundlePath, applications, updatesDir } = updater('1.0.0-rc.7', dir);
+    const { u, statuses, bundlePath, applications, updatesDir } = await updater('1.0.0-rc.7', dir);
 
     const status = await u.check({ manual: true });
     expect(status, status.error).toMatchObject({ state: 'ready', version: '1.0.0-rc.9' });
@@ -160,10 +179,56 @@ describe.runIf(process.platform === 'darwin')('macOS self-update against a local
     sh('/usr/bin/codesign', ['--verify', '--deep', bundlePath]);
   }, 60000);
 
+  it.skipIf(!electron || !asar)(
+    'under Electron: start-up and Check for Updates clear a staged app with app.asar',
+    async () => {
+      const dir = path.join(work, 'electron');
+      const updatesDir = path.join(dir, 'updates');
+      const applications = path.join(dir, 'Applications');
+      fs.mkdirSync(applications, { recursive: true });
+      const bundlePath = await makeApp(applications, '1.0.0-rc.7');
+      // left over from an earlier download (rc.38: start-up dialog, then every check fails)
+      fs.mkdirSync(path.join(updatesDir, 'staging'), { recursive: true });
+      await makeApp(path.join(updatesDir, 'staging'), '1.0.0-rc.8');
+      const script = path.join(dir, 'check.mjs');
+      fs.writeFileSync(
+        script,
+        `import { setupUpdater } from ${JSON.stringify(pathToFileURL(path.resolve('electron/updater.js')).href)};
+import { stageBundle } from ${JSON.stringify(pathToFileURL(path.resolve('electron/selfUpdate.js')).href)};
+const opts = { mode: 'swap', currentVersion: '1.0.0-rc.7', arch: ${JSON.stringify(arch)},
+  env: { ORKUMO_UPDATE_FEED: ${JSON.stringify(feed)} }, log: { log() {}, error() {} },
+  updatesDir: ${JSON.stringify(updatesDir)}, bundlePath: ${JSON.stringify(bundlePath)} };
+const states = [];
+const step = async (name, fn) => {
+  try { const r = await fn(); states.push(r?.state ?? 'ok'); } catch (e) { states.push(e.code ?? e.message); }
+};
+let u;
+await step('start over a staged app', () => { u = setupUpdater(opts); });
+await step('check', () => u.check({ manual: true }));
+// what every later Check for Updates does before unpacking: clear the staged app (rc.38: ENOTDIR here)
+await step('stage over it', () => stageBundle({ zip: 'x', dir: ${JSON.stringify(path.join(updatesDir, 'staging'))},
+  version: 'x', run: async () => { throw Object.assign(new Error('unpack'), { code: 'UNPACK' }); } }));
+await step('next start', () => { u = setupUpdater(opts); });
+console.log(JSON.stringify(states));
+process.exit(0);`
+      );
+      const r = spawnSync(electron, [script], {
+        env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+        encoding: 'utf8',
+        timeout: 60000,
+      });
+      expect(String(r.stdout).trim().split('\n').pop(), r.stderr).toBe(
+        JSON.stringify(['ok', 'ready', 'UNPACK', 'ok'])
+      );
+      expect(fs.existsSync(path.join(updatesDir, 'staging'))).toBe(false);
+    },
+    120000
+  );
+
   it('refuses a zip whose sha512 does not match its *-mac.yml', async () => {
-    publish(feedRoot, '1.0.0-rc.10', { corruptSha: true });
+    await publish(feedRoot, '1.0.0-rc.10', { corruptSha: true });
     const dir = path.join(work, 'corrupt');
-    const { u, bundlePath, updatesDir } = updater('1.0.0-rc.9', dir);
+    const { u, bundlePath, updatesDir } = await updater('1.0.0-rc.9', dir);
 
     const status = await u.check({ manual: true });
     expect(status).toMatchObject({ state: 'error', manual: true });
