@@ -2,8 +2,8 @@
  * Pure helpers for the agent task board (/board, #44): columns, slices, lanes,
  * agent <-> issue derivation and column colours.
  */
+import type { AgentSession } from '@hpmartini/agents-ui/types';
 import type {
-  AgentSession,
   BoardIssueRef,
   BoardItem,
   BoardSettings,

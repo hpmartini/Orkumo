@@ -11,7 +11,7 @@ import {
   resolveHarnessBinary,
 } from '../config/harnesses.js';
 import { MAX_HARNESS_PROMPT } from '../config/limits.js';
-import { HARNESS_MODEL_FLAG } from '../utils/agentSessions';
+import { HARNESS_MODEL_FLAG } from '@hpmartini/agents-ui/utils/agentSessions';
 
 describe('harness policy (#195)', () => {
   it('knows exactly the four harnesses', () => {

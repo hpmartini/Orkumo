@@ -1,7 +1,7 @@
 import React, { useId, useMemo, useState } from 'react';
 import { Check, ChevronDown, Search } from 'lucide-react';
 import { buildSlices, sliceGroups, type SliceEntry } from '../../utils/board';
-import { usePopover } from '../AgentsView/PullRequestsPanel';
+import { usePopover } from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPanel';
 
 interface SlicePickerProps {
   slices: ReturnType<typeof buildSlices>;

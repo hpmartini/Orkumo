@@ -1,7 +1,8 @@
 import { describe, it, expect } from 'vitest';
 import { pinTarget } from '../utils/agentTarget';
-import { resumableSessionId } from '../utils/agentSessions';
-import type { AgentSession } from '../types';
+import { orkumoTransport } from '../services/agentsTransport';
+import { resumableSessionId } from '@hpmartini/agents-ui/utils/agentSessions';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
 
 const ID = '0b6f2c1e-1111-4222-8333-944455556666';
 const s = (p: Partial<AgentSession>) =>
@@ -20,6 +21,8 @@ describe('resumableSessionId', () => {
     expect(resumableSessionId(s({ ptyArgs: ['--cloud', 'x', '--resume', ID] }))).toBeNull();
     // #220: a pane of another instance than the picked one hands over nothing (a resume would start here)
     pinTarget('peer-job', '/modules/mesh/peer/darkbook');
-    expect(resumableSessionId(s({ id: 'peer-job', sessionId: ID }))).toBeNull();
+    expect(
+      resumableSessionId(s({ id: 'peer-job', sessionId: ID }), orkumoTransport.targets)
+    ).toBeNull();
   });
 });

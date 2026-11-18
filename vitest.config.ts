@@ -11,6 +11,8 @@ export default defineConfig({
     environment: 'jsdom',
     setupFiles: './test/setup.ts',
     include: ['**/*.{test,spec}.{ts,tsx,js}'],
+    // agents-ui ships extensionless ESM for bundlers: Vite resolves it, plain Node would not
+    server: { deps: { inline: ['@hpmartini/agents-ui'] } },
     exclude: ['**/node_modules/**', '**/dist/**', '.claude/**'],
     coverage: {
       reporter: ['text', 'json', 'html'],

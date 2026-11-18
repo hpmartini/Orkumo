@@ -1,6 +1,6 @@
-import type { AgentRemoveResult, AgentSession } from '../types';
+import type { AgentRemoveResult, AgentSession } from '@hpmartini/agents-ui/types';
 import { ALIVE, type AgentOverview } from './agentOverview';
-import { repoName } from './agentSessions';
+import { repoName } from '@hpmartini/agents-ui/utils/agentSessions';
 
 /** Overview buckets; a session can sit in several (e.g. running + needs input + cache) */
 export type AgentBucket = 'running' | 'needs-input' | 'working' | 'done' | 'cache' | 'compact';

@@ -9,11 +9,11 @@ import {
   X,
 } from 'lucide-react';
 import type { AppConfig, ProjectContext } from '../types';
-import { useDialogA11y } from './CommandPalette/useDialogA11y';
+import { useDialogA11y } from '@hpmartini/agents-ui/components/CommandPalette/useDialogA11y';
 import { FIELD_INPUT } from './BoardView/IssueFields';
 import { parseContextFilter } from '../utils/board';
 import { groupByRoot, projectRoot, shortPath } from '../utils/projectDirs';
-import { shortenPath } from '../utils/agentSessions';
+import { shortenPath } from '@hpmartini/agents-ui/utils/agentSessions';
 
 // Characters that fit the default 560px dialog at 11px mono; shortenPath cuts the start so the
 // folder name stays visible, CSS truncate stays as fallback for narrower (resized) dialogs

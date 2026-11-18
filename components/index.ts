@@ -5,4 +5,3 @@ export { ContextTabs } from './ContextTabs';
 export { ContextDialog } from './ContextDialog';
 export { TitleBar } from './TitleBar';
 export { LoadingSkeleton } from './LoadingSkeleton';
-export { AgentsView } from './AgentsView';

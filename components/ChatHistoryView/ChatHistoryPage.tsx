@@ -24,19 +24,16 @@ import {
   type ChatSource,
 } from '../../services/chatHistoryApi';
 import type { ChatSyncResult, ChatSyncStatus } from '../../electron/electron';
+import { PROVIDER_LABEL, PROVIDER_LOGIN, PROVIDER_SITE, dayBound } from '../../utils/chatHistory';
+import { RECENCY, recencyOf, relativeTime } from '@hpmartini/agents-ui/utils/chatHistory';
+import { openInSystemBrowser, openLink } from '@hpmartini/agents-ui/utils/links';
 import {
-  PROVIDER_LABEL,
-  PROVIDER_LOGIN,
-  PROVIDER_SITE,
-  RECENCY,
-  dayBound,
-  recencyOf,
-  relativeTime,
-} from '../../utils/chatHistory';
-import { openInSystemBrowser, openLink } from '../../utils/links';
-import { Filter, ICON_BTN, SELECT_CLS } from '../AgentsView/PullRequestsPage';
-import { RailOutletContext } from '../AgentsView/railOutlet';
-import { AgentWorkspace } from '../AgentsView/AgentWorkspace';
+  Filter,
+  ICON_BTN,
+  SELECT_CLS,
+} from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPage';
+import { RailOutletContext } from '@hpmartini/agents-ui/components/AgentsView/railOutlet';
+import { AgentWorkspace } from '@hpmartini/agents-ui/components/AgentsView/AgentWorkspace';
 import { ChatReader, ProviderBadge } from './ChatReader';
 import { historyChatId, useChatTabs } from './useChatTabs';
 

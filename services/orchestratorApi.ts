@@ -2,7 +2,7 @@
  * API client for orchestrators (`/api/orchestrator/*`, server/services/orchestratorService.js).
  */
 import { API_BASE_URL } from '../utils/apiConfig';
-import type { QuickAgent } from './agentsApi';
+import type { OrchestratorRole, OrchestratorWorkspace, QuickAgent } from '@hpmartini/agents-ui';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -19,22 +19,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export interface OrchestratorWorkspace {
-  dir: string;
-  cli: string;
-  /** Typed into / replied to a session that was just marked as orchestrator */
-  briefing: string;
-}
-
 export const fetchOrchestratorWorkspace = (): Promise<OrchestratorWorkspace> =>
   request('/orchestrator/workspace');
-
-/** A role file `<workspace>/roles/<id>.md`; briefing assigns it to a running orchestrator */
-export interface OrchestratorRole {
-  id: string;
-  title: string;
-  briefing: string;
-}
 
 export const fetchOrchestratorRoles = (): Promise<{ roles: OrchestratorRole[] }> =>
   request('/orchestrator/roles');

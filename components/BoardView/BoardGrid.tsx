@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { ChevronDown, ChevronRight, GitMerge, Plus } from 'lucide-react';
-import type { AgentSession, BoardItem, BoardStatusOption, BoardSwimlaneMode } from '../../types';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
+import type { BoardItem, BoardStatusOption, BoardSwimlaneMode } from '../../types';
 import {
   DONE_WINDOW_DAYS,
   columnKeyOf,

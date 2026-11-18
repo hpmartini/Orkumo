@@ -19,7 +19,8 @@ const {
   chatHistoryPage,
   chatImage,
 } = await import('../server/services/chatService.js');
-const { reduceChat, initialChatState, prependHistory } = await import('../utils/chatEvents.ts');
+const { reduceChat, initialChatState, prependHistory } =
+  await import('@hpmartini/agents-ui/utils/chatEvents');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-test-'));
 const project = path.join(root, 'project');

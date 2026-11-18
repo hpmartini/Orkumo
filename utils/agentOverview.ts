@@ -1,5 +1,5 @@
-import type { AgentContext, AgentSession } from '../types';
-import { cacheCountdown } from './agentCache';
+import type { AgentContext, AgentSession } from '@hpmartini/agents-ui/types';
+import { cacheCountdown } from '@hpmartini/agents-ui/utils/agentCache';
 
 /** Context fill at or above which a session should be compacted */
 export const COMPACT_FILL = 0.8;

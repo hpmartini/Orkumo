@@ -11,7 +11,7 @@ import {
 } from '../../services/boardApi';
 import { itemKey } from '../../utils/board';
 import { keepWrite, mergeRecentWrites, type RecentWrite } from '../../utils/boardWrites';
-import { pollWhileVisible } from '../../utils/visiblePoll';
+import { pollWhileVisible } from '@hpmartini/agents-ui/utils/visiblePoll';
 
 const POLL_MS = 60_000;
 

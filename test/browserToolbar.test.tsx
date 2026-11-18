@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { BrowserPreviewPanel } from '../components/CodingView/BrowserPreviewPanel';
-import { BrowserPane } from '../components/AgentsView/AgentWorkspace';
+import { BrowserPane } from '@hpmartini/agents-ui/components/AgentsView/AgentWorkspace';
+import { renderOrkumoBrowser } from '../components/AgentsHost';
+import { withAgents } from './agents';
 
 const ok = () => Promise.resolve({ success: true });
 
@@ -65,13 +67,16 @@ describe('one browser bar (#185)', () => {
     const onClose = vi.fn();
     const onMaximize = vi.fn();
     render(
-      <BrowserPane
-        url="https://a.test/"
-        active
-        onFocus={() => {}}
-        onClose={onClose}
-        onMaximize={onMaximize}
-      />
+      withAgents(
+        <BrowserPane
+          url="https://a.test/"
+          active
+          onFocus={() => {}}
+          onClose={onClose}
+          onMaximize={onMaximize}
+        />,
+        { renderBrowser: renderOrkumoBrowser }
+      )
     );
     const bar = screen.getByRole('toolbar');
     expect(screen.getAllByRole('toolbar')).toHaveLength(1);
@@ -131,13 +136,16 @@ describe('one browser bar (#185)', () => {
     useElectron();
     const onDragStart = vi.fn();
     render(
-      <BrowserPane
-        url="https://a.test/"
-        active
-        onFocus={() => {}}
-        onClose={() => {}}
-        headerProps={{ draggable: true, onDragStart }}
-      />
+      withAgents(
+        <BrowserPane
+          url="https://a.test/"
+          active
+          onFocus={() => {}}
+          onClose={() => {}}
+          headerProps={{ draggable: true, onDragStart }}
+        />,
+        { renderBrowser: renderOrkumoBrowser }
+      )
     );
     const bar = screen.getByRole('toolbar');
     const draggables = bar.querySelectorAll('[draggable="true"]');
@@ -152,7 +160,12 @@ describe('one browser bar (#185)', () => {
 
   it('AC-4: without split no grip is rendered', () => {
     useElectron();
-    render(<BrowserPane url="https://a.test/" active onFocus={() => {}} onClose={() => {}} />);
+    render(
+      withAgents(
+        <BrowserPane url="https://a.test/" active onFocus={() => {}} onClose={() => {}} />,
+        { renderBrowser: renderOrkumoBrowser }
+      )
+    );
     expect(screen.getByRole('toolbar').querySelector('[draggable="true"]')).toBeNull();
   });
 });

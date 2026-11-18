@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Check, ChevronDown, Pencil } from 'lucide-react';
 import type { BoardLabel, BoardRepoOptions } from '../../types';
 import { fetchRepoOptions } from '../../services/boardApi';
-import { usePopover } from '../AgentsView/PullRequestsPanel';
+import { usePopover } from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPanel';
 import { LabelChip } from './BoardCard';
 
 /** Labels, assignees and milestones of `repo` (server caches them for 5 min) */

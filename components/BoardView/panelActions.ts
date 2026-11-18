@@ -1,6 +1,7 @@
 import toast from 'react-hot-toast';
 import type { NavigateFunction } from 'react-router-dom';
-import type { AgentSession, BoardItem } from '../../types';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
+import type { BoardItem } from '../../types';
 import { fetchRepoPath } from '../../services/boardApi';
 import { fetchAgentContexts } from '../../services/agentsApi';
 import { codeUrl, linkedAgentFolder } from '../../utils/codeTarget';

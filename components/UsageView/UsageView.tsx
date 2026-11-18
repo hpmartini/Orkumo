@@ -10,9 +10,10 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import type { UsageDays, UsageLimitSource, UsageProvider } from './types';
+import type { UsageDays, UsageProvider } from './types';
+import type { UsageLimitSource } from '@hpmartini/agents-ui/components/UsageView/types';
 import { useUsage } from './useUsage';
-import { LimitBar } from './LimitBar';
+import { LimitBar } from '@hpmartini/agents-ui/components/UsageView/LimitBar';
 import {
   ALL_PROVIDERS_ID,
   aggregateProviders,

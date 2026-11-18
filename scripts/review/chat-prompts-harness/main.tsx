@@ -1,6 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChatPane } from '../../../components/AgentsView/Chat/ChatPane';
+import { ChatPane } from '@hpmartini/agents-ui/components/AgentsView/Chat/ChatPane';
 import type { AgentSession } from '../../../types';
 
 const pane = {

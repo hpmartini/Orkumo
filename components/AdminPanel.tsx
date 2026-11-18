@@ -36,7 +36,7 @@ import {
   setLinkTarget as applyLinkTarget,
   type LinkKeys,
   type LinkTarget,
-} from '../utils/links';
+} from '@hpmartini/agents-ui/utils/links';
 
 const LINK_TARGETS = [
   ['builtin', 'Split next to the agent'],

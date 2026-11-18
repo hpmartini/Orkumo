@@ -6,4 +6,3 @@ export {
   SEARCH_SHORTCUT,
   isMac,
 } from './CommandPaletteProvider';
-export { TaskComposerModal } from './TaskComposerModal';

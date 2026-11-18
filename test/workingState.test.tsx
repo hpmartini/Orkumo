@@ -7,9 +7,9 @@ import {
   matchesQuickFilter,
   stateGlyph,
   summarizeSessions,
-} from '../utils/agentSessions';
+} from '@hpmartini/agents-ui/utils/agentSessions';
 import { summarizeAgents } from '../utils/agentOverview';
-import { AgentSummaryBar } from '../components/AgentsView/AgentSummaryBar';
+import { AgentSummaryBar } from '@hpmartini/agents-ui/components/AgentsView/AgentSummaryBar';
 import type { AgentSession } from '../types';
 
 // Built like listSessions does: CLI state wins for `state`, the job file goes to the derivation

@@ -1,12 +1,10 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { cleanup, render, screen, fireEvent } from '@testing-library/react';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import type { AgentSession } from '../types';
-import { openPlan } from '../utils/sessionCopies';
-import { buildAttachUrl } from '../components/AgentsView/AgentTerminal';
-import { CopyWarningDialog } from '../components/AgentsView/CopyWarningDialog';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
+import { openPlan } from '@hpmartini/agents-ui/utils/sessionCopies';
+import { buildAttachUrl } from '../services/agentsTransport';
 
 // #236 open path: rail decision → attach URL the pane opens → real PTY spawn with a claude stub
 // that logs its argv. Fake ids, so a real CLI could never touch a real job.
@@ -114,40 +112,5 @@ describe('opening a background job (#236)', () => {
     });
     // no pane of ours runs it: the row attaches, i.e. runs its ptyArgs
     expect(openPlan({ ...omp, paneId: null }, [], new Set())).toEqual({ type: 'attach' });
-  });
-});
-
-describe('CopyWarningDialog (#236 AC-3)', () => {
-  const setup = (handover: boolean) => {
-    const run = vi.fn();
-    const close = vi.fn();
-    render(<CopyWarningDialog holder={job} handover={handover} onConfirm={run} onClose={close} />);
-    return { run, close };
-  };
-
-  it('Cancel starts nothing', () => {
-    const { run, close } = setup(false);
-    expect(screen.getByRole('alertdialog').textContent).toMatch(/Erzeugt Kopie/);
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
-    expect(close).toHaveBeenCalledTimes(1);
-    expect(run).not.toHaveBeenCalled();
-    cleanup();
-  });
-
-  it('Create copy runs exactly once', () => {
-    const { run } = setup(false);
-    fireEvent.click(screen.getByRole('button', { name: 'Create copy' }));
-    expect(run).toHaveBeenCalledTimes(1);
-    cleanup();
-  });
-
-  it('says "stops" only when the caller stops the holder', () => {
-    setup(false);
-    expect(screen.getByRole('alertdialog').textContent).toMatch(/second process/);
-    expect(screen.getByRole('alertdialog').textContent).not.toMatch(/stops/);
-    cleanup();
-    setup(true);
-    expect(screen.getByRole('alertdialog').textContent).toMatch(/stops that process/);
-    cleanup();
   });
 });
