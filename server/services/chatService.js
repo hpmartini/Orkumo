@@ -65,6 +65,54 @@ function summary(s) {
   };
 }
 
+/** Image types a view serves; the transcript's own media_type is never echoed */
+const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
+/** Images a view keeps for its URLs (oldest go first; their events are long out of the buffer) */
+const MAX_IMAGES = 200;
+
+/** A base64 image block → `{ type: 'image', ref }`, its bytes kept for `chatImage`; others lose their source */
+function imageRef(s, block) {
+  const src = block.source;
+  if (src?.type !== 'base64' || !IMAGE_TYPES.has(src.media_type) || typeof src.data !== 'string')
+    return { type: 'image' };
+  const data = Buffer.from(src.data, 'base64');
+  // content hash: the URL always names the same bytes, so the client may cache it for good
+  const ref = crypto.createHash('sha256').update(src.media_type).update(data).digest('hex').slice(0, 32);
+  s.images.delete(ref);
+  s.images.set(ref, { mime: src.media_type, data });
+  if (s.images.size > MAX_IMAGES) s.images.delete(s.images.keys().next().value);
+  return { type: 'image', ref };
+}
+
+/** Tool results without their screenshots' bytes: views load them by URL, lazily */
+function slimImages(s, event) {
+  const content = event.type === 'user' ? event.message?.content : null;
+  if (!Array.isArray(content)) return event;
+  const slim = (b) => (b?.type === 'image' ? imageRef(s, b) : b);
+  if (
+    !content.some(
+      (b) =>
+        b?.type === 'image' ||
+        (Array.isArray(b?.content) && b.content.some((c) => c?.type === 'image'))
+    )
+  )
+    return event;
+  return {
+    ...event,
+    message: {
+      ...event.message,
+      content: content.map((b) =>
+        Array.isArray(b?.content) ? { ...b, content: b.content.map(slim) } : slim(b)
+      ),
+    },
+  };
+}
+
+/** An image of a view's transcript by its ref, or null */
+export function chatImage(id, ref) {
+  return get(id).images.get(ref) ?? null;
+}
+
 function record(s, event) {
   if (event.type === 'system' && event.subtype === 'init' && event.model) s.model = event.model;
   if (event.type === 'devorbit_commands') {
@@ -73,6 +121,7 @@ function record(s, event) {
     chatEvents.emit(`event:${s.id}`, s.commands);
     return;
   }
+  event = slimImages(s, event);
   logArtifactEvent(s.artifactLog, event);
   s.events.push(event);
   if (s.events.length > MAX_EVENTS) {
@@ -200,6 +249,7 @@ export function viewSession(opts, context = {}) {
     events: [],
     /** Events cut off the front of `events` (MAX_EVENTS): buffer position = dropped + index */
     dropped: 0,
+    images: new Map(),
     /** The `/` and `@` picker entries */
     commands: null,
     watchers: 0,

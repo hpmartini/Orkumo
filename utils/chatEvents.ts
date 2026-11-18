@@ -14,6 +14,8 @@ export type ChatBlock =
       input: Record<string, unknown>;
       result?: string;
       isError?: boolean;
+      /** Refs of the result's images; the server serves their bytes (`chatImageUrl`) */
+      images?: string[];
     };
 
 export type ChatMessage =
@@ -185,6 +187,18 @@ function resultText(content: unknown): string {
     .join('\n');
 }
 
+/** A tool_result block's fields on its tool call */
+function toolResult(r: Json): { result: string; isError: boolean; images?: string[] } {
+  const images = Array.isArray(r.content)
+    ? r.content.filter((c) => isObj(c) && c.type === 'image' && str(c.ref)).map((c) => str(c.ref))
+    : [];
+  return {
+    result: resultText(r.content),
+    isError: r.is_error === true,
+    ...(images.length ? { images } : {}),
+  };
+}
+
 function toBlock(raw: unknown): ChatBlock | null {
   if (!isObj(raw)) return null;
   if (raw.type === 'text') return { type: 'text', text: str(raw.text) };
@@ -235,9 +249,7 @@ function attachToolResult(state: ChatState, block: Json): ChatState {
         : {
             ...m,
             blocks: m.blocks.map((b) =>
-              b.type === 'tool' && b.id === toolId
-                ? { ...b, result: resultText(block.content), isError: block.is_error === true }
-                : b
+              b.type === 'tool' && b.id === toolId ? { ...b, ...toolResult(block) } : b
             ),
           }
     ),
@@ -352,9 +364,7 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
         for (const r of msg.content as unknown[]) {
           if (!isObj(r) || r.type !== 'tool_result') continue;
           blocks = blocks.map((b) =>
-            b.type === 'tool' && b.id === str(r.tool_use_id)
-              ? { ...b, result: resultText(r.content), isError: r.is_error === true }
-              : b
+            b.type === 'tool' && b.id === str(r.tool_use_id) ? { ...b, ...toolResult(r) } : b
           );
         }
         return { ...state, sub: { ...state.sub, [parent]: blocks } };

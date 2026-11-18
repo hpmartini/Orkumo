@@ -1755,6 +1755,27 @@ app.get('/api/agents/chat/:chatId/history', validateParams(chatIdSchema), (req, 
   }
 });
 
+/** GET /api/agents/chat/:chatId/images/:ref - an image of the chat's tool results (content-hash ref) */
+app.get('/api/agents/chat/:chatId/images/:ref', (req, res) => {
+  const { chatId, ref } = req.params;
+  if (!chatIdSchema.safeParse(chatId).success || !/^[0-9a-f]{32}$/.test(ref))
+    return res.status(400).json({ error: 'Invalid image' });
+  let image = null;
+  try {
+    image = chatService.chatImage(chatId, ref);
+  } catch (error) {
+    return sendAgentError(res, error);
+  }
+  if (!image) return res.status(404).json({ error: 'Image not found' });
+  res.set({
+    'Content-Type': image.mime,
+    'X-Content-Type-Options': 'nosniff',
+    // the ref is a hash of type and bytes: the same URL never names other content
+    'Cache-Control': 'private, max-age=31536000, immutable',
+  });
+  res.send(image.data);
+});
+
 /** Artifacts of a chat: files its tools created / edited, omp's `local://` documents, claude.ai pages */
 app.get('/api/agents/chat/:chatId/artifacts', validateParams(chatIdSchema), (req, res) => {
   try {
