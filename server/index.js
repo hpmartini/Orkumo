@@ -1436,6 +1436,8 @@ const agentDispatchSchema = z.object({
   pluginDirs: z.array(z.string().max(500)).max(20).optional(),
   mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
   strictMcpConfig: z.boolean().optional(),
+  // a role profile known to the server (agentService.DISPATCH_PROFILES), not a client path
+  profile: z.enum(['worker']).optional(),
   idle: z.boolean().optional(),
 });
 const agentReplySchema = z.object({
