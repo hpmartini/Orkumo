@@ -5,7 +5,7 @@ import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import type { AgentSession, IssueListResponse, RepoIssue } from '../types';
 import { ConnectedIssuesPage, IssuesPage } from '../components/IssuesView';
-import { PullRequestsDataContext } from '../components/AgentsView/PullRequestsPage';
+import { PullRequestsDataContext } from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPage';
 import { fetchIssues } from '../services/issuesApi';
 
 vi.mock('../services/issuesApi', () => ({ fetchIssues: vi.fn() }));

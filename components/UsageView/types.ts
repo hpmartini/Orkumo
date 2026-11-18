@@ -1,25 +1,7 @@
-/** Response types of GET /api/usage */
+/** Response types of GET /api/usage; the plan-limit types live with the agents view's limit bar */
+import type { UsageLimits } from '@hpmartini/agents-ui/components/UsageView/types';
 
 export type UsageDays = 7 | 30;
-
-export interface UsageWindow {
-  /** null = window has reset or the value is stale */
-  usedPercent: number | null;
-  /** null when `reset`: the window rolled over and nothing was used since */
-  resetsAt: number | null;
-  reset?: boolean;
-  windowMinutes?: number;
-}
-
-export type UsageLimitSource = 'statusline' | 'oauth' | 'claude-cache' | 'rollout';
-
-export interface UsageLimits {
-  fiveHour: UsageWindow | null;
-  weekly: UsageWindow | null;
-  source: UsageLimitSource;
-  asOf: number;
-  plan?: string;
-}
 
 export interface UsageTokens {
   input: number;

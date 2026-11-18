@@ -3,7 +3,7 @@ import { MessagesSquare, Kanban, CircleDot, GitPullRequest, Code2, History } fro
 import { useLocation, useNavigate } from 'react-router-dom';
 import type { ModeEntry } from '../hooks/useModules';
 import { moduleIcon } from './moduleIcon';
-import { reorderIndices, stepIndices } from '../utils/agentWorkspace';
+import { reorderIndices, stepIndices } from '@hpmartini/agents-ui/utils/agentWorkspace';
 
 /** Host modes; modes of loaded modules (e.g. Workflows, #165) sit between Agents and Board */
 export const MODES = [

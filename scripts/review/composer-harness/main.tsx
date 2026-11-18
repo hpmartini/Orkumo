@@ -2,7 +2,7 @@
 // (browser / split), mounted hidden like an inactive tab. Driven by composer-e2e.cjs.
 import React, { useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ChatComposer } from '../../../components/AgentsView/Chat/ChatComposer';
+import { ChatComposer } from '@hpmartini/agents-ui/components/AgentsView/Chat/ChatComposer';
 
 const App = () => {
   const params = new URLSearchParams(window.location.search);

@@ -2,8 +2,8 @@
 import '@xterm/xterm/css/xterm.css';
 import { Terminal } from '@xterm/xterm';
 import { WebLinksAddon } from '@xterm/addon-web-links';
-import { createFileLinkProvider } from '../../../utils/fileLinks';
-import { styleTerminalLinks } from '../../../utils/terminalLinkStyle';
+import { createFileLinkProvider } from '@hpmartini/agents-ui/utils/fileLinks';
+import { styleTerminalLinks } from '@hpmartini/agents-ui/utils/terminalLinkStyle';
 
 const terminal = new Terminal({
   cols: 100,

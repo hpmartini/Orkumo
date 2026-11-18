@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { AgentSession } from '../types';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
 import type { AgentOverview } from './agentOverview';
 import { buildRows, filterRows, groupRows, removeRetryOptions, sortRows } from './agentTable';
 import { removeAgent, renameAgent, respawnAgent, stopAgent } from '../services/agentsApi';

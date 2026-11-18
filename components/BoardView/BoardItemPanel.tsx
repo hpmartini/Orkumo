@@ -11,7 +11,8 @@ import {
   Terminal,
   X,
 } from 'lucide-react';
-import type { AgentSession, BoardIssueDetails, BoardItem, BoardStatusOption } from '../../types';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
+import type { BoardIssueDetails, BoardItem, BoardStatusOption } from '../../types';
 import toast from 'react-hot-toast';
 import { fetchIssueDetails, sendGo } from '../../services/boardApi';
 import { GoButton, goDoneText } from './GoButton';

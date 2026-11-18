@@ -7,8 +7,12 @@ import {
   stopPane,
   subscribeToChat,
 } from '../services/agentsApi';
-import { initialChatState, reduceChat, type ChatState } from '../utils/chatEvents';
-import { ChatMarkdown } from './AgentsView/Chat/ChatMarkdown';
+import {
+  initialChatState,
+  reduceChat,
+  type ChatState,
+} from '@hpmartini/agents-ui/utils/chatEvents';
+import { ChatMarkdown } from '@hpmartini/agents-ui/components/AgentsView/Chat/ChatMarkdown';
 
 type Action = { type: 'reset' } | { type: 'event'; event: unknown };
 const reducer = (state: ChatState, action: Action): ChatState =>

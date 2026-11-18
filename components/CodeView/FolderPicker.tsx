@@ -21,7 +21,7 @@ import {
   type CodeRow,
   type CodeTarget,
 } from '../../utils/codeTarget';
-import { usePopover } from '../AgentsView/PullRequestsPanel';
+import { usePopover } from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPanel';
 import { isMac } from '../CommandPalette/CommandPaletteProvider';
 
 /** Folders opened in Code mode, newest first */

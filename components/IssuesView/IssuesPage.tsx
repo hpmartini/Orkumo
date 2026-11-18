@@ -11,9 +11,10 @@ import {
   RotateCcw,
   User,
 } from 'lucide-react';
-import type { AgentSession, IssueListResponse, RepoIssue } from '../../types';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
+import type { IssueListResponse, RepoIssue } from '../../types';
 import { fetchIssues } from '../../services/issuesApi';
-import { formatAge } from '../../utils/agentSessions';
+import { formatAge } from '@hpmartini/agents-ui/utils/agentSessions';
 import { issueKey, shortRepo } from '../../utils/board';
 import {
   BOARD_LABELS,
@@ -34,10 +35,10 @@ import {
   PullRequestsDataContext,
   SELECT_CLS,
   asOptions,
-} from '../AgentsView/PullRequestsPage';
+} from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPage';
 import { IssueModal } from '../BoardView/IssueModal';
 import { LabelChip } from '../BoardView/BoardCard';
-import { pollWhileVisible } from '../../utils/visiblePoll';
+import { pollWhileVisible } from '@hpmartini/agents-ui/utils/visiblePoll';
 
 const POLL_MS = 60_000;
 const NO_SESSIONS: AgentSession[] = [];

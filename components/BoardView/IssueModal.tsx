@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ExternalLink, KanbanSquare, X } from 'lucide-react';
-import type { AgentSession, IssueSummary } from '../../types';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
+import type { IssueSummary } from '../../types';
 import { fetchIssueSummary, setIssueLabels } from '../../services/boardApi';
 import { deriveAgentLinks, itemKey } from '../../utils/board';
-import { useDialogA11y } from '../CommandPalette/useDialogA11y';
+import { useDialogA11y } from '@hpmartini/agents-ui/components/CommandPalette/useDialogA11y';
 import { useBoard } from './useBoard';
 import { BoardItemPanel } from './BoardItemPanel';
 import { LabelChip } from './BoardCard';

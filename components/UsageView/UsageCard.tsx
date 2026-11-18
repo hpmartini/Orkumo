@@ -1,7 +1,7 @@
 import React from 'react';
 import { BarChart3, ChevronRight, RefreshCw } from 'lucide-react';
 import { useUsage } from './useUsage';
-import { LimitBar } from './LimitBar';
+import { LimitBar } from '@hpmartini/agents-ui/components/UsageView/LimitBar';
 import { formatTokens, staleAge, todayKey, tokensOn } from '../../utils/usage';
 
 interface UsageCardProps {

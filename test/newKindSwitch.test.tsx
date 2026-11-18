@@ -15,8 +15,9 @@ vi.mock('react-hot-toast', () => ({
 }));
 
 import { IssueCreateModal } from '../components/BoardView/IssueCreateModal';
-import { TaskComposerModal } from '../components/CommandPalette/TaskComposerModal';
-import { issueDraftToTask, taskToIssueDraft } from '../utils/composer';
+import { TaskComposerModal } from '@hpmartini/agents-ui/components/CommandPalette/TaskComposerModal';
+import { issueDraftToTask, taskToIssueDraft } from '@hpmartini/agents-ui/utils/composer';
+import { withAgents } from './agents';
 
 const tab = (name: string) => screen.getByRole('tab', { name });
 
@@ -42,25 +43,27 @@ describe('kind switch in the dialogs (#271)', () => {
 
   const composer = (variant: 'task' | 'agent' | 'chat', onKindChange = vi.fn()) => {
     render(
-      <TaskComposerModal
-        open
-        onClose={vi.fn()}
-        value="Fix login"
-        onChange={vi.fn()}
-        onSubmit={vi.fn()}
-        onOpenEditor={vi.fn()}
-        onPickDirectory={vi.fn()}
-        targetCwd="/tmp"
-        hint={null}
-        subagents={[]}
-        repos={[]}
-        commands={[]}
-        inputRef={createRef()}
-        variant={variant}
-        images={[]}
-        onImagesChange={vi.fn()}
-        onKindChange={onKindChange}
-      />
+      withAgents(
+        <TaskComposerModal
+          open
+          onClose={vi.fn()}
+          value="Fix login"
+          onChange={vi.fn()}
+          onSubmit={vi.fn()}
+          onOpenEditor={vi.fn()}
+          onPickDirectory={vi.fn()}
+          targetCwd="/tmp"
+          hint={null}
+          subagents={[]}
+          repos={[]}
+          commands={[]}
+          inputRef={createRef()}
+          variant={variant}
+          images={[]}
+          onImagesChange={vi.fn()}
+          onKindChange={onKindChange}
+        />
+      )
     );
     return onKindChange;
   };

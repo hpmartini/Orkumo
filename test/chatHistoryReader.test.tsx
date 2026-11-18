@@ -15,8 +15,9 @@ import {
 } from '../services/chatHistoryApi';
 import { parseAs } from '../server/services/chatHistoryService.js';
 import { findChatView, typeIntoPage, typeScript } from '../electron/chatPrompt.js';
-import { openInSystemBrowser } from '../utils/links';
+import { openInSystemBrowser } from '@hpmartini/agents-ui/utils/links';
 import type { ElectronAPI } from '../electron/electron';
+import { withAgents } from './agents';
 
 vi.mock('../services/chatHistoryApi', () => ({
   fetchChatHistory: vi.fn(),
@@ -25,7 +26,10 @@ vi.mock('../services/chatHistoryApi', () => ({
   updateChatMeta: vi.fn(),
 }));
 vi.mock('../services/agentsApi', () => ({ uploadAgentFile: vi.fn() }));
-vi.mock('../utils/links', () => ({ openLink: vi.fn(), openInSystemBrowser: vi.fn() }));
+vi.mock('@hpmartini/agents-ui/utils/links', () => ({
+  openLink: vi.fn(),
+  openInSystemBrowser: vi.fn(),
+}));
 
 // Invented chats in the shape of the providers' web API (test/fixtures/chat-api), parsed by the server
 const fixture = (provider: 'claude' | 'chatgpt', file: string): ChatHistoryConversation => {
@@ -55,9 +59,7 @@ const CHATS = [CLAUDE, CHATGPT];
 
 const show = () =>
   render(
-    <MemoryRouter initialEntries={['/chats']}>
-      <ChatHistoryPage />
-    </MemoryRouter>
+    <MemoryRouter initialEntries={['/chats']}>{withAgents(<ChatHistoryPage />)}</MemoryRouter>
   );
 const openChat = async (user: ReturnType<typeof userEvent.setup>, title: string) => {
   const list = await screen.findByLabelText('Chat list');

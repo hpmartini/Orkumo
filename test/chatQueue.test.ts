@@ -6,7 +6,7 @@ import {
   pendingPrompts,
   reduceChat,
   type ChatState,
-} from '../utils/chatEvents';
+} from '@hpmartini/agents-ui/utils/chatEvents';
 
 const line = (rec: object) => JSON.stringify(rec);
 const q = (operation: string, content?: string) =>

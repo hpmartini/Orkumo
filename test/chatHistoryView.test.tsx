@@ -4,7 +4,7 @@ import { act, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, useLocation } from 'react-router-dom';
 import { ChatHistoryPage } from '../components/ChatHistoryView/ChatHistoryPage';
-import { RailOutletContext } from '../components/AgentsView/railOutlet';
+import { RailOutletContext } from '@hpmartini/agents-ui/components/AgentsView/railOutlet';
 import {
   fetchChatConversation,
   fetchChatHistory,
@@ -23,12 +23,12 @@ import {
   dayBound,
   markdownFileName,
   promptLimit,
-  recencyOf,
-  relativeTime,
 } from '../utils/chatHistory';
+import { recencyOf, relativeTime } from '@hpmartini/agents-ui/utils/chatHistory';
 import { DISPATCH_PROMPT_MAX, MAX_HARNESS_PROMPT } from '../config/limits.js';
-import { openInSystemBrowser, openLink } from '../utils/links';
+import { openInSystemBrowser, openLink } from '@hpmartini/agents-ui/utils/links';
 import type { ChatSyncResult, ChatSyncStatus, ElectronAPI } from '../electron/electron';
+import { withAgents } from './agents';
 
 vi.mock('../services/chatHistoryApi', () => ({
   fetchChatHistory: vi.fn(),
@@ -37,7 +37,10 @@ vi.mock('../services/chatHistoryApi', () => ({
   updateChatMeta: vi.fn(),
 }));
 vi.mock('../services/agentsApi', () => ({ uploadAgentFile: vi.fn() }));
-vi.mock('../utils/links', () => ({ openLink: vi.fn(), openInSystemBrowser: vi.fn() }));
+vi.mock('@hpmartini/agents-ui/utils/links', () => ({
+  openLink: vi.fn(),
+  openInSystemBrowser: vi.fn(),
+}));
 
 const item = (n: number, patch: Partial<ChatHistoryItem> = {}): ChatHistoryItem => ({
   id: `claude:${n}`,
@@ -83,7 +86,7 @@ const Where = () => {
 const show = () =>
   render(
     <MemoryRouter initialEntries={['/chats']}>
-      <ChatHistoryPage />
+      {withAgents(<ChatHistoryPage />)}
       <Where />
     </MemoryRouter>
   );
@@ -421,7 +424,7 @@ describe('ChatHistoryPage (#280)', () => {
         <MemoryRouter>
           <div data-testid="rail" ref={setOutlet} />
           <RailOutletContext.Provider value={outlet}>
-            <ChatHistoryPage />
+            {withAgents(<ChatHistoryPage />)}
           </RailOutletContext.Provider>
         </MemoryRouter>
       );
