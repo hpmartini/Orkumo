@@ -57,6 +57,48 @@ describe('prompt typed while the agent works', () => {
     expect(pendingPrompts(s)).toEqual(['mine']);
   });
 
+  // 13c54a91: Claude logged an enqueue without content and its remove with the text; the empty
+  // placeholder stayed, and each later content-less dequeue popped it instead of the new prompt
+  it('a content-less enqueue is matched by its remove with text', () => {
+    const s = run([
+      [q('enqueue'), q('remove', 'mit Bild'), queuedCmd('mit Bild')],
+      [q('enqueue', 'neu'), q('dequeue'), user('neu')],
+    ]);
+    expect(pendingPrompts(s)).toEqual([]);
+    expect(users(s)).toEqual(['mit Bild', 'neu']);
+  });
+
+  it('a queued prompt goes away once the transcript holds it as a user turn', () => {
+    // stale entry at the head: the dequeue pops it, the prompt itself stays in the mirror
+    const s1 = run([[q('enqueue'), q('enqueue', 'frage'), q('dequeue')]]);
+    expect(pendingPrompts(s1)).toEqual(['frage']);
+    const s2 = run([[user('frage')]], s1);
+    expect(pendingPrompts(s2)).toEqual([]);
+    expect(users(s2)).toEqual(['frage']);
+  });
+
+  it('popAll (queued prompts pulled back into the input) empties the queue', () => {
+    expect(
+      pendingPrompts(run([[q('enqueue', 'a'), q('enqueue', 'b'), q('popAll', 'a\nb')]]))
+    ).toEqual([]);
+  });
+
+  it('keeps transcript order: answers between prompts stay in place, pending last', () => {
+    const answer = (text: string) =>
+      line({ type: 'assistant', message: { id: text, content: [{ type: 'text', text }] } });
+    const s = run([
+      [user('eins'), q('enqueue', 'zwei'), answer('A1')],
+      [q('dequeue'), user('zwei'), answer('A2'), q('enqueue', 'drei')],
+    ]);
+    expect(s.messages.map((m) => (m.kind === 'user' ? m.text : m.kind))).toEqual([
+      'eins',
+      'assistant',
+      'zwei',
+      'assistant',
+    ]);
+    expect(pendingPrompts(s)).toEqual(['drei']);
+  });
+
   it('a tail that starts after the enqueue ignores the unmatched remove', () => {
     const s = run([[q('enqueue', 'a'), q('remove', 'gone')]]);
     expect(pendingPrompts(s)).toEqual(['a']);

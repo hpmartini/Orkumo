@@ -105,6 +105,8 @@ export interface ChatState {
   boundary: boolean;
   /** Background tasks (shells) whose `<task-notification>` reported an end */
   endedTasks: string[];
+  /** Cursor of the next older page (`fetchChatHistory`); null before the replay said */
+  older: { before: number; more: boolean } | null;
 }
 
 export const initialChatState: ChatState = {
@@ -120,7 +122,31 @@ export const initialChatState: ChatState = {
   sent: [],
   boundary: true,
   endedTasks: [],
+  older: null,
 };
+
+/**
+ * Puts an older page (`fetchChatHistory`) in front of the loaded messages. Pages end where a
+ * turn starts, so its tool calls and results are complete; keys get the cursor as prefix.
+ */
+export function prependHistory(
+  state: ChatState,
+  page: { events: unknown[]; before: number; more: boolean }
+): ChatState {
+  // the session's first prompt starts a context; any other page's first one may not
+  let older: ChatState = { ...initialChatState, boundary: !page.more };
+  for (const event of page.events) older = reduceChat(older, event);
+  return {
+    ...state,
+    messages: [
+      ...older.messages.map((m) => ({ ...m, key: `h${page.before}:${m.key}` })),
+      ...state.messages,
+    ],
+    sub: { ...older.sub, ...state.sub },
+    endedTasks: [...new Set([...older.endedTasks, ...state.endedTasks])],
+    older: { before: page.before, more: page.more },
+  };
+}
 
 /** Queued prompts the user typed (task notifications and other `<…>` wrappers left out) */
 export const pendingPrompts = (state: ChatState): string[] => [
@@ -340,11 +366,27 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
       );
     }
 
+    // the replay starts with the last turns: no start prompt unless it is the whole session
+    case 'devorbit_page': {
+      const before = Number(event.before);
+      if (!Number.isSafeInteger(before)) return state;
+      const more = event.more === true;
+      return { ...state, older: { before, more }, ...(more ? { boundary: false } : {}) };
+    }
+
     case 'devorbit_queue': {
       const text = str(event.text);
       if (event.op === 'enqueue') return { ...state, queued: [...state.queued, text].slice(-50) };
-      // dequeue: the head goes to the next turn; remove: taken by the running turn or withdrawn
-      const at = event.op === 'dequeue' ? 0 : state.queued.indexOf(text);
+      // popAll: the queued prompts went back into the TUI's input
+      if (event.op === 'popAll') return state.queued.length ? { ...state, queued: [] } : state;
+      // dequeue: the head goes to the next turn; remove: taken by the running turn or withdrawn.
+      // Claude may log the enqueue without content and its remove with it: take the placeholder
+      const at =
+        event.op === 'dequeue'
+          ? 0
+          : state.queued.includes(text)
+            ? state.queued.indexOf(text)
+            : state.queued.indexOf('');
       if (at < 0 || at >= state.queued.length) return state; // tail started after its enqueue
       return { ...state, queued: state.queued.filter((_, i) => i !== at) };
     }
@@ -360,9 +402,12 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
     case 'devorbit_task_ended':
       return { ...state, endedTasks: [...state.endedTasks, str(event.id)].slice(-500) };
 
-    case 'devorbit_user':
+    case 'devorbit_user': {
+      // In the transcript now: a queued copy the queue log left behind (a drifted FIFO) goes
+      const taken = state.queued.findIndex((t) => t.trim() === str(event.text).trim());
       return {
         ...state,
+        ...(taken >= 0 ? { queued: state.queued.filter((_, i) => i !== taken) } : {}),
         // by count: the logged text differs (attachments, omp's own wrapping)
         sent: state.sent.length ? state.sent.slice(1) : state.sent,
         boundary: false,
@@ -377,6 +422,7 @@ export function reduceChat(state: ChatState, event: unknown): ChatState {
           },
         ],
       };
+    }
 
     case 'result': {
       const ok = event.is_error !== true;

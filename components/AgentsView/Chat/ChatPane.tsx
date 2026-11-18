@@ -26,13 +26,19 @@ import {
   initialChatState,
   initialPrompts,
   pendingPrompts,
+  prependHistory,
   agentMessage,
   reduceChat,
   type ChatState,
   type ChatSubmitKey,
 } from '../../../utils/chatEvents';
 import { attachableFiles, promptWithAttachments } from '../../../utils/composer';
-import { openTranscriptView, subscribeToChat, uploadAttachment } from '../../../services/agentsApi';
+import {
+  fetchChatHistory,
+  openTranscriptView,
+  subscribeToChat,
+  uploadAttachment,
+} from '../../../services/agentsApi';
 import { ImageAttachments, imageDropHandlers } from '../../ImageAttachments';
 import { ChatItemView, UserMessage } from './ChatMessages';
 import { ChatFileContext } from './ChatMarkdown';
@@ -54,6 +60,7 @@ import { dialogKeys, parseAgentDialog, type DialogAnswer } from '../../../utils/
 import { harnessLabel, sessionHarness } from '../../../utils/agentSessions';
 import {
   paneScreen,
+  paneSuggestion,
   pressKeys,
   reattachPane,
   typeIntoPane,
@@ -99,6 +106,24 @@ const PROMPT_LINES = 40;
 /** A sent answer keeps its card locked this long when the screen does not move on (keys lost) */
 const SENT_LOCK_MS = 5000;
 
+/** Claude Code's ghost-text suggestion in pane `paneId`'s input line, read while `active` */
+function usePaneSuggestion(paneId: string, active: boolean): string | null {
+  const [text, setText] = useState<string | null>(null);
+  useEffect(() => {
+    if (!active) return;
+    // shortcut: a suggestion the TUI cut at the pane width offers only its visible part; read
+    // the full text from the TUI (Tab, then its input line) if cut ones turn out common
+    const read = () => setText(paneSuggestion(paneId)?.text ?? null);
+    read();
+    const timer = setInterval(read, PROMPT_POLL_MS);
+    return () => {
+      clearInterval(timer);
+      setText(null);
+    };
+  }, [paneId, active]);
+  return active ? text : null;
+}
+
 /** Screen tail of pane `paneId` while its agent waits on a question or permission (not in its transcript) */
 function usePanePrompt(paneId: string, prompting: boolean): string | null {
   const [text, setText] = useState('');
@@ -115,9 +140,18 @@ function usePanePrompt(paneId: string, prompting: boolean): string | null {
   return prompting ? text : null;
 }
 
-type Action = { type: 'reset' } | { type: 'event'; event: unknown };
+type Action =
+  | { type: 'reset' }
+  | { type: 'event'; event: unknown }
+  | { type: 'older'; page: Awaited<ReturnType<typeof fetchChatHistory>> };
 const reducer = (state: ChatState, action: Action): ChatState =>
-  action.type === 'reset' ? initialChatState : reduceChat(state, action.event);
+  action.type === 'reset'
+    ? initialChatState
+    : action.type === 'older'
+      ? prependHistory(state, action.page)
+      : reduceChat(state, action.event);
+/** Distance from the top (px) at which the next older page loads */
+const LOAD_OLDER_PX = 400;
 
 const iconBtn =
   'p-1 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-40 shrink-0';
@@ -227,6 +261,53 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       lastScrollTop.current = el.scrollTop;
     }
   }, []);
+  // Older turns load page by page near the top; the view keeps its place while they go in front
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  const loadingRef = useRef(false);
+  // The message at the top of the view and its offset: put back there once the page is in
+  const restoreScroll = useRef<{ key: string; offset: number } | null>(null);
+  const loadOlder = useCallback(() => {
+    const older = state.older;
+    const el = listRef.current;
+    if (!chatId || !older?.more || loadingRef.current || !el) return;
+    loadingRef.current = true;
+    setLoadingOlder(true);
+    fetchChatHistory(chatId, older.before)
+      .then((page) => {
+        const top = el.getBoundingClientRect().top;
+        const first = [...el.querySelectorAll<HTMLElement>('[data-chat-key]')].find(
+          (m) => m.getBoundingClientRect().bottom > top
+        );
+        if (first?.dataset.chatKey)
+          restoreScroll.current = {
+            key: first.dataset.chatKey,
+            offset: first.getBoundingClientRect().top - top,
+          };
+        dispatch({ type: 'older', page });
+      })
+      .catch((e: Error) => setError(e.message))
+      .finally(() => {
+        loadingRef.current = false;
+        setLoadingOlder(false);
+      });
+  }, [chatId, state.older]);
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    const saved = restoreScroll.current;
+    if (!el || !saved) return;
+    restoreScroll.current = null;
+    const anchor = el.querySelector<HTMLElement>(`[data-chat-key="${globalThis.CSS.escape(saved.key)}"]`);
+    if (!anchor) return;
+    // by the element, not the height: estimated heights (content-visibility) settle later
+    el.scrollTop +=
+      anchor.getBoundingClientRect().top - el.getBoundingClientRect().top - saved.offset;
+    lastScrollTop.current = el.scrollTop;
+  }, [state.messages]);
+  // A short tail that does not fill the view cannot be scrolled: load on until it does
+  useEffect(() => {
+    const el = listRef.current;
+    if (el && el.scrollHeight <= el.clientHeight + LOAD_OLDER_PX) loadOlder();
+  }, [state.older, loadOlder]);
   useLayoutEffect(pinBottom, [state.messages, showSteps, pinBottom]);
   useEffect(() => {
     const content = contentRef.current;
@@ -317,6 +398,10 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
   }, [busy]);
   // The agent's state only says it may wait; the box needs a dialog on its screen
   const screen = usePanePrompt(pane.id, prompting);
+  const suggestion = usePaneSuggestion(
+    pane.id,
+    harness === 'claude' && connected && !busy && !prompting
+  );
   const prompt = screen ? screenPrompt(screen) : null;
   // A dialog the parser knows becomes a card; any other prompt stays the screen excerpt below
   const dialog = useMemo(() => (prompt ? parseAgentDialog(screen ?? '') : null), [prompt, screen]);
@@ -573,9 +658,25 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
           if (nearBottom) stickToBottom.current = true;
           else if (el.scrollTop < lastScrollTop.current - 2) stickToBottom.current = false;
           lastScrollTop.current = el.scrollTop;
+          if (el.scrollTop < LOAD_OLDER_PX) loadOlder();
         }}
       >
         <div ref={contentRef}>
+          {state.older?.more && (
+            <div className="flex justify-center py-2" role="status">
+              {loadingOlder ? (
+                <span className="text-xs text-gray-500">Loading earlier messages…</span>
+              ) : (
+                <button
+                  type="button"
+                  onClick={loadOlder}
+                  className="text-xs text-gray-400 hover:text-gray-200 underline-offset-2 hover:underline"
+                >
+                  Load earlier messages
+                </button>
+              )}
+            </div>
+          )}
           {state.messages.length === 0 && (
             <div className="h-full flex items-center justify-center text-sm text-gray-500">
               {sessionId
@@ -693,6 +794,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             history={history}
             commands={state.commands}
             agents={state.agents}
+            suggestion={suggestion}
             inputRef={inputRef}
           />
           <button

@@ -42,6 +42,8 @@ interface ChatComposerProps {
   history: string[];
   commands: ChatCommand[];
   agents: { name: string; description: string }[];
+  /** The agent's prompt suggestion: shown in the empty input, Tab or → takes it, typing drops it */
+  suggestion?: string | null;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
@@ -58,8 +60,12 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   history,
   commands,
   agents,
+  suggestion,
   inputRef,
 }) => {
+  // The suggestion the user typed over or took; a new one shows again
+  const [dropped, setDropped] = useState<string | null>(null);
+  const ghost = !disabled && !value && suggestion && suggestion !== dropped ? suggestion : null;
   const [caret, setCaret] = useState(0);
   const pendingCaret = useRef<number | null>(null);
   const historyIndex = useRef(-1);
@@ -182,6 +188,14 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
         return;
       }
     }
+    if (ghost && plain && !e.shiftKey && (e.key === 'Tab' || e.key === 'ArrowRight')) {
+      e.preventDefault();
+      pendingCaret.current = ghost.length;
+      // used up: the TUI still shows it until the sent prompt reaches it
+      setDropped(ghost);
+      onChange(ghost);
+      return;
+    }
     if (e.key === 'Escape' && busy) {
       e.preventDefault();
       onStop();
@@ -302,6 +316,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
           disabled={disabled}
           rows={1}
           onChange={(e) => {
+            if (ghost) setDropped(ghost);
             historyIndex.current = -1;
             setDismissed(null);
             onChange(e.target.value);
@@ -311,7 +326,9 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
           onKeyDown={onKeyDown}
           onBlur={() => setDismissed(queryKey)}
           placeholder={
-            disabled
+            ghost
+              ? `${ghost}  ⇥ Tab`
+              : disabled
               ? 'Terminal not connected'
               : submitKey === 'enter'
                 ? 'Message · Enter sends · / commands · @ files'

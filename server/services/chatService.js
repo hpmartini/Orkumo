@@ -32,7 +32,9 @@ import {
 
 export const VIEW_HARNESSES = Object.keys(TRANSCRIPT_READERS);
 
-const NAME_RE = /^[^\0\n\r]{1,80}$/;
+const NAME_RE = /^[^\0\n\r]+$/;
+/** A view's name only labels it: a longer session name is shortened, not refused */
+const NAME_MAX = 80;
 /** Replay buffer per view */
 const MAX_EVENTS = 5000;
 /** A view nobody watches is stopped after this long (pane closed without stop, tab gone) */
@@ -66,17 +68,49 @@ function summary(s) {
 function record(s, event) {
   if (event.type === 'system' && event.subtype === 'init' && event.model) s.model = event.model;
   if (event.type === 'devorbit_commands') {
-    // One merged list in the replay buffer
-    const prev = s.events.findIndex((e) => e.type === 'devorbit_commands');
-    if (prev >= 0) {
-      event = { ...s.events[prev], ...event };
-      s.events.splice(prev, 1);
-    }
+    // One merged list, kept beside the buffer so buffer positions stay stable
+    s.commands = { ...s.commands, ...event };
+    chatEvents.emit(`event:${s.id}`, s.commands);
+    return;
   }
   logArtifactEvent(s.artifactLog, event);
   s.events.push(event);
-  if (s.events.length > MAX_EVENTS) s.events.splice(0, s.events.length - MAX_EVENTS);
+  if (s.events.length > MAX_EVENTS) {
+    s.dropped += s.events.length - MAX_EVENTS;
+    s.events.splice(0, s.events.length - MAX_EVENTS);
+  }
   chatEvents.emit(`event:${s.id}`, event);
+}
+
+/** Turns a view replays on open; older ones come page by page (`chatHistoryPage`) */
+export const PAGE_TURNS = 20;
+/** Events that only carry state (queue, ended tasks, model): replayed even before the first page */
+const isState = (e) =>
+  e.type === 'devorbit_queue' ||
+  e.type === 'devorbit_task_ended' ||
+  (e.type === 'system' && e.subtype === 'init');
+
+/** Buffer index where the `turns` user turns before index `end` start (0: none older) */
+function pageStart(events, end, turns) {
+  let seen = 0;
+  for (let i = end - 1; i >= 0; i--)
+    if (events[i].type === 'devorbit_user' && ++seen === turns) return i;
+  return 0;
+}
+
+/**
+ * The page of `PAGE_TURNS` turns before buffer position `before` (from a `devorbit_page` event):
+ * `{ events, before, more }`, `before` being the cursor for the next older page
+ */
+export function chatHistoryPage(id, before, turns = PAGE_TURNS) {
+  const s = get(id);
+  const end = Math.max(0, Math.min(s.events.length, before - s.dropped));
+  const start = pageStart(s.events, end, turns);
+  return {
+    events: s.events.slice(start, end).filter((e) => !isState(e)),
+    before: s.dropped + start,
+    more: start > 0,
+  };
 }
 
 /**
@@ -102,7 +136,9 @@ function sanitizeView(opts, context) {
   const named = opts.name != null && opts.name !== '';
   if (named && !(typeof opts.name === 'string' && NAME_RE.test(opts.name)))
     throw badRequest('Invalid name');
-  return { harness: opts.harness, sessionId: opts.sessionId, cwd, name: opts.name || null };
+  const name =
+    named && opts.name.length > NAME_MAX ? `${opts.name.slice(0, NAME_MAX - 1)}…` : opts.name;
+  return { harness: opts.harness, sessionId: opts.sessionId, cwd, name: name || null };
 }
 
 /** Claude's `/` and `@` picker: the TUI's built-ins plus the project's and user's skills */
@@ -162,6 +198,10 @@ export function viewSession(opts, context = {}) {
     running: true,
     startedAt: Date.now(),
     events: [],
+    /** Events cut off the front of `events` (MAX_EVENTS): buffer position = dropped + index */
+    dropped: 0,
+    /** The `/` and `@` picker entries */
+    commands: null,
     watchers: 0,
     orphanTimer: null,
     /** File tool calls of the whole tail (the replay buffer is capped) */
@@ -282,13 +322,19 @@ export function stopAllChats() {
 }
 
 /**
- * Subscribe to a view: replays the buffer, then streams live events.
+ * Subscribe to a view: replays its last `turns` turns (a `devorbit_page` marker holds the cursor
+ * for older ones), then streams live events.
  * Counts as a watcher; the orphan timer runs while nobody watches.
  * @returns {() => void} unsubscribe
  */
-export function watchChat(id, onEvent) {
+export function watchChat(id, onEvent, turns = PAGE_TURNS) {
   const s = get(id);
-  for (const event of s.events) onEvent(event);
+  if (s.commands) onEvent(s.commands);
+  // Only the last `turns` turns; older ones on request. State events before them still count.
+  const start = pageStart(s.events, s.events.length, turns);
+  for (let i = 0; i < start; i++) if (isState(s.events[i])) onEvent(s.events[i]);
+  onEvent({ type: 'devorbit_page', before: s.dropped + start, more: start > 0 });
+  for (let i = start; i < s.events.length; i++) onEvent(s.events[i]);
   const listener = (event) => onEvent(event);
   chatEvents.on(`event:${id}`, listener);
   s.watchers++;

@@ -62,7 +62,7 @@ function claudeHistoryEvents(lines) {
     if (rec.type === 'queue-operation') {
       const text = str(rec.content);
       // peer messages stay in: they hold their place in the FIFO, the view hides `<…` entries
-      if (['enqueue', 'dequeue', 'remove'].includes(rec.operation))
+      if (['enqueue', 'dequeue', 'remove', 'popAll'].includes(rec.operation))
         events.push({ type: 'devorbit_queue', op: rec.operation, text: unwrapPasted(text) });
       continue;
     }
