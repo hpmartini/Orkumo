@@ -493,6 +493,12 @@ export const fetchChatArtifacts = (id: string) =>
     chatPath(id, 'artifacts')
   ).then((d): ChatArtifacts => ({ files: d.artifacts, pages: d.claudeArtifacts ?? [] }));
 
+/** Older turns of a view: the page before cursor `before` (its `devorbit_page` event) */
+export const fetchChatHistory = (id: string, before: number) =>
+  request<{ events: unknown[]; before: number; more: boolean }>(
+    `${chatPath(id, 'history')}?before=${before}`
+  );
+
 /** Text of a listed artifact; throws with the server's reason (binary, too large, outside) */
 export const fetchChatArtifactContent = (id: string, path: string) =>
   request<{ path: string; content: string; size: number; mtime: number }>(

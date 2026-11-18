@@ -13,6 +13,7 @@ import { ImageAddon } from '@xterm/addon-image';
 import { getLinkKeys, getLinkTarget, linkTargetFor, openLink } from '../../utils/links';
 import { createFileLinkProvider } from '../../utils/fileLinks';
 import { styleTerminalLinks } from '../../utils/terminalLinkStyle';
+import { promptSuggestion } from '../../utils/terminalScreen';
 import { openFile } from '../../utils/openFile';
 import '@xterm/xterm/css/xterm.css';
 import {
@@ -212,6 +213,12 @@ export function paneScreen(id: string, maxLines = 18): string {
     if (line.trim()) lines.push(line);
   }
   return lines.slice(-maxLines).join('\n');
+}
+
+/** Claude Code's prompt suggestion (ghost text) in pane `id`'s input line, see `promptSuggestion` */
+export function paneSuggestion(id: string): ReturnType<typeof promptSuggestion> {
+  const terminal = paneTerminals.get(id)?.terminal;
+  return terminal ? promptSuggestion(terminal) : null;
 }
 
 function createPaneTerminal(

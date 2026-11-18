@@ -1623,7 +1623,8 @@ app.post(
       harness: z.enum(chatService.VIEW_HARNESSES),
       sessionId: z.string().max(80),
       cwd: pathSchema,
-      name: z.string().max(80).optional().nullable(),
+      // a label: chatService shortens a long one
+      name: z.string().max(1000).optional().nullable(),
     })
   ),
   (req, res) => {
@@ -1741,6 +1742,18 @@ app.get(
     }
   }
 );
+
+/** Older turns of a view, page by page (?before= cursor of its `devorbit_page` event) */
+app.get('/api/agents/chat/:chatId/history', validateParams(chatIdSchema), (req, res) => {
+  const before = Number(req.query.before);
+  if (!Number.isSafeInteger(before) || before < 0)
+    return res.status(400).json({ error: 'Invalid cursor' });
+  try {
+    res.json(chatService.chatHistoryPage(req.params.chatId, before));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
 
 /** Artifacts of a chat: files its tools created / edited, omp's `local://` documents, claude.ai pages */
 app.get('/api/agents/chat/:chatId/artifacts', validateParams(chatIdSchema), (req, res) => {

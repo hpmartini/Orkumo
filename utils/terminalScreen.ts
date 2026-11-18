@@ -36,3 +36,42 @@ export async function renderTerminalScreen(raw: string): Promise<string> {
     term.dispose();
   }
 }
+
+/** Minimal xterm view `promptSuggestion` reads (the pane's live terminal) */
+type ScreenTerminal = Pick<Terminal, 'rows' | 'cols'> & {
+  buffer: { active: Pick<Terminal['buffer']['active'], 'viewportY' | 'getLine'> };
+};
+
+/**
+ * Claude Code's prompt suggestion: grey (dim) ghost text in its empty input line `❯ …`, the
+ * lowest `❯` row on screen. null when the line holds typed text or nothing. `truncated`: the TUI
+ * cut it at the pane's width with `…`.
+ */
+export function promptSuggestion(
+  terminal: ScreenTerminal
+): { text: string; truncated: boolean } | null {
+  const buffer = terminal.buffer.active;
+  for (let y = buffer.viewportY + terminal.rows - 1; y >= buffer.viewportY; y--) {
+    const line = buffer.getLine(y);
+    if (!line) continue;
+    const marker = line.translateToString(true).search(/\S/);
+    if (marker < 0 || line.translateToString(true)[marker] !== '❯') continue;
+    let text = '';
+    for (let x = marker + 1; x < terminal.cols; x++) {
+      const cell = line.getCell(x);
+      const chars = cell?.getChars() ?? '';
+      if (!chars.trim()) {
+        text += ' ';
+        continue;
+      }
+      if (!cell?.isDim()) return null; // typed by the user
+      text += chars;
+    }
+    text = text.trim();
+    // the empty input's own hint is no suggestion
+    if (!text || /^Try "/.test(text)) return null;
+    const truncated = text.endsWith('…');
+    return { text: truncated ? text.slice(0, -1).trimEnd() : text, truncated };
+  }
+  return null;
+}
