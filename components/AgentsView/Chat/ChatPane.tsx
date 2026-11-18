@@ -40,7 +40,7 @@ import {
   uploadAttachment,
 } from '../../../services/agentsApi';
 import { ImageAttachments, imageDropHandlers } from '../../ImageAttachments';
-import { ChatItemView, UserMessage } from './ChatMessages';
+import { ChatIdContext, ChatItemView, UserMessage } from './ChatMessages';
 import { ChatFileContext } from './ChatMarkdown';
 import {
   ChatArtifactsButton,
@@ -302,7 +302,9 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
     const saved = restoreScroll.current;
     if (!el || !saved) return;
     restoreScroll.current = null;
-    const anchor = el.querySelector<HTMLElement>(`[data-chat-key="${globalThis.CSS.escape(saved.key)}"]`);
+    const anchor = el.querySelector<HTMLElement>(
+      `[data-chat-key="${globalThis.CSS.escape(saved.key)}"]`
+    );
     if (!anchor) return;
     // by the element, not the height: estimated heights (content-visibility) settle later
     el.scrollTop +=
@@ -485,7 +487,7 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
         ? 'working…'
         : 'ready';
 
-  return (
+  const view = (
     <div
       className={`flex flex-col h-full min-h-0 bg-gray-950 border rounded-lg overflow-hidden ${
         focused
@@ -868,4 +870,6 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
       </div>
     </div>
   );
+  // tool results load their images from this chat
+  return <ChatIdContext.Provider value={chatId}>{view}</ChatIdContext.Provider>;
 };

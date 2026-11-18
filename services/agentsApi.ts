@@ -506,6 +506,10 @@ export const fetchChatArtifactContent = (id: string, path: string) =>
   );
 
 /** Preview URL of an image stored by uploadAgentImage; null for any other path */
+/** URL of an image in a chat's tool results (its ref comes from the server) */
+export const chatImageUrl = (chatId: string, ref: string): string =>
+  agentApiUrl(`${chatPath(chatId, 'images')}/${encodeURIComponent(ref)}`);
+
 export function agentImageUrl(path: string): string | null {
   const name = path.split('/').pop() ?? '';
   return /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/.test(name) && path.includes('/agent-images/')
