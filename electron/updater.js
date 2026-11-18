@@ -18,6 +18,7 @@ import {
   findMacZip,
   findRelease,
   launchSwap,
+  removeTree,
   runFile,
   stageBundle,
 } from './selfUpdate.js';
@@ -207,10 +208,15 @@ export function setupUpdater({
       set({ ...status, state: 'downloading', percent });
     });
   } else if (mode === 'swap') {
-    // a previous run's leftovers; the zip of a pending update is fetched again
-    fs.rmSync(path.join(updatesDir, 'staging'), { recursive: true, force: true });
-    for (const name of fs.existsSync(updatesDir) ? fs.readdirSync(updatesDir) : []) {
-      if (/\.zip(\.part)?$/.test(name)) fs.rmSync(path.join(updatesDir, name), { force: true });
+    // a previous run's leftovers; the zip of a pending update is fetched again. Runs at app start: a failure
+    // is logged, never thrown (an uncaught error here is a main-process error dialog)
+    try {
+      removeTree(path.join(updatesDir, 'staging'));
+      for (const name of fs.existsSync(updatesDir) ? fs.readdirSync(updatesDir) : []) {
+        if (/\.zip(\.part)?$/.test(name)) fs.rmSync(path.join(updatesDir, name), { force: true });
+      }
+    } catch (error) {
+      log.error('[Updater] Cleanup failed:', firstLine(error));
     }
   }
 

@@ -77,6 +77,21 @@ function wire(mode, overrides = {}) {
   return { autoUpdater, updater, statuses };
 }
 
+describe('swap mode: start-up cleanup', () => {
+  it('a failing cleanup is logged, never thrown (it runs in the main process at start)', () => {
+    const notADir = path.join(tmp(), 'updates');
+    fs.writeFileSync(notADir, 'x');
+    const errors = [];
+    expect(() =>
+      wire('swap', {
+        updatesDir: notADir,
+        log: { log() {}, error: (...a) => errors.push(a.join(' ')) },
+      })
+    ).not.toThrow();
+    expect(errors.join('\n')).toMatch(/\[Updater\] Cleanup failed:.*ENOTDIR/);
+  });
+});
+
 describe('resolveUpdateMode', () => {
   const base = {
     isDev: false,

@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process';
+import { createRequire } from 'module';
 import crypto from 'crypto';
 import fs from 'fs';
 import os from 'os';
@@ -16,6 +17,7 @@ import {
   parseVersion,
   pickMacZip,
   pickRelease,
+  removeTree,
   shQuote,
   swapScript,
 } from '../electron/selfUpdate.js';
@@ -357,4 +359,82 @@ describe('canSwapBundle', () => {
     );
     expect(canSwapBundle('/usr/lib/orkumo', ok)).toBe(false);
   });
+});
+
+describe('removeTree (staged bundle with app.asar)', () => {
+  const require = createRequire(import.meta.url);
+  let electron = null;
+  let asar = null;
+  try {
+    electron = require('electron');
+    asar = require('@electron/asar');
+  } catch {
+    // no Electron binary or asar packer here: only the node half runs
+  }
+
+  /** updates/staging/Orkumo.app/Contents/Resources/app.asar, a real archive */
+  async function stagedBundle() {
+    const updatesDir = tmp();
+    const src = path.join(tmp(), 'app');
+    fs.mkdirSync(path.join(src, 'lib'), { recursive: true });
+    fs.writeFileSync(path.join(src, 'package.json'), '{"name":"x"}');
+    fs.writeFileSync(path.join(src, 'lib', 'a.js'), '1');
+    const res = path.join(updatesDir, 'staging', 'Orkumo.app', 'Contents', 'Resources');
+    fs.mkdirSync(res, { recursive: true });
+    await asar.createPackage(src, path.join(res, 'app.asar'));
+    return updatesDir;
+  }
+
+  /** runs `body` in Electron's node mode, where fs reads *.asar as directories */
+  function inElectron(body) {
+    const script = path.join(tmp(), 'run.mjs');
+    fs.writeFileSync(script, body);
+    const r = spawnSync(electron, [script], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      encoding: 'utf8',
+      timeout: 30000,
+    });
+    return String(r.stdout).trim().split('\n').pop();
+  }
+
+  const url = (rel) => JSON.stringify(new URL(rel, import.meta.url).href);
+
+  it('removes a plain tree', () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'a', 'b'), { recursive: true });
+    removeTree(path.join(dir, 'a'));
+    expect(fs.existsSync(path.join(dir, 'a'))).toBe(false);
+    expect(process.noAsar).toBeFalsy();
+  });
+
+  it.skipIf(!electron || !asar)(
+    'under Electron: plain rmSync fails on app.asar (the start-up crash), removeTree and the updater clean up',
+    async () => {
+      const crash = await stagedBundle();
+      expect(
+        inElectron(`import fs from 'fs';
+try { fs.rmSync(${JSON.stringify(path.join(crash, 'staging'))}, { recursive: true, force: true }); console.log('ok'); }
+catch (e) { console.log(e.code); }`)
+      ).toBe('ENOTDIR');
+
+      const fixed = await stagedBundle();
+      expect(
+        inElectron(`import fs from 'fs';
+import { removeTree } from ${url('../electron/selfUpdate.js')};
+removeTree(${JSON.stringify(path.join(fixed, 'staging'))});
+console.log(fs.existsSync(${JSON.stringify(path.join(fixed, 'staging'))}) ? 'left' : 'gone');`)
+      ).toBe('gone');
+
+      const start = await stagedBundle();
+      fs.writeFileSync(path.join(start, 'Orkumo-1.0.0-arm64.zip'), 'x');
+      expect(
+        inElectron(`import fs from 'fs';
+import { setupUpdater } from ${url('../electron/updater.js')};
+const errors = [];
+setupUpdater({ mode: 'swap', currentVersion: '1.0.0-rc.1', env: {}, updatesDir: ${JSON.stringify(start)},
+  bundlePath: '/Applications/Orkumo.app', log: { log() {}, error: (...a) => errors.push(a.join(' ')) } });
+console.log(JSON.stringify({ left: fs.readdirSync(${JSON.stringify(start)}), errors }));`)
+      ).toBe('{"left":[],"errors":[]}');
+    }
+  );
 });

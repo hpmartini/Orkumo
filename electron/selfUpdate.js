@@ -240,6 +240,20 @@ export async function downloadVerified({ url, dest, sha512, size, fetch, onProgr
   return dest;
 }
 
+/**
+ * Removes a file or tree that may hold an app bundle. Electron's fs reads every `*.asar` as a directory, so a
+ * recursive rm of a staged Orkumo.app fails on its app.asar (ENOTDIR); with asar support off it is a plain file.
+ */
+export function removeTree(target) {
+  const noAsar = process.noAsar;
+  process.noAsar = true;
+  try {
+    fs.rmSync(target, { recursive: true, force: true });
+  } finally {
+    process.noAsar = noAsar;
+  }
+}
+
 async function plistValue(run, plist, key) {
   const { stdout } = await run('/usr/bin/plutil', ['-extract', key, 'raw', '-o', '-', plist]);
   return String(stdout).trim();
@@ -250,7 +264,7 @@ async function plistValue(run, plist, key) {
  * @returns {Promise<string>} path of the staged .app
  */
 export async function stageBundle({ zip, dir, version, bundleId = BUNDLE_ID, run = runFile }) {
-  fs.rmSync(dir, { recursive: true, force: true });
+  removeTree(dir);
   fs.mkdirSync(dir, { recursive: true });
   // ditto keeps the bundle's symlinks, modes and signature resources intact (unzip does not reliably)
   await run('/usr/bin/ditto', ['-x', '-k', zip, dir]);
