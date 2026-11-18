@@ -21,6 +21,7 @@ import {
   createArtifactLog,
   logArtifactEvent,
   sessionArtifacts,
+  claudeArtifacts,
 } from './chatArtifacts.js';
 import {
   assertAllowedPath,
@@ -393,6 +394,11 @@ function documentDir(s) {
 export function chatArtifacts(id) {
   const s = get(id);
   return sessionArtifacts(s.artifactLog, s.cwd, documentDir(s));
+}
+
+/** Pages the agent published on claude.ai, read or linked to (chatArtifacts.js) */
+export function chatClaudeArtifacts(id) {
+  return claudeArtifacts(get(id).artifactLog);
 }
 
 /** Text preview of one listed artifact: under the project dirs or the document folder, <= 1 MB */
