@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
-import { renderTerminalScreen } from '../utils/terminalScreen';
+import { Terminal } from '@xterm/xterm';
+import { promptSuggestion, renderTerminalScreen } from '../utils/terminalScreen';
 import { extractNumberedChoices, stripAnsi } from '../utils/agentInput';
 
 // Real `claude logs <id>` streams (Claude Code v2.1.318), see #178
@@ -51,5 +52,44 @@ describe('renderTerminalScreen', () => {
 
   it('passes plain text through unchanged', async () => {
     expect(await renderTerminalScreen('hello\r\nworld')).toBe('hello\nworld');
+  });
+});
+
+describe('promptSuggestion', () => {
+  // SGR as Claude Code v2.1.327 draws its input box: marker plain, ghost text dim, typed text white
+  const screen = async (input: string) => {
+    const term = new Terminal({ cols: 60, rows: 8, allowProposedApi: true });
+    const raw = [
+      '\x1b[38;2;153;153;153m❯\x1b[39m Nenne zwei Namen',
+      '⏺ Willst du A oder B?',
+      '─'.repeat(60),
+      input,
+      '─'.repeat(60),
+      '  ⏵⏵ auto mode on',
+    ].join('\r\n');
+    await new Promise<void>((resolve) => term.write(raw, resolve));
+    return term;
+  };
+
+  it('reads the dim ghost text of the input line, not an earlier prompt', async () => {
+    const term = await screen('❯\xa0\x1b[2mJa, leg test_probe.txt an.\x1b[22m');
+    expect(promptSuggestion(term)).toEqual({
+      text: 'Ja, leg test_probe.txt an.',
+      truncated: false,
+    });
+  });
+
+  it('none once the user typed, for an empty line or the start hint', async () => {
+    expect(promptSuggestion(await screen('❯ \x1b[38;2;255;255;255mmein Text\x1b[39m'))).toBeNull();
+    expect(promptSuggestion(await screen('❯\xa0'))).toBeNull();
+    expect(promptSuggestion(await screen('❯ \x1b[2mTry "fix lint errors"\x1b[22m'))).toBeNull();
+  });
+
+  it('marks a suggestion the TUI cut at the pane width', async () => {
+    const term = await screen('❯ \x1b[2mUmsetzen und danach die Tests laufen lass…\x1b[22m');
+    expect(promptSuggestion(term)).toEqual({
+      text: 'Umsetzen und danach die Tests laufen lass',
+      truncated: true,
+    });
   });
 });

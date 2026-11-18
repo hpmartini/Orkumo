@@ -16,8 +16,9 @@ const {
   openChatStream,
   watchChatStream,
   unwatchChatStream,
+  chatHistoryPage,
 } = await import('../server/services/chatService.js');
-const { reduceChat, initialChatState } = await import('../utils/chatEvents.ts');
+const { reduceChat, initialChatState, prependHistory } = await import('../utils/chatEvents.ts');
 
 const root = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-test-'));
 const project = path.join(root, 'project');
@@ -46,9 +47,10 @@ function claudeProjects(records) {
   return { dir, file };
 }
 
+// the page marker of the replay is covered in 'history pages'
 const collect = (id) => {
   const seen = [];
-  const off = watchChat(id, (e) => seen.push(e));
+  const off = watchChat(id, (e) => e.type !== 'devorbit_page' && seen.push(e));
   return { seen, off };
 };
 
@@ -444,5 +446,93 @@ describe('chat streams (one SSE per client window)', () => {
     closeSecond();
     await vi.advanceTimersByTimeAsync(11 * 60 * 1000);
     expect(listChats()).toEqual([]);
+  });
+});
+
+describe('view name', () => {
+  it('shortens a session name over 80 characters instead of refusing the view', () => {
+    const name = 'x'.repeat(120);
+    const s = viewSession({ harness: 'claude', sessionId: CLAUDE_ID, cwd: project, name }, ctx);
+    expect(s.name).toBe(`${'x'.repeat(79)}…`);
+  });
+});
+
+describe('history pages', () => {
+  const claudeAnswer = (text) => ({
+    type: 'assistant',
+    message: { id: `m-${text}`, role: 'assistant', content: [{ type: 'text', text }] },
+  });
+  const session = async (turns, extra = []) => {
+    const records = [];
+    for (let i = 1; i <= turns; i++) records.push(claudeUser(`p${i}`), claudeAnswer(`a${i}`));
+    const { dir } = claudeProjects([...records, ...extra]);
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir }
+    );
+    await sleep(80);
+    return s;
+  };
+  const prompts = (events) => events.filter((e) => e.type === 'devorbit_user').map((e) => e.text);
+
+  it('opens with the last 20 turns and a cursor, pages back without gaps or duplicates', async () => {
+    const s = await session(45);
+    const seen = [];
+    watchChat(s.id, (e) => seen.push(e));
+    const page = seen.find((e) => e.type === 'devorbit_page');
+    expect(page.more).toBe(true);
+    expect(prompts(seen)).toEqual(Array.from({ length: 20 }, (_, i) => `p${i + 26}`));
+
+    const second = chatHistoryPage(s.id, page.before);
+    expect(prompts(second.events)).toEqual(Array.from({ length: 20 }, (_, i) => `p${i + 6}`));
+    expect(second.more).toBe(true);
+    const last = chatHistoryPage(s.id, second.before);
+    expect(prompts(last.events)).toEqual(['p1', 'p2', 'p3', 'p4', 'p5']);
+    expect(last).toMatchObject({ before: 0, more: false });
+    // the answer of a page's last turn stays on that page
+    expect(second.events.at(-1).message.content[0].text).toBe('a25');
+    expect(chatHistoryPage(s.id, 0).events).toEqual([]);
+  });
+
+  it('a short session replays whole, with no older page', async () => {
+    const s = await session(3);
+    const seen = [];
+    watchChat(s.id, (e) => seen.push(e));
+    expect(seen.find((e) => e.type === 'devorbit_page')).toEqual({
+      type: 'devorbit_page',
+      before: 0,
+      more: false,
+    });
+    expect(prompts(seen)).toEqual(['p1', 'p2', 'p3']);
+  });
+
+  it('the client puts older pages in front, transcript order, unique keys', async () => {
+    const s = await session(45);
+    let state = initialChatState;
+    watchChat(s.id, (e) => (state = reduceChat(state, e)));
+    while (state.older?.more)
+      state = prependHistory(state, chatHistoryPage(s.id, state.older.before));
+    const users = state.messages.filter((m) => m.kind === 'user');
+    expect(users.map((m) => m.text)).toEqual(Array.from({ length: 45 }, (_, i) => `p${i + 1}`));
+    // only the session's first prompt starts a context
+    expect(users.filter((m) => m.initial).map((m) => m.text)).toEqual(['p1']);
+    const keys = state.messages.map((m) => m.key);
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
+  it('a prompt queued before the first page still counts as pending', async () => {
+    const queued = { type: 'queue-operation', operation: 'enqueue', content: 'later' };
+    const records = [];
+    for (let i = 1; i <= 25; i++) records.push(claudeUser(`p${i}`), claudeAnswer(`a${i}`));
+    records.splice(2, 0, queued);
+    const { dir } = claudeProjects(records);
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir }
+    );
+    await sleep(80);
+    let state = initialChatState;
+    watchChat(s.id, (e) => (state = reduceChat(state, e)));
+    expect(state.queued).toEqual(['later']);
   });
 });
