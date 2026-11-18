@@ -21,7 +21,7 @@ const base = (over: Partial<AgentSession>): AgentSession => ({
   kind: 'interactive',
   cwd: '/w/issue-10',
   startedAt: 0,
-  name: 'MACC walz-landing#10',
+  name: 'MACC demo-landing#10',
   state: null,
   pinned: false,
   order: null,

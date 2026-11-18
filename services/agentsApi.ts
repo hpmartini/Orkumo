@@ -188,7 +188,7 @@ export function replyToAgent(
   id: string,
   text: string,
   mode: 'auto' | 'attach' | 'resume' = 'auto'
-): Promise<{ delivered: boolean; mode: string; output?: string }> {
+): Promise<{ delivered: boolean; queued?: boolean; mode: string; output?: string }> {
   return request(`/agents/${encodeURIComponent(id)}/reply`, {
     method: 'POST',
     body: JSON.stringify({ text, mode }),

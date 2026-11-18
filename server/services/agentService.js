@@ -1200,8 +1200,10 @@ export async function reorderSessions(ids) {
 /**
  * Send a reply to a session without attaching to it in the UI.
  * Uses a hidden PTY running `claude attach <id>` so that permission answers, numbered
- * choices and `!` shell commands reach the session exactly like keystrokes would.
- * Falls back to `claude --resume <sessionId> --bg <text>` when no PTY is available.
+ * choices and `!` shell commands reach the session exactly like keystrokes would. While a turn
+ * runs, the CLI queues the typed text until the turn ends (`queued`, not yet `delivered`).
+ * `claude --resume <sessionId> --bg <text>` only for a session without a live process: on a
+ * running one it starts a second, parallel job.
  */
 export async function replySession(id, text, options = {}) {
   const session = await findSession(id);
@@ -1209,12 +1211,23 @@ export async function replySession(id, text, options = {}) {
   const message = String(text ?? '');
   if (!message.trim()) throw new Error('Reply is empty');
 
+  const live = !!session.pid;
+  if (options.mode === 'resume' && live) {
+    const error = new Error('Session is running: --resume would start a second job next to it');
+    error.status = 409;
+    throw error;
+  }
   if (options.mode !== 'resume') {
     try {
       await replyViaAttach(id, session.cwd, message);
       triggerRefresh();
-      return { delivered: true, mode: 'attach' };
+      const queued = session.status === 'busy';
+      return { delivered: !queued, queued, mode: 'attach' };
     } catch (error) {
+      if (live) {
+        error.message = `Reply not delivered (session is running, no --resume): ${error.message}`;
+        throw error;
+      }
       if (options.mode === 'attach') throw error;
       console.warn(`[Agents] PTY reply failed for ${id}, falling back to --resume:`, error.message);
     }
@@ -1258,6 +1271,7 @@ function replyViaAttach(id, cwd, message, { raw = false } = {}) {
     let output = '';
     let settled = false;
     let quietTimer = null;
+    let capTimer = null;
     let sent = false;
     const proc = pty.spawn(bin, ['attach', id], {
       name: 'xterm-256color',
@@ -1270,6 +1284,7 @@ function replyViaAttach(id, cwd, message, { raw = false } = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(quietTimer);
+      clearTimeout(capTimer);
       clearTimeout(hardTimeout);
       try {
         proc.kill();
@@ -1283,8 +1298,8 @@ function replyViaAttach(id, cwd, message, { raw = false } = {}) {
 
     // Timing is a best-effort heuristic: the CLI has no "prompt ready" signal, so we wait for
     // the output to go quiet (1.2 s), type, press Enter, give the session 2.5 s to accept the
-    // input and then detach. On a very slow machine a reply could land mid-render; the
-    // --resume fallback in replySession covers that case when the PTY path throws.
+    // input and then detach. A running turn's spinner never goes quiet: 6 s after the first
+    // output we type anyway, and the CLI queues the input until the turn ends.
     const typeReply = () => {
       if (sent) return;
       sent = true;
@@ -1307,6 +1322,7 @@ function replyViaAttach(id, cwd, message, { raw = false } = {}) {
       // Wait until output goes quiet (prompt rendered) before typing
       clearTimeout(quietTimer);
       quietTimer = setTimeout(typeReply, 1200);
+      capTimer ??= setTimeout(typeReply, 6000);
       if (/nothing to resume|no such session|not found/i.test(output)) {
         finish(new Error(output.replace(ANSI_ESCAPE_RE, '').trim().slice(-300)));
       }

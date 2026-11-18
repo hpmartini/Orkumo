@@ -19,7 +19,7 @@ const job: AgentSession = {
   kind: 'background',
   cwd: '/w/issue-10',
   startedAt: 1,
-  name: 'MACC walz-landing#10',
+  name: 'MACC demo-landing#10',
   state: 'idle',
   pinned: false,
   order: null,
