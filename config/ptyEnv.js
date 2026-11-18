@@ -5,7 +5,9 @@
  * - `NO_COLOR`, `FORCE_COLOR=0`, `CI` from agent shells would render every pane monochrome (#257)
  * - `TERM_PROGRAM=ghostty`, `GHOSTTY_*`, `TERMINFO`, ... make TUIs (omp, ...) use that emulator's
  *   features: Kitty graphics show as rows of placeholder boxes, glyph protocols go unanswered
- * - `PI_SESSION_*` / `PI_TOOL_CALL_ID` mark the omp session the server was started from
+ * - `PI_SESSION_*` / `PI_TOOL_CALL_ID` mark the omp session the server was started from, and
+ *   `CLAUDECODE` / `CLAUDE_CODE_*` the Claude Code session: `orkumo send` in a pane would sign as
+ *   that session, and a Claude marked as child session stops writing its transcript
  *
  * Shared by the API (`ptyService.js`) and pty-host (Docker proxy).
  */
@@ -31,6 +33,10 @@ const DROP = new Set([
   'PI_SESSION_ID',
   'PI_SESSION_FILE',
   'PI_TOOL_CALL_ID',
+  'CLAUDECODE',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_CHILD_SESSION',
 ]);
 const DROP_PREFIXES = [
   'GHOSTTY_',

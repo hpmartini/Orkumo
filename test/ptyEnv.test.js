@@ -18,6 +18,11 @@ const LAUNCHER = {
   TERMINFO: '/Applications/Ghostty.app/Contents/Resources/terminfo',
   GHOSTTY_RESOURCES_DIR: '/Applications/Ghostty.app/Contents/Resources/ghostty',
   PI_SESSION_ID: '01a1c75d-ad18-761a-b3ba-80f60511ae06',
+  // Orkumo restarted from a Claude Code shell
+  CLAUDECODE: '1',
+  CLAUDE_CODE_SESSION_ID: '8c0fc9cf-0000-4000-8000-000000000000',
+  CLAUDE_CODE_ENTRYPOINT: 'cli',
+  CLAUDE_CODE_CHILD_SESSION: '1',
 };
 
 describe('PTY env when the server was launched from an agent or CI shell', () => {
@@ -48,6 +53,20 @@ describe('PTY env when the server was launched from an agent or CI shell', () =>
     for (const key of ['TERM_PROGRAM', 'TERMINFO', 'GHOSTTY_RESOURCES_DIR', 'PI_SESSION_ID'])
       expect(env).not.toHaveProperty(key);
     expect(env.HOME).toBeTruthy();
+  });
+
+  it('drops the launching agent session, so `orkumo send` in a pane does not sign as it', () => {
+    Object.assign(process.env, LAUNCHER);
+    createPtySession('env-test', '/tmp', 80, 24, { command: 'claude', args: ['attach', 'x'] });
+    const { env } = spawn.mock.calls.at(-1)[2];
+    for (const key of [
+      'PI_SESSION_ID',
+      'CLAUDECODE',
+      'CLAUDE_CODE_SESSION_ID',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'CLAUDE_CODE_CHILD_SESSION',
+    ])
+      expect(env).not.toHaveProperty(key);
   });
 
   it('still passes them when the caller sets them explicitly', () => {
