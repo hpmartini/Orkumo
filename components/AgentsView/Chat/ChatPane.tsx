@@ -61,6 +61,7 @@ import { harnessLabel, sessionHarness } from '../../../utils/agentSessions';
 import {
   paneScreen,
   paneSuggestion,
+  takePaneSuggestion,
   pressKeys,
   reattachPane,
   typeIntoPane,
@@ -106,22 +107,27 @@ const PROMPT_LINES = 40;
 /** A sent answer keeps its card locked this long when the screen does not move on (keys lost) */
 const SENT_LOCK_MS = 5000;
 
+type PaneSuggestion = ReturnType<typeof paneSuggestion>;
+
 /** Claude Code's ghost-text suggestion in pane `paneId`'s input line, read while `active` */
-function usePaneSuggestion(paneId: string, active: boolean): string | null {
-  const [text, setText] = useState<string | null>(null);
+function usePaneSuggestion(paneId: string, active: boolean): PaneSuggestion {
+  const [suggestion, setSuggestion] = useState<PaneSuggestion>(null);
   useEffect(() => {
     if (!active) return;
-    // shortcut: a suggestion the TUI cut at the pane width offers only its visible part; read
-    // the full text from the TUI (Tab, then its input line) if cut ones turn out common
-    const read = () => setText(paneSuggestion(paneId)?.text ?? null);
+    const read = () => {
+      const next = paneSuggestion(paneId);
+      setSuggestion((prev) =>
+        prev?.text === next?.text && prev?.truncated === next?.truncated ? prev : next
+      );
+    };
     read();
     const timer = setInterval(read, PROMPT_POLL_MS);
     return () => {
       clearInterval(timer);
-      setText(null);
+      setSuggestion(null);
     };
   }, [paneId, active]);
-  return active ? text : null;
+  return active ? suggestion : null;
 }
 
 /** Screen tail of pane `paneId` while its agent waits on a question or permission (not in its transcript) */
@@ -796,7 +802,9 @@ export const ChatPane: React.FC<ChatPaneProps> = ({
             history={history}
             commands={state.commands}
             agents={state.agents}
-            suggestion={suggestion}
+            suggestion={suggestion?.text}
+            suggestionCut={suggestion?.truncated}
+            takeSuggestion={() => takePaneSuggestion(pane.id)}
             inputRef={inputRef}
           />
           <button

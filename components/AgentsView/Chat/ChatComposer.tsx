@@ -44,6 +44,10 @@ interface ChatComposerProps {
   agents: { name: string; description: string }[];
   /** The agent's prompt suggestion: shown in the empty input, Tab or → takes it, typing drops it */
   suggestion?: string | null;
+  /** The TUI cut the suggestion at the pane's width */
+  suggestionCut?: boolean;
+  /** Fetches a cut suggestion's full text once it is taken */
+  takeSuggestion?: () => Promise<string | null>;
   inputRef: React.RefObject<HTMLTextAreaElement | null>;
 }
 
@@ -61,11 +65,22 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   commands,
   agents,
   suggestion,
+  suggestionCut,
+  takeSuggestion,
   inputRef,
 }) => {
   // The suggestion the user typed over or took; a new one shows again
   const [dropped, setDropped] = useState<string | null>(null);
   const ghost = !disabled && !value && suggestion && suggestion !== dropped ? suggestion : null;
+  const placeholder = ghost
+    ? `${ghost}${suggestionCut ? '…' : ''}  ⇥ Tab`
+    : disabled
+      ? 'Terminal not connected'
+      : submitKey === 'enter'
+        ? 'Message · Enter sends · / commands · @ files'
+        : 'Message · Cmd/Ctrl+Enter sends · / commands · @ files';
+  const valueRef = useRef(value);
+  valueRef.current = value;
   const [caret, setCaret] = useState(0);
   const pendingCaret = useRef<number | null>(null);
   const historyIndex = useRef(-1);
@@ -76,7 +91,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
   const [dismissed, setDismissed] = useState<string | null>(null);
   const listRef = useRef<React.ElementRef<'ul'>>(null);
 
-  const { handleProps } = useAutoGrowTextarea(inputRef, value, {
+  // an empty field fits its placeholder: a long suggestion wraps over several rows
+  const { handleProps } = useAutoGrowTextarea(inputRef, value || placeholder, {
     min: MIN_HEIGHT,
     max: MAX_HEIGHT,
     storageKey: CHAT_COMPOSER_HEIGHT_KEY,
@@ -194,6 +210,15 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
       // used up: the TUI still shows it until the sent prompt reaches it
       setDropped(ghost);
       onChange(ghost);
+      if (suggestionCut && takeSuggestion) {
+        const cut = ghost;
+        void takeSuggestion().then((full) => {
+          // only while the field still holds the cut text untouched
+          if (!full || valueRef.current !== cut) return;
+          pendingCaret.current = full.length;
+          onChange(full);
+        });
+      }
       return;
     }
     if (e.key === 'Escape' && busy) {
@@ -322,7 +347,8 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
           disabled={disabled}
           rows={1}
           onChange={(e) => {
-            if (ghost) setDropped(ghost);
+            // emptied again: the agent's suggestion shows once more, as in Claude Code
+            setDropped(e.target.value ? (ghost ?? dropped) : null);
             historyIndex.current = -1;
             setDismissed(null);
             onChange(e.target.value);
@@ -331,15 +357,7 @@ export const ChatComposer: React.FC<ChatComposerProps> = ({
           onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
           onKeyDown={onKeyDown}
           onBlur={() => setDismissed(queryKey)}
-          placeholder={
-            ghost
-              ? `${ghost}  ⇥ Tab`
-              : disabled
-              ? 'Terminal not connected'
-              : submitKey === 'enter'
-                ? 'Message · Enter sends · / commands · @ files'
-                : 'Message · Cmd/Ctrl+Enter sends · / commands · @ files'
-          }
+          placeholder={placeholder}
           aria-label="Message"
           aria-autocomplete="list"
           aria-controls={open ? listId : undefined}

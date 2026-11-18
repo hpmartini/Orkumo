@@ -1,15 +1,19 @@
 import { describe, it, expect, afterEach } from 'vitest';
 import React, { useRef, useState } from 'react';
-import { cleanup, fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatComposer } from '../components/AgentsView/Chat/ChatComposer';
 
 // The agent's prompt suggestion (Claude Code's ghost text) in the UI view's input
 
 function Composer({
   suggestion,
+  suggestionCut,
+  takeSuggestion,
   submitKey = 'enter',
 }: {
   suggestion: string | null;
+  suggestionCut?: boolean;
+  takeSuggestion?: () => Promise<string | null>;
   submitKey?: 'enter' | 'mod+enter';
 }) {
   const [value, setValue] = useState('');
@@ -19,7 +23,7 @@ function Composer({
       chatId={null}
       value={value}
       onChange={setValue}
-      onSubmit={() => {}}
+      onSubmit={() => setValue('')}
       onStop={() => {}}
       busy={false}
       disabled={false}
@@ -28,6 +32,8 @@ function Composer({
       commands={[]}
       agents={[]}
       suggestion={suggestion}
+      suggestionCut={suggestionCut}
+      takeSuggestion={takeSuggestion}
       inputRef={inputRef}
     />
   );
@@ -51,20 +57,60 @@ describe('prompt suggestion in the chat input', () => {
     expect(input().value).toBe('weiter');
   });
 
-  it('typing drops it: cleared input shows no suggestion, Tab stays a key', () => {
+  it('typing hides it, an emptied input shows it again (as in Claude Code)', () => {
     render(<Composer suggestion="weiter" />);
     fireEvent.change(input(), { target: { value: 'n' } });
-    fireEvent.change(input(), { target: { value: '' } });
     expect(input().placeholder).not.toContain('weiter');
-    fireEvent.keyDown(input(), { key: 'Tab' });
-    expect(input().value).toBe('');
+    fireEvent.change(input(), { target: { value: '' } });
+    expect(input().placeholder).toContain('weiter');
   });
 
-  it('a taken suggestion does not come back once the input is sent and empty', () => {
+  it('taken, then deleted: the suggestion comes back', () => {
     render(<Composer suggestion="weiter" />);
     fireEvent.keyDown(input(), { key: 'Tab' });
+    expect(input().value).toBe('weiter');
     fireEvent.change(input(), { target: { value: '' } });
+    expect(input().placeholder).toContain('weiter');
+  });
+
+  it('taken and sent: it does not flash back while the TUI still shows it', () => {
+    render(<Composer suggestion="weiter" />);
+    fireEvent.keyDown(input(), { key: 'Tab' });
+    fireEvent.keyDown(input(), { key: 'Enter' });
+    expect(input().value).toBe('');
     expect(input().placeholder).not.toContain('weiter');
+  });
+
+  it('one cut at the pane width: marked …, Tab fills in the full text the TUI gives', async () => {
+    const full =
+      'Bau die Variante mit der laufenden Szenen-Figur in deinen Farben, mit Sprechblase, Foto-Porträt und kleiner Hover-Animation.';
+    render(
+      <Composer
+        suggestion="Bau die Variante mit der laufenden Szenen-Figur"
+        suggestionCut
+        takeSuggestion={async () => full}
+      />
+    );
+    expect(input().placeholder).toBe('Bau die Variante mit der laufenden Szenen-Figur…  ⇥ Tab');
+    fireEvent.keyDown(input(), { key: 'Tab' });
+    expect(input().value).toBe('Bau die Variante mit der laufenden Szenen-Figur');
+    await waitFor(() => expect(input().value).toBe(full));
+  });
+
+  it('a cut one edited before the full text arrives keeps the edit', async () => {
+    let resolve: (text: string) => void = () => {};
+    render(
+      <Composer
+        suggestion="Bau die Variante"
+        suggestionCut
+        takeSuggestion={() => new Promise((r) => (resolve = r))}
+      />
+    );
+    fireEvent.keyDown(input(), { key: 'Tab' });
+    fireEvent.change(input(), { target: { value: 'Bau die Variante B' } });
+    resolve('Bau die Variante mit allem');
+    await new Promise((r) => setTimeout(r, 0));
+    expect(input().value).toBe('Bau die Variante B');
   });
 
   it('a new suggestion shows again after a dropped one', () => {
