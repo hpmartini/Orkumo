@@ -4,7 +4,7 @@
 
 Dateipfade, die Agents im DevHub-Terminal ausgeben, per Cmd/Ctrl-Klick direkt auf dem Mac mit der Standard-App öffnen (PDF → Vorschau), so wie URLs heute schon. Erkennen: absolute Pfade, `~/…` und relative Pfade (gegen das Arbeitsverzeichnis der Session aufgelöst); ein angehängtes `:zeile[:spalte]` tolerieren. Fehlende Dateien per Toast melden statt still nichts zu tun. Startbare Ziele nicht ausführen, sondern im Finder zeigen.
 
-Beispiel aus dem Issue (Daten): `/Users/hape/WEBSITES/rechnungen/2026-11-03_Rechnung-Entwurf_Kanzlei-Walz_Website.pdf` am Ende einer Agent-Ausgabe.
+Beispiel aus dem Issue (Daten): `/Users/example/docs/2026-11-03_rechnung-entwurf_beispiel.pdf` am Ende einer Agent-Ausgabe.
 
 ## Why
 
