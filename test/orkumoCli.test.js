@@ -390,7 +390,7 @@ describe('commands', () => {
     expect(code).toBe(0);
     expect(calls[1]).toMatchObject({
       route: '/agents/dispatch',
-      body: { prompt: 'Fix the login', cwd: '/p/app', name: 'login-fix' },
+      body: { prompt: 'Fix the login', cwd: '/p/app', name: 'login-fix', profile: 'worker' },
     });
     expect(out).toMatch(/^Started new1 \(login-fix\): background Claude Code session in \/p\/app/);
   });
