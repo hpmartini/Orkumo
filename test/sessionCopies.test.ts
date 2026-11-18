@@ -10,7 +10,7 @@ import {
   tabSessionLabel,
   transcriptHolder,
   transcriptIds,
-} from '../utils/sessionCopies';
+} from '@hpmartini/agents-ui/utils/sessionCopies';
 
 const ORIG = '7305722f-7bed-4a28-a57e-4e46aa40c9dd';
 const RESPAWN = '6f6f9c58-de21-4776-b7b4-60c1ef917b1e';

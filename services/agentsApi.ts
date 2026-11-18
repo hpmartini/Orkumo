@@ -1,11 +1,11 @@
 /**
  * API client for the Claude Code agent view (`/api/agents/*`).
  */
-import type { HarnessModel } from '../utils/modelMatrix';
+import type { HarnessModel } from '@hpmartini/agents-ui/utils/modelMatrix';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { agentApiUrl, getAgentTarget, pinTarget, targetOf } from '../utils/agentTarget';
-import { fitImage } from '../utils/imageFit';
-import { PROMPT_IMAGE_TYPES, type StoredAttachment } from '../utils/composer';
+import { fitImage } from '@hpmartini/agents-ui/utils/imageFit';
+import { PROMPT_IMAGE_TYPES, type StoredAttachment } from '@hpmartini/agents-ui/utils/composer';
 import type {
   AgentsResponse,
   AgentDispatchRequest,
@@ -23,10 +23,17 @@ import type {
   AgentContext,
   AgentOrphanServer,
   AgentServerStats,
-  AgentCacheInfo,
   AgentHarness,
-} from '../types';
-import type { UsageLimits } from '../components/UsageView/types';
+} from '@hpmartini/agents-ui/types';
+import type {
+  ChatArtifact,
+  ChatArtifacts,
+  ChatHandlers,
+  ChatStatus,
+  ChatSummary,
+  ClaudeArtifact,
+  QuickAgent,
+} from '@hpmartini/agents-ui';
 
 const API_BASE = API_BASE_URL;
 
@@ -204,13 +211,6 @@ export function sendToPane(paneId: string, text: string): Promise<{ delivered: b
     { method: 'POST', body: JSON.stringify({ text }) },
     paneId
   );
-}
-
-export interface QuickAgent {
-  paneId: string;
-  harness: AgentHarness;
-  sessionId: string;
-  cwd: string;
 }
 
 /** Quick window (#251): starts the default harness in ~ with `prompt` as its first message */
@@ -397,17 +397,6 @@ export function subscribeToAgents(handlers: {
 // pane's PTY stays the agent, input is typed into it
 // ---------------------------------------------------------------------------
 
-export interface ChatSummary {
-  id: string;
-  harness: AgentHarness;
-  cwd: string;
-  name: string;
-  sessionId: string | null;
-  model: string | null;
-  running: boolean;
-  startedAt: number;
-}
-
 /** Opens (or reuses) the transcript view of the session pane `paneId` runs */
 export const openTranscriptView = (
   paneId: string,
@@ -425,21 +414,6 @@ export const openTranscriptView = (
 const chatPath = (id: string, action = '') =>
   `/agents/chat/${encodeURIComponent(id)}${action ? `/${action}` : ''}`;
 
-export interface ChatStatus {
-  git: {
-    branch: string | null;
-    untracked: number;
-    changed: number;
-    ahead: number;
-    behind: number;
-  } | null;
-  /** Claude Code only: prompt cache (expiry badge) */
-  cache: AgentCacheInfo | null;
-  /** Tokens in the context window, for every harness that reports them */
-  context: { tokens: number; window: number } | null;
-  limits: UsageLimits | null;
-}
-
 export const fetchChatStatus = (id: string) => request<ChatStatus>(chatPath(id, 'status'));
 
 export const fetchChatFiles = (id: string, q: string) =>
@@ -456,37 +430,6 @@ export const fetchChatShell = (id: string, shellId: string) =>
   request<{ output: string; updatedAt: number; truncated: boolean }>(
     chatPath(id, `shells/${encodeURIComponent(shellId)}`)
   );
-
-/** A file the chat's agent created or edited, or one of omp's session documents (`local://`) */
-export interface ChatArtifact {
-  path: string;
-  name: string;
-  kind: 'file' | 'document';
-  action: 'created' | 'edited';
-  size: number | null;
-  mtime: number | null;
-  exists: boolean;
-}
-
-/** A page on claude.ai the chat's agent published (newest version), only read, or linked to */
-export interface ClaudeArtifact {
-  url: string;
-  source: 'published' | 'read' | 'linked';
-  title: string | null;
-  label: string | null;
-  description: string | null;
-  version: number | null;
-  updatedAt: number | null;
-  /** local HTML source of a published page */
-  file: string | null;
-  /** Slides, Dashboard, Design, Document or Page */
-  type: string;
-}
-
-export interface ChatArtifacts {
-  files: ChatArtifact[];
-  pages: ClaudeArtifact[];
-}
 
 export const fetchChatArtifacts = (id: string) =>
   request<{ artifacts: ChatArtifact[]; claudeArtifacts?: ClaudeArtifact[] }>(
@@ -517,11 +460,6 @@ export function agentImageUrl(path: string): string | null {
     : null;
 }
 
-type ChatHandlers = {
-  onOpen: () => void;
-  onEvent: (event: unknown) => void;
-  onGone: () => void;
-};
 type ChatWatch = { chatId: string; handlers: ChatHandlers };
 
 /** Chat SSE of this window to one instance; `subs` are the views it carries */

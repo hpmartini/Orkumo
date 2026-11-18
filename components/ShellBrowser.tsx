@@ -1,6 +1,10 @@
 import { useEffect, useState } from 'react';
 import { BrowserPreviewPanel } from './CodingView/BrowserPreviewPanel';
-import { registerShellBrowser, routeLink, SHELL_BROWSER_KEY } from '../utils/links';
+import {
+  registerShellBrowser,
+  routeLink,
+  SHELL_BROWSER_KEY,
+} from '@hpmartini/agents-ui/utils/links';
 
 const readUrl = () => {
   try {

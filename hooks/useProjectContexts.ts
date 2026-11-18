@@ -6,9 +6,9 @@ import type { ContextList, ContextUi } from '../services/contextsApi';
 import {
   STORAGE_KEY as WORKSPACE_KEY,
   LEGACY_STORAGE_KEY as WORKSPACE_LEGACY_KEY,
-} from './useAgentWorkspace';
-import { STORAGE_KEY as RAIL_KEY } from './useRailPreferences';
-import { SHELL_BROWSER_KEY } from '../utils/links';
+} from '@hpmartini/agents-ui/hooks/useAgentWorkspace';
+import { STORAGE_KEY as RAIL_KEY } from '@hpmartini/agents-ui/hooks/useRailPreferences';
+import { SHELL_BROWSER_KEY } from '@hpmartini/agents-ui/utils/links';
 
 /** Last route (path + query) of a context, so board/workflows stay in the context they were opened in */
 export const ROUTE_KEY = 'devOrbitContextRoute';

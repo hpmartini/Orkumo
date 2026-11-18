@@ -13,7 +13,7 @@ import {
   ArrowRight,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { openInSystemBrowser } from '../../utils/links';
+import { openInSystemBrowser } from '@hpmartini/agents-ui/utils/links';
 
 export type Viewport = 'desktop' | 'tablet' | 'mobile';
 

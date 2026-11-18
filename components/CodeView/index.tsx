@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Code2, Loader2, ShieldAlert } from 'lucide-react';
-import type { AgentRepo, AppConfig } from '../../types';
+import type { AgentRepo } from '@hpmartini/agents-ui/types';
+import type { AppConfig } from '../../types';
 import { checkCodeFolder, fetchAgentRepos } from '../../services/agentsApi';
 import { codeTargets, codeUrl, findCodeTarget } from '../../utils/codeTarget';
 import { FolderPicker, rememberCodeFolder } from './FolderPicker';

@@ -1,5 +1,5 @@
 import type { ChatHistoryConversation, ChatProvider } from '../services/chatHistoryApi';
-import type { AgentHarness } from '../types';
+import type { AgentHarness } from '@hpmartini/agents-ui/types';
 import { DISPATCH_PROMPT_MAX, MAX_HARNESS_PROMPT } from '../config/limits.js';
 
 /** Where a conversation comes from: claude.ai, chatgpt.com, or a chat started in Orkumo (#19 AK-4) */
@@ -23,38 +23,6 @@ export function conversationUrl(
   if (!isWebProvider(c.provider)) return null;
   const id = encodeURIComponent(c.id.slice(c.provider.length + 1));
   return c.provider === 'claude' ? `https://claude.ai/chat/${id}` : `https://chatgpt.com/c/${id}`;
-}
-
-export const RECENCY = ['Today', 'Yesterday', 'This week', 'Older'] as const;
-export type Recency = (typeof RECENCY)[number];
-
-const startOfDay = (now: number) => new Date(now).setHours(0, 0, 0, 0);
-
-/** Rail section of a last activity, in local days; "This week" = the 7 days before yesterday */
-export function recencyOf(time: number | null, now = Date.now()): Recency {
-  if (time == null) return 'Older';
-  const today = startOfDay(now);
-  if (time >= today) return 'Today';
-  const yesterday = new Date(today).setDate(new Date(today).getDate() - 1);
-  if (time >= yesterday) return 'Yesterday';
-  return time >= new Date(today).setDate(new Date(today).getDate() - 7) ? 'This week' : 'Older';
-}
-
-/** Short age for a rail row: "now", "5m", "3h", a weekday this week, else the date */
-export function relativeTime(time: number | null, now = Date.now()): string {
-  if (time == null) return '';
-  const minutes = Math.floor((now - time) / 60_000);
-  if (minutes < 1) return 'now';
-  if (minutes < 60) return `${minutes}m`;
-  if (time >= startOfDay(now)) return `${Math.floor(minutes / 60)}h`;
-  const date = new Date(time);
-  if (recencyOf(time, now) !== 'Older')
-    return date.toLocaleDateString(undefined, { weekday: 'short' });
-  return date.toLocaleDateString(undefined, {
-    day: 'numeric',
-    month: 'short',
-    ...(date.getFullYear() === new Date(now).getFullYear() ? {} : { year: 'numeric' }),
-  });
 }
 
 /** Harness a continued conversation runs on: the CLI of the same subscription (#251) */
@@ -127,12 +95,11 @@ export function conversationMarkdown(conversation: ChatHistoryConversation): str
     const at = m.at ? ` · ${new Date(m.at).toISOString().slice(0, 16).replace('T', ' ')}` : '';
     return `## ${m.role === 'user' ? 'User' : source}${at}\n\n${m.text.trim()}`;
   });
-  return [
-    `# ${conversation.title}`,
-    facts.map((f) => `- ${f}`).join('\n'),
-    '---',
-    ...messages,
-  ].join('\n\n') + '\n';
+  return (
+    [`# ${conversation.title}`, facts.map((f) => `- ${f}`).join('\n'), '---', ...messages].join(
+      '\n\n'
+    ) + '\n'
+  );
 }
 
 /** Local day (`YYYY-MM-DD` of a date input) as ms; `end` = its last millisecond */

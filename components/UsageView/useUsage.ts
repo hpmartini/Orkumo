@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { fetchUsage } from '../../services/api';
-import { pollWhileVisible } from '../../utils/visiblePoll';
+import { pollWhileVisible } from '@hpmartini/agents-ui/utils/visiblePoll';
 import type { UsageDays, UsageResponse } from './types';
 
 const REFRESH_MS = 60_000;

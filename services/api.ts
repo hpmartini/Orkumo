@@ -1,6 +1,6 @@
 import { AppConfig, KeyboardShortcuts, ProjectEntry } from '../types';
 import { API_BASE_URL } from '../utils/apiConfig';
-import type { LinkKeys, LinkTarget } from '../utils/links';
+import type { LinkKeys, LinkTarget } from '@hpmartini/agents-ui/utils/links';
 
 const API_BASE = API_BASE_URL;
 

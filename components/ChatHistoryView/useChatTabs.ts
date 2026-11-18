@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import type { AgentSession } from '../../types';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
 import {
   activateTab,
   browserUrl,
@@ -15,7 +15,7 @@ import {
   type DropZone,
   type PaneLayout,
   type Workspace,
-} from '../../utils/agentWorkspace';
+} from '@hpmartini/agents-ui/utils/agentWorkspace';
 
 /** Open chats, their tabs and splits; separate from the Agents workspace */
 export const CHAT_TABS_KEY = 'orkumoChatTabs.v1';

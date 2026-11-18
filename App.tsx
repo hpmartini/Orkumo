@@ -7,7 +7,16 @@ import {
   Route,
   useNavigate,
   useLocation,
+  useSearchParams,
 } from 'react-router-dom';
+import {
+  AgentsProvider,
+  AgentsView,
+  useHost,
+  useTransport,
+  type AgentsHost,
+  type AgentsPrefill,
+} from '@hpmartini/agents-ui';
 import { isElectron, isNativeApp } from './utils/apiConfig';
 import { Bot, Rocket } from 'lucide-react';
 import { PassThroughToaster } from './components/PassThroughToaster';
@@ -19,9 +28,11 @@ import {
   TitleBar,
   ContextDialog,
   LoadingSkeleton,
-  AgentsView,
 } from './components';
-import { ModuleSlot } from './components/ModuleSlot';
+import { ModuleSlot, AgentsRailSlot } from './components/ModuleSlot';
+import { ModeSwitcher } from './components/ModeSwitcher';
+import { moduleIcon } from './components/moduleIcon';
+import { OrkumoAgentsProvider } from './components/AgentsHost';
 import { BackendBar } from './components/BackendBar';
 import { ModuleMode } from './components/ModuleMount';
 import { modeCommands, useModulesState, type ModeEntry } from './hooks/useModules';
@@ -43,12 +54,17 @@ import { KeyboardShortcuts } from './types';
 
 import { BoardView } from './components/BoardView';
 import { QuickWindow } from './components/QuickWindow';
-import { ConnectedPullRequestsPage } from './components/AgentsView/PullRequestsPage';
+import { ConnectedPullRequestsPage } from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPage';
 import { ConnectedIssuesPage } from './components/IssuesView';
 import { ChatHistoryPage } from './components/ChatHistoryView/ChatHistoryPage';
 import { CodeView } from './components/CodeView';
 import { ShellBrowser } from './components/ShellBrowser';
-import { installAnchorInterception, openLink, setLinkKeys, setLinkTarget } from './utils/links';
+import {
+  installAnchorInterception,
+  openLink,
+  setLinkKeys,
+  setLinkTarget,
+} from '@hpmartini/agents-ui/utils/links';
 
 const HOST_TABS = ['dashboard', 'usage', 'agents', 'board', 'issues', 'code', 'pulls', 'chats'];
 
@@ -173,6 +189,39 @@ function AppContent() {
     location.key !== 'default' ? navigate(-1) : handleSelectDashboard();
   // Stable: AgentsView's attach callbacks depend on it
   const openAgentsView = useCallback(() => navigate('/agents'), [navigate]);
+  // The agents view's part of the app shell: activity bar, module UIs after New task, rail modes
+  const agentsHost = useHost();
+  const agentsTransport = useTransport();
+  const viewHost = useMemo<AgentsHost>(
+    () => ({
+      ...agentsHost,
+      renderActivityBar: ({ onToggleRail }) => (
+        <ModeSwitcher modes={modes} onToggleRail={onToggleRail} />
+      ),
+      headerSlot: <AgentsRailSlot ids={railSlots} />,
+    }),
+    [agentsHost, modes, railSlots]
+  );
+  const railModes = useMemo(() => modes.map((m) => ({ ...m, icon: moduleIcon(m.icon) })), [modes]);
+  // `/agents?attach=<jobId>` (e.g. from the board): the view opens it once the session list has it
+  const [attachId, setAttachId] = useState<string | null>(null);
+  const attachParam =
+    activeTab === 'agents' ? new URLSearchParams(location.search).get('attach') : null;
+  useEffect(() => {
+    if (!attachParam) return;
+    setAttachId(attachParam);
+    navigate('/agents', { replace: true });
+  }, [attachParam, navigate]);
+  // Taken over: the same link may open it again later
+  const clearAttach = useCallback(() => setAttachId(null), []);
+  // Board "Agent starten" / chat history "Continue" and "New chat" (#280, #19): composer prefill
+  // via router state, which external links cannot set
+  const prefill = activeTab === 'agents' ? (location.state as AgentsPrefill | null) : null;
+  const consumePrefill = useCallback(
+    () => navigate('/agents', { replace: true, state: null }),
+    [navigate]
+  );
+  const [pullsQuery, setPullsQuery] = useSearchParams();
 
   // A project opens in Code mode
   const handleSelectApp = (id: string) => {
@@ -342,142 +391,158 @@ function AppContent() {
             {/* Always mounted so attached terminals survive navigation */}
             <div className="absolute inset-0 flex flex-col min-h-0">
               {/* Not keyed by context: that would remount the views below (Web-IDE, terminals) */}
-              <AgentsView
-                contextId={contexts.active?.id}
-                contextAppIds={contextAppIds}
-                active={activeTab === 'agents'}
-                apps={apps}
-                onExit={handleSelectDashboard}
-                onOpenView={openAgentsView}
-                // Chats mode lists its conversations in the rail column (#280)
-                railOutlet={activeTab === 'chats'}
-                nav={{
-                  onOpenDashboard: handleSelectDashboard,
-                  onOpenContextDashboard: handleSelectContextDashboard,
-                  modes,
-                  railSlots,
-                  onOpenSettings: () => setAdminPanelOpen(true),
-                  onOpenProject: handleSelectApp,
-                }}
-              >
-                {/* Dashboard: global behind the rocket, the active context's behind the robot */}
-                <div
-                  className={
-                    activeTab === 'dashboard' ? 'absolute inset-0 overflow-auto' : 'hidden'
-                  }
+              <AgentsProvider transport={agentsTransport} host={viewHost}>
+                <AgentsView
+                  contextId={contexts.active?.id}
+                  contextAppIds={contextAppIds}
+                  active={activeTab === 'agents'}
+                  apps={apps}
+                  onExit={handleSelectDashboard}
+                  onOpenView={openAgentsView}
+                  // Chats mode lists its conversations in the rail column (#280)
+                  railOutlet={activeTab === 'chats'}
+                  nav={{
+                    onOpenDashboard: handleSelectDashboard,
+                    onOpenContextDashboard: handleSelectContextDashboard,
+                    modes: railModes,
+                    onOpenSettings: () => setAdminPanelOpen(true),
+                    onOpenProject: handleSelectApp,
+                  }}
+                  selectedId={attachId}
+                  onSelectedIdChange={clearAttach}
+                  prefill={prefill}
+                  onPrefillConsumed={consumePrefill}
                 >
-                  <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 space-y-8 animate-in fade-in duration-500">
-                    <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-                      {isContextDashboard ? (
-                        <>
-                          <Bot size={18} className="text-blue-400" />
-                          {contexts.active?.name ?? 'Context'}
-                          <span className="text-sm font-normal text-gray-400">
-                            {dashboardScope ? `${dashboardScope.length} projects` : 'all projects'}
-                          </span>
-                        </>
-                      ) : (
-                        <>
-                          <Rocket size={18} className="text-blue-400" />
-                          Dashboard
-                          <span className="text-sm font-normal text-gray-400">all contexts</span>
-                        </>
-                      )}
-                    </h2>
-                    <AgentOverview
-                      active={activeTab === 'dashboard'}
-                      projectPaths={dashboardScope}
-                    />
-                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                      <SessionsCard
+                  {/* Dashboard: global behind the rocket, the active context's behind the robot */}
+                  <div
+                    className={
+                      activeTab === 'dashboard' ? 'absolute inset-0 overflow-auto' : 'hidden'
+                    }
+                  >
+                    <div className="p-4 md:p-8 max-w-7xl mx-auto pb-20 space-y-8 animate-in fade-in duration-500">
+                      <h2 className="text-lg font-semibold text-white flex items-center gap-2">
+                        {isContextDashboard ? (
+                          <>
+                            <Bot size={18} className="text-blue-400" />
+                            {contexts.active?.name ?? 'Context'}
+                            <span className="text-sm font-normal text-gray-400">
+                              {dashboardScope
+                                ? `${dashboardScope.length} projects`
+                                : 'all projects'}
+                            </span>
+                          </>
+                        ) : (
+                          <>
+                            <Rocket size={18} className="text-blue-400" />
+                            Dashboard
+                            <span className="text-sm font-normal text-gray-400">all contexts</span>
+                          </>
+                        )}
+                      </h2>
+                      <AgentOverview
                         active={activeTab === 'dashboard'}
                         projectPaths={dashboardScope}
                       />
-                      <div className="space-y-8">
-                        <UsageCard onOpen={() => navigate('/usage')} />
-                        <ToolVersions apps={isContextDashboard ? contextApps : undefined} />
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        <SessionsCard
+                          active={activeTab === 'dashboard'}
+                          projectPaths={dashboardScope}
+                        />
+                        <div className="space-y-8">
+                          <UsageCard onOpen={() => navigate('/usage')} />
+                          <ToolVersions apps={isContextDashboard ? contextApps : undefined} />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
 
-                {/* Usage per provider - polls only while active */}
-                <div
-                  className={
-                    activeTab === 'usage' ? 'absolute inset-0 z-10 overflow-auto' : 'hidden'
-                  }
-                  aria-hidden={activeTab !== 'usage'}
-                >
-                  <UsageView active={activeTab === 'usage'} onBack={handleBackFromUsage} />
-                </div>
-
-                {/* Agent task board - kept mounted like the agents view, polls only while active */}
-                <div
-                  className={
-                    activeTab === 'board' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
-                  }
-                  aria-hidden={activeTab !== 'board'}
-                >
-                  <BoardView
-                    key={contexts.active?.id}
-                    active={activeTab === 'board'}
-                    contextFilter={contexts.active?.boardFilter}
-                  />
-                </div>
-
-                {/* Code mode - kept mounted so the Web-IDE iframe survives navigation */}
-                <div
-                  className={
-                    activeTab === 'code' ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
-                  }
-                  aria-hidden={activeTab !== 'code'}
-                >
-                  <CodeView active={activeTab === 'code'} apps={contextApps} />
-                </div>
-
-                {/* Module modes - kept mounted, told whether they are visible */}
-                {modes.map((m) => (
+                  {/* Usage per provider - polls only while active */}
                   <div
-                    key={m.id}
                     className={
-                      activeTab === m.id ? 'absolute inset-0 z-10 flex flex-col min-h-0' : 'hidden'
+                      activeTab === 'usage' ? 'absolute inset-0 z-10 overflow-auto' : 'hidden'
                     }
-                    aria-hidden={activeTab !== m.id}
+                    aria-hidden={activeTab !== 'usage'}
                   >
-                    <ModuleMode id={m.id} active={activeTab === m.id} />
+                    <UsageView active={activeTab === 'usage'} onBack={handleBackFromUsage} />
                   </div>
-                ))}
 
-                {/* Issues of the context's repos, also off the board - kept mounted, polls only while active */}
-                <div
-                  className={
-                    activeTab === 'issues'
-                      ? 'absolute inset-0 z-10 flex flex-col min-h-0'
-                      : 'hidden'
-                  }
-                  aria-hidden={activeTab !== 'issues'}
-                >
-                  <ConnectedIssuesPage
-                    key={contexts.active?.id}
-                    active={activeTab === 'issues'}
-                    contextId={contexts.active?.id}
-                  />
-                </div>
-
-                {/* claude.ai / ChatGPT conversations, synced from the built-in browser's login or imported (#280) */}
-                {activeTab === 'chats' && (
-                  <div className="absolute inset-0 z-10 flex flex-col min-h-0">
-                    <ChatHistoryPage />
+                  {/* Agent task board - kept mounted like the agents view, polls only while active */}
+                  <div
+                    className={
+                      activeTab === 'board'
+                        ? 'absolute inset-0 z-10 flex flex-col min-h-0'
+                        : 'hidden'
+                    }
+                    aria-hidden={activeTab !== 'board'}
+                  >
+                    <BoardView
+                      key={contexts.active?.id}
+                      active={activeTab === 'board'}
+                      contextFilter={contexts.active?.boardFilter}
+                    />
                   </div>
-                )}
 
-                {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
-                {activeTab === 'pulls' && (
-                  <div className="absolute inset-0 z-10 flex flex-col min-h-0">
-                    <ConnectedPullRequestsPage />
+                  {/* Code mode - kept mounted so the Web-IDE iframe survives navigation */}
+                  <div
+                    className={
+                      activeTab === 'code'
+                        ? 'absolute inset-0 z-10 flex flex-col min-h-0'
+                        : 'hidden'
+                    }
+                    aria-hidden={activeTab !== 'code'}
+                  >
+                    <CodeView active={activeTab === 'code'} apps={contextApps} />
                   </div>
-                )}
-              </AgentsView>
+
+                  {/* Module modes - kept mounted, told whether they are visible */}
+                  {modes.map((m) => (
+                    <div
+                      key={m.id}
+                      className={
+                        activeTab === m.id
+                          ? 'absolute inset-0 z-10 flex flex-col min-h-0'
+                          : 'hidden'
+                      }
+                      aria-hidden={activeTab !== m.id}
+                    >
+                      <ModuleMode id={m.id} active={activeTab === m.id} />
+                    </div>
+                  ))}
+
+                  {/* Issues of the context's repos, also off the board - kept mounted, polls only while active */}
+                  <div
+                    className={
+                      activeTab === 'issues'
+                        ? 'absolute inset-0 z-10 flex flex-col min-h-0'
+                        : 'hidden'
+                    }
+                    aria-hidden={activeTab !== 'issues'}
+                  >
+                    <ConnectedIssuesPage
+                      key={contexts.active?.id}
+                      active={activeTab === 'issues'}
+                      contextId={contexts.active?.id}
+                    />
+                  </div>
+
+                  {/* claude.ai / ChatGPT conversations, synced from the built-in browser's login or imported (#280) */}
+                  {activeTab === 'chats' && (
+                    <div className="absolute inset-0 z-10 flex flex-col min-h-0">
+                      <ChatHistoryPage />
+                    </div>
+                  )}
+
+                  {/* Open pull requests (#157); the PR data comes from AgentsView via context */}
+                  {activeTab === 'pulls' && (
+                    <div className="absolute inset-0 z-10 flex flex-col min-h-0">
+                      <ConnectedPullRequestsPage
+                        searchParams={pullsQuery}
+                        setSearchParams={setPullsQuery}
+                      />
+                    </div>
+                  )}
+                </AgentsView>
+              </AgentsProvider>
             </div>
           </div>
           {/* Keyed: its URL is parked per context */}
@@ -548,7 +613,9 @@ export default function App() {
     <ErrorBoundary>
       <Router>
         <CommandPaletteProvider>
-          <AppRouter />
+          <OrkumoAgentsProvider>
+            <AppRouter />
+          </OrkumoAgentsProvider>
         </CommandPaletteProvider>
       </Router>
     </ErrorBoundary>

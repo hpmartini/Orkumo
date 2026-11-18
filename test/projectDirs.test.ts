@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { contextRoot, groupByRoot, projectRoot, shortPath } from '../utils/projectDirs';
-import { shortenPath } from '../utils/agentSessions';
+import { shortenPath } from '@hpmartini/agents-ui/utils/agentSessions';
 
 const dirs = ['/Users/x/PROJECTS', '/Users/x/WEBSITES', '/Users/x/PROJECTS/sub'];
 const apps = [

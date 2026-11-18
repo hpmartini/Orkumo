@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { DEFAULT_AGENT_VIEW_SETTINGS } from '../types';
+import { DEFAULT_AGENT_VIEW_SETTINGS } from '@hpmartini/agents-ui/types';
 
 let stored = '{}';
 vi.mock('fs', () => ({

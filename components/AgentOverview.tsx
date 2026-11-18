@@ -11,12 +11,16 @@ import {
   Square,
   Trash2,
 } from 'lucide-react';
-import type { AgentSession } from '../types';
-import { useAgentSessions } from '../hooks/useAgentSessions';
-import { useAgentContexts } from '../hooks/useAgentContexts';
+import type { AgentSession } from '@hpmartini/agents-ui/types';
+import { useAgentSessions } from '@hpmartini/agents-ui/hooks/useAgentSessions';
+import { useAgentContexts } from '@hpmartini/agents-ui/hooks/useAgentContexts';
 import { ALIVE, summarizeAgents } from '../utils/agentOverview';
-import { formatCountdown } from '../utils/agentCache';
-import { formatAge, isOmpStoreSession, shortenPath } from '../utils/agentSessions';
+import { formatCountdown } from '@hpmartini/agents-ui/utils/agentCache';
+import {
+  formatAge,
+  isOmpStoreSession,
+  shortenPath,
+} from '@hpmartini/agents-ui/utils/agentSessions';
 import { inProjectScope } from '../utils/projectScope';
 import {
   BUCKETS,
@@ -29,7 +33,7 @@ import {
   type AgentGrouping,
 } from '../utils/agentTable';
 import { removeAgent, renameAgent, respawnAgent, stopAgent } from '../services/agentsApi';
-import { useDialogA11y } from './CommandPalette/useDialogA11y';
+import { useDialogA11y } from '@hpmartini/agents-ui/components/CommandPalette/useDialogA11y';
 
 type Pending =
   | {

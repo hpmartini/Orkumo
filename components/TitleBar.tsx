@@ -2,10 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { Bot, Rocket, Search } from 'lucide-react';
 import { ContextTabs } from './ContextTabs';
 import { isElectron } from '../utils/apiConfig';
+import { MAIN_AGENT_EVENT } from '@hpmartini/agents-ui';
 import { PALETTE_SHORTCUT } from './CommandPalette/CommandPaletteProvider';
-
-/** Fired on `window` to open the main agent dialog from anywhere */
-export const MAIN_AGENT_EVENT = 'orkumo:main-agent';
 
 type TitleBarProps = React.ComponentProps<typeof ContextTabs> & {
   /** The rocket opens the global dashboard (all contexts) */

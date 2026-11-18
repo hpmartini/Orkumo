@@ -6,7 +6,7 @@
  * main process only.
  */
 import { request } from './boardApi';
-import type { AgentHarness } from '../types';
+import type { AgentHarness } from '@hpmartini/agents-ui/types';
 
 /** A provider on the web whose history Orkumo reads */
 export type ChatProvider = 'claude' | 'chatgpt';

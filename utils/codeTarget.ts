@@ -1,7 +1,8 @@
 /**
  * Code mode: which folder a context (agent, issue, PR) opens in the Web-IDE.
  */
-import type { AgentContext, AgentRepo, AgentSession, AppConfig } from '../types';
+import type { AgentContext, AgentRepo, AgentSession } from '@hpmartini/agents-ui/types';
+import type { AppConfig } from '../types';
 
 /** Route of the Code mode for `path` */
 export const codeUrl = (path: string) => `/code?path=${encodeURIComponent(path)}`;

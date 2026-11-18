@@ -7,7 +7,7 @@ import {
   parseWorkflowName,
   workflowIssue,
   type SessionLookup,
-} from '../utils/agentSessions';
+} from '@hpmartini/agents-ui/utils/agentSessions';
 import { agentViewSettingsSchema } from '../server/schemas/agentViewSettings.js';
 import { DEFAULT_AGENT_CARD_FIELDS, type AgentSession } from '../types';
 

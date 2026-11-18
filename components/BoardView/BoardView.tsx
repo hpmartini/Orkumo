@@ -19,7 +19,7 @@ import {
   sliceFromRepoParam,
   type SliceEntry,
 } from '../../utils/board';
-import { useAgentSessions } from '../../hooks/useAgentSessions';
+import { useAgentSessions } from '@hpmartini/agents-ui/hooks/useAgentSessions';
 import { openCodeFor, sessionsByLinkId, startAgentOn } from './panelActions';
 import { undoToast, useBoard } from './useBoard';
 import { BoardGrid } from './BoardGrid';

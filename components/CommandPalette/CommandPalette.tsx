@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search } from 'lucide-react';
 import { parsePaletteInput, rankCommands, type PaletteCommand } from '../../utils/commandPalette';
-import { useDialogA11y } from './useDialogA11y';
+import { useDialogA11y } from '@hpmartini/agents-ui/components/CommandPalette/useDialogA11y';
 
 interface CommandPaletteProps {
   open: boolean;

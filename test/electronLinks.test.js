@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { windowOpenRoute, isValidExternalUrl } from '../electron/validation.js';
-import { routeLink } from '../utils/links';
+import { routeLink } from '@hpmartini/agents-ui/utils/links';
 
 /** What happens to a window.open from the app or the Web-IDE in Electron (#140), end to end */
 function electronOpen(url, setting, isDev = false) {

@@ -37,10 +37,10 @@ import {
   markdownFileName,
   promptLimit,
 } from '../../utils/chatHistory';
-import { harnessLabel } from '../../utils/agentSessions';
-import { openInSystemBrowser } from '../../utils/links';
-import { ICON_BTN, SELECT_CLS } from '../AgentsView/PullRequestsPage';
-import { ChatComposer } from '../AgentsView/Chat/ChatComposer';
+import { harnessLabel } from '@hpmartini/agents-ui/utils/agentSessions';
+import { openInSystemBrowser } from '@hpmartini/agents-ui/utils/links';
+import { ICON_BTN, SELECT_CLS } from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPage';
+import { ChatComposer } from '@hpmartini/agents-ui/components/AgentsView/Chat/ChatComposer';
 import { ChatParts } from './ChatParts';
 
 const PROVIDER_CLS: Record<ChatSource, string> = {

@@ -12,7 +12,10 @@ import {
   Wrench,
 } from 'lucide-react';
 import type { ChatPart, ChatProvider } from '../../services/chatHistoryApi';
-import { ChatMarkdown, CopyButton } from '../AgentsView/Chat/ChatMarkdown';
+import {
+  ChatMarkdown,
+  CopyButton,
+} from '@hpmartini/agents-ui/components/AgentsView/Chat/ChatMarkdown';
 
 type Artifact = Extract<ChatPart, { type: 'artifact' }>;
 type Tool = Extract<ChatPart, { type: 'tool' }>;

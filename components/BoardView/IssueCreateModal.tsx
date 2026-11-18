@@ -3,11 +3,17 @@ import toast from 'react-hot-toast';
 import { X } from 'lucide-react';
 import type { BoardItem, BoardStatusOption } from '../../types';
 import { createBoardIssue, errorDetails, uploadIssueImage } from '../../services/boardApi';
-import { useDialogA11y } from '../CommandPalette/useDialogA11y';
-import { ImageAttachments, imageDropHandlers } from '../ImageAttachments';
-import { bodyWithImages, submitIntent } from '../../utils/composer';
+import { useDialogA11y } from '@hpmartini/agents-ui/components/CommandPalette/useDialogA11y';
+import {
+  ImageAttachments,
+  imageDropHandlers,
+} from '@hpmartini/agents-ui/components/ImageAttachments';
+import { bodyWithImages, submitIntent } from '@hpmartini/agents-ui/utils/composer';
 import { LabelChip } from './BoardCard';
-import { NewKindTabs, type NewKind } from '../AgentsView/NewTaskButton';
+import {
+  NewKindTabs,
+  type NewKind,
+} from '@hpmartini/agents-ui/components/AgentsView/NewTaskButton';
 import {
   FIELD_INPUT,
   FieldPicker,
