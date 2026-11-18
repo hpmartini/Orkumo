@@ -202,6 +202,9 @@ describe('omp turn state from the session tail', () => {
     expect(turnSignal(message('user'))).toBe('working');
     expect(turnSignal(message('toolResult'))).toBe('working');
     expect(turnSignal(custom('tool_execution_start'))).toBe('working');
+    expect(
+      turnSignal({ type: 'custom', customType: 'tool_execution_start', data: { toolName: 'ask' } })
+    ).toBe('asking');
     expect(turnSignal(notice('skill-prompt', 'user'))).toBe('working');
     expect(turnSignal(notice('async-result'))).toBe('working');
     for (const stopReason of ['stop', 'aborted', 'error', 'length']) {
@@ -241,8 +244,8 @@ describe('omp turn state from the session tail', () => {
       ],
       mtime
     );
-  const ids = Array.from({ length: 7 }, (_, i) => `01a1d0${i}0-bafe-7128-b415-8612c599aa56`);
-  const [TOOL, AFTER_STOP, EXITED, SUBAGENT, STALE_SUB, PANE, HUGE] = ids;
+  const ids = Array.from({ length: 8 }, (_, i) => `01a1d0${i}0-bafe-7128-b415-8612c599aa56`);
+  const [TOOL, AFTER_STOP, EXITED, SUBAGENT, STALE_SUB, PANE, HUGE, ASKING] = ids;
   const running = new Map();
 
   beforeAll(() => {
@@ -292,6 +295,15 @@ describe('omp turn state from the session tail', () => {
       ],
       tenMinAgo
     );
+    // the ask tool waits for the user's answer in the TUI
+    add(
+      ASKING,
+      [
+        message('assistant', { stopReason: 'toolUse' }),
+        { type: 'custom', customType: 'tool_execution_start', data: { toolName: 'ask' } },
+      ],
+      tenMinAgo
+    );
   });
   afterAll(() => fs.rmSync(root, { recursive: true, force: true }));
 
@@ -321,13 +333,18 @@ describe('omp turn state from the session tail', () => {
       [STALE_SUB]: 'idle',
       [PANE]: 'working',
       [HUGE]: 'working',
+      [ASKING]: 'needs-input',
+    });
+    expect(rows.find((r) => r.sessionId === ASKING)).toMatchObject({
+      status: 'waiting',
+      waitingFor: 'ask',
     });
     expect(rows.find((r) => r.sessionId === PANE)).toMatchObject({
       paneId: 'pane-1',
       status: 'busy',
     });
     // a subagent's transcript is no session of its own
-    expect(rows).toHaveLength(7);
+    expect(rows).toHaveLength(8);
   });
 });
 
