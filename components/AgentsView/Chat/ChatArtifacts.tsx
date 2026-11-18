@@ -1,10 +1,12 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Code2, FileText, FolderOpen, Files, Loader2, X } from 'lucide-react';
+import { Code2, ExternalLink, FileText, FolderOpen, Files, Globe, Loader2, X } from 'lucide-react';
 import {
   fetchChatArtifactContent,
   fetchChatArtifacts,
   type ChatArtifact,
+  type ChatArtifacts,
+  type ClaudeArtifact,
 } from '../../../services/agentsApi';
 import { useDialogA11y } from '../../CommandPalette/useDialogA11y';
 import { relativeTime } from '../../../utils/chatHistory';
@@ -16,8 +18,8 @@ import type { ChatMessage } from '../../../utils/chatEvents';
 /** While the modal is open: documents appear without a tool call the client could see */
 const MODAL_POLL_MS = 4000;
 
-/** Tool names that write files (omp's write/edit arrive mapped, its patch edit as `edit`) */
-const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'edit']);
+/** Tools whose result changes the list: file writes (omp's arrive mapped) and claude.ai publishes */
+const FILE_TOOLS = new Set(['Write', 'Edit', 'MultiEdit', 'NotebookEdit', 'edit', 'Artifact']);
 
 /** Changes when a file tool call finishes or a turn ends: then the list is fetched again */
 export function artifactRefreshKey(messages: ChatMessage[], turns: number): string {
@@ -36,10 +38,12 @@ const actionBtn = `flex items-center gap-1.5 px-2 py-1 rounded text-xs text-gray
  * Artifacts of a chat, refetched whenever `refreshKey` changes (finished file tool calls,
  * turns). Errors keep the last list: the chat itself reports a gone session.
  */
-export function useChatArtifacts(chatId: string | null, refreshKey: string): ChatArtifact[] {
-  const [artifacts, setArtifacts] = useState<ChatArtifact[]>([]);
+const NONE: ChatArtifacts = { files: [], pages: [] };
+
+export function useChatArtifacts(chatId: string | null, refreshKey: string): ChatArtifacts {
+  const [artifacts, setArtifacts] = useState<ChatArtifacts>(NONE);
   useEffect(() => {
-    if (!chatId) return setArtifacts([]);
+    if (!chatId) return setArtifacts(NONE);
     let cancelled = false;
     fetchChatArtifacts(chatId)
       .then((list) => !cancelled && setArtifacts(list))
@@ -51,23 +55,35 @@ export function useChatArtifacts(chatId: string | null, refreshKey: string): Cha
   return artifacts;
 }
 
-/** Footer button; hidden while the session has no artifacts */
-export const ChatArtifactsButton: React.FC<{ count: number; onOpen: () => void }> = ({
-  count,
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** Pages the agent published or linked to; a page it only read is listed, not counted */
+const countedPages = (pages: ClaudeArtifact[]) => pages.filter((p) => p.source !== 'read').length;
+
+/** Footer button with both counts ("2 artifacts · 12 files"); hidden while there is neither */
+export const ChatArtifactsButton: React.FC<{ artifacts: ChatArtifacts; onOpen: () => void }> = ({
+  artifacts,
   onOpen,
-}) =>
-  count === 0 ? null : (
+}) => {
+  const pages = countedPages(artifacts.pages);
+  const files = artifacts.files.length;
+  if (pages === 0 && files === 0) return null;
+  return (
     <button
       type="button"
       onClick={onOpen}
       className={`shrink-0 flex items-center gap-1.5 px-2 py-1 rounded border border-gray-700 text-xs text-gray-300 hover:text-white hover:bg-gray-800 ${focusRing}`}
-      title="Files and documents this agent created or edited"
+      title="Claude artifacts (pages on claude.ai) and files this agent created or edited"
     >
       <Files size={13} aria-hidden className="text-gray-400" />
-      Artifacts
-      <span className="tabular-nums text-gray-100">{count}</span>
+      <span className="tabular-nums text-gray-100">
+        {[pages > 0 && plural(pages, 'artifact'), files > 0 && plural(files, 'file')]
+          .filter(Boolean)
+          .join(' · ')}
+      </span>
     </button>
   );
+};
 
 const GROUPS: { label: string; test: (a: ChatArtifact) => boolean }[] = [
   { label: 'Documents', test: (a) => a.kind === 'document' },
@@ -174,15 +190,116 @@ const Preview: React.FC<{ chatId: string; cwd: string; artifact: ChatArtifact }>
   );
 };
 
+/** One row of the list: a claude.ai page or a file */
+type Entry =
+  | { key: string; page: ClaudeArtifact; file?: never }
+  | { key: string; file: ChatArtifact; page?: never };
+
+interface Section {
+  label: string;
+  groups: { label: string; items: Entry[] }[];
+}
+
+const PAGE_SOURCE: Record<ClaudeArtifact['source'], string> = {
+  published: 'Published',
+  linked: 'Linked',
+  read: 'Read only',
+};
+
+/** Name of a page: its title, else label, else the artifact id */
+const pageName = (p: ClaudeArtifact) => p.title || p.label || p.url.split('/').pop() || p.url;
+
+/** Facts of a page as label/value rows; empty values are left out */
+function pageFacts(p: ClaudeArtifact, cwd: string): [string, string][] {
+  const facts: [string, string | null][] = [
+    ['Type', p.type],
+    ['Status', PAGE_SOURCE[p.source]],
+    ['Version', p.version != null ? String(p.version) : null],
+    ['Updated', p.updatedAt != null ? new Date(p.updatedAt).toLocaleString() : null],
+    ['Label', p.label],
+    ['Description', p.description],
+    ['Source', p.file && shownPath(p.file, cwd)],
+    ['URL', p.url],
+  ];
+  return facts.filter((f): f is [string, string] => !!f[1]);
+}
+
+/** Facts shown in monospace */
+const MONO_FACTS = new Set(['Source', 'URL']);
+
+/** The page's details; its source file is previewed when it is one of the listed files */
+const PageDetail: React.FC<{
+  chatId: string;
+  cwd: string;
+  page: ClaudeArtifact;
+  files: ChatArtifact[];
+}> = ({ chatId, cwd, page, files }) => {
+  const source = page.file ? files.find((f) => f.path === page.file) : undefined;
+  return (
+    <>
+      <div className="flex items-center gap-2 min-h-10 px-3 py-1.5 border-b border-gray-800 shrink-0">
+        <div className="min-w-0 flex-1">
+          <div className="text-sm text-gray-100 truncate">{pageName(page)}</div>
+          <div className="text-[11px] text-gray-500 truncate" title={page.url}>
+            Claude artifact · {page.type}
+            {page.version != null && ` · version ${page.version}`}
+          </div>
+        </div>
+        <a
+          href={page.url}
+          target="_blank"
+          rel="noreferrer noopener"
+          className={`${actionBtn} !text-blue-300`}
+        >
+          <ExternalLink size={13} aria-hidden /> Open on claude.ai
+        </a>
+        <button
+          type="button"
+          className={actionBtn}
+          disabled={!page.file}
+          title={page.file ?? 'No local source known'}
+          onClick={() => page.file && openFile(page.file, cwd, { editor: true })}
+        >
+          <Code2 size={13} aria-hidden /> Open source
+        </button>
+        <CopyButton text={page.url} label="Copy URL" className="!text-xs !px-2 !py-1" />
+      </div>
+      <div className="flex-1 min-h-0 overflow-auto thin-scrollbar bg-gray-950">
+        <dl className="grid grid-cols-[6rem_1fr] gap-x-3 gap-y-1 px-4 py-3 text-xs border-b border-gray-800">
+          {pageFacts(page, cwd).map(([k, v]) => (
+            <React.Fragment key={k}>
+              <dt className="text-gray-500">{k}</dt>
+              <dd
+                className={`min-w-0 break-words text-gray-200 ${MONO_FACTS.has(k) ? 'font-mono' : ''}`}
+              >
+                {v}
+              </dd>
+            </React.Fragment>
+          ))}
+        </dl>
+        {source ? (
+          <Preview key={source.path} chatId={chatId} cwd={cwd} artifact={source} />
+        ) : page.file ? (
+          <p className="px-4 py-3 text-xs text-gray-500">
+            The source was not written in this session, so it has no preview here: open it with
+            “Open source”.
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
+};
+
 /**
- * Everything the session produced: list grouped Documents / Created / Edited on the left,
- * preview on the right. Arrow keys move through the list, Esc closes.
+ * Everything the session produced, in two sections: Claude artifacts (pages hosted on
+ * claude.ai) and Files (grouped Documents / Created / Edited); the selected one on the right.
+ * Arrow keys move through the list, Esc closes.
  */
 export const ChatArtifactsModal: React.FC<{
   chatId: string;
   cwd: string;
   title: string;
-  artifacts: ChatArtifact[];
+  artifacts: ChatArtifacts;
   onClose: () => void;
 }> = ({ chatId, cwd, title, artifacts: initial, onClose }) => {
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -203,22 +320,32 @@ export const ChatArtifactsModal: React.FC<{
     [chatId]
   );
 
-  const groups = useMemo(
-    () =>
-      GROUPS.map((g) => ({ label: g.label, items: artifacts.filter(g.test) })).filter(
-        (g) => g.items.length > 0
-      ),
-    [artifacts]
+  const sections = useMemo((): Section[] => {
+    const pages: Entry[] = artifacts.pages.map((page) => ({ key: `page:${page.url}`, page }));
+    const files = GROUPS.map((g) => ({
+      label: g.label,
+      items: artifacts.files
+        .filter(g.test)
+        .map((file): Entry => ({ key: `file:${file.path}`, file })),
+    })).filter((g) => g.items.length > 0);
+    const all: Section[] = [
+      { label: 'Claude Artifacts', groups: pages.length ? [{ label: '', items: pages }] : [] },
+      { label: 'Files', groups: files },
+    ];
+    return all.filter((s) => s.groups.length > 0);
+  }, [artifacts]);
+  const ordered = useMemo(
+    () => sections.flatMap((s) => s.groups.flatMap((g) => g.items)),
+    [sections]
   );
-  const ordered = useMemo(() => groups.flatMap((g) => g.items), [groups]);
-  const [selectedPath, setSelectedPath] = useState<string | null>(ordered[0]?.path ?? null);
-  const selected = ordered.find((a) => a.path === selectedPath) ?? ordered[0] ?? null;
+  const [selectedKey, setSelectedKey] = useState<string | null>(ordered[0]?.key ?? null);
+  const selected = ordered.find((e) => e.key === selectedKey) ?? ordered[0] ?? null;
 
   useEffect(() => {
     listRef.current
       ?.querySelector<HTMLElement>('[aria-selected="true"]')
       ?.scrollIntoView({ block: 'nearest' });
-  }, [selected?.path]);
+  }, [selected?.key]);
 
   const move = (delta: number | 'first' | 'last') => {
     if (ordered.length === 0) return;
@@ -229,10 +356,71 @@ export const ChatArtifactsModal: React.FC<{
         : delta === 'last'
           ? ordered.length - 1
           : Math.min(ordered.length - 1, Math.max(0, index + delta));
-    setSelectedPath(ordered[next].path);
+    setSelectedKey(ordered[next].key);
   };
 
-  const optionId = (a: ChatArtifact) => `artifact-${ordered.indexOf(a)}`;
+  const optionId = (e: Entry) => `artifact-${ordered.indexOf(e)}`;
+  const counts = [
+    plural(countedPages(artifacts.pages), 'artifact'),
+    plural(artifacts.files.length, 'file'),
+  ].join(' · ');
+
+  const row = (e: Entry) => {
+    const isSelected = e === selected;
+    const Icon = e.page ? Globe : e.file.kind === 'document' ? FileText : Code2;
+    const sub = e.page
+      ? [
+          e.page.type,
+          e.page.source !== 'published' && PAGE_SOURCE[e.page.source],
+          e.page.version != null && `v${e.page.version}`,
+        ]
+          .filter(Boolean)
+          .join(' · ')
+      : e.file.kind === 'document'
+        ? 'session document'
+        : shownPath(e.file.path, cwd).replace(/\/?[^/]*$/, '') || './';
+    const time = e.page
+      ? relativeTime(e.page.updatedAt)
+      : e.file.exists
+        ? relativeTime(e.file.mtime)
+        : 'deleted';
+    const dim = e.file ? !e.file.exists : e.page.source === 'read';
+    return (
+      <div
+        key={e.key}
+        id={optionId(e)}
+        role="option"
+        aria-selected={isSelected}
+        data-artifact={e.page ? 'page' : 'file'}
+        title={e.page ? e.page.url : e.file.path}
+        onMouseDown={(ev) => ev.preventDefault()}
+        onClick={() => {
+          setSelectedKey(e.key);
+          listRef.current?.focus({ preventScroll: true });
+        }}
+        className={`flex items-start gap-2 mx-1 px-2 py-1.5 rounded cursor-pointer ${
+          isSelected ? 'bg-blue-500/15 text-gray-50' : 'text-gray-300 hover:bg-gray-800'
+        }`}
+      >
+        <Icon
+          size={13}
+          aria-hidden
+          className={`mt-0.5 shrink-0 ${isSelected ? 'text-blue-300' : e.page ? 'text-amber-300' : 'text-gray-500'}`}
+        />
+        <span className="min-w-0 flex-1">
+          <span
+            className={`block truncate text-xs ${dim ? 'text-gray-500' : ''} ${e.file && !e.file.exists ? 'line-through' : ''}`}
+          >
+            {e.page ? pageName(e.page) : e.file.name}
+          </span>
+          <span className={`block truncate text-[11px] text-gray-500 ${e.page ? '' : 'font-mono'}`}>
+            {sub}
+          </span>
+        </span>
+        <span className="shrink-0 text-[11px] text-gray-500 tabular-nums">{time}</span>
+      </div>
+    );
+  };
 
   return createPortal(
     <div
@@ -261,7 +449,7 @@ export const ChatArtifactsModal: React.FC<{
             Artifacts
           </h2>
           <span className="text-xs text-gray-500 truncate min-w-0">
-            {artifacts.length} from {title}
+            {counts} from {title}
           </span>
           <span className="flex-1" />
           <button
@@ -295,103 +483,39 @@ export const ChatArtifactsModal: React.FC<{
             }}
             className={`min-h-0 overflow-y-auto thin-scrollbar border-r border-gray-800 py-1 outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-blue-400`}
           >
-            {groups.length === 0 && (
+            {sections.length === 0 && (
               <p className="px-3 py-4 text-xs text-gray-500">No artifacts in this session yet.</p>
             )}
-            {groups.map((g) => (
-              <div key={g.label} role="group" aria-label={g.label} className="mb-1">
-                <div className="flex items-center justify-between px-3 pt-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
-                  {g.label}
-                  <span className="tabular-nums normal-case tracking-normal">{g.items.length}</span>
+            {sections.map((s) => (
+              <div key={s.label} role="group" aria-label={s.label} className="mb-2">
+                <div className="flex items-center justify-between px-3 pt-2 pb-1 text-xs font-semibold text-gray-200">
+                  {s.label}
+                  <span className="tabular-nums font-normal text-gray-500">
+                    {s.groups.reduce((n, g) => n + g.items.length, 0)}
+                  </span>
                 </div>
-                {g.items.map((a) => {
-                  const isSelected = a === selected;
-                  const Icon = a.kind === 'document' ? FileText : Code2;
-                  return (
-                    <div
-                      key={a.path}
-                      id={optionId(a)}
-                      role="option"
-                      aria-selected={isSelected}
-                      title={a.path}
-                      onMouseDown={(e) => e.preventDefault()}
-                      onClick={() => {
-                        setSelectedPath(a.path);
-                        listRef.current?.focus({ preventScroll: true });
-                      }}
-                      className={`flex items-start gap-2 mx-1 px-2 py-1.5 rounded cursor-pointer ${
-                        isSelected
-                          ? 'bg-blue-500/15 text-gray-50'
-                          : 'text-gray-300 hover:bg-gray-800'
-                      }`}
-                    >
-                      <Icon
-                        size={13}
-                        aria-hidden
-                        className={`mt-0.5 shrink-0 ${isSelected ? 'text-blue-300' : 'text-gray-500'}`}
-                      />
-                      <span className="min-w-0 flex-1">
-                        <span
-                          className={`block truncate text-xs ${a.exists ? '' : 'line-through text-gray-500'}`}
-                        >
-                          {a.name}
+                {s.groups.map((g) => (
+                  <div key={g.label || s.label} className="mb-1">
+                    {g.label && (
+                      <div className="flex items-center justify-between px-3 pt-1 pb-1 text-[11px] font-medium uppercase tracking-wide text-gray-500">
+                        {g.label}
+                        <span className="tabular-nums normal-case tracking-normal">
+                          {g.items.length}
                         </span>
-                        <span className="block truncate text-[11px] text-gray-500 font-mono">
-                          {a.kind === 'document'
-                            ? 'session document'
-                            : shownPath(a.path, cwd).replace(/\/?[^/]*$/, '') || './'}
-                        </span>
-                      </span>
-                      <span className="shrink-0 text-[11px] text-gray-500 tabular-nums">
-                        {a.exists ? relativeTime(a.mtime) : 'deleted'}
-                      </span>
-                    </div>
-                  );
-                })}
+                      </div>
+                    )}
+                    {g.items.map(row)}
+                  </div>
+                ))}
               </div>
             ))}
           </div>
 
           <div className="min-w-0 min-h-0 flex flex-col">
-            {selected ? (
-              <>
-                <div className="flex items-center gap-2 min-h-10 px-3 py-1.5 border-b border-gray-800 shrink-0">
-                  <div className="min-w-0 flex-1">
-                    <div className="text-sm text-gray-100 truncate">{selected.name}</div>
-                    <div
-                      className="text-[11px] text-gray-500 font-mono truncate"
-                      title={selected.path}
-                    >
-                      {shownPath(selected.path, cwd)}
-                      {selected.size != null && ` · ${formatSize(selected.size)}`}
-                    </div>
-                  </div>
-                  <button
-                    type="button"
-                    className={actionBtn}
-                    disabled={!selected.exists}
-                    onClick={() => openFile(selected.path, cwd, { editor: true })}
-                  >
-                    <Code2 size={13} aria-hidden /> Open in VS Code
-                  </button>
-                  <button
-                    type="button"
-                    className={actionBtn}
-                    disabled={!selected.exists}
-                    onClick={() => openFile(selected.path, cwd, { reveal: true })}
-                  >
-                    <FolderOpen size={13} aria-hidden /> Reveal in Finder
-                  </button>
-                  <CopyButton
-                    text={selected.path}
-                    label="Copy path"
-                    className="!text-xs !px-2 !py-1"
-                  />
-                </div>
-                <div className="flex-1 min-h-0 overflow-auto thin-scrollbar bg-gray-950">
-                  <Preview key={selected.path} chatId={chatId} cwd={cwd} artifact={selected} />
-                </div>
-              </>
+            {selected?.page ? (
+              <PageDetail chatId={chatId} cwd={cwd} page={selected.page} files={artifacts.files} />
+            ) : selected?.file ? (
+              <FileDetail chatId={chatId} cwd={cwd} file={selected.file} />
             ) : (
               <div className="flex items-center justify-center h-full text-sm text-gray-500">
                 Nothing to preview
@@ -405,3 +529,42 @@ export const ChatArtifactsModal: React.FC<{
     document.body
   );
 };
+
+/** A file's path, actions and preview */
+const FileDetail: React.FC<{ chatId: string; cwd: string; file: ChatArtifact }> = ({
+  chatId,
+  cwd,
+  file,
+}) => (
+  <>
+    <div className="flex items-center gap-2 min-h-10 px-3 py-1.5 border-b border-gray-800 shrink-0">
+      <div className="min-w-0 flex-1">
+        <div className="text-sm text-gray-100 truncate">{file.name}</div>
+        <div className="text-[11px] text-gray-500 font-mono truncate" title={file.path}>
+          {shownPath(file.path, cwd)}
+          {file.size != null && ` · ${formatSize(file.size)}`}
+        </div>
+      </div>
+      <button
+        type="button"
+        className={actionBtn}
+        disabled={!file.exists}
+        onClick={() => openFile(file.path, cwd, { editor: true })}
+      >
+        <Code2 size={13} aria-hidden /> Open in VS Code
+      </button>
+      <button
+        type="button"
+        className={actionBtn}
+        disabled={!file.exists}
+        onClick={() => openFile(file.path, cwd, { reveal: true })}
+      >
+        <FolderOpen size={13} aria-hidden /> Reveal in Finder
+      </button>
+      <CopyButton text={file.path} label="Copy path" className="!text-xs !px-2 !py-1" />
+    </div>
+    <div className="flex-1 min-h-0 overflow-auto thin-scrollbar bg-gray-950">
+      <Preview key={file.path} chatId={chatId} cwd={cwd} artifact={file} />
+    </div>
+  </>
+);

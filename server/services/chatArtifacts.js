@@ -87,7 +87,56 @@ function resolveToolPath(file, cwd, documentDir) {
  * chatService feeds every event in here as it arrives; only file calls and their outcome stay.
  */
 export function createArtifactLog() {
-  return { calls: new Map(), results: new Map() };
+  return {
+    calls: new Map(),
+    results: new Map(),
+    /** Artifact publish calls waiting for their result: tool id → input */
+    publishing: new Map(),
+    /** claude.ai pages: url → { url, file, label, description, version, updatedAt, typeHint } */
+    published: new Map(),
+    /** pages only read or linked: url → 'read' | 'linked' */
+    mentioned: new Map(),
+  };
+}
+
+/** A page hosted on claude.ai (Claude Code's Artifact tool) */
+const ARTIFACT_URL_RE = /https:\/\/claude\.ai\/artifact\/[\w-]+/g;
+/** Result of a publish: "Published <file> at <url> (Version 48, version id 1794504144-e5d6)" */
+const PUBLISHED_RE =
+  /(?:Published (\S+) at|(?:Created a new|Updated the) Artifact at) (https:\/\/claude\.ai\/artifact\/[\w-]+)/;
+
+/** Fold one Artifact tool call or its result into the log; reads only mark the page as read */
+function logArtifactTool(log, block) {
+  const input = isObj(block.input) ? block.input : {};
+  const action = str(input.action) || 'publish';
+  if (action === 'read') {
+    const url = str(input.url).match(ARTIFACT_URL_RE)?.[0];
+    if (url && !log.mentioned.has(url)) log.mentioned.set(url, 'read');
+  } else if (action === 'publish' && input.asset !== true) log.publishing.set(str(block.id), input);
+}
+
+function logArtifactResult(log, block) {
+  const id = str(block.tool_use_id);
+  const input = log.publishing.get(id);
+  if (!input) return;
+  log.publishing.delete(id);
+  const text = resultText(block.content);
+  const hit = block.is_error === true ? null : PUBLISHED_RE.exec(text);
+  if (!hit) return;
+  const url = hit[2];
+  const prev = log.published.get(url);
+  const versionId = /version id (\d{9,})-/.exec(text);
+  // An update often names only the file: label, description and title of earlier publishes stay
+  log.published.set(url, {
+    url,
+    file: hit[1] ?? (str(input.file_path) || prev?.file || null),
+    title: str(input.title) || prev?.title || null,
+    label: str(input.label) || prev?.label || null,
+    description: str(input.description) || prev?.description || null,
+    version: Number(/\(Version (\d+)/i.exec(text)?.[1]) || prev?.version || null,
+    updatedAt: versionId ? Number(versionId[1]) * 1000 : (prev?.updatedAt ?? null),
+    typeUrl: str(input.type_url) || prev?.typeUrl || null,
+  });
 }
 
 /** Fold one view event (assistant tool_use blocks, user tool_result blocks) into the log */
@@ -96,6 +145,14 @@ export function logArtifactEvent(log, event) {
   if (!Array.isArray(content)) return;
   for (const block of content) {
     if (!isObj(block)) continue;
+    // Links in the agent's own text only: tool results carry pages written by others
+    if (event.type === 'assistant' && block.type === 'text')
+      for (const url of str(block.text).match(ARTIFACT_URL_RE) ?? [])
+        if (log.mentioned.get(url) !== 'linked') log.mentioned.set(url, 'linked');
+    if (event.type === 'assistant' && block.type === 'tool_use' && block.name === 'Artifact')
+      logArtifactTool(log, block);
+    else if (event.type === 'user' && block.type === 'tool_result' && log.publishing.size)
+      logArtifactResult(log, block);
     if (event.type === 'assistant' && block.type === 'tool_use') {
       const touches = toolTouches(str(block.name), isObj(block.input) ? block.input : {});
       if (touches.length) log.calls.set(str(block.id), touches);
@@ -136,6 +193,92 @@ export function toolArtifacts(log, cwd, documentDir = null) {
     }
   }
   return [...files.values()].reverse();
+}
+
+/** Bytes of a page's source read for its <title> and type: the modal polls, keep it small */
+const PAGE_HEAD_BYTES = 64 * 1024;
+
+/** Kind of hosted page by keywords; checked in this order, the first hit wins */
+const PAGE_TYPES = [
+  ['Slides', /slide|deck\b|folien|präsentation|presentation|reveal\.js/i],
+  ['Dashboard', /dashboard|kpi|metrics|kennzahl|scorecard|chart\.js|echarts|<canvas/i],
+  ['Design', /design|mock-?up|prototyp|wireframe|entwurf/i],
+  [
+    'Document',
+    /dokument|document|memo|bericht|report|spec|journal|notes|notizen|protokoll|\bplan/i,
+  ],
+];
+
+/** Head of a page's local source; '' when it is gone or unreadable */
+function pageHead(file) {
+  if (!file) return '';
+  let fd;
+  try {
+    fd = fs.openSync(file, 'r');
+    const buffer = Buffer.alloc(PAGE_HEAD_BYTES);
+    return buffer.toString('utf8', 0, fs.readSync(fd, buffer, 0, PAGE_HEAD_BYTES, 0));
+  } catch {
+    return '';
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * Type hint of a hosted page: its type link, label, description and title, then the file
+ * name, then the source's head; 'Page' without a hit.
+ */
+export function pageType({ typeUrl, title, label, description, file }, head = '') {
+  const sources = [
+    typeUrl,
+    [title, label, description].filter(Boolean).join(' '),
+    file && path.basename(file),
+    head,
+  ];
+  for (const text of sources)
+    if (text) for (const [type, re] of PAGE_TYPES) if (re.test(text)) return type;
+  return 'Page';
+}
+
+/**
+ * claude.ai pages of the session: published ones (one entry per URL, its newest version,
+ * newest first), then pages the agent only read or linked to.
+ * @returns {{ url: string, source: 'published'|'read'|'linked', title: string|null,
+ *   label: string|null, description: string|null, version: number|null,
+ *   updatedAt: number|null, file: string|null, type: string }[]}
+ */
+export function claudeArtifacts(log) {
+  const published = [...log.published.values()].reverse().map((p) => {
+    const head = pageHead(p.file);
+    const htmlTitle = /<title[^>]*>([^<]*)<\/title>/i.exec(head)?.[1].trim() || null;
+    const title = p.title ?? htmlTitle;
+    return {
+      url: p.url,
+      source: 'published',
+      title,
+      label: p.label,
+      description: p.description,
+      version: p.version,
+      updatedAt: p.updatedAt,
+      file: p.file,
+      type: pageType({ ...p, title }, head),
+    };
+  });
+  published.sort((a, b) => (b.updatedAt ?? 0) - (a.updatedAt ?? 0));
+  const other = [...log.mentioned]
+    .filter(([url]) => !log.published.has(url))
+    .map(([url, source]) => ({
+      url,
+      source,
+      title: null,
+      label: null,
+      description: null,
+      version: null,
+      updatedAt: null,
+      file: null,
+      type: 'Page',
+    }));
+  return [...published, ...other];
 }
 
 /** `toolArtifacts` of a list of view events */
