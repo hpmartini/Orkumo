@@ -13,7 +13,7 @@ import { ImageAddon } from '@xterm/addon-image';
 import { getLinkKeys, getLinkTarget, linkTargetFor, openLink } from '../../utils/links';
 import { createFileLinkProvider } from '../../utils/fileLinks';
 import { styleTerminalLinks } from '../../utils/terminalLinkStyle';
-import { promptSuggestion } from '../../utils/terminalScreen';
+import { promptInput, promptSuggestion } from '../../utils/terminalScreen';
 import { openFile } from '../../utils/openFile';
 import '@xterm/xterm/css/xterm.css';
 import {
@@ -213,6 +213,26 @@ export function paneScreen(id: string, maxLines = 18): string {
     if (line.trim()) lines.push(line);
   }
   return lines.slice(-maxLines).join('\n');
+}
+
+/**
+ * The full text of the suggestion in pane `id`, which the TUI cuts at the pane's width: Tab takes
+ * it into the TUI's input, where it wraps over as many rows as it needs; read there, the input is
+ * emptied again and the TUI shows the suggestion once more. null when the TUI took nothing.
+ */
+export async function takePaneSuggestion(id: string): Promise<string | null> {
+  const pane = paneTerminals.get(id);
+  if (!pane?.connected) return null;
+  sendTo(pane, { type: 'input', data: '\t' });
+  for (let i = 0; i < 20; i++) {
+    await new Promise((resolve) => window.setTimeout(resolve, 100));
+    const text = promptInput(pane.terminal);
+    if (!text) continue;
+    // Backspace, not Ctrl+U: Ctrl+U clears only the last wrapped row; extras on an empty input do nothing
+    sendTo(pane, { type: 'input', data: '\x7f'.repeat(text.length + 8) });
+    return text;
+  }
+  return null;
 }
 
 /** Claude Code's prompt suggestion (ghost text) in pane `id`'s input line, see `promptSuggestion` */

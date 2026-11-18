@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
 import { Terminal } from '@xterm/xterm';
-import { promptSuggestion, renderTerminalScreen } from '../utils/terminalScreen';
+import { promptInput, promptSuggestion, renderTerminalScreen } from '../utils/terminalScreen';
 import { extractNumberedChoices, stripAnsi } from '../utils/agentInput';
 
 // Real `claude logs <id>` streams (Claude Code v2.1.318), see #178
@@ -91,5 +91,44 @@ describe('promptSuggestion', () => {
       text: 'Umsetzen und danach die Tests laufen lass',
       truncated: true,
     });
+  });
+});
+
+describe('promptInput (a taken suggestion, wrapped over rows)', () => {
+  // Claude Code v2.1.327 at 50 columns after Tab on a cut suggestion: typed text, wrapped rows
+  // indented by two, then the box's border and the status line
+  const screen = async (lines: string[]) => {
+    const term = new Terminal({ cols: 50, rows: 10, allowProposedApi: true });
+    await new Promise<void>((resolve) => term.write(lines.join('\r\n'), resolve));
+    return term;
+  };
+
+  it('joins the wrapped rows of the input, stops at the border', async () => {
+    const term = await screen([
+      '─'.repeat(50),
+      '❯ Bau die Variante mit der laufenden',
+      '  Szenen-Figur in deinen Farben, mit',
+      '  Sprechblase, Foto-Porträt und kleiner',
+      '  Hover-Animation.',
+      '─'.repeat(50),
+      '    Desktop   Haiku 5.5 medium',
+    ]);
+    expect(promptInput(term)).toBe(
+      'Bau die Variante mit der laufenden Szenen-Figur in deinen Farben, mit Sprechblase, Foto-Porträt und kleiner Hover-Animation.'
+    );
+  });
+
+  it('null while the input shows a (dim) suggestion or nothing', async () => {
+    const cut = await screen([
+      '─'.repeat(50),
+      '❯ \x1b[2mBau die Variante mit der laufenden Szenen-Figur…\x1b[22m',
+      '─'.repeat(50),
+    ]);
+    expect(promptInput(cut)).toBeNull();
+    expect(promptSuggestion(cut)).toEqual({
+      text: 'Bau die Variante mit der laufenden Szenen-Figur',
+      truncated: true,
+    });
+    expect(promptInput(await screen(['─'.repeat(50), '❯\xa0', '─'.repeat(50)]))).toBeNull();
   });
 });
