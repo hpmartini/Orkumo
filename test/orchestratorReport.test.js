@@ -1,0 +1,27 @@
+import { describe, expect, it } from 'vitest';
+import { parseReport } from '../server/services/orchestratorReport.js';
+import example from '../server/orchestrator/report.example.json';
+
+const clone = () => structuredClone(example);
+
+describe('orchestrator report schema', () => {
+  it('accepts the published example', () => {
+    expect(parseReport(example)).toMatchObject({ ok: true });
+  });
+
+  it.each([
+    ['missing orchestrator id', (r) => delete r.orchestrator.id, 'orchestrator.id'],
+    ['unknown task state', (r) => (r.projects[0].tasks[0].state = 'blocked'), 'projects.0.tasks.0.state'],
+    ['wrong schema version', (r) => (r.schemaVersion = 2), 'schemaVersion'],
+    ['recommendation not an option', (r) => (r.inbox[0].recommendation = 'x'), 'inbox.0.recommendation'],
+    ['approval without pr', (r) => delete r.inbox[1].pr, 'inbox.1.pr'],
+    ['unknown top-level field', (r) => (r.extra = 1), '(root)'],
+    ['extension key without x-', (r) => (r.extensions = { foo: 1 }), 'extensions'],
+  ])('rejects %s', (_name, mutate, path) => {
+    const report = clone();
+    mutate(report);
+    const result = parseReport(report);
+    expect(result.ok).toBe(false);
+    expect(result.errors.join('\n')).toContain(path);
+  });
+});
