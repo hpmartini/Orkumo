@@ -10,11 +10,11 @@ import { useModuleHost, type ModuleHost } from '../components/ModuleMount';
 import { BackendBar } from '../components/BackendBar';
 import { WebIDEPanel } from '../components/CodingView/WebIDEPanel';
 
-const PEER: Backend = { prefix: '/modules/mesh/peer/darkbook', label: 'darkbook' };
+const PEER: Backend = { prefix: '/modules/mesh/peer/laptop', label: 'laptop' };
 
 // Set before apiConfig loads, so API_BASE_URL carries the prefix as after a real connect
 const state = vi.hoisted(() => ({
-  backend: { prefix: '/modules/mesh/peer/darkbook', label: 'darkbook' } as Backend | null,
+  backend: { prefix: '/modules/mesh/peer/laptop', label: 'laptop' } as Backend | null,
   connect: vi.fn(),
   disconnect: vi.fn(),
 }));
@@ -65,7 +65,7 @@ describe('module host', () => {
 describe('BackendBar', () => {
   it('shows the connected instance and disconnects on "Trennen"', async () => {
     render(<BackendBar />);
-    expect(screen.getByRole('status')).toHaveTextContent('Verbunden mit darkbook');
+    expect(screen.getByRole('status')).toHaveTextContent('Verbunden mit laptop');
     await userEvent.click(screen.getByRole('button', { name: /Trennen/ }));
     expect(state.disconnect).toHaveBeenCalledTimes(1);
   });
@@ -78,7 +78,7 @@ describe('BackendBar', () => {
 });
 
 describe('WebIDEPanel code-server URL', () => {
-  const DIR = '/Users/hape/PROJECTS/demo';
+  const DIR = '/Users/example/PROJECTS/demo';
   const iframe = () =>
     document.querySelector('iframe[title="VS Code Server"]') as HTMLIFrameElement;
 

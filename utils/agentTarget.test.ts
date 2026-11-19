@@ -10,7 +10,7 @@ import {
 } from './agentTarget';
 import { API_BASE_URL } from './apiConfig';
 
-const PEER = '/modules/mesh/peer/darkbook';
+const PEER = '/modules/mesh/peer/laptop';
 
 beforeEach(resetAgentTarget);
 

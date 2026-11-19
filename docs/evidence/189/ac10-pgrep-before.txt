@@ -1,1 +1,1 @@
-99726 /Users/hape/.local/bin/claude -p --input-format stream
+99726 /Users/example/.local/bin/claude -p --input-format stream

@@ -2,7 +2,7 @@
 // modules fresh (dynamic import after vi.resetModules) after preparing localStorage.
 import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 
-const PEER = '/modules/mesh/peer/darkbook';
+const PEER = '/modules/mesh/peer/laptop';
 const KEY = 'orkumo.backend';
 
 const load = async () => {
@@ -36,9 +36,9 @@ describe('backendTarget', () => {
   });
 
   it('reads a valid stored backend and routes API, WebSocket and SSE through its prefix', async () => {
-    localStorage.setItem(KEY, JSON.stringify({ prefix: PEER, label: 'darkbook' }));
+    localStorage.setItem(KEY, JSON.stringify({ prefix: PEER, label: 'laptop' }));
     const { target, api } = await load();
-    expect(target.getBackend()).toEqual({ prefix: PEER, label: 'darkbook' });
+    expect(target.getBackend()).toEqual({ prefix: PEER, label: 'laptop' });
     expect(api.API_BASE_URL).toBe(`/api${PEER}`);
     expect(api.getWsUrl('/api/pty')).toMatch(new RegExp(`^wss?://[^/]+/api${PEER}/pty$`));
     expect(api.getWsUrl()).toMatch(new RegExp(`/api${PEER}/pty$`));
@@ -78,17 +78,17 @@ describe('backendTarget', () => {
 
   it('accepts dots inside a segment (host names), only `.`/`..` segments are refused', async () => {
     const { MODULE_PREFIX_RE } = (await load()).target;
-    expect(MODULE_PREFIX_RE.test('/modules/mesh/peer/darkbook.tail1.ts.net')).toBe(true);
+    expect(MODULE_PREFIX_RE.test('/modules/mesh/peer/laptop.tail1.ts.net')).toBe(true);
     expect(MODULE_PREFIX_RE.test('/modules/mesh/peer/..x')).toBe(true);
     expect(MODULE_PREFIX_RE.test('/modules/mesh/peer/../x')).toBe(false);
   });
 
   it('connectBackend stores a valid backend and reloads', async () => {
     const { target } = await load();
-    target.connectBackend(PEER, 'darkbook');
+    target.connectBackend(PEER, 'laptop');
     expect(JSON.parse(localStorage.getItem(KEY) ?? 'null')).toEqual({
       prefix: PEER,
-      label: 'darkbook',
+      label: 'laptop',
     });
     expect(reload).toHaveBeenCalledTimes(1);
   });
@@ -104,7 +104,7 @@ describe('backendTarget', () => {
   });
 
   it('disconnectBackend removes the backend and reloads', async () => {
-    localStorage.setItem(KEY, JSON.stringify({ prefix: PEER, label: 'darkbook' }));
+    localStorage.setItem(KEY, JSON.stringify({ prefix: PEER, label: 'laptop' }));
     const { target } = await load();
     target.disconnectBackend();
     expect(localStorage.getItem(KEY)).toBeNull();

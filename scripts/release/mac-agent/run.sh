@@ -8,8 +8,8 @@ set -a
 # shellcheck disable=SC1091
 . "$DIR/agent.env"
 set +a
-# gRPC through traefik on the CI host (TLS there, h2c to the server's :9000)
-export WOODPECKER_SERVER="${WOODPECKER_SERVER:-woodpecker-grpc-tv94.srv1329780.hstgr.cloud:443}"
+# gRPC through traefik on the CI host (TLS there, h2c to the server's :9000); agent.env from install.sh
+export WOODPECKER_SERVER="${WOODPECKER_SERVER:?WOODPECKER_SERVER missing in agent.env: rerun install.sh}"
 export WOODPECKER_GRPC_SECURE=true
 export WOODPECKER_BACKEND=local
 # Only workflows that ask for this backend (release-mac: `labels: backend: local`). Without the `!` a

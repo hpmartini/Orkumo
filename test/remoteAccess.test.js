@@ -139,9 +139,9 @@ describe('remote access token', () => {
     const ws = { upgrade: 'websocket', connection: 'Upgrade' };
     for (const path of [
       '/api/pty',
-      '/api/modules/mesh/peer/darkbook/pty',
+      '/api/modules/mesh/peer/laptop/pty',
       '/api/code-server/proxy/stable-1',
-      '/api/modules/mesh/peer/darkbook/code-server/proxy/stable-1',
+      '/api/modules/mesh/peer/laptop/code-server/proxy/stable-1',
     ]) {
       expect(remoteAccess.isAuthorized(remoteReq(`${path}?token=${token}`, ws))).toBe(true);
       expect(remoteAccess.isAuthorized(remoteReq(`${path}?token=wrong`, ws))).toBe(false);

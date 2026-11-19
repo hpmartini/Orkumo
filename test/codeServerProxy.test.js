@@ -68,7 +68,9 @@ function fakeCodeServer(seen) {
       socket.resume();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => ws.on('message', (data) => ws.send(`echo:${data}`)));
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      ws.on('message', (data) => ws.send(`echo:${data}`))
+    );
   });
   server.on('close', () => wss.close());
   return server;
@@ -301,8 +303,8 @@ describe.each([
 
 it('skips the rate limiter only for the proxy through a module relay', () => {
   for (const ok of [
-    '/api/modules/mesh/peer/darkbook/code-server/proxy/',
-    '/api/modules/mesh/peer/darkbook.tail1.ts.net/code-server/proxy/static/x.js',
+    '/api/modules/mesh/peer/laptop/code-server/proxy/',
+    '/api/modules/mesh/peer/laptop.tail1.ts.net/code-server/proxy/static/x.js',
     '/api/modules/mesh/peer/k/code-server/proxy',
   ]) {
     expect(isRelayedProxyPath(ok)).toBe(true);

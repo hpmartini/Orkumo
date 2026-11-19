@@ -98,7 +98,7 @@ async function cli(argv, routes = {}, extra = {}) {
     out: (s) => out.push(s),
     err: (s) => err.push(s),
     readStdin: async () => extra.stdin ?? '',
-    cwd: '/home/hape',
+    cwd: '/home/example',
     now: NOW,
     scriptDir: extra.scriptDir ?? '/nowhere/bin',
   });
@@ -239,9 +239,9 @@ describe('routing helpers', () => {
   });
 
   it('resolves projects by path, name, folder or unique prefix', () => {
-    const opts = { cwd: '/home/hape', home: '/home/hape' };
-    expect(resolveProject(PROJECTS, '~/src/x', opts)).toBe('/home/hape/src/x');
-    expect(resolveProject(PROJECTS, './x', opts)).toBe('/home/hape/x');
+    const opts = { cwd: '/home/example', home: '/home/example' };
+    expect(resolveProject(PROJECTS, '~/src/x', opts)).toBe('/home/example/src/x');
+    expect(resolveProject(PROJECTS, './x', opts)).toBe('/home/example/x');
     expect(resolveProject(PROJECTS, '/abs', opts)).toBe('/abs');
     expect(resolveProject(PROJECTS, 'app', opts)).toBe('/p/app');
     expect(resolveProject(PROJECTS, 'apI', opts)).toBe('/p/api');
