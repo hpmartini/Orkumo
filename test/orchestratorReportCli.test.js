@@ -159,4 +159,14 @@ describe('orkumo report', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('an answer to an orchestrator it cannot reach is refused and not kept', async () => {
+    const res = await fetch(`${api}/orchestrator/reports/release/answers`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ entry: example.inbox[0].id, text: 'yes' }),
+    });
+    expect(res.status).toBe(409);
+    expect((await stored()).reports[0].answers).toEqual({});
+  });
 });

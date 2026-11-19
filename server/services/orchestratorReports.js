@@ -167,6 +167,8 @@ const refAgents = (report) => [
  * - a PR of a referenced worker that turned ready (green, mergeable) after the report, first seen
  * - the orchestrator itself went idle, then was active again and is idle again (own turn ended);
  *   the turn that sent the report does not count, it was running when the report came in
+ * The first event after the report is latched in `watch.firstEventAt`: activity times move on
+ * when an agent runs again, the 30 minutes must not restart. A new report resets `watch`.
  * shortcut: merged PRs are invisible here (the overview drops them) and a turn that started and
  *   ended while the server was down is missed; upgrade by reading PR state from the board.
  * @returns {{ events: number[], watch: object }} event times and the updated observations
@@ -174,7 +176,8 @@ const refAgents = (report) => [
 export function reportEvents(state, agents, now = Date.now()) {
   const { report } = state;
   const reportedAt = ms(state.receivedAt);
-  const watch = { prReady: {}, ...state.watch };
+  // a copy: the caller compares it with state.watch to decide whether to persist
+  const watch = { ...state.watch, prReady: { ...state.watch?.prReady } };
   const events = [];
   const byRef = (ref) => findSessionByRef(agents, ref);
 
@@ -196,7 +199,43 @@ export function reportEvents(state, agents, now = Date.now()) {
     if (watch.idleActivity === undefined) watch.idleActivity = active;
     else if (active > watch.idleActivity) events.push(active);
   }
+  const after = events.filter((t) => t > reportedAt);
+  if (after.length) watch.firstEventAt = Math.min(watch.firstEventAt ?? Infinity, ...after);
   return { events, watch };
+}
+
+/** Stale flag of a stored report from its latched first event; `watch` to persist when changed */
+export function evaluateReport(state, agents, now = Date.now()) {
+  const { watch } = reportEvents(state, agents, now);
+  const events = watch.firstEventAt === undefined ? [] : [watch.firstEventAt];
+  return {
+    watch,
+    changed: JSON.stringify(watch) !== JSON.stringify(state.watch ?? {}),
+    stale: isStale({ reportedAt: ms(state.receivedAt), events, now }),
+    firstEventAt: events.length ? new Date(events[0]).toISOString() : null,
+  };
+}
+
+/**
+ * How an answer reaches the orchestrator, the same way `orkumo send` picks it (sendRoute):
+ * a background job by reply, else the pane it runs in; null when it cannot be reached
+ */
+export function answerTarget(session) {
+  if (!session) return null;
+  if (session.kind === 'background') return { via: 'reply', id: session.id };
+  if (session.paneId) return { via: 'pane', paneId: session.paneId };
+  return null;
+}
+
+/** The message typed into the orchestrator for an answer from the Status view */
+export function answerText(entry, option, text) {
+  return [
+    `[Status answer from Hape] ${entry.title} (entry ${entry.id})`,
+    option && `Choice: ${option.label} (${option.id})`,
+    text,
+  ]
+    .filter(Boolean)
+    .join('\n');
 }
 
 /** Baseline at submit: PRs already ready when the report came in are not events */

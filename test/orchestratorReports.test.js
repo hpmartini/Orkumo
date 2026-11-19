@@ -9,6 +9,9 @@ import {
   isStale,
   newDecisionIds,
   reportEvents,
+  evaluateReport,
+  answerTarget,
+  answerText,
   submitWatch,
 } from '../server/services/orchestratorReports.js';
 import example from '../server/orchestrator/report.example.json';
@@ -222,6 +225,103 @@ describe('reportEvents (AC-5 adapter)', () => {
     expect(reportEvents(state(first.watch), [self('working', T0 + 20 * MIN)]).events).toEqual([]);
     expect(reportEvents(state(first.watch), [self('idle', T0 + 22 * MIN)]).events).toEqual([
       T0 + 22 * MIN,
+    ]);
+  });
+});
+
+describe('evaluateReport (latch and persistence)', () => {
+  let dir;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'reports-'));
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+  const iso = (t) => new Date(t).toISOString();
+  const report = () => {
+    const r = clone(example);
+    r.projects[0].tasks[0].refs = { agents: ['w1'] };
+    return r;
+  };
+  /** One evaluation the way the server runs it: read, evaluate, persist when changed */
+  const tick = (store, agents, now) => {
+    const state = store.list()[0];
+    const result = evaluateReport(state, agents, now);
+    if (result.changed) store.setWatch(state.report.orchestrator.id, result.watch);
+    return result;
+  };
+
+  it('a PR turning ready keeps its first-seen time across evaluations', () => {
+    const store = createReportStore(dir);
+    store.submit(report(), { now: T0 });
+    const pr = [{ url: 'https://github.com/example-org/a/pull/1', state: 'ready' }];
+    const agents = [{ id: 'w1', displayState: 'working', lastActivity: iso(T0), prs: pr }];
+    expect(tick(store, agents, T0 + 5 * MIN).stale).toBe(false);
+    expect(tick(store, agents, T0 + 20 * MIN).stale).toBe(false);
+    expect(tick(store, agents, T0 + 35 * MIN)).toMatchObject({
+      stale: true,
+      firstEventAt: iso(T0 + 5 * MIN),
+    });
+  });
+
+  it('the 30 minutes do not restart when the worker runs again', () => {
+    const store = createReportStore(dir);
+    store.submit(report(), { now: T0 });
+    tick(
+      store,
+      [{ id: 'w1', displayState: 'idle', lastActivity: iso(T0 + 5 * MIN) }],
+      T0 + 6 * MIN
+    );
+    tick(
+      store,
+      [{ id: 'w1', displayState: 'working', lastActivity: iso(T0 + 20 * MIN) }],
+      T0 + 20 * MIN
+    );
+    const late = tick(
+      store,
+      [{ id: 'w1', displayState: 'idle', lastActivity: iso(T0 + 30 * MIN) }],
+      T0 + 35 * MIN
+    );
+    expect(late).toMatchObject({ stale: true, firstEventAt: iso(T0 + 5 * MIN) });
+  });
+
+  it('a new report resets the clock', () => {
+    const store = createReportStore(dir);
+    store.submit(report(), { now: T0 });
+    tick(
+      store,
+      [{ id: 'w1', displayState: 'idle', lastActivity: iso(T0 + 5 * MIN) }],
+      T0 + 6 * MIN
+    );
+    store.submit(report(), { now: T0 + 10 * MIN });
+    expect(
+      tick(
+        store,
+        [{ id: 'w1', displayState: 'idle', lastActivity: iso(T0 + 5 * MIN) }],
+        T0 + 50 * MIN
+      ).stale
+    ).toBe(false);
+  });
+});
+
+describe('answers (AC-4)', () => {
+  it('go the way orkumo send goes: job by reply, else pane, else nowhere', () => {
+    expect(answerTarget({ id: 'j', kind: 'background', paneId: 'p' })).toEqual({
+      via: 'reply',
+      id: 'j',
+    });
+    expect(answerTarget({ id: 'i', kind: 'interactive', paneId: 'p' })).toEqual({
+      via: 'pane',
+      paneId: 'p',
+    });
+    expect(answerTarget({ id: 'i', kind: 'interactive', paneId: null })).toBeNull();
+    expect(answerTarget(null)).toBeNull();
+  });
+  it('name the entry, the choice and the free text', () => {
+    const entry = example.inbox.find((e) => e.kind === 'decision');
+    const text = answerText(entry, entry.options[0], 'and ship it');
+    expect(text.split('\n')).toEqual([
+      `[Status answer from Hape] ${entry.title} (entry ${entry.id})`,
+      `Choice: ${entry.options[0].label} (${entry.options[0].id})`,
+      'and ship it',
     ]);
   });
 });

@@ -2257,7 +2257,7 @@ async function reportAgents() {
   return { sessions, agents };
 }
 
-app.post('/api/orchestrator/reports', agentLimiter, async (req, res) => {
+app.post('/api/orchestrator/reports', agentLimiter, sameSiteOnly, async (req, res) => {
   const parsed = parseReport(req.body);
   if (!parsed.ok) return res.status(400).json({ error: 'Invalid report', errors: parsed.errors });
   const { report } = parsed;
@@ -2289,28 +2289,30 @@ app.post('/api/orchestrator/reports', agentLimiter, async (req, res) => {
   }
 });
 
+/** Stale flags of all stored reports; persists what the check observed (first-seen times) */
+async function evaluateReports(now = Date.now()) {
+  const { agents } = await reportAgents();
+  return reportStore.list().map((state) => {
+    const result = orchestratorReports.evaluateReport(state, agents, now);
+    if (result.changed) reportStore.setWatch(state.report.orchestrator.id, result.watch);
+    return { state, ...result };
+  });
+}
+// Events are observed while the Status view is closed too: the 30 minutes start at the event
+setInterval(() => {
+  if (reportStore.list().length) evaluateReports().catch(() => {});
+}, 60_000).unref();
+
 /** Latest report per orchestrator with its answers and stale flag, plus the recent change log */
 app.get('/api/orchestrator/reports', async (req, res) => {
   try {
-    const { agents } = await reportAgents();
-    const now = Date.now();
-    const reports = reportStore.list().map((state) => {
-      const { events, watch } = orchestratorReports.reportEvents(state, agents, now);
-      if (JSON.stringify(watch) !== JSON.stringify(state.watch))
-        reportStore.setWatch(state.report.orchestrator.id, watch);
-      const after = events.filter((t) => t > Date.parse(state.receivedAt));
-      return {
-        report: state.report,
-        receivedAt: state.receivedAt,
-        answers: state.answers,
-        stale: orchestratorReports.isStale({
-          reportedAt: Date.parse(state.receivedAt),
-          events,
-          now,
-        }),
-        firstEventAt: after.length ? new Date(Math.min(...after)).toISOString() : null,
-      };
-    });
+    const reports = (await evaluateReports()).map(({ state, stale, firstEventAt }) => ({
+      report: state.report,
+      receivedAt: state.receivedAt,
+      answers: state.answers,
+      stale,
+      firstEventAt,
+    }));
     res.json({ reports, changes: reportStore.changes().slice(-200) });
   } catch (error) {
     sendAgentError(res, error);
@@ -2351,19 +2353,19 @@ app.post(
         isOrchestratorSessionFor(s, req.params.id, orchestrators, orchestratorRoles)
       ) ?? orchestrator.findSessionByRef(sessions, state.report.orchestrator.agentId);
     if (!target) return res.status(409).json({ error: 'The orchestrator is not running' });
-    const text = [
-      `[Status answer from Hape] ${entry.title} (entry ${entry.id})`,
-      option && `Choice: ${option.label} (${option.id})`,
-      req.body.text,
-    ]
-      .filter(Boolean)
-      .join('\n');
+    const route = orchestratorReports.answerTarget(target);
+    if (!route) return res.status(409).json({ error: 'The orchestrator cannot be reached' });
+    // Titles and labels come from the report: the typed text must not carry control characters
+    const typed = typedTextSchema(8000).safeParse(
+      orchestratorReports.answerText(entry, option, req.body.text)
+    );
+    if (!typed.success) return res.status(400).json({ error: typed.error.issues[0].message });
     try {
-      if (target.paneId) {
-        if (!typeIntoPanePty(target.paneId, text))
+      if (route.via === 'pane') {
+        if (!typeIntoPanePty(route.paneId, typed.data))
           return res.status(409).json({ error: 'The orchestrator pane is not running' });
       } else {
-        await agentService.replySession(target.id, text, { mode: 'auto' });
+        await agentService.replySession(route.id, typed.data, { mode: 'auto' });
       }
       const saved = reportStore.answer(req.params.id, entry.id, {
         option: option?.id ?? null,
