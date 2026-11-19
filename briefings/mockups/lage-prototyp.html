@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="de">
+<html lang="en">
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>Lage · Prototyp</title>
+<title>Status · prototype</title>
 <link rel="icon" href="data:,">
 <script src="https://cdn.tailwindcss.com/3.4.16"></script>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -38,26 +38,26 @@
   <!-- Activity bar (as ModeSwitcher) -->
   <nav class="w-12 shrink-0 flex flex-col bg-gray-950 border-r border-gray-700 pt-1" aria-label="Mode">
     <button data-go="agents" class="mode relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Agents" title="Agents"><i data-lucide="messages-square" class="w-5 h-5"></i></button>
-    <button data-go="lage" class="mode relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Lage" title="Lage"><i data-lucide="radar" class="w-5 h-5"></i><span class="badge absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-400 text-gray-950 text-[10px] font-bold leading-4 text-center"></span></button>
-    <button class="relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Board" title="Board (im Prototyp ohne Funktion)"><i data-lucide="kanban" class="w-5 h-5"></i></button>
-    <button class="relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Pull Requests" title="Pull Requests (im Prototyp ohne Funktion)"><i data-lucide="git-pull-request" class="w-5 h-5"></i></button>
-    <button class="relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Code" title="Code (im Prototyp ohne Funktion)"><i data-lucide="code-2" class="w-5 h-5"></i></button>
+    <button data-go="lage" class="mode relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Status" title="Status"><i data-lucide="radar" class="w-5 h-5"></i><span class="badge absolute top-1.5 right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-rose-400 text-gray-950 text-[10px] font-bold leading-4 text-center"></span></button>
+    <button class="relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Board" title="Board (no function in the prototype)"><i data-lucide="kanban" class="w-5 h-5"></i></button>
+    <button class="relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Pull Requests" title="Pull Requests (no function in the prototype)"><i data-lucide="git-pull-request" class="w-5 h-5"></i></button>
+    <button class="relative flex items-center justify-center h-11 text-gray-500 hover:text-gray-200" aria-label="Code" title="Code (no function in the prototype)"><i data-lucide="code-2" class="w-5 h-5"></i></button>
   </nav>
 
-  <!-- ===== Lage ===== -->
+  <!-- ===== Status ===== -->
   <div id="screen-lage" class="flex-1 flex min-w-0">
-    <aside class="w-72 shrink-0 flex flex-col border-r border-gray-700 bg-gray-900" aria-label="Orchestratoren">
-      <div class="h-11 flex items-center px-3 border-b border-gray-700 text-xs font-semibold text-gray-300">Orchestratoren</div>
+    <aside class="w-72 shrink-0 flex flex-col border-r border-gray-700 bg-gray-900" aria-label="Orchestrators">
+      <div class="h-11 flex items-center px-3 border-b border-gray-700 text-xs font-semibold text-gray-300">Orchestrators</div>
       <div id="orchList" class="flex-1 overflow-y-auto thin-scrollbar p-2 space-y-1"></div>
       <div class="border-t border-gray-700 px-3 py-2.5 text-xs text-gray-400 leading-relaxed">
-        <span class="text-gray-300">MACC-Board</span> · über das Workflow-Plugin gelesen, <span id="maccState" class="text-gray-300"></span>
+        <span class="text-gray-300">MACC board</span> · read through the workflow plugin, <span id="maccState" class="text-gray-300"></span>
       </div>
     </aside>
 
     <main class="flex-1 min-w-0 overflow-y-auto thin-scrollbar" id="main">
       <div class="max-w-[960px] mx-auto px-8 pt-6 pb-28">
         <header class="flex items-center gap-3 mb-6">
-          <h1 class="text-lg font-semibold text-white">Lage</h1>
+          <h1 class="text-lg font-semibold text-white">Status</h1>
           <span id="filterChip"></span>
           <div class="flex-1"></div>
           <span id="freshness" class="text-xs text-gray-400"></span>
@@ -67,13 +67,13 @@
     </main>
   </div>
 
-  <!-- ===== Agents (Orchestrator-Tab + Split) ===== -->
+  <!-- ===== Agents (orchestrator tab + split) ===== -->
   <div id="screen-agents" class="flex-1 flex flex-col min-w-0 hidden">
-    <div class="h-9 flex items-end gap-px px-2 bg-gray-950 border-b border-gray-700" role="tablist" aria-label="Agent-Tabs">
+    <div class="h-9 flex items-end gap-px px-2 bg-gray-950 border-b border-gray-700" role="tablist" aria-label="Agent tabs">
       <div class="px-3 h-8 flex items-center gap-2 rounded-t bg-gray-900 border border-b-0 border-gray-700 text-xs text-white" role="tab" aria-selected="true">
         <i data-lucide="network" class="w-3.5 h-3.5 text-cursor"></i> Release <span class="text-gray-400">Orchestrator</span>
       </div>
-      <div class="px-3 h-8 flex items-center gap-2 text-xs text-gray-400" role="tab" aria-selected="false"><i data-lucide="bot" class="w-3.5 h-3.5"></i> checkout-umbau</div>
+      <div class="px-3 h-8 flex items-center gap-2 text-xs text-gray-400" role="tab" aria-selected="false"><i data-lucide="bot" class="w-3.5 h-3.5"></i> checkout-rework</div>
     </div>
     <div class="flex-1 grid grid-cols-2 min-h-0">
       <section class="flex flex-col border-r border-gray-700 min-w-0" aria-label="Orchestrator Release">
@@ -81,39 +81,39 @@
           <span class="text-xs font-semibold text-gray-200">Release</span>
           <span class="text-xs text-gray-400 font-mono">omp-0000aaaa</span>
           <div class="flex-1"></div>
-          <button data-filter-to="release" class="lagebtn flex items-center gap-1.5 h-7 px-2.5 rounded border border-gray-700 text-xs text-gray-200 hover:border-cursor/60 hover:bg-white/5"><i data-lucide="radar" class="w-3.5 h-3.5"></i> In Lage zeigen <span class="count text-rose-300 font-semibold"></span></button>
+          <button data-filter-to="release" class="lagebtn flex items-center gap-1.5 h-7 px-2.5 rounded border border-gray-700 text-xs text-gray-200 hover:border-cursor/60 hover:bg-white/5"><i data-lucide="radar" class="w-3.5 h-3.5"></i> Show in Status <span class="count text-rose-300 font-semibold"></span></button>
         </div>
         <pre class="flex-1 p-4 font-mono text-xs text-gray-400 leading-6 overflow-hidden">› orkumo agents
-  checkout-umbau   läuft   example-org/beispiel-shop
-  offline-cache    fertig  example-org/wetter-app
+  checkout-rework  running  example-org/example-shop
+  offline-cache    done     example-org/weather-app
 
-› orkumo report - &lt; stand.json
-  Meldung gespeichert (3 Projekte, 3 Einträge für Hape)</pre>
+› orkumo report - &lt; state.json
+  report stored (3 projects, 3 entries for you)</pre>
       </section>
-      <section class="flex flex-col min-w-0" aria-label="Orchestrator Plattform (Split)">
+      <section class="flex flex-col min-w-0" aria-label="Orchestrator Platform (split)">
         <div class="h-10 flex items-center gap-2 px-3 border-b border-gray-700 bg-gray-900">
-          <span class="text-xs font-semibold text-gray-200">Plattform</span>
+          <span class="text-xs font-semibold text-gray-200">Platform</span>
           <span class="text-xs text-gray-400 font-mono">omp-0000bbbb</span>
           <div class="flex-1"></div>
-          <button data-filter-to="plattform" class="lagebtn flex items-center gap-1.5 h-7 px-2.5 rounded border border-gray-700 text-xs text-gray-200 hover:border-cursor/60 hover:bg-white/5"><i data-lucide="radar" class="w-3.5 h-3.5"></i> In Lage zeigen <span class="count text-rose-300 font-semibold"></span></button>
+          <button data-filter-to="platform" class="lagebtn flex items-center gap-1.5 h-7 px-2.5 rounded border border-gray-700 text-xs text-gray-200 hover:border-cursor/60 hover:bg-white/5"><i data-lucide="radar" class="w-3.5 h-3.5"></i> Show in Status <span class="count text-rose-300 font-semibold"></span></button>
         </div>
         <pre class="flex-1 p-4 font-mono text-xs text-gray-400 leading-6 overflow-hidden">› orkumo show omp-aaaa0003 --last 2
-  Migration fertig, PR #31 grün.</pre>
+  Migration done, PR #31 green.</pre>
       </section>
     </div>
   </div>
 </div>
 
 <!-- Prototype controls: not part of the view -->
-<div class="fixed bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-md border border-gray-600 bg-gray-950/95 p-1 text-xs shadow-[0_14px_28px_-18px_rgba(0,0,0,.95)]" role="group" aria-label="Prototyp-Steuerung">
-  <span class="px-2 text-gray-400">Prototyp</span>
+<div class="fixed bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 rounded-md border border-gray-600 bg-gray-950/95 p-1 text-xs shadow-[0_14px_28px_-18px_rgba(0,0,0,.95)]" role="group" aria-label="Prototype controls">
+  <span class="px-2 text-gray-400">Prototype</span>
   <button data-state="ok" class="st h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Normal</button>
-  <button data-state="loading" class="st h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Laden</button>
-  <button data-state="error" class="st h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Fehler</button>
-  <button data-state="empty" class="st h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Leer</button>
+  <button data-state="loading" class="st h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Loading</button>
+  <button data-state="error" class="st h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Error</button>
+  <button data-state="empty" class="st h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Empty</button>
   <span class="w-px h-5 bg-gray-700 mx-1"></span>
-  <button id="nextReport" class="h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800" title="Simuliert die nächste Meldung der Orchestratoren: beantwortete Einträge werden geschlossen">Nächste Meldung</button>
-  <button id="reset" class="h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Zurücksetzen</button>
+  <button id="nextReport" class="h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800" title="Simulates the orchestrators' next report: answered entries close">Next report</button>
+  <button id="reset" class="h-7 px-2.5 rounded text-gray-300 hover:bg-gray-800">Reset</button>
 </div>
 <div id="live" class="sr-only" role="status" aria-live="polite"></div>
 
@@ -122,16 +122,16 @@
 const NOW = Date.parse('2026-11-20T10:00:00+01:00');
 const min = (m) => NOW - m * 60000;
 const ORCH = {
-  release:   { name: 'Release',   agent: 'omp-0000aaaa', lastReport: min(6),  stale: null },
-  plattform: { name: 'Plattform', agent: 'omp-0000bbbb', lastReport: min(83), stale: { since: min(47), why: 'PR #31 grün geworden, danach keine Meldung' } },
-  recherche: { name: 'Recherche', agent: 'claude-0000cc', lastReport: min(9 * 60), stale: null },
+  release:  { name: 'Release',  agent: 'omp-0000aaaa', lastReport: min(6),  stale: null },
+  platform: { name: 'Platform', agent: 'omp-0000bbbb', lastReport: min(83), stale: { since: min(47), why: 'PR #31 turned green, no report since' } },
+  research: { name: 'Research', agent: 'claude-0000cc', lastReport: min(9 * 60), stale: null },
 };
 const STATES = {
-  waiting:   { word: 'wartet auf dich', cls: 'text-rose-300' },
-  running:   { word: 'läuft',           cls: 'text-amber-300' },
-  planned:   { word: 'geplant',         cls: 'text-gray-400' },
-  done:      { word: 'fertig',          cls: 'text-emerald-300' },
-  cancelled: { word: 'abgebrochen',     cls: 'text-gray-500' },
+  waiting:   { word: 'waiting for you', cls: 'text-rose-300' },
+  running:   { word: 'running',         cls: 'text-amber-300' },
+  planned:   { word: 'planned',         cls: 'text-gray-400' },
+  done:      { word: 'done',            cls: 'text-emerald-300' },
+  cancelled: { word: 'cancelled',       cls: 'text-gray-500' },
 };
 const mark = (s) => ({
   waiting:   '<svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"><circle cx="6" cy="6" r="4.5" fill="none" stroke="#fb7185" stroke-width="1.6"/></svg>',
@@ -144,41 +144,41 @@ const mark = (s) => ({
 function freshData() {
   return {
     inbox: [
-      { id: 'rabatt-limit', orch: 'release', kind: 'decision', priority: 'high', created: min(65), project: 'beispiel-shop', task: 't1',
-        title: 'Wie oft darf ein Kunde einen Rabattcode nutzen?',
-        detail: 'Blockiert die Aufgabe „Rabattcodes pro Kunde begrenzen“. Beide Wege sind in einem Tag gebaut.',
-        options: [ { id: 'einmal', label: 'Einmal pro Kunde', detail: 'Einfach, deckt die bisherigen Aktionen ab' },
-                   { id: 'konfig', label: 'Pro Code einstellbar', detail: 'Ein Feld mehr im Admin, flexibler' } ],
-        recommendation: 'einmal' },
-      { id: 'cache-ttl', orch: 'plattform', kind: 'decision', created: min(20), project: 'notiz-sync', task: 't5',
-        title: 'Sync-Konflikte: letzter Schreiber gewinnt oder nachfragen?',
-        options: [ { id: 'lww', label: 'Letzter gewinnt' }, { id: 'ask', label: 'Beim Öffnen nachfragen' }, { id: 'merge', label: 'Zeilenweise zusammenführen' } ],
+      { id: 'discount-limit', orch: 'release', kind: 'decision', priority: 'high', created: min(65), project: 'example-shop', task: 't1',
+        title: 'How often may a customer use a discount code?',
+        detail: 'Blocks the task "Limit discount codes per customer". Either way takes a day to build.',
+        options: [ { id: 'once', label: 'Once per customer', detail: 'Simple, covers every past campaign' },
+                   { id: 'config', label: 'Configurable per code', detail: 'One more admin field, more flexible' } ],
+        recommendation: 'once' },
+      { id: 'sync-conflicts', orch: 'platform', kind: 'decision', created: min(20), project: 'notes-sync', task: 't5',
+        title: 'Sync conflicts: last writer wins or ask?',
+        options: [ { id: 'lww', label: 'Last writer wins' }, { id: 'ask', label: 'Ask on open' }, { id: 'merge', label: 'Merge line by line' } ],
         recommendation: 'ask' },
-      { id: 'merge-offline', orch: 'release', kind: 'approval', created: min(50), project: 'wetter-app', task: 't7',
-        title: 'Offline-Cache mergen', pr: { repo: 'example-org/wetter-app', n: 7 }, checks: 'grün' },
-      { id: 'staging-zugang', orch: 'plattform', kind: 'todo', priority: 'high', created: min(140), project: 'beispiel-shop',
-        title: 'Zugang zum Staging-Server im Passwortmanager freigeben' },
-      { id: 'quellen', orch: 'recherche', kind: 'todo', priority: 'low', created: min(9 * 60), project: 'doku-portal',
-        title: 'Zwei Quellen für den Vergleich der Suchindizes nennen' },
+      { id: 'merge-offline', orch: 'release', kind: 'approval', created: min(50), project: 'weather-app', task: 't7',
+        title: 'Merge the offline cache', pr: { repo: 'example-org/weather-app', n: 7 }, checks: 'green' },
+      { id: 'staging-access', orch: 'platform', kind: 'todo', priority: 'high', created: min(140), project: 'example-shop',
+        title: 'Share the staging server login in the password manager' },
+      { id: 'sources', orch: 'research', kind: 'todo', priority: 'low', created: min(9 * 60), project: 'docs-portal',
+        title: 'Name two sources for the search index comparison' },
     ],
     projects: [
-      { id: 'beispiel-shop', name: 'Beispiel-Shop', repo: 'example-org/beispiel-shop', tasks: [
-        { id: 't1', title: 'Rabattcodes pro Kunde begrenzen', state: 'waiting', orch: ['release'], note: 'Wartet auf deine Entscheidung', issue: 57 },
-        { id: 't2', title: 'Checkout auf eine Seite verkürzen', state: 'running', orch: ['release', 'macc'], macc: 'Review', note: 'Worker baut Formular, Tests rot an der Adressprüfung', issue: 42, agent: 'omp-aaaa0001' },
-        { id: 't3', title: 'Produktbilder als WebP ausliefern', state: 'planned', orch: ['macc'], issue: 61 },
-        { id: 't4', title: 'Altes Gutscheinsystem entfernen', state: 'cancelled', orch: ['release'], note: 'Durch Rabattcodes ersetzt' },
+      { id: 'example-shop', name: 'Example Shop', repo: 'example-org/example-shop', tasks: [
+        { id: 't1', title: 'Limit discount codes per customer', state: 'waiting', orch: ['release'], note: 'Waiting for your decision', issue: 57 },
+        { id: 't2', title: 'Shorten checkout to one page', state: 'running', orch: ['release', 'macc'], macc: 'Review', note: 'Worker builds the form, tests red on address validation', issue: 42, agent: 'omp-aaaa0001' },
+        { id: 't3', title: 'Serve product images as WebP', state: 'planned', orch: ['macc'], issue: 61 },
+        { id: 't4', title: 'Remove the old voucher system', state: 'cancelled', orch: ['release'], note: 'Replaced by discount codes' },
       ]},
-      { id: 'notiz-sync', name: 'Notiz-Sync', repo: 'example-org/notiz-sync', tasks: [
-        { id: 't5', title: 'Konfliktauflösung beim Sync', state: 'waiting', orch: ['plattform'], note: 'Wartet auf deine Entscheidung', issue: 18 },
-        { id: 't6', title: 'Datenbank auf neue Spalten migrieren', state: 'done', orch: ['plattform', 'macc'], pr: 31, issue: 16 },
+      { id: 'notes-sync', name: 'Notes Sync', repo: 'example-org/notes-sync', tasks: [
+        { id: 't5', title: 'Resolve sync conflicts', state: 'waiting', orch: ['platform'], note: 'Waiting for your decision', issue: 18 },
+        { id: 't6', title: 'Migrate the database to new columns', state: 'done', orch: ['platform', 'macc'], pr: 31, issue: 16 },
       ]},
-      { id: 'wetter-app', name: 'Wetter-App', repo: 'example-org/wetter-app', tasks: [
-        { id: 't7', title: 'Vorhersage offline anzeigen', state: 'waiting', orch: ['release'], note: 'PR grün, wartet auf Freigabe', pr: 7 },
-        { id: 't8', title: 'Widget für den Sperrbildschirm', state: 'running', orch: ['macc'], issue: 9, agent: 'omp-aaaa0004' },
+      { id: 'weather-app', name: 'Weather App', repo: 'example-org/weather-app', tasks: [
+        { id: 't7', title: 'Show the forecast offline', state: 'waiting', orch: ['release'], note: 'PR green, waiting for approval', pr: 7 },
+        { id: 't8', title: 'Lock screen widget', state: 'running', orch: ['macc'], issue: 9, agent: 'omp-aaaa0004' },
       ]},
-      { id: 'doku-portal', name: 'Doku-Portal', repo: 'example-org/doku-portal', tasks: [
-        { id: 't9', title: 'Suchindex vergleichen', state: 'running', orch: ['recherche'], note: 'Zwei von vier Kandidaten gemessen' },
-        { id: 't10', title: 'Navigation nach Themen gruppieren', state: 'done', orch: ['recherche'] },
+      { id: 'docs-portal', name: 'Docs Portal', repo: 'example-org/docs-portal', tasks: [
+        { id: 't9', title: 'Compare search indexes', state: 'running', orch: ['research'], note: 'Two of four candidates measured' },
+        { id: 't10', title: 'Group navigation by topic', state: 'done', orch: ['research'] },
       ]},
     ],
   };
@@ -189,10 +189,10 @@ let data = freshData();
 let answers = {};          // id -> text shown in the stub
 let filter = null;         // orchestrator id or null
 let view = 'ok';           // ok | loading | error | empty
-let open = new Set(['beispiel-shop']);
+let open = new Set(['example-shop']);
 let armed = null; let armTimer = null;
 
-const ago = (t) => { const m = Math.round((NOW - t) / 60000); return m < 60 ? `vor ${m} min` : `vor ${Math.round(m / 60)} h`; };
+const ago = (t) => { const m = Math.round((NOW - t) / 60000); return m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`; };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const KIND_RANK = { decision: 0, approval: 1, todo: 2 };
 const PRIO_RANK = { high: 0, normal: 1, low: 2 };
@@ -213,12 +213,12 @@ function renderOrchs() {
       <div class="text-xs ${active ? 'text-gray-100' : 'text-gray-400'} mt-0.5">${meta}</div></button>`;
   };
   const n = (k) => { const c = view === 'ok' ? openCount(k) : 0; return c ? `<span class="text-xs font-semibold text-rose-300">${c}</span>` : ''; };
-  const pending = { loading: 'wird geladen …', error: 'Stand unbekannt', empty: 'noch keine Meldung' }[view];
-  let html = row(null, 'Alle', `${Object.keys(ORCH).length} Orchestratoren · MACC`, n(null));
+  const pending = { loading: 'loading …', error: 'state unknown', empty: 'no report yet' }[view];
+  let html = row(null, 'All', `${Object.keys(ORCH).length} orchestrators · MACC`, n(null));
   for (const [k, o] of Object.entries(ORCH)) {
     const meta = pending ? pending : o.stale
-      ? `<span class="inline-flex items-center gap-1 text-amber-300"><i data-lucide="clock-alert" class="w-3 h-3"></i> veraltet</span> · ${esc(o.stale.why)}`
-      : `gemeldet ${ago(o.lastReport)}`;
+      ? `<span class="inline-flex items-center gap-1 text-amber-300"><i data-lucide="clock-alert" class="w-3 h-3"></i> stale</span> · ${esc(o.stale.why)}`
+      : `reported ${ago(o.lastReport)}`;
     html += row(k, esc(o.name), meta, n(k));
   }
   document.getElementById('orchList').innerHTML = html;
@@ -226,53 +226,53 @@ function renderOrchs() {
 
 function renderHeader() {
   document.getElementById('filterChip').innerHTML = filter
-    ? `<span class="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded border border-gray-600 text-xs text-gray-200">nur ${esc(ORCH[filter].name)}<button data-filter="" class="p-0.5 rounded hover:bg-gray-800" aria-label="Filter entfernen"><i data-lucide="x" class="w-3 h-3"></i></button></span>`
+    ? `<span class="inline-flex items-center gap-1 h-6 pl-2 pr-1 rounded border border-gray-600 text-xs text-gray-200">only ${esc(ORCH[filter].name)}<button data-filter="" class="p-0.5 rounded hover:bg-gray-800" aria-label="Clear filter"><i data-lucide="x" class="w-3 h-3"></i></button></span>`
     : '';
   const o = filter ? ORCH[filter] : null;
   document.getElementById('freshness').textContent = view === 'ok' || view === 'empty'
-    ? (view === 'empty' ? 'noch keine Meldung'
-      : o ? `${o.name} gemeldet ${ago(o.lastReport)}${o.stale ? ' · veraltet' : ''}`
-      : `zuletzt gemeldet ${ago(Math.max(...Object.values(ORCH).map((x) => x.lastReport)))} · ${Object.values(ORCH).filter((x) => x.stale).length} veraltet`)
+    ? (view === 'empty' ? 'no report yet'
+      : o ? `${o.name} reported ${ago(o.lastReport)}${o.stale ? ' · stale' : ''}`
+      : `last report ${ago(Math.max(...Object.values(ORCH).map((x) => x.lastReport)))} · ${Object.values(ORCH).filter((x) => x.stale).length} stale`)
     : '';
 }
 
 function inboxRow(e) {
   const o = ORCH[e.orch];
-  const src = `<span class="text-gray-400">${esc(o.name)} · ${esc(projectName(e.project))} · ${ago(e.created)}</span>`;
+  const src = `<span class="text-gray-400">${esc(o.name)} · ${ago(e.created)}</span>`;
+  // Project in its own aligned column: the first orientation per entry, scannable top-down without breaking urgency order
+  const proj = (cls) => `<span class="${cls} w-32 shrink-0 truncate font-semibold text-gray-100" title="${esc(projectName(e.project))}">${esc(projectName(e.project))}</span>`;
   if (answers[e.id]) {
     return `<li class="stub-enter flex items-center gap-3 px-4 py-2.5 text-xs">
-      <i data-lucide="check" class="w-3.5 h-3.5 text-emerald-300 shrink-0"></i>
+      <span class="w-5 shrink-0 flex justify-center"><i data-lucide="check" class="w-3.5 h-3.5 text-emerald-300"></i></span>${proj('text-[13px]')}
       <span class="text-gray-300 truncate">${esc(e.title)}</span>
       <span class="text-gray-400 shrink-0">→ ${esc(answers[e.id])}</span><span class="flex-1"></span>
       ${o.stale
-        ? `<span class="text-amber-300 shrink-0">zugestellt · ${esc(o.name)} ist veraltet, schließt erst mit der nächsten Meldung</span>`
-        : `<span class="text-gray-400 shrink-0">zugestellt · ${esc(o.name)} schließt mit der nächsten Meldung</span>`}
-      <button data-undo="${e.id}" class="shrink-0 h-7 px-2 rounded text-gray-300 hover:bg-gray-800">Korrigieren</button></li>`;
+        ? `<span class="text-amber-300 shrink-0">delivered · ${esc(o.name)} is stale, closes with its next report</span>`
+        : `<span class="text-gray-400 shrink-0">delivered · ${esc(o.name)} closes it with its next report</span>`}
+      <button data-undo="${e.id}" class="shrink-0 h-7 px-2 rounded text-gray-300 hover:bg-gray-800">Correct</button></li>`;
   }
-  const kindLabel = { decision: 'Entscheidung', approval: 'Freigabe', todo: 'To-do' }[e.kind];
-  const prio = e.priority === 'high' ? '<span class="shrink-0 px-1.5 rounded border border-rose-400/70 text-rose-300 text-xs font-medium">dringend</span>' : '';
+  const kindLabel = { decision: 'Decision', approval: 'Approval', todo: 'To-do' }[e.kind];
+  const prio = e.priority === 'high' ? '<span class="shrink-0 px-1.5 rounded border border-rose-400/70 text-rose-300 text-xs font-medium">urgent</span>' : '';
   let action = '';
   if (e.kind === 'decision') {
     action = `<div class="mt-3 flex flex-wrap gap-2">${e.options.map((op) => {
       const rec = op.id === e.recommendation;
       return `<button data-answer="${e.id}" data-option="${op.id}" class="text-left min-h-[40px] px-3 py-1.5 rounded border ${rec ? 'border-blue-600 bg-blue-600 hover:bg-blue-700 text-white' : 'border-gray-700 text-gray-200 hover:bg-gray-800 hover:border-cursor'}">
-        <span class="font-medium">${esc(op.label)}</span>${rec ? ' <span class="text-xs text-blue-100">· Empfehlung</span>' : ''}
+        <span class="font-medium">${esc(op.label)}</span>${rec ? ' <span class="text-xs text-blue-100">· recommended</span>' : ''}
         ${op.detail ? `<span class="block text-xs ${rec ? 'text-blue-100' : 'text-gray-400'}">${esc(op.detail)}</span>` : ''}</button>`;
     }).join('')}</div>`;
   } else if (e.kind === 'approval') {
     const isArmed = armed === e.id;
     action = `<div class="mt-3 flex items-center gap-3">
-      <button data-approve="${e.id}" class="h-9 px-3.5 rounded font-medium ${isArmed ? 'bg-amber-400 text-gray-950' : 'border border-gray-600 text-white hover:bg-gray-800'}">${isArmed ? 'Wirklich mergen?' : 'Freigeben'}</button>
+      <button data-approve="${e.id}" class="h-9 px-3.5 rounded font-medium ${isArmed ? 'bg-amber-400 text-gray-950' : 'border border-gray-600 text-white hover:bg-gray-800'}">${isArmed ? 'Really merge?' : 'Approve'}</button>
       <a href="#" class="font-mono text-xs text-sky-300 hover:underline">${e.pr.repo}#${e.pr.n}</a>
       <span class="text-xs text-gray-400">Checks ${e.checks}</span></div>`;
-  } else {
-    action = '';
   }
   const lead = e.kind === 'todo'
-    ? `<button data-todo="${e.id}" role="checkbox" aria-checked="false" aria-label="Erledigt: ${esc(e.title)}" class="mt-0.5 w-5 h-5 shrink-0 rounded border border-gray-500 hover:border-cursor hover:bg-cursor/10"></button>`
-    : `<span class="mt-1 shrink-0">${mark('waiting')}</span>`;
+    ? `<button data-todo="${e.id}" role="checkbox" aria-checked="false" aria-label="Done: ${esc(e.title)}" class="mt-0.5 w-5 h-5 shrink-0 rounded border border-gray-500 hover:border-cursor hover:bg-cursor/10"></button>`
+    : `<span class="mt-1 w-5 shrink-0 flex justify-center">${mark('waiting')}</span>`;
   return `<li class="px-4 py-3.5">
-    <div class="flex items-start gap-3">${lead}
+    <div class="flex items-start gap-3">${lead}${proj('text-[15px] leading-snug')}
       <div class="min-w-0 flex-1">
         <div class="flex items-center gap-2"><span class="text-[15px] leading-snug text-white">${esc(e.title)}</span>${prio}</div>
         <div class="text-xs mt-0.5"><span class="text-gray-300">${kindLabel}</span> · ${src}</div>
@@ -283,11 +283,11 @@ function inboxRow(e) {
 
 function taskRow(t) {
   const answered = data.inbox.find((e) => e.task === t.id && answers[e.id]);
-  const s = answered ? { word: `beantwortet · wartet auf ${ORCH[answered.orch].name}`, cls: 'text-gray-300' } : STATES[t.state];
+  const s = answered ? { word: `answered · waiting for ${ORCH[answered.orch].name}`, cls: 'text-gray-300' } : STATES[t.state];
   const srcs = t.orch.map((k) => k === 'macc'
     ? `<span class="px-1.5 rounded bg-gray-800 text-gray-300">MACC${t.macc ? ` · ${esc(t.macc)}` : ''}</span>`
     : ORCH[k].stale
-      ? `<span class="inline-flex items-center gap-1 px-1.5 rounded bg-gray-800 text-amber-300" title="${esc(ORCH[k].stale.why)}"><i data-lucide="clock-alert" class="w-3 h-3"></i>${esc(ORCH[k].name)} veraltet</span>`
+      ? `<span class="inline-flex items-center gap-1 px-1.5 rounded bg-gray-800 text-amber-300" title="${esc(ORCH[k].stale.why)}"><i data-lucide="clock-alert" class="w-3 h-3"></i>${esc(ORCH[k].name)} stale</span>`
       : `<span class="px-1.5 rounded bg-gray-800 text-gray-300">${esc(ORCH[k].name)}</span>`).join('');
   const refs = [t.issue && `#${t.issue}`, t.pr && `PR #${t.pr}`, t.agent].filter(Boolean)
     .map((r) => `<a href="#" class="font-mono text-sky-300 hover:underline">${r}</a>`).join(' ');
@@ -311,7 +311,7 @@ function projectBlock(p) {
       <i data-lucide="chevron-right" class="w-4 h-4 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}"></i>
       <span class="font-medium text-white">${esc(p.name)}</span>
       <span class="font-mono text-xs text-gray-400 truncate">${p.repo}</span><span class="flex-1"></span>
-      <span class="flex items-center gap-3 text-xs">${counts.map(([s, c]) => `<span class="inline-flex items-center gap-1 ${STATES[s].cls}">${mark(s)}${c} ${s === 'waiting' ? 'wartet' : STATES[s].word}</span>`).join('')}</span>
+      <span class="flex items-center gap-3 text-xs">${counts.map(([s, c]) => `<span class="inline-flex items-center gap-1 ${STATES[s].cls}">${mark(s)}${c} ${s === 'waiting' ? 'waiting' : STATES[s].word}</span>`).join('')}</span>
     </button>
     ${isOpen ? `<ul class="pb-2 pl-7 divide-y divide-gray-750">${sorted.map(taskRow).join('')}</ul>` : ''}</li>`;
 }
@@ -319,7 +319,7 @@ function projectBlock(p) {
 function renderBody() {
   const body = document.getElementById('body');
   if (view === 'loading') {
-    body.innerHTML = `<div aria-busy="true" aria-label="Lage wird geladen">
+    body.innerHTML = `<div aria-busy="true" aria-label="Loading status">
       <div class="h-4 w-24 rounded shimmer mb-3"></div>
       <div class="rounded-lg border border-gray-700 divide-y divide-gray-700 mb-8">${[0, 1, 2].map(() => `<div class="p-4"><div class="h-3 w-40 rounded shimmer mb-2"></div><div class="h-4 w-3/4 rounded shimmer"></div></div>`).join('')}</div>
       <div class="h-4 w-20 rounded shimmer mb-3"></div>
@@ -329,10 +329,10 @@ function renderBody() {
   if (view === 'error') {
     body.innerHTML = `<div class="rounded-lg border border-rose-400/60 bg-gray-850 p-5 max-w-[640px]" role="alert">
       <div class="flex items-start gap-3"><i data-lucide="triangle-alert" class="w-5 h-5 text-rose-300 shrink-0 mt-0.5"></i>
-      <div><div class="text-white font-medium">Lage nicht geladen</div>
-      <p class="mt-1 text-gray-300">Der Orkumo-Server antwortet nicht (<span class="font-mono text-xs">GET /api/orchestrator/reports</span>, Zeitüberschreitung nach 10 s). Gespeicherte Meldungen gehen nicht verloren.</p>
-      <div class="mt-4 flex gap-2"><button data-state="ok" class="st h-9 px-3.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium">Erneut laden</button>
-      <button class="h-9 px-3.5 rounded border border-gray-700 text-gray-200 hover:bg-gray-800">Server-Log öffnen</button></div></div></div></div>`;
+      <div><div class="text-white font-medium">Status not loaded</div>
+      <p class="mt-1 text-gray-300">The Orkumo server does not answer (<span class="font-mono text-xs">GET /api/orchestrator/reports</span>, timed out after 10 s). Stored reports are not lost.</p>
+      <div class="mt-4 flex gap-2"><button data-state="ok" class="st h-9 px-3.5 rounded bg-blue-600 hover:bg-blue-700 text-white font-medium">Retry</button>
+      <button class="h-9 px-3.5 rounded border border-gray-700 text-gray-200 hover:bg-gray-800">Open server log</button></div></div></div></div>`;
     return;
   }
   const inbox = view === 'empty' ? [] : visibleInbox();
@@ -340,22 +340,22 @@ function renderBody() {
   const projects = view === 'empty' ? '' : data.projects.map(projectBlock).join('');
   body.innerHTML = `
     <section aria-labelledby="h-inbox" class="mb-10">
-      <h2 id="h-inbox" class="flex items-baseline gap-2 mb-3"><span class="text-[15px] font-semibold text-white">Für dich</span>
-        <span class="text-sm ${pending ? 'text-rose-300 font-semibold' : 'text-gray-400'}">${pending || 'nichts offen'}</span></h2>
+      <h2 id="h-inbox" class="flex items-baseline gap-2 mb-3"><span class="text-[15px] font-semibold text-white">For you</span>
+        <span class="text-sm ${pending ? 'text-rose-300 font-semibold' : 'text-gray-400'}">${pending || 'nothing open'}</span></h2>
       ${inbox.length
         ? `<ul class="rounded-lg border border-gray-700 bg-gray-850 divide-y divide-gray-700">${inbox.map(inboxRow).join('')}</ul>`
-        : `<div class="rounded-lg border border-dashed border-gray-700 px-4 py-6 text-gray-300">Nichts wartet auf dich. Neue Entscheidungen melden die Orchestratoren hier und als macOS-Mitteilung.</div>`}
+        : `<div class="rounded-lg border border-dashed border-gray-700 px-4 py-6 text-gray-300">Nothing is waiting for you. New decisions show up here and as a macOS notification.</div>`}
     </section>
     <section aria-labelledby="h-proj">
-      <h2 id="h-proj" class="text-[15px] font-semibold text-white mb-3">Projekte</h2>
+      <h2 id="h-proj" class="text-[15px] font-semibold text-white mb-3">Projects</h2>
       ${projects
         ? `<ul class="rounded-lg border border-gray-700 bg-gray-900">${projects}</ul>`
-        : `<div class="rounded-lg border border-dashed border-gray-700 px-4 py-6 text-gray-300 max-w-[68ch]">Noch keine Meldung. Orchestratoren melden ihren Stand mit <span class="font-mono text-xs text-gray-100 whitespace-nowrap">orkumo report - &lt; stand.json</span>; Items vom MACC-Board erscheinen hier, sobald es welche gibt.</div>`}
+        : `<div class="rounded-lg border border-dashed border-gray-700 px-4 py-6 text-gray-300 max-w-[68ch]">No report yet. Orchestrators report their state with <span class="font-mono text-xs text-gray-100 whitespace-nowrap">orkumo report - &lt; state.json</span>; MACC board items show up here once there are any.</div>`}
     </section>`;
 }
 
 function renderNav(screen) {
-  document.getElementById('maccState').textContent = { ok: 'zuletzt vor 2 min', loading: 'wird geladen …', error: 'nicht erreichbar', empty: 'keine Items' }[view];
+  document.getElementById('maccState').textContent = { ok: 'last read 2 min ago', loading: 'loading …', error: 'unreachable', empty: 'no items' }[view];
   document.querySelectorAll('.mode').forEach((b) => {
     const on = b.dataset.go === screen;
     b.classList.toggle('text-white', on); b.classList.toggle('text-gray-500', !on);
@@ -379,25 +379,25 @@ document.addEventListener('click', (ev) => {
   const t = ev.target.closest('button,a'); if (!t) return;
   if (t.tagName === 'A') { ev.preventDefault(); return; }
   const d = t.dataset;
-  if (d.go) { screen = d.go; if (d.go === 'lage') filter = filter; }
-  else if (d.filterTo) { filter = d.filterTo; screen = 'lage'; say(`Lage gefiltert auf ${ORCH[filter].name}`); }
+  if (d.go) { screen = d.go; }
+  else if (d.filterTo) { filter = d.filterTo; screen = 'lage'; say(`Status filtered to ${ORCH[filter].name}`); }
   else if ('filter' in d) { filter = d.filter || null; }
   else if (d.state) { view = d.state; }
   else if (d.toggle) { open.has(d.toggle) ? open.delete(d.toggle) : open.add(d.toggle); }
   else if (d.answer) {
     const e = data.inbox.find((x) => x.id === d.answer);
     answers[e.id] = e.options.find((o) => o.id === d.option).label;
-    say(`Antwort an ${ORCH[e.orch].name} gesendet: ${answers[e.id]}`);
-  } else if (d.undo) { delete answers[d.undo]; say('Antwort zurückgenommen, Korrektur geht an den Orchestrator'); }
-  else if (d.todo) { answers[d.todo] = 'erledigt'; say('To-do als erledigt gemeldet'); }
+    say(`Answer sent to ${ORCH[e.orch].name}: ${answers[e.id]}`);
+  } else if (d.undo) { delete answers[d.undo]; say('Answer withdrawn, the correction goes to the orchestrator'); }
+  else if (d.todo) { answers[d.todo] = 'done'; say('To-do reported as done'); }
   else if (d.approve) {
-    if (armed === d.approve) { clearTimeout(armTimer); armed = null; answers[d.approve] = 'freigegeben'; say('Freigabe gesendet'); }
+    if (armed === d.approve) { clearTimeout(armTimer); armed = null; answers[d.approve] = 'approved'; say('Approval sent'); }
     else { armed = d.approve; clearTimeout(armTimer); armTimer = setTimeout(() => { armed = null; render(); }, 4000); }
   } else if (t.id === 'nextReport') {
     const closed = Object.keys(answers).length;
     data.inbox = data.inbox.filter((e) => !answers[e.id]); answers = {};
-    say(closed ? `${closed} beantwortete Einträge geschlossen` : 'Keine beantworteten Einträge');
-  } else if (t.id === 'reset') { data = freshData(); answers = {}; filter = null; view = 'ok'; screen = 'lage'; open = new Set(['beispiel-shop']); }
+    say(closed ? `${closed} answered entries closed` : 'No answered entries');
+  } else if (t.id === 'reset') { data = freshData(); answers = {}; filter = null; view = 'ok'; screen = 'lage'; open = new Set(['example-shop']); }
   else return;
   render();
 });
