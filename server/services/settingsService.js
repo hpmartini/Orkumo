@@ -22,6 +22,7 @@ const defaultSettings = {
   keyboardShortcuts: {}, // Custom keyboard shortcut overrides
   linkTarget: 'builtin', // Where clicked links open (#140): 'builtin' (split) | 'side' | 'system'
   linkKeys: { cmd: 'system', middle: 'system', shift: 'side', alt: 'builtin' }, // per click gesture
+  remoteAccess: false, // Remote/cluster access (tailscale serve), applied at server start (remoteAccess.js)
   autoUpdate: true, // Desktop app: check/download updates automatically (read by electron/updater.js)
   agentView: {}, // Claude Code agent view preferences (grouping, layout, dispatch defaults)
   board: {}, // Agent task board: GitHub project source + slice favorites/order/hidden
@@ -542,6 +543,18 @@ class SettingsService {
   setAutoUpdate(enabled) {
     const settings = readSettings();
     settings.autoUpdate = enabled;
+    writeSettings(settings);
+    return enabled;
+  }
+
+  /**
+   * Remote/cluster access; the server applies it on its next start (remoteAccess.applyRemoteSetting)
+   * @param {boolean} enabled - validated by the route
+   * @returns {boolean}
+   */
+  setRemoteAccess(enabled) {
+    const settings = readSettings();
+    settings.remoteAccess = enabled;
     writeSettings(settings);
     return enabled;
   }

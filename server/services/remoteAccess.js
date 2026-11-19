@@ -1,7 +1,7 @@
 /**
  * Remote access for the iOS app (Issue #120).
  *
- * Opt-in via DEVORBIT_REMOTE=true. The server is then meant to be reached through
+ * Opt-in via the Admin setting "Remote-/Cluster-Zugang" (applied at boot) or DEVORBIT_REMOTE=true. The server is then meant to be reached through
  * `tailscale serve` (HTTPS proxy on the tailnet to localhost). Every request that
  * is not a direct loopback request needs the pairing token, sent as
  * `X-DevOrbit-Token` header; the `token` query param only for WebSocket upgrades under /api and SSE.
@@ -17,6 +17,19 @@ import { getDataPath } from './dataPath.js';
 export const CAPACITOR_ORIGIN = 'capacitor://localhost';
 
 export const isRemoteEnabled = () => process.env.DEVORBIT_REMOTE === 'true';
+
+let envAtBoot = null;
+/**
+ * Boot: the saved Admin setting turns remote access on through DEVORBIT_REMOTE, so every reader
+ * (host, modules) sees one value; an explicit DEVORBIT_REMOTE wins. Takes effect on the next start.
+ * @param {boolean} saved settings.json `remoteAccess`
+ */
+export function applyRemoteSetting(saved) {
+  envAtBoot = process.env.DEVORBIT_REMOTE ?? null;
+  if (saved === true && envAtBoot === null) process.env.DEVORBIT_REMOTE = 'true';
+}
+/** DEVORBIT_REMOTE as set before boot, null when the Admin setting decides */
+export const remoteEnv = () => envAtBoot;
 
 // On a shared machine (VPS) every local process reaches loopback; DEVORBIT_TRUST_LOOPBACK=false makes it pair too.
 export const trustsLoopback = () => process.env.DEVORBIT_TRUST_LOOPBACK !== 'false';
