@@ -108,6 +108,9 @@ import { DISPATCH_PROMPT_MAX, MAX_HARNESS_PROMPT } from '../config/limits.js';
 // Load environment variables from .env.local
 dotenv.config({ path: '.env.local' });
 
+// Before anything reads it: CORS, auth, the listen host, modules
+remoteAccess.applyRemoteSetting(settingsService.getSettings().remoteAccess === true);
+
 const app = express();
 const PORT = process.env.SERVER_PORT || PORTS.server;
 
@@ -1816,18 +1819,35 @@ app.post(
 );
 
 // Pairing data for the iOS app; only shown on this machine, never to a remote client.
+// `enabled`: running state; `saved`: the Admin setting (next start); `env`: DEVORBIT_REMOTE overriding it
 app.get('/api/remote/pairing', async (req, res) => {
   if (!remoteAccess.isLocalRequest(req)) return res.status(403).json({ error: 'Local only' });
-  if (!remoteAccess.isRemoteEnabled()) return res.json({ enabled: false });
+  const state = {
+    saved: settingsService.getSettings().remoteAccess === true,
+    env: remoteAccess.remoteEnv(),
+  };
+  if (!remoteAccess.isRemoteEnabled()) return res.json({ enabled: false, ...state });
   const dnsName = await getSelfDnsName();
   const url = process.env.DEVORBIT_REMOTE_URL || (dnsName ? `https://${dnsName}` : null);
   res.json({
+    ...state,
     enabled: true,
     url,
     token: remoteAccess.getToken(),
     link: url ? remoteAccess.pairingLink(url) : null,
   });
 });
+
+// Admin setting "Remote-/Cluster-Zugang"; only from this machine, applied on the next server start
+app.put(
+  '/api/remote/setting',
+  validate(z.object({ enabled: z.boolean() }).strict()),
+  (req, res) => {
+    if (!remoteAccess.isLocalRequest(req) || !remoteAccess.isLoopbackOrigin(req.headers.origin))
+      return res.status(403).json({ error: 'Local only' });
+    res.json({ saved: settingsService.setRemoteAccess(req.body.enabled) });
+  }
+);
 
 app.post('/api/agents/respawn-all', agentLimiter, async (req, res) => {
   try {
