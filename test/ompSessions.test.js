@@ -133,7 +133,7 @@ describe('running omp processes', () => {
       'p71408',
       'n/dev/ttys042',
       'n/dev/ttys042',
-      'n/Users/hape/.omp/agent/agent.db',
+      'n/Users/example/.omp/agent/agent.db',
     ].join('\n');
     expect(parseLsof(lsof, dir)).toEqual(
       new Map([

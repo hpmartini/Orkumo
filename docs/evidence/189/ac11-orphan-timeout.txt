@@ -2,7 +2,7 @@
 Thu Nov  5 09:58:51 CET 2026
 start chat 596ceab3-3c11-4739-a6df-4e928654c9fe, open SSE watcher for 5 s, then disconnect
 watcher closed at 09:58:56
-46653 /Users/hape/.local/bin/claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --permission-mode manual
+46653 /Users/example/.local/bin/claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --permission-mode manual
 after 25 s without watcher (09:59:21):
 no chat process
 {"chats":[]}

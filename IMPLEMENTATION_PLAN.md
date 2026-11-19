@@ -203,8 +203,8 @@ volumes:
   - devorbit-data:/app/data
 
   # Project directories (read-only)
-  - ${HOME}/Projects:/Users/hape/Projects:ro
-  - ${HOME}/PROJECTS:/Users/hape/PROJECTS:ro
+  - ${HOME}/Projects:/Users/example/Projects:ro
+  - ${HOME}/PROJECTS:/Users/example/PROJECTS:ro
 ```
 
 ---

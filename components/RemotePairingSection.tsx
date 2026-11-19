@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Copy, Smartphone } from 'lucide-react';
 import QRCode from 'qrcode';
 import { API_BASE_URL, isNativeApp } from '../utils/apiConfig';
+import { useModules } from '../hooks/useModules';
 
 interface PairingInfo {
   enabled: boolean;
@@ -22,6 +23,8 @@ export function RemotePairingSection() {
   const [info, setInfo] = useState<PairingInfo | null>(null);
   const [qr, setQr] = useState('');
   const [saveError, setSaveError] = useState('');
+  // Cluster mode comes from the Pro modules (DevHub-pro); without it the switch only serves the iOS app
+  const hasCluster = useModules().some((m) => m.id === 'cluster');
 
   async function setRemote(enabled: boolean) {
     setSaveError('');
@@ -95,7 +98,15 @@ export function RemotePairingSection() {
             className="h-4 w-4 accent-sky-500"
           />
           Remote-/Cluster-Zugang über Tailscale
+          <span className="rounded-full border border-amber-400/60 bg-amber-400/10 px-1.5 text-[10.5px] font-medium leading-[18px] text-amber-300">
+            Pro
+          </span>
         </label>
+        <p data-testid="cluster-pro-hint" className="text-xs text-gray-400">
+          {hasCluster
+            ? 'Cluster (other Macs in your tailnet) is a Pro feature, provided by the DevHub-pro modules.'
+            : 'Cluster is a Pro feature and its module is not installed: this switch only enables iOS app access.'}
+        </p>
         {forced && (
           <p className="text-xs text-gray-500">
             Festgelegt durch <code>DEVORBIT_REMOTE={info.env}</code> beim Start.

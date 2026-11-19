@@ -1,2 +1,2 @@
 Thu Nov  5 09:56:09 CET 2026
-75371 /Users/hape/.local/bin/claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --permission-mode manual --resume d3703fea-6d24-4881-ac92-225abd305378
+75371 /Users/example/.local/bin/claude -p --input-format stream-json --output-format stream-json --verbose --include-partial-messages --permission-prompt-tool stdio --permission-mode manual --resume d3703fea-6d24-4881-ac92-225abd305378

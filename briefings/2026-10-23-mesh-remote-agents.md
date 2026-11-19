@@ -12,20 +12,20 @@ Geräte kommen automatisch aus `tailscale status --json`: online, OS macOS oder 
 
 ## Why
 
-DevOrbit ist Hapes komplette Arbeitsumgebung für agentische Entwicklung über alle Geräte (`docs/VISION.md`, Abschnitt Mesh; Epic #60, #57 ist Sub-Issue). Hape will Agents auf MadMac, DarkBook, scanhub usw. an einer Stelle sehen und anhängen, ohne Sessions zu teleportieren. Später kommen Stop/Reply/Dispatch remote dazu; die Struktur soll das ohne Umbau erlauben (Host als Parameter neben der Session-ID).
+DevOrbit ist Hapes komplette Arbeitsumgebung für agentische Entwicklung über alle Geräte (`docs/VISION.md`, Abschnitt Mesh; Epic #60, #57 ist Sub-Issue). Hape will Agents auf Desktop, Laptop, peer-a usw. an einer Stelle sehen und anhängen, ohne Sessions zu teleportieren. Später kommen Stop/Reply/Dispatch remote dazu; die Struktur soll das ohne Umbau erlauben (Host als Parameter neben der Session-ID).
 
 ## Guardrails
 
 - Mesh = bestehendes Tailscale-Tailnet, Transport = System-`ssh`. Kein eigenes P2P-Protokoll, kein DevOrbit-zu-DevOrbit-API, kein neu geöffneter Port: DevOrbit muss auf den Zielgeräten nicht laufen.
 - Nur unmodifizierte `claude`-CLI, kein Token-Auslesen (`briefings/2026-10-22-cloud-remote-sessions.md`).
-- Tailscale-CLI: `tailscale` im PATH, sonst `/Applications/Tailscale.app/Contents/MacOS/Tailscale` (so auf MadMac installiert). Fehlt beides: Switch zeigt „Tailscale nicht gefunden“.
+- Tailscale-CLI: `tailscale` im PATH, sonst `/Applications/Tailscale.app/Contents/MacOS/Tailscale` (so auf Desktop installiert). Fehlt beides: Switch zeigt „Tailscale nicht gefunden“.
 - Alle Aufrufe per `execFile`/`spawn` mit Argument-Array, wie in `server/services/agentService.js`. Hostnamen nur aus der Tailscale-Liste übernehmen und zusätzlich per Muster validieren, Session-IDs mit dem bestehenden `agentIdSchema`; ungültig → 400. Remote-Kommando als einzelnes, fest zusammengesetztes Argument ohne Nutzertext.
 - SSH-Aufrufe mit `BatchMode=yes` und `ConnectTimeout` (≈5 s), Abfragen parallel, Ergebnis kurz cachen; ein hängendes Gerät blockiert die lokale Liste nie.
 - Folge den bestehenden Mustern: Routen unter `/api/agents/*` in `server/index.js`, Attach-PTY über `buildAttachUrl` (`components/AgentsView/AgentTerminal.tsx`, `command`/`args`), reine Logik (Tailscale-JSON parsen, Host-Validierung, Remote-Args bauen) in `utils/` mit Unit-Tests im Stil von `utils/agentInput.ts`. Ist für `command=ssh` in der PTY-Route eine Allowlist nötig, dort eng erweitern.
 - Switch-Zustand pro Browser merken (wie bestehende AgentsView-Einstellungen).
 - Nicht anfassen: lokale Agent-Funktionen, Board, Docker-/Coding-View, Datenbank.
 - Annahme: Auf den Zielgeräten ist `claude` bei nicht-interaktivem SSH im PATH. Falls nicht, als Gerätezustand „claude fehlt“ melden, nicht per Login-Shell-Tricks umgehen, und im Bericht nennen.
-- Annahme: Zum Testen ist aktuell kein Gerät per SSH-Key erreichbar (scanhub verweigert Key, darkbook offline). E2E gegen echtes Remote-Gerät ist daher optional; Logik per Unit-Tests mit Fixture-JSON belegen.
+- Annahme: Zum Testen ist aktuell kein Gerät per SSH-Key erreichbar (peer-a verweigert Key, laptop offline). E2E gegen echtes Remote-Gerät ist daher optional; Logik per Unit-Tests mit Fixture-JSON belegen.
 
 ## Done means
 

@@ -20,7 +20,7 @@ describe('resumableSessionId', () => {
     expect(resumableSessionId(s({ ptyArgs: [] }))).toBeNull();
     expect(resumableSessionId(s({ ptyArgs: ['--cloud', 'x', '--resume', ID] }))).toBeNull();
     // #220: a pane of another instance than the picked one hands over nothing (a resume would start here)
-    pinTarget('peer-job', '/modules/mesh/peer/darkbook');
+    pinTarget('peer-job', '/modules/mesh/peer/laptop');
     expect(
       resumableSessionId(s({ id: 'peer-job', sessionId: ID }), orkumoTransport.targets)
     ).toBeNull();

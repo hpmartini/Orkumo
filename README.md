@@ -425,7 +425,7 @@ deploy:
 
 ```yaml
 volumes:
-  - /Users/hape/Projects:/path/in/container
+  - /Users/example/Projects:/path/in/container
 ```
 
 **After (version v2.0+):**

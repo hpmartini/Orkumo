@@ -139,10 +139,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **BREAKING**: Docker volume mounts changed from hardcoded `/Users/hape/` to `${HOME}/` variable
+- **BREAKING**: Docker volume mounts changed from hardcoded `/Users/example/` to `${HOME}/` variable
   - Migration required: Update your `.env` file or docker-compose overrides
-  - API service: `/Users/hape/Projects` → `${HOME}/Projects`
-  - API service: `/Users/hape/PROJECTS` → `${HOME}/PROJECTS`
+  - API service: `/Users/example/Projects` → `${HOME}/Projects`
+  - API service: `/Users/example/PROJECTS` → `${HOME}/PROJECTS`
   - code-server: Consistent mount paths with API service
   - **Action Required**: Restart containers after pulling this update
 
