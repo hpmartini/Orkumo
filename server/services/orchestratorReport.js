@@ -21,7 +21,11 @@ const time = z.iso.datetime({ offset: true });
 const refs = z
   .object({
     prs: z.array(url).max(50).optional().describe('PR URLs'),
-    issues: z.array(url).max(50).optional().describe('Issue URLs; also the key that merges board items'),
+    issues: z
+      .array(url)
+      .max(50)
+      .optional()
+      .describe('Issue URLs; also the key that merges board items'),
     agents: z.array(id).max(50).optional().describe('Orkumo agent ids (as in `orkumo agents`)'),
   })
   .strict();
@@ -41,7 +45,11 @@ const project = z
   .object({
     id,
     name: text(120),
-    repo: z.string().regex(/^[\w.-]+\/[\w.-]+$/).optional().describe('owner/name'),
+    repo: z
+      .string()
+      .regex(/^[\w.-]+\/[\w.-]+$/)
+      .optional()
+      .describe('owner/name'),
     tasks: z.array(task).max(200),
   })
   .strict();
@@ -82,7 +90,9 @@ export const reportSchema = z
     orchestrator: z
       .object({
         id: id.describe('Stable key of the reporter: its role id, else its agent id'),
-        agentId: id.optional().describe('Current session (`orkumo report` fills it in); answers go there'),
+        agentId: id
+          .optional()
+          .describe('Current session (`orkumo report` fills it in); answers go there'),
         name: text(120).optional(),
       })
       .strict(),

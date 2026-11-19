@@ -27,9 +27,7 @@
           "maxLength": 120
         }
       },
-      "required": [
-        "id"
-      ],
+      "required": ["id"],
       "additionalProperties": false
     },
     "reportedAt": {
@@ -79,13 +77,7 @@
                 },
                 "state": {
                   "type": "string",
-                  "enum": [
-                    "planned",
-                    "running",
-                    "waiting",
-                    "done",
-                    "cancelled"
-                  ]
+                  "enum": ["planned", "running", "waiting", "done", "cancelled"]
                 },
                 "note": {
                   "description": "One line: what happens now or what blocks",
@@ -134,20 +126,12 @@
                   "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
                 }
               },
-              "required": [
-                "id",
-                "title",
-                "state"
-              ],
+              "required": ["id", "title", "state"],
               "additionalProperties": false
             }
           }
         },
-        "required": [
-          "id",
-          "name",
-          "tasks"
-        ],
+        "required": ["id", "name", "tasks"],
         "additionalProperties": false
       }
     },
@@ -184,11 +168,7 @@
               },
               "priority": {
                 "type": "string",
-                "enum": [
-                  "high",
-                  "normal",
-                  "low"
-                ]
+                "enum": ["high", "normal", "low"]
               },
               "createdAt": {
                 "type": "string",
@@ -256,10 +236,7 @@
                       "maxLength": 1000
                     }
                   },
-                  "required": [
-                    "id",
-                    "label"
-                  ],
+                  "required": ["id", "label"],
                   "additionalProperties": false
                 }
               },
@@ -269,14 +246,7 @@
                 "description": "id of one of the options"
               }
             },
-            "required": [
-              "id",
-              "title",
-              "createdAt",
-              "kind",
-              "options",
-              "recommendation"
-            ],
+            "required": ["id", "title", "createdAt", "kind", "options", "recommendation"],
             "additionalProperties": false
           },
           {
@@ -307,11 +277,7 @@
               },
               "priority": {
                 "type": "string",
-                "enum": [
-                  "high",
-                  "normal",
-                  "low"
-                ]
+                "enum": ["high", "normal", "low"]
               },
               "createdAt": {
                 "type": "string",
@@ -358,12 +324,7 @@
                 "const": "todo"
               }
             },
-            "required": [
-              "id",
-              "title",
-              "createdAt",
-              "kind"
-            ],
+            "required": ["id", "title", "createdAt", "kind"],
             "additionalProperties": false
           },
           {
@@ -394,11 +355,7 @@
               },
               "priority": {
                 "type": "string",
-                "enum": [
-                  "high",
-                  "normal",
-                  "low"
-                ]
+                "enum": ["high", "normal", "low"]
               },
               "createdAt": {
                 "type": "string",
@@ -450,13 +407,7 @@
                 "format": "uri"
               }
             },
-            "required": [
-              "id",
-              "title",
-              "createdAt",
-              "kind",
-              "pr"
-            ],
+            "required": ["id", "title", "createdAt", "kind", "pr"],
             "additionalProperties": false
           }
         ]
@@ -472,12 +423,6 @@
       "additionalProperties": {}
     }
   },
-  "required": [
-    "schemaVersion",
-    "orchestrator",
-    "reportedAt",
-    "projects",
-    "inbox"
-  ],
+  "required": ["schemaVersion", "orchestrator", "reportedAt", "projects", "inbox"],
   "additionalProperties": false
 }
