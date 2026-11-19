@@ -13,6 +13,7 @@ import {
   answerTarget,
   answerText,
   submitWatch,
+  isHiddenReport,
 } from '../server/services/orchestratorReports.js';
 import example from '../server/orchestrator/report.example.json';
 
@@ -323,5 +324,33 @@ describe('answers (AC-4)', () => {
       `Choice: ${entry.options[0].label} (${entry.options[0].id})`,
       'and ship it',
     ]);
+  });
+});
+
+describe('isHiddenReport (roleless orchestrators after their session)', () => {
+  const H = 60 * MIN;
+  const state = (id, receivedAt = T0) => ({
+    report: { orchestrator: { id, agentId: id } },
+    receivedAt: new Date(receivedAt).toISOString(),
+  });
+  const live = [{ id: 'omp-1', state: 'running' }];
+  const ended = [{ id: 'omp-1', state: 'done' }];
+  const roles = new Set(['release']);
+
+  it('never hides a role orchestrator, however old', () => {
+    expect(
+      isHiddenReport(state('release'), { roleIds: roles, sessions: [], now: T0 + 48 * H })
+    ).toBe(false);
+  });
+  it('keeps a roleless orchestrator while its session runs', () => {
+    expect(
+      isHiddenReport(state('omp-1'), { roleIds: roles, sessions: live, now: T0 + 48 * H })
+    ).toBe(false);
+  });
+  it('hides it once the session ended and 24 h passed without a report', () => {
+    const at = (now, sessions) => isHiddenReport(state('omp-1'), { roleIds: roles, sessions, now });
+    expect(at(T0 + 24 * H - 1, ended)).toBe(false);
+    expect(at(T0 + 24 * H, ended)).toBe(true);
+    expect(at(T0 + 24 * H, [])).toBe(true);
   });
 });

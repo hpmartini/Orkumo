@@ -50,6 +50,23 @@ export function authorizeReporter(orchestratorId, senderRef, sessions, settings)
   return { ok: true, session };
 }
 
+/** A roleless orchestrator's report leaves the view this long after its last report */
+export const HIDE_ROLELESS_AFTER_MS = 24 * 60 * 60_000;
+const ENDED = new Set(['done', 'failed', 'stopped']);
+
+/**
+ * Hidden from GET: a roleless orchestrator (key = its agent id, no `roles/<id>.md`) whose session
+ * is gone or finished and that sent nothing for 24 h. Its report file and change log stay.
+ */
+export function isHiddenReport(state, { roleIds, sessions, now = Date.now() }) {
+  const { id, agentId } = state.report.orchestrator;
+  if (roleIds.has(id)) return false;
+  const session =
+    findSessionByRef(sessions, id) ?? (agentId && findSessionByRef(sessions, agentId));
+  if (session && !ENDED.has(session.state)) return false;
+  return now - ms(state.receivedAt) >= HIDE_ROLELESS_AFTER_MS;
+}
+
 const taskStates = (report) =>
   new Map(
     (report?.projects || []).flatMap((p) =>

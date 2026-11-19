@@ -2291,8 +2291,12 @@ app.post('/api/orchestrator/reports', agentLimiter, sameSiteOnly, async (req, re
 
 /** Stale flags of all stored reports; persists what the check observed (first-seen times) */
 async function evaluateReports(now = Date.now()) {
-  const { agents } = await reportAgents();
-  return reportStore.list().map((state) => {
+  const { sessions, agents } = await reportAgents();
+  const roleIds = new Set(orchestrator.listRoles().map((r) => r.id));
+  const shown = reportStore
+    .list()
+    .filter((state) => !orchestratorReports.isHiddenReport(state, { roleIds, sessions, now }));
+  return shown.map((state) => {
     const result = orchestratorReports.evaluateReport(state, agents, now);
     if (result.changed) reportStore.setWatch(state.report.orchestrator.id, result.watch);
     return { state, ...result };
