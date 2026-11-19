@@ -130,10 +130,14 @@ export function parseLsof(lsofOutput, sessionsDir) {
 
 /**
  * omp records the session each terminal last opened in `terminal-sessions/<tty>`
- * (line 1 cwd, line 2 session file): the running omp on that tty is that session.
+ * (line 1 cwd, line 2 session file): the running omp on that tty is that session. Only a record
+ * written since that omp started (`startedAt`): ttys are reused, and until a fresh omp writes its
+ * own, the record names the session of the tty's previous omp.
  */
-async function terminalSessionFile(sessionsDir, tty) {
+async function terminalSessionFile(sessionsDir, tty, startedAt) {
   const record = path.join(path.dirname(sessionsDir), 'terminal-sessions', tty);
+  const stat = await fsp.stat(record).catch(() => null);
+  if (!stat || !(stat.mtimeMs >= startedAt)) return null;
   const file = (await fsp.readFile(record, 'utf-8').catch(() => '')).split('\n')[1]?.trim();
   return file && file.startsWith(sessionsDir + path.sep) && file.endsWith('.jsonl') ? file : null;
 }
@@ -151,11 +155,37 @@ export async function runningSessionFiles(sessionsDir, { exec = run } = {}) {
   // -b/-w: never block on stale network mounts; -a: only these pids
   const out = await exec('lsof', ['-nP', '-b', '-w', '-a', '-p', pids.join(','), '-Fpn']);
   if (!out) return null;
-  for (const [pid, { file, tty }] of parseLsof(out, sessionsDir)) {
-    const running = file ?? (tty ? await terminalSessionFile(sessionsDir, tty) : null);
+  const byPid = parseLsof(out, sessionsDir);
+  const onTtyOnly = [...byPid].filter(([, e]) => !e.file && e.tty).map(([pid]) => pid);
+  const started = onTtyOnly.length
+    ? parseStartTimes(await exec('ps', ['-o', 'pid=,etime=', '-p', onTtyOnly.join(',')]))
+    : new Map();
+  for (const [pid, { file, tty }] of byPid) {
+    const running =
+      file ??
+      (tty && started.has(pid)
+        ? await terminalSessionFile(sessionsDir, tty, started.get(pid))
+        : null);
     if (running) holders.set(running, pid);
   }
   return holders;
+}
+
+/**
+ * pid → earliest possible start (ms) from `ps -o pid=,etime=` (`[[dd-]hh:]mm:ss`); etime counts whole
+ * seconds, so one second is taken off: a record of the process itself is never rejected
+ */
+export function parseStartTimes(psOutput, now = Date.now()) {
+  const starts = new Map();
+  for (const line of String(psOutput ?? '').split('\n')) {
+    const match = line.trim().match(/^(\d+)\s+(?:(\d+)-)?(?:(\d+):)?(\d+):(\d+)$/);
+    if (!match) continue;
+    const [, pid, days = 0, hours = 0, minutes, seconds] = match;
+    const elapsed =
+      ((Number(days) * 24 + Number(hours)) * 60 + Number(minutes)) * 60 + Number(seconds);
+    starts.set(Number(pid), now - (elapsed + 1) * 1000);
+  }
+  return starts;
 }
 
 /** Holders of the last successful scan per sessions dir: a failed scan keeps them */
