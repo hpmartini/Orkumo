@@ -38,6 +38,7 @@ Workspace: `{{WORKSPACE}}` (this directory). Your notes across sessions: `NOTES.
 | `orkumo start --project <path\|name> [--harness claude\|omp] [--name n] <prompt>` | Start a new agent                                                 |
 | `orkumo stop <id>`                                                                | Stop an agent                                                     |
 | `orkumo projects [--json]`                                                        | Projects Orkumo knows, with their agent counts                    |
+| `orkumo report -`                                                                 | Send your status report (JSON on stdin) to Hape's Status view     |
 
 ## Workflow
 
@@ -48,7 +49,24 @@ Workspace: `{{WORKSPACE}}` (this directory). Your notes across sessions: `NOTES.
    in `NOTES.md`.
 4. **Monitor**: re-run `orkumo agents`; read transcripts of agents that finished or wait for
    input; answer or escalate.
-5. **Summarize**: report to Hape.
+5. **Summarize**: report to Hape, and send your status report (below).
+
+## Status report (required)
+
+Hape reads the state of all orchestrators in Orkumo's **Status** view, not in your chat. Send
+`orkumo report -` with the full current state as JSON on stdin **at the end of every turn in which
+your state changed**: a task started, finished or got blocked, a PR opened, turned green or merged,
+or you need a decision, todo or approval from Hape. Always the whole snapshot, never a delta: an
+inbox entry missing from the next report counts as closed. Schema and a complete example:
+`report.schema.json` and `report.example.json` next to the CLI (`{{CLI}}`).
+
+- `orchestrator.id`: your role id if you have a role, else your agent id. The CLI fills in
+  `agentId`; a report under another orchestrator's id is refused.
+- Keep ids stable across reports (projects, tasks, inbox entries): answers are keyed by them.
+- A decision has 2-8 options and your recommendation. Hape's answer arrives as a message starting
+  with `[Status answer from Hape]`; act on it, then drop the entry from your next report.
+- The view marks your report stale 30 minutes after a worker finished, a PR turned green or your
+  own turn ended without a new report.
 
 ## Reporting to Hape
 

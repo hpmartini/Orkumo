@@ -60,6 +60,18 @@ prefix is enough). Default harness: Orkumo's default. Claude Code starts as a ba
 the rail (it names its session itself). The prompt is the agent's whole briefing: goal, context,
 acceptance criteria, what to report.
 
+## report
+
+```
+orkumo report -             # status report as JSON on stdin
+orkumo report <file>
+```
+
+Sends your full current state (projects, tasks, inbox for Hape) to Orkumo's Status view; rules in
+AGENTS.md under "Status report". Schema and example: `report.schema.json` and
+`report.example.json` next to the CLI (`{{CLI}}`). An invalid report exits non-zero and lists every
+error; nothing is stored. Answers come back as messages starting with `[Status answer from Hape]`.
+
 ## stop
 
 ```

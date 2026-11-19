@@ -112,6 +112,8 @@ describe('ensureOrchestratorWorkspace', () => {
       'orkumo',
       'orkumo.json',
       'orkumo.mjs',
+      'report.example.json',
+      'report.schema.json',
     ]);
     expect(fs.readdirSync(dir).sort()).toEqual([
       '.claude',

@@ -153,6 +153,9 @@ export function ensureOrchestratorWorkspace({
   write(`.claude/skills/${SKILL_NAME}/SKILL.md`, skill);
   write(`.omp/skills/${SKILL_NAME}/SKILL.md`, skill);
   writeBin('orkumo.mjs', template('orkumo.mjs'), 0o555);
+  // What `orkumo report` sends: schema and a full example, read-only next to the CLI
+  writeBin('report.schema.json', template('report.schema.json'), RO);
+  writeBin('report.example.json', template('report.example.json'), RO);
   writeBin(
     'orkumo.json',
     `${JSON.stringify({ apiUrl, tokenFile: path.join(dataDir, 'remote-token'), workspace: dir }, null, 2)}\n`,
