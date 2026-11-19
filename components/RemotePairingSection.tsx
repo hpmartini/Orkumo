@@ -128,7 +128,7 @@ export function RemotePairingSection() {
               Adresse und Token in der App eingeben.
             </p>
           </>
-        ) : (
+        ) : pending ? null : (
           <p className="text-xs text-gray-400">
             Remote-Zugang ist aus. Oben einschalten, Orkumo neu starten und die Tailscale-Freigabe
             einrichten (Modus Cluster oder README, Abschnitt iOS).
