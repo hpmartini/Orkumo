@@ -79,7 +79,13 @@ const inboxEntry = z.discriminatedUnion('kind', [
 export const reportSchema = z
   .object({
     schemaVersion: z.literal(REPORT_SCHEMA_VERSION),
-    orchestrator: z.object({ id, name: text(120).optional() }).strict(),
+    orchestrator: z
+      .object({
+        id: id.describe('Stable key of the reporter: its role id, else its agent id'),
+        agentId: id.optional().describe('Current session (`orkumo report` fills it in); answers go there'),
+        name: text(120).optional(),
+      })
+      .strict(),
     reportedAt: time,
     summary: text(2000).optional(),
     projects: z.array(project).max(100),

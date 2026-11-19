@@ -13,6 +13,12 @@
       "properties": {
         "id": {
           "type": "string",
+          "pattern": "^[\\w.:-]{1,200}$",
+          "description": "Stable key of the reporter: its role id, else its agent id"
+        },
+        "agentId": {
+          "description": "Current session (`orkumo report` fills it in); answers go there",
+          "type": "string",
           "pattern": "^[\\w.:-]{1,200}$"
         },
         "name": {

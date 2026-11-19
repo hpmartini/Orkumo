@@ -16,7 +16,7 @@ Darstellung: Eintrag „Lage“ in der Aktivitätsleiste; oben Eingang „Für d
 
 Rollenvorgaben: `server/orchestrator/agents.md`, `skill.md` und Rollen in `roles/` machen das Melden zur Pflicht; die bestehenden Orchestratoren werden umgestellt.
 
-Zweite Ausbaustufe (nicht in diesem Vertrag): Orchestratoren anderer Macs über Cluster/Mesh in derselben Ansicht.
+Zweite Ausbaustufe: Orchestratoren anderer Macs über Cluster/Mesh in derselben Ansicht (siehe Annahmen).
 
 ## Why
 Hape koordiniert mit wenigen Orchestrator-Agents viele Projekte parallel. Heute fragt er nach dem Stand oder liest uneinheitliche HTML-Übersichten. Danach muss er nie mehr nach dem Stand fragen: Eine Ansicht zeigt, was ihn braucht, und er handelt direkt dort.
@@ -50,7 +50,8 @@ Hape koordiniert mit wenigen Orchestrator-Agents viele Projekte parallel. Heute 
 | AC-11 | `agents.md`, `skill.md` und Rollen in `roles/` verlangen die Meldung (wann, wie, Beispiel); die drei bestehenden Orchestratoren sind umgestellt und haben je mindestens einmal über `orkumo report` gemeldet. | Diff der Vorlagen + Änderungsprotokoll auf Hapes Rechner mit drei verschiedenen Orchestrator-IDs |
 | AC-12 | Bestehendes Board, Workflows, Cluster und `orkumo send` verhalten sich unverändert. | bestehende Tests grün, keine Änderung an deren Verhalten im Diff |
 | AC-13 | Keine echten Projekt-, Kunden- oder Gerätenamen im Orkumo-Diff (Code, Tests, Fixtures, Screenshots). | Durchsicht des Diffs + Screenshots nur mit neutralen Daten |
-| AC-14 | PRs in Orkumo und DevHub-pro offen, Woodpecker grün in beiden, nicht gemergt; deutscher Kurzbericht (Getan, Annahmen, PR-Links) an playmaker. | PR-Links + Woodpecker-Status |
+| AC-15 | Höchstens 4 Subagents laufen gleichzeitig. | Sitzungsprotokoll / Bericht nennt die Zahl |
+| AC-14 | PRs in Orkumo und DevHub-pro offen, Woodpecker grün in beiden, nicht gemergt; deutscher Kurzbericht (Getan, Annahmen, PR-Links) an den auftraggebenden Orchestrator. | PR-Links + Woodpecker-Status |
 
 ## Ambition
 - Altitude: Statt Meldepflicht könnte Orkumo den Stand selbst aus Transkripten und PRs ableiten; nur Vorschlag, nicht Scope (Ableiten ist ungenau bei Entscheidungen, die nur der Orchestrator kennt).
@@ -64,7 +65,9 @@ langlebig · unabhängig · neue Vertrauensgrenze (Eingaben von Agents ins Serve
 Schema-Entwurf (JSON Schema mit Beispiel-Meldung) und klickbarer Wegwerf-Prototyp der Ansicht „Lage“ mit neutralen Daten (mit `/impeccable`), Hape zur Freigabe vorlegen; danach Stopp bis zur Freigabe.
 
 ## Annahmen
-- Orchestrator-ID = Agent-ID der Orchestrator-Sitzung (wie `ORKUMO_AGENT_ID`/Session-ID beim Absender von `orkumo send`); `orkumo report` setzt sie aus der Umgebung, der Server lehnt Meldungen ab, deren ID nicht in `agentView.orchestrators` steht oder nicht zur Absender-Sitzung passt. (vorgeschlagen)
+- Orchestrator-ID ist stabil: die Rollen-ID (`roles/<id>.md`), ohne Rolle die Agent-ID; Session-IDs wechseln beim Fortsetzen eines Panes und würden Stand und offene Einträge verwaisen lassen. `orkumo report` trägt die aktuelle Sitzung als `agentId` ein (aus `ORKUMO_AGENT_ID`/Session-Umgebung wie beim Absender von `orkumo send`), Antworten gehen dorthin. (vorgeschlagen, offene Schema-Frage an Hape)
+- Durchsetzbar ist: die Absender-Sitzung ist in `agentView.orchestrators` markiert und ihre Rolle bzw. ID passt zur gemeldeten Orchestrator-ID. Nicht durchsetzbar: ein lokaler Prozess, der eine fremde Session-ID in die Umgebung schreibt (alle teilen das lokale Token); AC-3 belegt die Prüfung, nicht Fälschungssicherheit. (vorgeschlagen)
+- Zweite Ausbaustufe (Cluster/Mesh, andere Macs) ist nicht Teil dieser Lieferung; das Schema trägt sie, weil die Orchestrator-ID je Rechner eindeutig ist und der Server die Herkunft ergänzen kann. (vorgeschlagen)
 - Dringlichkeit im Eingang: Entscheidung vor Freigabe vor To-do, innerhalb nach optionaler Priorität im Eintrag, dann Alter (älteste zuerst). (vorgeschlagen)
 - „Ein Orchestrator meldet seinen Stand“ heißt: jede Meldung ist der vollständige aktuelle Stand (Snapshot), kein Delta; das Änderungsprotokoll entsteht serverseitig aus dem Vergleich. (vorgeschlagen)
 - Ereignisse für „veraltet“ kommen aus Daten, die Orkumo schon hat (Agent-Zustände, Turn-Ende, PR-Status der verknüpften PRs). (vorgeschlagen)
