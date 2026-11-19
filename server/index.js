@@ -39,6 +39,8 @@ import {
 import { startQuickAgent } from './services/quickAgent.js';
 import { listOmpSessions } from './services/ompSessions.js';
 import * as orchestrator from './services/orchestratorService.js';
+import * as orchestratorReports from './services/orchestratorReports.js';
+import { parseReport } from './services/orchestratorReport.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
@@ -2233,6 +2235,146 @@ app.get('/api/orchestrator/projects', async (req, res) => {
     sendAgentError(res, error);
   }
 });
+
+// Status reports of orchestrators (`orkumo report`) and the answers given in the Status view
+const reportStore = orchestratorReports.createReportStore(orchestrator.orchestratorDir());
+
+/** Agents with display state, activity and PRs: what the stale check and the sender check read */
+async function reportAgents() {
+  const [sessions, contexts] = await Promise.all([
+    agentService.currentSessions(),
+    getAgentContexts().catch(() => ({})),
+  ]);
+  const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
+  const { agents } = await orchestrator.buildOverview({
+    sessions,
+    contexts,
+    orchestrators,
+    orchestratorRoles,
+    all: true,
+    withText: false,
+  });
+  return { sessions, agents };
+}
+
+app.post('/api/orchestrator/reports', agentLimiter, async (req, res) => {
+  const parsed = parseReport(req.body);
+  if (!parsed.ok) return res.status(400).json({ error: 'Invalid report', errors: parsed.errors });
+  const { report } = parsed;
+  try {
+    const { sessions, agents } = await reportAgents();
+    const auth = orchestratorReports.authorizeReporter(
+      report.orchestrator.id,
+      report.orchestrator.agentId,
+      sessions,
+      settingsService.getAgentViewSettings()
+    );
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+    const { change } = reportStore.submit(report, {
+      watch: orchestratorReports.submitWatch(report, agents),
+    });
+    if (
+      change.notify.length > 0 &&
+      settingsService.getAgentViewSettings().notifications !== false
+    ) {
+      const titles = report.inbox.filter((e) => change.notify.includes(e.id)).map((e) => e.title);
+      orchestratorReports.notifyDesktop(
+        `Decision needed · ${report.orchestrator.name || report.orchestrator.id}`,
+        titles.join(' · ')
+      );
+    }
+    res.status(201).json({ stored: true, change });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** Latest report per orchestrator with its answers and stale flag, plus the recent change log */
+app.get('/api/orchestrator/reports', async (req, res) => {
+  try {
+    const { agents } = await reportAgents();
+    const now = Date.now();
+    const reports = reportStore.list().map((state) => {
+      const { events, watch } = orchestratorReports.reportEvents(state, agents, now);
+      if (JSON.stringify(watch) !== JSON.stringify(state.watch))
+        reportStore.setWatch(state.report.orchestrator.id, watch);
+      const after = events.filter((t) => t > Date.parse(state.receivedAt));
+      return {
+        report: state.report,
+        receivedAt: state.receivedAt,
+        answers: state.answers,
+        stale: orchestratorReports.isStale({
+          reportedAt: Date.parse(state.receivedAt),
+          events,
+          now,
+        }),
+        firstEventAt: after.length ? new Date(Math.min(...after)).toISOString() : null,
+      };
+    });
+    res.json({ reports, changes: reportStore.changes().slice(-200) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** The live session of orchestrator `id` (its role id, else its row id) */
+const isOrchestratorSessionFor = (session, id, orchestrators, roles) =>
+  orchestrator.isOrchestratorSession(session, orchestrators) &&
+  (orchestrator.sessionRole(session, roles) ?? session.id) === id;
+
+/** An answer from the Status view, typed into the orchestrator like `orkumo send` does (AC-4) */
+app.post(
+  '/api/orchestrator/reports/:id/answers',
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(orchestratorRefSchema),
+  validate(
+    z
+      .object({
+        entry: orchestratorRefSchema,
+        option: orchestratorRefSchema.optional(),
+        text: typedTextSchema(4000).optional(),
+      })
+      .refine((a) => a.option || a.text, 'An answer needs an option or a text')
+  ),
+  async (req, res) => {
+    const state = reportStore.get(req.params.id);
+    const entry = state?.report.inbox.find((e) => e.id === req.body.entry);
+    if (!entry) return res.status(404).json({ error: 'No open entry with this id' });
+    const option = entry.options?.find((o) => o.id === req.body.option);
+    if (req.body.option && !option) return res.status(400).json({ error: 'Unknown option' });
+    const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
+    const sessions = await agentService.currentSessions();
+    // The role's current session; a resumed pane has new ids, the report's agentId may be old
+    const target =
+      sessions.find((s) =>
+        isOrchestratorSessionFor(s, req.params.id, orchestrators, orchestratorRoles)
+      ) ?? orchestrator.findSessionByRef(sessions, state.report.orchestrator.agentId);
+    if (!target) return res.status(409).json({ error: 'The orchestrator is not running' });
+    const text = [
+      `[Status answer from Hape] ${entry.title} (entry ${entry.id})`,
+      option && `Choice: ${option.label} (${option.id})`,
+      req.body.text,
+    ]
+      .filter(Boolean)
+      .join('\n');
+    try {
+      if (target.paneId) {
+        if (!typeIntoPanePty(target.paneId, text))
+          return res.status(409).json({ error: 'The orchestrator pane is not running' });
+      } else {
+        await agentService.replySession(target.id, text, { mode: 'auto' });
+      }
+      const saved = reportStore.answer(req.params.id, entry.id, {
+        option: option?.id ?? null,
+        text: req.body.text ?? null,
+      });
+      res.json({ delivered: true, answer: saved.answers[entry.id] });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
 
 /** Workspace, CLI path and the briefing typed into a session that was just marked */
 app.get('/api/orchestrator/workspace', (req, res) => {

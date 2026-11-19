@@ -30,6 +30,7 @@ export const HELP = `orkumo: hand out and watch work of the agents running in Or
                                           start a new agent in a project
   orkumo stop <id>                        stop an agent
   orkumo projects [--json]                projects Orkumo knows
+  orkumo report <file|->                  send your status report (JSON, schema: report.schema.json)
 
   "-" reads the message or prompt from stdin.
   ORKUMO_API_URL / ORKUMO_TOKEN override the API address and token; the token is only sent to
@@ -43,6 +44,7 @@ const COMMANDS = {
   start: { project: false, harness: false, name: false, json: true },
   stop: {},
   projects: { json: true },
+  report: {},
   guard: {},
   help: {},
 };
@@ -171,6 +173,7 @@ export function createApi({ apiUrl, token, fetch = globalThis.fetch }) {
     }
     if (!res.ok) {
       let message = (data && data.error) || text || res.statusText;
+      if (Array.isArray(data?.errors)) message += `\n  ${data.errors.join('\n  ')}`;
       if (res.status === 401)
         message += ' (the API wants the pairing token: set ORKUMO_TOKEN or restart Orkumo)';
       throw new CliError(`${method} ${route} failed (${res.status}): ${message}`);
@@ -207,6 +210,13 @@ export function sendRoute(agent) {
   return null;
 }
 
+/** The session the CLI runs in (see senderLine); '' outside an agent */
+export const senderId = (env) =>
+  env.ORKUMO_AGENT_ID ||
+  (env.PI_SESSION_ID && `omp-${env.PI_SESSION_ID}`) ||
+  (env.CLAUDECODE === '1' && env.CLAUDE_CODE_SESSION_ID) ||
+  '';
+
 /**
  * First line of a message from `orkumo send`. The receiver's harness logs typed text as the user's
  * own; this line names the agent that sent it (Orkumo's chat view renders it as that agent's).
@@ -215,11 +225,7 @@ export function sendRoute(agent) {
  * inside Claude Code (CLAUDECODE=1).
  */
 export function senderLine(agents, env) {
-  const id =
-    env.ORKUMO_AGENT_ID ||
-    (env.PI_SESSION_ID && `omp-${env.PI_SESSION_ID}`) ||
-    (env.CLAUDECODE === '1' && env.CLAUDE_CODE_SESSION_ID) ||
-    '';
+  const id = senderId(env);
   if (!id) return '[via orkumo send, Absender unbekannt]';
   const me = agents.find((a) => a.id === id || a.sessionId === id);
   return me
@@ -340,9 +346,11 @@ function realpathNearest(target) {
 /** Workspace entries an orchestrator must not change: its instructions, settings and skills */
 const PROTECTED = ['.claude', '.omp', 'AGENTS.md', 'CLAUDE.md'];
 /** Names that point at protected files in a Bash command (also the CLI next to the workspace) */
-const PROTECTED_WORDS = /(^|[\s'"=/])(\.claude|\.omp|AGENTS\.md|CLAUDE\.md|orchestrator-bin|orkumo\.json|orkumo\.mjs)([\s'"/;|&)>]|$)/;
+const PROTECTED_WORDS =
+  /(^|[\s'"=/])(\.claude|\.omp|AGENTS\.md|CLAUDE\.md|orchestrator-bin|orkumo\.json|orkumo\.mjs)([\s'"/;|&)>]|$)/;
 /** Bash that writes or moves files: redirects, tee, mv/cp/rm/ln/install/chmod, sed -i, dd, truncate */
-const BASH_WRITES = /(>|\btee\b|\b(mv|cp|rm|ln|install|chmod|chown|truncate|dd|rsync|touch|mkdir|patch)\b|\b(sed|perl)\b[^|;&]*\s-[a-zA-Z]*i)/;
+const BASH_WRITES =
+  /(>|\btee\b|\b(mv|cp|rm|ln|install|chmod|chown|truncate|dd|rsync|touch|mkdir|patch)\b|\b(sed|perl)\b[^|;&]*\s-[a-zA-Z]*i)/;
 
 const blocked = (workspace, target) =>
   `Orchestrators only edit NOTES.md and plain files in their workspace (${workspace}), never its .claude, .omp, AGENTS.md or CLAUDE.md, nor anything outside; blocked: ${target}. Delegate the change to an agent with "orkumo send" or "orkumo start".`;
@@ -490,6 +498,39 @@ export async function run(argv, deps = {}) {
         const result = await api('POST', '/orchestrator/panes', { harness, cwd, prompt });
         if (flags.json) return json(result);
         out(`Started omp-${result.sessionId} in Orkumo pane ${result.paneId} (${cwd}).`);
+        return 0;
+      }
+      case 'report': {
+        if (args.length !== 1) throw usage('report takes one file path, or "-" for stdin.');
+        let raw;
+        try {
+          raw =
+            args[0] === '-'
+              ? await readStdin()
+              : fs.readFileSync(path.resolve(deps.cwd ?? process.cwd(), args[0]), 'utf8');
+        } catch (error) {
+          throw new CliError(`Cannot read the report: ${error.message}`);
+        }
+        let report;
+        try {
+          report = JSON.parse(raw);
+        } catch (error) {
+          throw new CliError(`The report is not valid JSON: ${error.message}`);
+        }
+        if (!report || typeof report !== 'object' || Array.isArray(report))
+          throw new CliError('The report must be a JSON object.');
+        // The server checks the sender: always the session this runs in, never what the file says
+        const sender = senderId(deps.env ?? process.env);
+        report.orchestrator = { ...report.orchestrator, agentId: sender || undefined };
+        const { change } = await api('POST', '/orchestrator/reports', report);
+        const counts = [
+          `${change.opened.length} new`,
+          `${change.closed.length} closed`,
+          `${change.tasks.length} task changes`,
+        ].join(', ');
+        out(
+          `Report stored for ${change.orchestrator}: ${counts}.${change.notify.length ? ` Hape gets a notification for ${change.notify.length} new decision(s).` : ''}`
+        );
         return 0;
       }
       case 'stop': {
