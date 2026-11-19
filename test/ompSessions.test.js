@@ -7,6 +7,7 @@ import {
   parseSessionHead,
   parseOmpPids,
   parseLsof,
+  parseStartTimes,
   runningSessionFiles,
   currentHolders,
   turnSignal,
@@ -167,6 +168,38 @@ describe('running omp processes - subagents and failed scans', () => {
         [300, { file: null, tty: 'ttys050' }],
       ])
     );
+  });
+
+  it('trusts a terminal record only when it was written after its omp started (ttys are reused)', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'omp-tty-test-'));
+    const sessions = path.join(root, 'sessions');
+    const records = path.join(root, 'terminal-sessions');
+    fs.mkdirSync(records);
+    const old = path.join(sessions, '-w', `x_${RUNNING}.jsonl`);
+    const fresh = path.join(sessions, '-w', `x_${ELSEWHERE}.jsonl`);
+    // ttys060: written by the previous omp on that tty an hour ago; ttys061: by this omp just now
+    fs.writeFileSync(path.join(records, 'ttys060'), `/w\n${old}\n`);
+    const hourAgo = new Date(Date.now() - 3600e3);
+    fs.utimesSync(path.join(records, 'ttys060'), hourAgo, hourAgo);
+    fs.writeFileSync(path.join(records, 'ttys061'), `/w\n${fresh}\n`);
+    const exec = async (command, args) => {
+      if (command === 'lsof') return 'p42\nn/dev/ttys060\np43\nn/dev/ttys061\n';
+      // the start-time query: both started 5 s ago
+      if (args.some((a) => a.includes('etime='))) return '42 00:05\n43 00:05\n';
+      return '42 omp\n43 omp\n';
+    };
+    expect(parseStartTimes('7 2-03:04:05\n8 01:02:03\n9 00:05\nbad\n', 0)).toEqual(
+      new Map([
+        [7, -(((2 * 24 + 3) * 60 + 4) * 60 + 5 + 1) * 1000],
+        [8, -(3723 + 1) * 1000],
+        [9, -6000],
+      ])
+    );
+    try {
+      expect(await runningSessionFiles(sessions, { exec })).toEqual(new Map([[fresh, 43]]));
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it('keeps the previous holders when ps or lsof fails', async () => {
