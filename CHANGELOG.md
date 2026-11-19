@@ -70,6 +70,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Question card in UI view (agents-ui v0.4.2), with several questions:
+  - Claude's question tabs are buttons now (and ←/→ on the card): back to an answered question shows its pick, a new pick replaces it, and only Submit on the review sends the answers.
+  - A multi select before the last question has a Next button. Before, the card showed "Typed: Next" and could not move on.
+  - An omp ask with several questions shows one block per question.
 - "Continue in Orkumo" with a long conversation no longer exceeds the start prompt limit (20 000 for Claude Code, 1 500 for Codex): the whole conversation goes along as a Markdown file, the prompt keeps as much of its end as fits (DevHub-pro#19)
 - Context switching (and other actions such as deleting an agent) did nothing while 5 or more agent panes were open in UI view: each view held its own SSE connection, and with the agents stream that used up Chromium's 6 connections per host, so every further request waited until a view closed. All UI views of a window now share one chat stream (`GET /api/agents/chat/events`, `POST|DELETE /api/agents/chat/:chatId/watch`); the per-view `GET /api/agents/chat/:chatId/stream` is gone
 - Agents rail: an Oh My Pi session shows as working while its turn is open (read from the end of its session file), while one of its subagents works, or while its Orkumo pane prints. Before, it was working only for 15 s after a write, and a running session whose subagent file was open showed as completed. omp changes refresh without waiting for `claude agents --json`, and a failed `ps`/`lsof` keeps the last known running sessions
