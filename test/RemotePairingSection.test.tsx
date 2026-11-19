@@ -29,4 +29,30 @@ describe('RemotePairingSection', () => {
     render(<RemotePairingSection />);
     expect(await screen.findByText(/Remote-Zugang ist aus/)).toBeTruthy();
   });
+
+  it('marks cluster as Pro and says when its module is missing', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => Response.json({ enabled: false }))
+    );
+    render(<RemotePairingSection />);
+    expect(await screen.findByText('Pro')).toBeTruthy();
+    expect(screen.getByTestId('cluster-pro-hint').textContent).toMatch(/module is not installed/);
+  });
+
+  it('drops the missing-module note when the cluster module is loaded', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        Response.json(
+          String(url).endsWith('/modules')
+            ? [{ id: 'cluster', name: 'Cluster', ui: true }]
+            : { enabled: false }
+        )
+      )
+    );
+    render(<RemotePairingSection />);
+    const hint = await screen.findByText(/provided by the DevHub-pro modules/);
+    expect(hint.textContent).not.toMatch(/not installed/);
+  });
 });

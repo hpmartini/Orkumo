@@ -68,7 +68,9 @@ function fakeCodeServer(seen) {
       socket.resume();
       return;
     }
-    wss.handleUpgrade(req, socket, head, (ws) => ws.on('message', (data) => ws.send(`echo:${data}`)));
+    wss.handleUpgrade(req, socket, head, (ws) =>
+      ws.on('message', (data) => ws.send(`echo:${data}`))
+    );
   });
   server.on('close', () => wss.close());
   return server;
