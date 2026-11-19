@@ -50,17 +50,17 @@ Without the module there is no route, no toggle, no palette entry, no rail entry
 
 `ctx`:
 
-| Field                | Content                                                                                                                     |
-| :------------------- | :-------------------------------------------------------------------------------------------------------------------------- |
-| `id`, `dir`          | the module id and its directory                                                                                             |
-| `dataDir`            | `<dataPath>/module-data/<id>` for the module's own files; not created by the host                                           |
-| `router`             | Express router mounted at `/api/modules/<id>`                                                                               |
-| `services`           | see below                                                                                                                   |
-| `logger`             | `info`/`warn`/`error`, prefixed `[module:<id>]`                                                                             |
-| `onUpgrade(handler)` | WebSocket upgrades under `/api/modules/<id>/...` go to `handler(req, socket, head)` (Node `upgrade` event arguments)        |
-| `addAuthorizer(fn)`  | sync `fn(req)`; `=== true` lets a non-local request in without the pairing token (only matters with `DEVORBIT_REMOTE=true`) |
-| `isViaServe(req)`    | `true` when the request came in under the serve path secret, i.e. was relayed by `tailscale serve` (see Authorizers)        |
-| `serveSecret()`      | that secret, for the setup command `tailscale serve … http://127.0.0.1:<port>/<secret>`; file `<data>/serve-secret` (600)   |
+| Field                | Content                                                                                                                   |
+| :------------------- | :------------------------------------------------------------------------------------------------------------------------ |
+| `id`, `dir`          | the module id and its directory                                                                                           |
+| `dataDir`            | `<dataPath>/module-data/<id>` for the module's own files; not created by the host                                         |
+| `router`             | Express router mounted at `/api/modules/<id>`                                                                             |
+| `services`           | see below                                                                                                                 |
+| `logger`             | `info`/`warn`/`error`, prefixed `[module:<id>]`                                                                           |
+| `onUpgrade(handler)` | WebSocket upgrades under `/api/modules/<id>/...` go to `handler(req, socket, head)` (Node `upgrade` event arguments)      |
+| `addAuthorizer(fn)`  | sync `fn(req)`; `=== true` lets a non-local request in without the pairing token (only with remote access on)             |
+| `isViaServe(req)`    | `true` when the request came in under the serve path secret, i.e. was relayed by `tailscale serve` (see Authorizers)      |
+| `serveSecret()`      | that secret, for the setup command `tailscale serve … http://127.0.0.1:<port>/<secret>`; file `<data>/serve-secret` (600) |
 
 `onUpgrade` and `addAuthorizer` take effect only after `register` succeeded, like the routes.
 

@@ -99,17 +99,19 @@ Der Server kann Clients außerhalb des Macs bedienen, etwa die iOS-App für iPho
 
 **1. Remote-Zugang auf dem Mac einschalten** (Default: aus, alles bleibt localhost-only)
 
+Admin Panel → „Remote-Zugang (iOS-App, Cluster)“ → Haken setzen, Orkumo neu starten. Ohne Oberfläche geht dasselbe per Umgebungsvariable, die dann Vorrang vor der Einstellung hat:
+
 ```bash
 DEVORBIT_REMOTE=true bun run server          # oder DEVORBIT_REMOTE=true in .env.local
 tailscale serve --bg --https=8443 http://127.0.0.1:3099   # HTTPS nur im Tailnet (3099 = Standard-SERVER_PORT)
 ```
 
-- Mit `DEVORBIT_REMOTE=true` braucht jede Anfrage, die nicht direkt von localhost kommt (auch über `tailscale serve`), den Pairing-Token. Er liegt in `<data>/remote-token` (Modus 600) und wird beim ersten Start erzeugt. Der Server lauscht dann nur auf `127.0.0.1`; von außen kommt man ausschließlich über `tailscale serve` heran.
+- Mit Remote-Zugang braucht jede Anfrage, die nicht direkt von localhost kommt (auch über `tailscale serve`), den Pairing-Token. Er liegt in `<data>/remote-token` (Modus 600) und wird beim ersten Start erzeugt. Der Server lauscht dann nur auf `127.0.0.1`; von außen kommt man ausschließlich über `tailscale serve` heran.
 - HTTPS ist Pflicht: WKWebView blockt `http`-Fetch und -WebSocket aus der App (`capacitor://`) als Mixed Content. Bind an die Tailnet-IP mit http reicht daher nicht.
 - Geteilter Rechner (VPS): `DEVORBIT_TRUST_LOOPBACK=false` setzen, dann brauchen auch Anfragen direkt von localhost den Pairing-Token (HTTP und `/api/pty`). code-server läuft dann ohne TCP-Port auf dem Unix-Socket `<data>/code-server.sock` (Modus 600) und ist nur über `/api/code-server/proxy` erreichbar. Standard ist `true`, damit die Electron-App auf dem eigenen Rechner ohne Token läuft.
 - Läuft `tailscale serve` auf einem anderen Port als 443 oder unter anderem Namen: `DEVORBIT_REMOTE_URL=https://<mac>.<tailnet>.ts.net:8443` setzen, sonst nimmt die Pairing-Anzeige `https://<MagicDNS-Name>`.
 
-**2. Koppeln:** Admin Panel → „iOS-App“ zeigt Adresse, Token, den Link `devorbit://pair?…` und denselben Link als QR-Code.
+**2. Koppeln:** Admin Panel → „Remote-Zugang (iOS-App, Cluster)“ zeigt Adresse, Token, den Link `devorbit://pair?…` und denselben Link als QR-Code.
 
 **Desktop-App als Client eines anderen Rechners:** Mit `ORKUMO_REMOTE='devorbit://pair?…'` (Umgebung oder `.env.local`, der Link aus Schritt 2) startet die Electron-App keinen eigenen Server und arbeitet gegen den gekoppelten: `ORKUMO_REMOTE='devorbit://pair?…' open -a Orkumo`. Der Server lässt den `file://`-Renderer einer fremden App nur mit gültigem Token zu. Nicht über diesen Weg: Modul-Oberflächen (ihr Skript-Import kann keinen Token tragen) und Aktionen, die auf dem Server-Rechner Programme öffnen. Nachweis: `scripts/review/pro8-app.sh`.
 
