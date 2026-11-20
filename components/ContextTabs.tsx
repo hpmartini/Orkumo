@@ -124,12 +124,12 @@ export const ContextTabs: React.FC<ContextTabsProps> = ({
   };
 
   return (
-    <div className="flex items-center bg-gray-900 h-10" role="tablist" aria-label="Kontexte">
+    <div className="flex items-center bg-gray-900 h-10" role="tablist" aria-label="Contexts">
       {canScrollLeft && (
         <button
           onClick={() => scroll('left')}
           className="px-1 h-full hover:bg-gray-800 text-gray-400 hover:text-white shrink-0"
-          aria-label="Kontexte nach links scrollen"
+          aria-label="Scroll contexts left"
         >
           <ChevronLeft size={16} />
         </button>
@@ -193,7 +193,7 @@ export const ContextTabs: React.FC<ContextTabsProps> = ({
                     onEdit(context.id);
                   }}
                   className="p-0.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:bg-gray-700 text-gray-500 hover:text-white transition-all"
-                  aria-label={`Kontext ${context.name} bearbeiten`}
+                  aria-label={`Edit context ${context.name}`}
                 >
                   <Pencil size={12} />
                 </button>
@@ -207,7 +207,7 @@ export const ContextTabs: React.FC<ContextTabsProps> = ({
         <button
           onClick={() => scroll('right')}
           className="px-1 h-full hover:bg-gray-800 text-gray-400 hover:text-white shrink-0"
-          aria-label="Kontexte nach rechts scrollen"
+          aria-label="Scroll contexts right"
         >
           <ChevronRight size={16} />
         </button>
@@ -218,9 +218,9 @@ export const ContextTabs: React.FC<ContextTabsProps> = ({
         className={`px-2 h-full hover:bg-gray-800 hover:text-white shrink-0 border-l border-gray-800 ${
           grouped ? 'text-blue-400' : 'text-gray-400'
         }`}
-        aria-label="Kontexte nach Projektverzeichnis gruppieren"
+        aria-label="Group contexts by project directory"
         aria-pressed={grouped}
-        title="Nach Projektverzeichnis gruppieren"
+        title="Group by project directory"
       >
         <FolderTree size={16} />
       </button>
@@ -228,8 +228,8 @@ export const ContextTabs: React.FC<ContextTabsProps> = ({
       <button
         onClick={onCreate}
         className="px-2 h-full hover:bg-gray-800 text-gray-400 hover:text-white shrink-0 border-l border-gray-800"
-        aria-label="Neuer Kontext"
-        title="Neuer Kontext"
+        aria-label="New context"
+        title="New context"
       >
         <Plus size={16} />
       </button>

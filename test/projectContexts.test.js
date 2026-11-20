@@ -26,7 +26,7 @@ const withEpic = () => createContext(legacy, { name: 'Epic', appIds: ['a'] }, 'e
 describe('project contexts', () => {
   it('migrates old settings into the default context without touching values', () => {
     expect(listContexts(legacy)).toEqual({
-      contexts: [{ id: 'all', name: 'Alle', appIds: null, boardFilter: [] }],
+      contexts: [{ id: 'all', name: 'All', appIds: null, boardFilter: [] }],
       activeContextId: 'all',
     });
   });

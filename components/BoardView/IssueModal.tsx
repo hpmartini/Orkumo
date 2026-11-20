@@ -35,7 +35,7 @@ export const IssueModal: React.FC<{
   const navigate = useNavigate();
   const dialogRef = useRef<HTMLDivElement>(null);
   const trapTab = useDialogA11y(true, dialogRef, () =>
-    dialogRef.current?.querySelector<HTMLElement>('button[aria-label^="Schließen"]')
+    dialogRef.current?.querySelector<HTMLElement>('button[aria-label^="Close"]')
   );
   const { data, error, moveItem, editIssue } = useBoard(true);
   const items = useMemo(() => data?.items ?? [], [data]);
@@ -109,7 +109,7 @@ const OffBoardIssue: React.FC<{
     let alive = true;
     fetchIssueSummary(ref.repo, ref.number)
       .then((i) => alive && setIssue(i))
-      .catch((e) => alive && setError(e instanceof Error ? e.message : 'Fehler'));
+      .catch((e) => alive && setError(e instanceof Error ? e.message : 'Error'));
     return () => {
       alive = false;
     };
@@ -127,7 +127,7 @@ const OffBoardIssue: React.FC<{
       setError(null);
       return true;
     } catch (e) {
-      setError(`Labels nicht gespeichert: ${e instanceof Error ? e.message : 'Fehler'}`);
+      setError(`Labels not saved: ${e instanceof Error ? e.message : 'Error'}`);
       return false;
     }
   };
@@ -139,7 +139,7 @@ const OffBoardIssue: React.FC<{
         <div className="flex-1" />
         <button
           disabled
-          title="Issue ist nicht auf dem Board"
+          title="Issue is not on the board"
           className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-300 disabled:opacity-40"
         >
           <KanbanSquare size={14} />
@@ -159,19 +159,19 @@ const OffBoardIssue: React.FC<{
         <button
           onClick={onClose}
           className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-          aria-label="Schließen (Esc)"
-          title="Schließen (Esc)"
+          aria-label="Close (Esc)"
+          title="Close (Esc)"
         >
           <X size={16} />
         </button>
       </div>
       <div className="flex-1 overflow-y-auto thin-scrollbar px-4 py-4 space-y-4">
         {state === 'loading' ? (
-          <p className="text-xs text-gray-400">Board wird geladen…</p>
+          <p className="text-xs text-gray-400">Loading board…</p>
         ) : (
           <>
             <p className="text-xs text-gray-400">
-              Nicht auf dem Board: Status und Board-Felder nur dort.
+              Not on the board: status and board fields are only available there.
             </p>
             {error && <p className="text-xs text-red-400">{error}</p>}
             {issue && (
@@ -179,7 +179,7 @@ const OffBoardIssue: React.FC<{
                 <h2 className="text-base font-semibold text-white">
                   {issue.title}
                   {issue.state === 'CLOSED' && (
-                    <span className="ml-2 text-xs font-normal text-gray-400">geschlossen</span>
+                    <span className="ml-2 text-xs font-normal text-gray-400">closed</span>
                   )}
                 </h2>
                 {issue.labels.length > 0 && (

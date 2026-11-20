@@ -55,7 +55,7 @@ const ICON_BTN =
 const LANE_MODES: { key: BoardSwimlaneMode; label: string }[] = [
   { key: 'parent', label: 'Parent issue' },
   { key: 'repo', label: 'Repository' },
-  { key: 'none', label: 'Keine' },
+  { key: 'none', label: 'None' },
 ];
 const EMPTY_PREFS = { favorites: [] as string[], order: [] as string[], hidden: [] as string[] };
 
@@ -198,7 +198,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
   useEffect(() => {
     if (!openKey || !data || openItem || missingWarned.current === openKey) return;
     missingWarned.current = openKey;
-    toast(`${openKey} ist nicht auf dem Board`);
+    toast(`${openKey} is not on the board`);
   }, [openKey, data, openItem]);
 
   const closePanel = useCallback(() => setParam('item', null), [setParam]);
@@ -216,7 +216,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
       favorites: prefs.favorites.filter((k) => k !== entry.key),
     });
     selectSlice({ sliceKind, selected: null });
-    undoToast(`${entry.value} ausgeblendet`, () => updateSettings(before));
+    undoToast(`${entry.value} hidden`, () => updateSettings(before));
   };
   const onUnhide = (entry: SliceEntry) =>
     updateSettings({ hidden: prefs.hidden.filter((k) => k !== entry.key) });
@@ -233,7 +233,7 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
             onChange={(e) =>
               selectSlice({ sliceKind: e.target.value as BoardSliceKind, selected: null })
             }
-            aria-label="Slice nach"
+            aria-label="Slice by"
             className={SELECT_CLS}
           >
             {SLICE_KINDS.map((k) => (
@@ -254,8 +254,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
               <button
                 onClick={() => onUnhide(selectedEntry)}
                 className={ICON_BTN}
-                title="Wieder einblenden"
-                aria-label={`${selectedEntry.value} einblenden`}
+                title="Show again"
+                aria-label={`Show ${selectedEntry.value}`}
               >
                 <Eye size={14} />
               </button>
@@ -264,8 +264,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
                 <button
                   onClick={() => onToggleFavorite(selectedEntry)}
                   className={`${ICON_BTN} ${selectedEntry.favorite ? 'text-yellow-300' : ''}`}
-                  title={selectedEntry.favorite ? 'Favorit entfernen' : 'Als Favorit anpinnen'}
-                  aria-label={`${selectedEntry.value} ${selectedEntry.favorite ? 'lösen' : 'anpinnen'}`}
+                  title={selectedEntry.favorite ? 'Remove favorite' : 'Pin as favorite'}
+                  aria-label={`${selectedEntry.favorite ? 'Unpin' : 'Pin'} ${selectedEntry.value}`}
                   aria-pressed={selectedEntry.favorite}
                 >
                   <Star size={14} className={selectedEntry.favorite ? 'fill-yellow-300' : ''} />
@@ -273,8 +273,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
                 <button
                   onClick={() => onHide(selectedEntry)}
                   className={ICON_BTN}
-                  title="Ausblenden"
-                  aria-label={`${selectedEntry.value} ausblenden`}
+                  title="Hide"
+                  aria-label={`Hide ${selectedEntry.value}`}
                 >
                   <EyeOff size={14} />
                 </button>
@@ -283,10 +283,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
           <select
             value={agentFilter ?? ''}
             onChange={(e) => setParam('agent', e.target.value || null)}
-            aria-label="Nach Agent filtern"
+            aria-label="Filter by agent"
             className={`${SELECT_CLS} max-w-48`}
           >
-            <option value="">Alle Agents</option>
+            <option value="">All agents</option>
             {agentFilter && !railAgents.some((a) => a.jobId === agentFilter) && (
               <option value={agentFilter}>{filterAgent}</option>
             )}
@@ -297,12 +297,12 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
             ))}
           </select>
           <span className="text-xs text-gray-400 shrink-0">
-            {shownItems(visible, options, now).length} Items
+            {`${shownItems(visible, options, now).length} items`}
           </span>
           <div className="flex-1" />
           {error && data && (
             <span className="flex items-center gap-1 text-xs text-red-300" title={error}>
-              <AlertTriangle size={12} /> Aktualisierung fehlgeschlagen
+              <AlertTriangle size={12} /> Refresh failed
             </span>
           )}
           <label className="flex items-center gap-1.5 text-xs text-gray-400">
@@ -329,8 +329,8 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && setQuery('')}
-              placeholder="Filtern: Titel, #Nr, label:ui"
-              aria-label="Board filtern"
+              placeholder="Filter: title, #number, label:ui"
+              aria-label="Filter board"
               className="w-56 bg-gray-850 border border-gray-700 rounded pl-7 pr-2 py-1 text-xs text-gray-100 placeholder:text-gray-400 focus:outline-none focus:border-blue-500"
             />
           </div>
@@ -340,14 +340,14 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
             className="flex items-center gap-1 px-2 py-1 rounded text-[11px] text-gray-400 hover:text-white hover:bg-gray-800 disabled:opacity-60"
             title={
               data
-                ? `Quelle: ${data.title} (${data.source.owner}/projects/${data.source.number}). Neu von GitHub laden`
-                : 'Neu laden'
+                ? `Source: ${data.title} (${data.source.owner}/projects/${data.source.number}). Reload from GitHub`
+                : 'Reload'
             }
           >
             <RefreshCw size={12} className={loading ? 'motion-safe:animate-spin' : ''} />
             {data
-              ? `${data.title} · ${new Date(data.fetchedAt).toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' })}`
-              : 'Laden'}
+              ? `${data.title} · ${new Date(data.fetchedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+              : 'Loading…'}
           </button>
         </header>
 
@@ -356,16 +356,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
             <div className="px-4 py-16 text-center text-sm text-gray-400">
               {error ? (
                 <>
-                  <p className="text-red-300">Board konnte nicht geladen werden: {error}</p>
+                  <p className="text-red-300">{`Board could not be loaded: ${error}`}</p>
                   <button
                     onClick={refresh}
                     className="mt-3 text-cursor hover:underline underline-offset-2"
                   >
-                    Erneut versuchen
+                    Retry
                   </button>
                 </>
               ) : (
-                'Lade Board von GitHub …'
+                'Loading board from GitHub…'
               )}
             </div>
           ) : (

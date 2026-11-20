@@ -301,13 +301,7 @@ function AppContent() {
     command('code', 'Open code mode', 'Navigate', () => navigate('/code'), 'ide vscode editor'),
     ...modeCommands(modes, navigate),
     command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
-    command(
-      'modules.reload',
-      'Reload modules',
-      'Modules',
-      reloadModulesWithToast,
-      'module neu laden pro plugins'
-    ),
+    command('modules.reload', 'Reload modules', 'Modules', reloadModulesWithToast, 'plugins pro'),
     ...contexts.contexts.map((c) =>
       command(`context.${c.id}`, `Switch to context: ${c.name}`, 'Context', () =>
         contexts.switchTo(c.id)

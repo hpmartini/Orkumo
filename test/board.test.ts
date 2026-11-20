@@ -276,16 +276,16 @@ describe('slices', () => {
 
     it('keeps favorites, others and hidden as labelled groups', () => {
       expect(shape('')).toEqual([
-        ['Favoriten', ['hpmartini/glen']],
+        ['Favorites', ['hpmartini/glen']],
         ['Repo', ['hpmartini/Orkumo']],
-        ['Ausgeblendet', ['hpmartini/zeta']],
+        ['Hidden', ['hpmartini/zeta']],
       ]);
     });
 
     it('filters live, case-insensitive by substring, dropping empty groups', () => {
       expect(shape('ork')).toEqual([['Repo', ['hpmartini/Orkumo']]]);
-      expect(shape('  ZET ')).toEqual([['Ausgeblendet', ['hpmartini/zeta']]]);
-      expect(shape('hpmartini/gl')).toEqual([['Favoriten', ['hpmartini/glen']]]);
+      expect(shape('  ZET ')).toEqual([['Hidden', ['hpmartini/zeta']]]);
+      expect(shape('hpmartini/gl')).toEqual([['Favorites', ['hpmartini/glen']]]);
       expect(shape('nope')).toEqual([]);
     });
 
@@ -300,7 +300,7 @@ describe('slices', () => {
   describe('filterItems', () => {
     const all = [a, b, c, d, draft];
 
-    it('Alle returns everything except hidden repos', () => {
+    it('All returns everything except hidden repos', () => {
       expect(filterItems(all, { kind: 'repo', selected: null, hidden: [] })).toEqual(all);
       expect(
         filterItems(all, { kind: 'repo', selected: null, hidden: ['repo:hpmartini/zeta'] })
@@ -420,7 +420,7 @@ describe('buildLanes', () => {
     item({ parent: parentB, repo: 'hpmartini/glen' }),
   ];
 
-  it('parent: one lane per parent, by size, "Ohne Parent" last', () => {
+  it('parent: one lane per parent, by size, "No parent" last', () => {
     const lanes = buildLanes(items, 'parent', done);
     expect(lanes.map((l) => l.key)).toEqual([
       'hpmartini/Orkumo#2',
@@ -430,7 +430,7 @@ describe('buildLanes', () => {
     expect(lanes[0].title).toBe('Epic B');
     expect(lanes[0].parent).toEqual(parentB);
     expect(lanes[1]).toMatchObject({ total: 2, done: 1 });
-    expect(lanes[2]).toMatchObject({ title: 'Ohne Parent', parent: null, total: 3 });
+    expect(lanes[2]).toMatchObject({ title: 'No parent', parent: null, total: 3 });
   });
 
   it('repo: one lane per repo', () => {

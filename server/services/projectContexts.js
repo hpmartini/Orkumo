@@ -12,7 +12,7 @@
 export const DEFAULT_CONTEXT_ID = 'all';
 
 export const DEFAULT_CONTEXTS = [
-  { id: DEFAULT_CONTEXT_ID, name: 'Alle', appIds: null, boardFilter: [] },
+  { id: DEFAULT_CONTEXT_ID, name: 'All', appIds: null, boardFilter: [] },
 ];
 
 const BOARD_KEYS = ['favorites', 'order', 'hidden'];
@@ -29,7 +29,10 @@ function findContext(settings, id) {
 
 /** Contexts plus the active id; falls back to the defaults for settings written before #97 */
 export function listContexts(settings) {
-  const contexts = settings.contexts?.length ? settings.contexts : DEFAULT_CONTEXTS;
+  // Settings written before the UI went English hold the default context under its German name (split: no German literal in code)
+  const contexts = (settings.contexts?.length ? settings.contexts : DEFAULT_CONTEXTS).map((c) =>
+    c.id === DEFAULT_CONTEXT_ID && c.name === 'Alle' ? { ...c, name: 'All' } : c
+  );
   const activeContextId = contexts.some((c) => c.id === settings.activeContextId)
     ? settings.activeContextId
     : contexts[0].id;

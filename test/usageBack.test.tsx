@@ -45,14 +45,14 @@ describe('usage page back button (#184 AC-6)', () => {
       </MemoryRouter>
     );
     await userEvent.click(screen.getByText('open'));
-    await userEvent.click(screen.getByRole('button', { name: 'Zurück' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByTestId('where')).toHaveTextContent('/dashboard?scope=context');
     view.unmount();
   });
 
   it('falls back to the dashboard when opened by deep link', async () => {
     app(['/usage']);
-    await userEvent.click(screen.getByRole('button', { name: 'Zurück' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Back' }));
     expect(screen.getByTestId('where')).toHaveTextContent(/^\/dashboard$/);
   });
 });

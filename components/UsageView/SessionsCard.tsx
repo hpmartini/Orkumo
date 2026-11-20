@@ -14,12 +14,12 @@ import { inProjectScope } from '../../utils/projectScope';
 const DAYS = 7;
 const TABS: { id: SessionSort; label: string }[] = [
   { id: 'recent', label: 'Neueste' },
-  { id: 'tokens', label: 'Größte (Tokens)' },
-  { id: 'duration', label: 'Längste (Dauer)' },
+  { id: 'tokens', label: 'Largest (tokens)' },
+  { id: 'duration', label: 'Longest (duration)' },
 ];
 
 const formatWhen = (ms: number) =>
-  new Date(ms).toLocaleString('de-DE', {
+  new Date(ms).toLocaleString(undefined, {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -67,19 +67,19 @@ export const SessionsCard: React.FC<SessionsCardProps> = ({ active, projectPaths
       <div className="flex items-center gap-2 mb-3">
         <History size={16} className="text-blue-400" aria-hidden="true" />
         <h3 className="text-sm font-semibold text-gray-200 mr-auto">
-          Sessions <span className="font-normal text-gray-500">· {DAYS} Tage</span>
+          Sessions <span className="font-normal text-gray-500">· {DAYS} days</span>
         </h3>
         <button
           onClick={load}
           disabled={loading}
-          aria-label="Sessions aktualisieren"
+          aria-label="Refresh sessions"
           className="p-1 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-700 disabled:opacity-50"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
         </button>
       </div>
 
-      <div role="tablist" aria-label="Sortierung" className="flex gap-1 mb-3">
+      <div role="tablist" aria-label="Sort order" className="flex gap-1 mb-3">
         {TABS.map((t) => (
           <button
             key={t.id}
@@ -100,12 +100,12 @@ export const SessionsCard: React.FC<SessionsCardProps> = ({ active, projectPaths
       <div role="tabpanel">
         {error && !data && (
           <p role="alert" className="text-xs text-red-300">
-            Sessions nicht geladen.
+            Sessions not loaded.
           </p>
         )}
-        {!data && !error && <p className="text-xs text-gray-500">Lädt…</p>}
+        {!data && !error && <p className="text-xs text-gray-500">Loading…</p>}
         {data && rows.length === 0 && (
-          <p className="text-xs text-gray-500">Keine Sessions in den letzten {DAYS} Tagen.</p>
+          <p className="text-xs text-gray-500">No sessions in the last {DAYS} days.</p>
         )}
         {rows.length > 0 && (
           <ol className="divide-y divide-gray-700/70">
@@ -128,7 +128,7 @@ export const SessionsCard: React.FC<SessionsCardProps> = ({ active, projectPaths
                   </span>
                   <span
                     className={`tabular-nums ${tab === 'tokens' ? 'text-white' : 'text-gray-400'}`}
-                    title="Tokens der Session"
+                    title="Session tokens"
                   >
                     {formatTokens(s.tokens)}
                   </span>
@@ -136,7 +136,7 @@ export const SessionsCard: React.FC<SessionsCardProps> = ({ active, projectPaths
                     className={`tabular-nums w-20 text-right ${
                       tab === 'duration' ? 'text-white' : 'text-gray-400'
                     }`}
-                    title="Dauer: erste bis letzte Antwort"
+                    title="Duration: first to last reply"
                   >
                     {formatDuration(sessionDuration(s))}
                   </span>

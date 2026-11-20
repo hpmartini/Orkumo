@@ -39,7 +39,7 @@ describe('IssueCreateModal pickers and status (#254)', () => {
         onCreated={vi.fn()}
       />
     );
-    const trigger = (name: string) => screen.getByRole('button', { name: `${name} ändern` });
+    const trigger = (name: string) => screen.getByRole('button', { name: `Change ${name}` });
     await waitFor(() => expect(trigger('Labels')).toBeEnabled());
     return trigger;
   };
@@ -67,7 +67,7 @@ describe('IssueCreateModal pickers and status (#254)', () => {
     const trigger = await open();
     press(trigger('Labels'));
     expect(lists()).toEqual(['Labels']);
-    fireEvent.mouseDown(screen.getByLabelText('Beschreibung'));
+    fireEvent.mouseDown(screen.getByLabelText('Description'));
     expect(lists()).toEqual([]);
     press(trigger('Labels'));
     press(trigger('Labels'));
@@ -86,8 +86,8 @@ describe('IssueCreateModal pickers and status (#254)', () => {
     const status = screen.getByLabelText('Status') as HTMLInputElement; // only `.value` is read
     expect(status.value).toBe('s-backlog');
     fireEvent.change(status, { target: { value: 's-todo' } });
-    fireEvent.change(screen.getByLabelText('Titel'), { target: { value: 'Neu' } });
-    fireEvent.submit(screen.getByLabelText('Titel').closest('form')!);
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Neu' } });
+    fireEvent.submit(screen.getByLabelText('Title').closest('form')!);
     await waitFor(() =>
       expect(api.createBoardIssue).toHaveBeenCalledWith(
         expect.objectContaining({ repo: 'acme/app', title: 'Neu', statusOptionId: 's-todo' })

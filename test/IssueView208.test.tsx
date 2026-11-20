@@ -115,11 +115,11 @@ describe.each(['sidebar', 'modal'] as const)('BoardItemPanel %s (#208 AC-1)', (v
       screen.getByText('Testissue'), // title
       screen.getByDisplayValue('Todo'), // metadata: status select
       await screen.findByRole('button', { name: 'Freigeben' }), // FlowControls
-      screen.getByText('Agents an diesem Issue'),
+      screen.getByText('Agents on this issue'),
       screen.getByText('Pull Requests'),
       screen.getByText('Sub-Issues'),
-      screen.getByText('Beschreibung'),
-      screen.getByRole('region', { name: 'Kommentare' }),
+      screen.getByText('Description'),
+      screen.getByRole('region', { name: 'Comments' }),
     ];
     for (let i = 1; i < order.length; i++) expect(before(order[i - 1], order[i])).toBe(true);
   });
@@ -130,15 +130,15 @@ describe('IssueComments order (#208)', () => {
     render(<IssueComments issueId="I_1" />);
     await screen.findByText('@neu');
     expect(authors()).toEqual(['alt', 'mitte', 'neu']);
-    fireEvent.click(screen.getByRole('button', { name: /Älteste zuerst, umschalten/ }));
+    fireEvent.click(screen.getByRole('button', { name: /oldest first, toggle/ }));
     expect(authors()).toEqual(['neu', 'mitte', 'alt']);
-    expect(screen.getByRole('button', { name: /Neueste zuerst, umschalten/ })).toBeTruthy();
+    expect(screen.getByRole('button', { name: /newest first, toggle/ })).toBeTruthy();
   });
 
   it('AC-3: choice survives remount and issue change', async () => {
     const first = render(<IssueComments issueId="I_1" />);
     await screen.findByText('@neu');
-    fireEvent.click(screen.getByRole('button', { name: /umschalten/ }));
+    fireEvent.click(screen.getByRole('button', { name: /toggle/ }));
     expect(localStorage.getItem(ORDER_KEY)).toBe('1');
     first.unmount();
     render(<IssueComments issueId="I_2" />);
@@ -157,7 +157,7 @@ describe('IssueComments order (#208)', () => {
     render(<IssueComments issueId="I_1" />);
     await screen.findByText('@neu');
     expect(authors()).toEqual(['alt', 'mitte', 'neu']);
-    fireEvent.click(screen.getByRole('button', { name: /umschalten/ }));
+    fireEvent.click(screen.getByRole('button', { name: /toggle/ }));
     expect(authors()).toEqual(['neu', 'mitte', 'alt']);
     get.mockRestore();
     set.mockRestore();
@@ -168,14 +168,14 @@ describe('IssueComments order (#208)', () => {
     render(<IssueComments issueId="I_1" />);
     await screen.findByText('@neu');
     for (const newest of [false, true]) {
-      if (newest) fireEvent.click(screen.getByRole('button', { name: /umschalten/ }));
-      const box = screen.getByLabelText('Neuer Kommentar') as HTMLTextAreaElement;
+      if (newest) fireEvent.click(screen.getByRole('button', { name: /toggle/ }));
+      const box = screen.getByLabelText('New comment') as HTMLTextAreaElement;
       const list = screen.getByRole('list');
       expect(before(box, list)).toBe(newest);
-      fireEvent.click(screen.getAllByRole('button', { name: 'Antworten' })[0]);
+      fireEvent.click(screen.getAllByRole('button', { name: 'Reply' })[0]);
       expect(box.value).toContain(newest ? '@neu' : '@alt');
-      fireEvent.click(screen.getByRole('button', { name: 'Kommentieren' }));
-      await screen.findByText('Kommentieren');
+      fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+      await screen.findByText('Comment');
       expect(api.addIssueComment).toHaveBeenLastCalledWith('I_1', expect.any(String));
       expect(box.value).toBe('');
     }
