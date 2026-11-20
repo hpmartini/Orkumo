@@ -39,6 +39,8 @@ import {
 import { startQuickAgent } from './services/quickAgent.js';
 import { listOmpSessions } from './services/ompSessions.js';
 import * as orchestrator from './services/orchestratorService.js';
+import * as orchestratorReports from './services/orchestratorReports.js';
+import { parseReport } from './services/orchestratorReport.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
@@ -2233,6 +2235,162 @@ app.get('/api/orchestrator/projects', async (req, res) => {
     sendAgentError(res, error);
   }
 });
+
+// Status reports of orchestrators (`orkumo report`) and the answers given in the Status view
+// Next to the workspace, not in it: the workspace guard lets orchestrators write plain files there
+const reportStore = orchestratorReports.createReportStore(
+  path.join(path.dirname(orchestrator.orchestratorDir()), 'orchestrator-reports')
+);
+
+/** Agents with display state, activity and PRs: what the stale check and the sender check read */
+async function reportAgents() {
+  const [sessions, contexts] = await Promise.all([
+    agentService.currentSessions(),
+    getAgentContexts().catch(() => ({})),
+  ]);
+  const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
+  const { agents } = await orchestrator.buildOverview({
+    sessions,
+    contexts,
+    orchestrators,
+    orchestratorRoles,
+    all: true,
+    withText: false,
+  });
+  return { sessions, agents };
+}
+
+app.post('/api/orchestrator/reports', agentLimiter, sameSiteOnly, async (req, res) => {
+  const parsed = parseReport(req.body);
+  if (!parsed.ok) return res.status(400).json({ error: 'Invalid report', errors: parsed.errors });
+  const { report } = parsed;
+  try {
+    const { sessions, agents } = await reportAgents();
+    const auth = orchestratorReports.authorizeReporter(
+      report.orchestrator.id,
+      report.orchestrator.agentId,
+      sessions,
+      settingsService.getAgentViewSettings()
+    );
+    if (!auth.ok) return res.status(auth.status).json({ error: auth.error });
+    const { change } = reportStore.submit(report, {
+      watch: orchestratorReports.submitWatch(report, agents),
+    });
+    if (
+      change.notify.length > 0 &&
+      settingsService.getAgentViewSettings().notifications !== false
+    ) {
+      const titles = report.inbox.filter((e) => change.notify.includes(e.id)).map((e) => e.title);
+      orchestratorReports.notifyDesktop(
+        `Decision needed · ${report.orchestrator.name || report.orchestrator.id}`,
+        titles.join(' · ')
+      );
+    }
+    res.status(201).json({ stored: true, change });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** Stale flags of all stored reports; persists what the check observed (first-seen times) */
+async function evaluateReports(now = Date.now()) {
+  const { sessions, agents } = await reportAgents();
+  const roleIds = new Set(orchestrator.listRoles().map((r) => r.id));
+  const shown = reportStore
+    .list()
+    .filter((state) => !orchestratorReports.isHiddenReport(state, { roleIds, sessions, now }));
+  return shown.map((state) => {
+    const result = orchestratorReports.evaluateReport(state, agents, now);
+    if (result.changed) reportStore.setWatch(state.report.orchestrator.id, result.watch);
+    return { state, ...result };
+  });
+}
+// Events are observed while the Status view is closed too: the 30 minutes start at the event
+setInterval(() => {
+  if (reportStore.list().length) evaluateReports().catch(() => {});
+}, 60_000).unref();
+
+/** Latest report per orchestrator with its answers and stale flag, plus the recent change log */
+app.get('/api/orchestrator/reports', async (req, res) => {
+  try {
+    const reports = (await evaluateReports()).map(({ state, stale, firstEventAt }) => ({
+      report: state.report,
+      receivedAt: state.receivedAt,
+      answers: state.answers,
+      stale,
+      firstEventAt,
+    }));
+    res.json({ reports, changes: reportStore.changes().slice(-200) });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/** The live session of orchestrator `id` (its role id, else its row id) */
+const isOrchestratorSessionFor = (session, id, orchestrators, roles) =>
+  orchestrator.isOrchestratorSession(session, orchestrators) &&
+  (orchestrator.sessionRole(session, roles) ?? session.id) === id;
+
+/** An answer from the Status view, typed into the orchestrator like `orkumo send` does (AC-4) */
+app.post(
+  '/api/orchestrator/reports/:id/answers',
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(orchestratorRefSchema),
+  validate(
+    z
+      .object({
+        entry: orchestratorRefSchema,
+        option: orchestratorRefSchema.optional(),
+        text: typedTextSchema(4000).optional(),
+      })
+      .refine((a) => a.option || a.text, 'An answer needs an option or a text')
+  ),
+  async (req, res) => {
+    const state = reportStore.get(req.params.id);
+    const entry = state?.report.inbox.find((e) => e.id === req.body.entry);
+    if (!entry) return res.status(404).json({ error: 'No open entry with this id' });
+    const option = entry.options?.find((o) => o.id === req.body.option);
+    if (req.body.option && !option) return res.status(400).json({ error: 'Unknown option' });
+    const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
+    const sessions = await agentService.currentSessions();
+    // The role's current session; a resumed pane has new ids, the report's agentId may be old
+    const target =
+      sessions.find((s) =>
+        isOrchestratorSessionFor(s, req.params.id, orchestrators, orchestratorRoles)
+      ) ??
+      [orchestrator.findSessionByRef(sessions, state.report.orchestrator.agentId)].find(
+        (s) => s && orchestrator.isOrchestratorSession(s, orchestrators)
+      );
+    if (!target) return res.status(409).json({ error: 'The orchestrator is not running' });
+    const route = orchestratorReports.answerTarget(target);
+    if (!route) return res.status(409).json({ error: 'The orchestrator cannot be reached' });
+    // Titles and labels come from the report: the typed text must not carry control characters
+    const typed = typedTextSchema(8000).safeParse(
+      orchestratorReports.answerText(entry, option, req.body.text)
+    );
+    if (!typed.success) return res.status(400).json({ error: typed.error.issues[0].message });
+    try {
+      if (route.via === 'pane') {
+        if (!typeIntoPanePty(route.paneId, typed.data))
+          return res.status(409).json({ error: 'The orchestrator pane is not running' });
+      } else {
+        await agentService.replySession(route.id, typed.data, { mode: 'auto' });
+      }
+      const answer = { option: option?.id ?? null, text: req.body.text ?? null };
+      try {
+        const saved = reportStore.answer(req.params.id, entry.id, answer);
+        res.json({ delivered: true, answer: saved.answers[entry.id] });
+      } catch (error) {
+        // A report that came in meanwhile already closed the entry: the message still went out
+        if (error.status !== 404) throw error;
+        res.json({ delivered: true, answer });
+      }
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
 
 /** Workspace, CLI path and the briefing typed into a session that was just marked */
 app.get('/api/orchestrator/workspace', (req, res) => {

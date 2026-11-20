@@ -1,0 +1,91 @@
+{
+  "schemaVersion": 1,
+  "orchestrator": {
+    "id": "release",
+    "agentId": "omp-0000aaaa-1111-2222-3333-444455556666",
+    "name": "Release"
+  },
+  "reportedAt": "2026-11-20T09:30:00+01:00",
+  "summary": "Zwei Projekte aktiv, eine Entscheidung offen.",
+  "projects": [
+    {
+      "id": "beispiel-shop",
+      "name": "Beispiel-Shop",
+      "repo": "example-org/beispiel-shop",
+      "tasks": [
+        {
+          "id": "checkout-umbau",
+          "title": "Checkout auf eine Seite verkürzen",
+          "state": "running",
+          "note": "Worker baut Formular, Tests rot an der Adressprüfung",
+          "refs": {
+            "issues": ["https://github.com/example-org/beispiel-shop/issues/42"],
+            "agents": ["omp-aaaa0000-0000-0000-0000-000000000001"]
+          },
+          "updatedAt": "2026-11-20T09:20:00+01:00"
+        },
+        {
+          "id": "rabatt-codes",
+          "title": "Rabattcodes pro Kunde begrenzen",
+          "state": "waiting",
+          "note": "Wartet auf Entscheidung zur Begrenzung",
+          "refs": { "issues": ["https://github.com/example-org/beispiel-shop/issues/57"] }
+        }
+      ]
+    },
+    {
+      "id": "wetter-app",
+      "name": "Wetter-App",
+      "repo": "example-org/wetter-app",
+      "tasks": [
+        {
+          "id": "offline-cache",
+          "title": "Vorhersage offline anzeigen",
+          "state": "done",
+          "refs": { "prs": ["https://github.com/example-org/wetter-app/pull/7"] }
+        }
+      ]
+    }
+  ],
+  "inbox": [
+    {
+      "id": "rabatt-limit",
+      "kind": "decision",
+      "title": "Wie oft darf ein Kunde einen Rabattcode nutzen?",
+      "projectId": "beispiel-shop",
+      "taskId": "rabatt-codes",
+      "priority": "high",
+      "createdAt": "2026-11-20T08:55:00+01:00",
+      "options": [
+        {
+          "id": "einmal",
+          "label": "Einmal pro Kunde",
+          "detail": "Einfach, deckt 90 % der Aktionen"
+        },
+        {
+          "id": "konfigurierbar",
+          "label": "Pro Code einstellbar",
+          "detail": "Ein Feld mehr im Admin"
+        }
+      ],
+      "recommendation": "einmal"
+    },
+    {
+      "id": "merge-offline-cache",
+      "kind": "approval",
+      "title": "Offline-Cache mergen",
+      "projectId": "wetter-app",
+      "taskId": "offline-cache",
+      "createdAt": "2026-11-20T09:10:00+01:00",
+      "pr": "https://github.com/example-org/wetter-app/pull/7"
+    },
+    {
+      "id": "staging-zugang",
+      "kind": "todo",
+      "title": "Zugang zum Staging-Server im Passwortmanager freigeben",
+      "projectId": "beispiel-shop",
+      "createdAt": "2026-11-20T07:40:00+01:00"
+    }
+  ],
+  "extensions": { "x-example": { "note": "frei für andere Leser" } }
+}

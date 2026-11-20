@@ -8,6 +8,8 @@ export interface ModuleModeInfo {
   icon?: string;
   keywords?: string;
   scoped?: boolean;
+  /** Orchestrator panes get `Show in <label>`, opening `/<id>?orchestrator=<role or agent id>` */
+  orchestratorFilter?: boolean;
 }
 
 /** A mode as the shell passes it down: the module id is its route segment */

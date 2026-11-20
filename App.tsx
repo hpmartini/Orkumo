@@ -33,6 +33,7 @@ import { ModuleSlot, AgentsRailSlot } from './components/ModuleSlot';
 import { ModeSwitcher } from './components/ModeSwitcher';
 import { moduleIcon } from './components/moduleIcon';
 import { OrkumoAgentsProvider } from './components/AgentsHost';
+import { paneModeActions } from './components/PaneModeActions';
 import { BackendBar } from './components/BackendBar';
 import { ModuleMode } from './components/ModuleMount';
 import { modeCommands, useModulesState, type ModeEntry } from './hooks/useModules';
@@ -199,8 +200,9 @@ function AppContent() {
         <ModeSwitcher modes={modes} onToggleRail={onToggleRail} />
       ),
       headerSlot: <AgentsRailSlot ids={railSlots} />,
+      renderPaneActions: paneModeActions(modes, navigate),
     }),
-    [agentsHost, modes, railSlots]
+    [agentsHost, modes, railSlots, navigate]
   );
   const railModes = useMemo(() => modes.map((m) => ({ ...m, icon: moduleIcon(m.icon) })), [modes]);
   // `/agents?attach=<jobId>` (e.g. from the board): the view opens it once the session list has it

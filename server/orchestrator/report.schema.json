@@ -1,0 +1,428 @@
+{
+  "$id": "urn:orkumo:orchestrator-report:v1",
+  "title": "Orkumo orchestrator report",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "type": "number",
+      "const": 1
+    },
+    "orchestrator": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[\\w.:-]{1,200}$",
+          "description": "Stable key of the reporter: its role id, else its agent id"
+        },
+        "agentId": {
+          "description": "Current session (`orkumo report` fills it in); answers go there",
+          "type": "string",
+          "pattern": "^[\\w.:-]{1,200}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        }
+      },
+      "required": ["id"],
+      "additionalProperties": false
+    },
+    "reportedAt": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "projects": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "pattern": "^[\\w.:-]{1,200}$"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "repo": {
+            "description": "owner/name",
+            "type": "string",
+            "pattern": "^[\\w.-]+\\/[\\w.-]+$"
+          },
+          "tasks": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "pattern": "^[\\w.:-]{1,200}$"
+                },
+                "title": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "state": {
+                  "type": "string",
+                  "enum": ["planned", "running", "waiting", "done", "cancelled"]
+                },
+                "note": {
+                  "description": "One line: what happens now or what blocks",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 1000
+                },
+                "refs": {
+                  "type": "object",
+                  "properties": {
+                    "prs": {
+                      "description": "PR URLs",
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "format": "uri"
+                      }
+                    },
+                    "issues": {
+                      "description": "Issue URLs; also the key that merges board items",
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "maxLength": 500,
+                        "format": "uri"
+                      }
+                    },
+                    "agents": {
+                      "description": "Orkumo agent ids (as in `orkumo agents`)",
+                      "maxItems": 50,
+                      "type": "array",
+                      "items": {
+                        "type": "string",
+                        "pattern": "^[\\w.:-]{1,200}$"
+                      }
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "updatedAt": {
+                  "type": "string",
+                  "format": "date-time",
+                  "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+                }
+              },
+              "required": ["id", "title", "state"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["id", "name", "tasks"],
+        "additionalProperties": false
+      }
+    },
+    "inbox": {
+      "maxItems": 100,
+      "type": "array",
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$",
+                "description": "Stable across reports; answers are keyed by it"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$"
+              },
+              "taskId": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$"
+              },
+              "priority": {
+                "type": "string",
+                "enum": ["high", "normal", "low"]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "refs": {
+                "type": "object",
+                "properties": {
+                  "prs": {
+                    "description": "PR URLs",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    }
+                  },
+                  "issues": {
+                    "description": "Issue URLs; also the key that merges board items",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    }
+                  },
+                  "agents": {
+                    "description": "Orkumo agent ids (as in `orkumo agents`)",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[\\w.:-]{1,200}$"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "decision"
+              },
+              "options": {
+                "minItems": 2,
+                "maxItems": 8,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "pattern": "^[\\w.:-]{1,200}$"
+                    },
+                    "label": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 200
+                    },
+                    "detail": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 1000
+                    }
+                  },
+                  "required": ["id", "label"],
+                  "additionalProperties": false
+                }
+              },
+              "recommendation": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$",
+                "description": "id of one of the options"
+              }
+            },
+            "required": ["id", "title", "createdAt", "kind", "options", "recommendation"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$",
+                "description": "Stable across reports; answers are keyed by it"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$"
+              },
+              "taskId": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$"
+              },
+              "priority": {
+                "type": "string",
+                "enum": ["high", "normal", "low"]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "refs": {
+                "type": "object",
+                "properties": {
+                  "prs": {
+                    "description": "PR URLs",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    }
+                  },
+                  "issues": {
+                    "description": "Issue URLs; also the key that merges board items",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    }
+                  },
+                  "agents": {
+                    "description": "Orkumo agent ids (as in `orkumo agents`)",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[\\w.:-]{1,200}$"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "todo"
+              }
+            },
+            "required": ["id", "title", "createdAt", "kind"],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$",
+                "description": "Stable across reports; answers are keyed by it"
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "detail": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4000
+              },
+              "projectId": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$"
+              },
+              "taskId": {
+                "type": "string",
+                "pattern": "^[\\w.:-]{1,200}$"
+              },
+              "priority": {
+                "type": "string",
+                "enum": ["high", "normal", "low"]
+              },
+              "createdAt": {
+                "type": "string",
+                "format": "date-time",
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d(?::[0-5]\\d(?:\\.\\d+)?)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              "refs": {
+                "type": "object",
+                "properties": {
+                  "prs": {
+                    "description": "PR URLs",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    }
+                  },
+                  "issues": {
+                    "description": "Issue URLs; also the key that merges board items",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "maxLength": 500,
+                      "format": "uri"
+                    }
+                  },
+                  "agents": {
+                    "description": "Orkumo agent ids (as in `orkumo agents`)",
+                    "maxItems": 50,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "pattern": "^[\\w.:-]{1,200}$"
+                    }
+                  }
+                },
+                "additionalProperties": false
+              },
+              "kind": {
+                "type": "string",
+                "const": "approval"
+              },
+              "pr": {
+                "type": "string",
+                "maxLength": 500,
+                "format": "uri"
+              }
+            },
+            "required": ["id", "title", "createdAt", "kind", "pr"],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "extensions": {
+      "description": "Free data for other readers; keys start with \"x-\"",
+      "type": "object",
+      "propertyNames": {
+        "type": "string",
+        "pattern": "^x-[\\w.-]+$"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": ["schemaVersion", "orchestrator", "reportedAt", "projects", "inbox"],
+  "additionalProperties": false
+}
