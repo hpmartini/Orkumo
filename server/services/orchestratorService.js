@@ -129,6 +129,7 @@ export function ensureOrchestratorWorkspace({
     text
       .replaceAll('{{WORKSPACE}}', dir)
       .replaceAll('{{CLI}}', cli)
+      .replaceAll('{{BIN}}', binDir)
       .replaceAll('{{API_URL}}', apiUrl);
   const changed = [];
   const write = (rel, content, mode = RO) => {
@@ -152,6 +153,10 @@ export function ensureOrchestratorWorkspace({
   // omp reads project skills from .omp/skills (and Claude's from .claude/skills)
   write(`.claude/skills/${SKILL_NAME}/SKILL.md`, skill);
   write(`.omp/skills/${SKILL_NAME}/SKILL.md`, skill);
+  // `/status-report`: one command that sends the full snapshot (AGENTS.md "Status report")
+  const statusReport = fill(template('status-report.md'));
+  write('.claude/skills/status-report/SKILL.md', statusReport);
+  write('.omp/skills/status-report/SKILL.md', statusReport);
   writeBin('orkumo.mjs', template('orkumo.mjs'), 0o555);
   // What `orkumo report` sends: schema and a full example, read-only next to the CLI
   writeBin('report.schema.json', template('report.schema.json'), RO);
