@@ -393,6 +393,15 @@ describe('startAgentPane', () => {
     expect(deps.openAgentPty.mock.calls[0][4].args).not.toContain('--remote-control');
   });
 
+  it('an omp orchestrator pane gets no Remote Control flag (Claude Code only)', async () => {
+    const deps = paneDeps();
+    await startAgentPane(
+      { harness: 'omp', cwd: '/p/app', prompt: 'go', orchestrator: true, name: 'x-orchestrator' },
+      deps
+    );
+    expect(deps.openAgentPty.mock.calls[0][4].args).not.toContain('--remote-control');
+  });
+
   it('starts a worker omp pane in a project without orchestrator tooling', async () => {
     const deps = paneDeps();
     const result = await startAgentPane({ harness: 'omp', cwd: '/p/app', prompt: 'fix it' }, deps);
