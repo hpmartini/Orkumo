@@ -441,6 +441,15 @@ describe('commands', () => {
       name: 'b-orchestrator',
       profile: 'orchestrator',
     });
+    // the default harness (here omp) does not apply: --orchestrator means Claude Code
+    const byDefault = await cli(['start', '--project', 'app', '--orchestrator', 'do it now'], {
+      'GET /orchestrator/projects': () => [200, { projects: PROJECTS, defaultHarness: 'omp' }],
+      'POST /agents/dispatch': () => [201, { id: 'new2', name: null }],
+    });
+    expect(byDefault.calls[1]).toMatchObject({
+      route: '/agents/dispatch',
+      body: { profile: 'orchestrator' },
+    });
     const omp = await cli([
       'start',
       '--project',

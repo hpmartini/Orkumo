@@ -474,7 +474,10 @@ export async function run(argv, deps = {}) {
         if (!flags.project) throw usage('start needs --project <path|name>.');
         const { projects, defaultHarness } = await api('GET', '/orchestrator/projects');
         const cwd = resolveProject(projects, String(flags.project), { cwd: deps.cwd });
-        const harness = String(flags.harness || defaultHarness || 'claude');
+        // --orchestrator means Claude Code (Remote Control) unless --harness says otherwise
+        const harness = String(
+          flags.harness || (flags.orchestrator ? 'claude' : defaultHarness) || 'claude'
+        );
         if (harness !== 'claude' && harness !== 'omp')
           throw usage(`start runs --harness claude or omp, not "${harness}".`);
         const prompt = await textArg(args, readStdin, 'prompt');
