@@ -288,6 +288,11 @@ export async function setItemStatus(source, itemId, optionId) {
   return { itemId, statusOptionId: optionId };
 }
 
+/** Drops the cached board (items carry the provider's `workflow`); recent writes stay protected */
+export function dropCachedBoard() {
+  cache = null;
+}
+
 export function clearCache() {
   cache = null;
   projectMeta = null;

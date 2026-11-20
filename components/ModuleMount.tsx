@@ -11,6 +11,7 @@ import {
   getBackend,
   type Backend,
 } from '../utils/backendTarget';
+import { isModuleLoaded, useModulesGeneration } from '../hooks/useModules';
 
 /** What the shell hands a module UI on mount and on every update (docs/MODULES.md, "Frontend") */
 export interface ModuleHost {
@@ -104,6 +105,8 @@ export function ModuleMount({
   const handle = useRef<MountHandle | null>(null);
   // mount() gets the host current when the import resolves, not the one of the first render
   const hostRef = useRef(host);
+  // After a module reload: unmount, then import the new ui.js (new URL, the browser caches per URL)
+  const gen = useModulesGeneration();
 
   useEffect(() => {
     hostRef.current = host;
@@ -112,7 +115,10 @@ export function ModuleMount({
 
   useEffect(() => {
     let cancelled = false;
-    import(/* @vite-ignore */ `${API_BASE_URL}/modules/${id}/ui.js`)
+    // The list refetch removes this mount right after; importing now would only 404
+    if (!isModuleLoaded(id)) return;
+    const src = `${API_BASE_URL}/modules/${id}/ui.js`;
+    import(/* @vite-ignore */ gen ? `${src}?v=${gen}` : src)
       .then((mod) => {
         if (cancelled || !ref.current) return;
         const result = mod.mount(ref.current, hostRef.current);
@@ -124,7 +130,7 @@ export function ModuleMount({
       handle.current?.unmount?.();
       handle.current = null;
     };
-  }, [id]);
+  }, [id, gen]);
 
   return <div ref={ref} data-module={id} className={className} />;
 }
