@@ -35,6 +35,7 @@ export default {
   }, // optional, needs ui
   slot: 'agents-rail', // optional, needs ui, excludes mode: where the UI renders (see Slots)
   version: '1.2.0', // optional, shown in the admin panel; else package.json `version`
+  settings: { label: 'Open settings', hint: 'optional tooltip', to: '/my-module?view=settings' }, // optional, see Settings link
   async register(ctx) {}, // may be async
 };
 ```
@@ -56,6 +57,10 @@ A module with `mode` brings its own work mode, like Board or Code:
 
 Without the module there is no route, no toggle, no palette entry, no rail entry; `/<id>` redirects to `/dashboard` like any unknown path (`/` itself opens `/agents`).
 
+### Settings link
+
+`settings: { label, hint?, to }` puts a button `label` (tooltip `hint`) next to the module in Admin panel → Modules; it navigates to the app path `to` (must start with `/`, `//` is refused) and closes the panel. Usually a page of the module's own mode. A malformed `settings` skips the module like any contract violation.
+
 `ctx`:
 
 | Field                | Content                                                                                                                   |
@@ -68,6 +73,7 @@ Without the module there is no route, no toggle, no palette entry, no rail entry
 | `onUpgrade(handler)` | WebSocket upgrades under `/api/modules/<id>/...` go to `handler(req, socket, head)` (Node `upgrade` event arguments)      |
 | `addAuthorizer(fn)`  | sync `fn(req)`; `=== true` lets a non-local request in without the pairing token (only with remote access on)             |
 | `isViaServe(req)`    | `true` when the request came in under the serve path secret, i.e. was relayed by `tailscale serve` (see Authorizers)      |
+| `isOwner(req)`       | `{ ok, via }`, see Owner check                                                                                            |
 | `serveSecret()`      | that secret, for the setup command `tailscale serve … http://127.0.0.1:<port>/<secret>`; file `<data>/serve-secret` (600) |
 | `onDispose(fn)`      | `fn()` (may be async) runs when the module is unloaded; end timers, watchers, servers, listeners here (see Lifecycle)     |
 
@@ -81,18 +87,26 @@ The server has one `upgrade` dispatcher. It refuses a browser `Origin` that is n
 
 An authorizer widens who may call the whole API, not only the module's routes, so it must be narrow and sync (it also runs for WebSocket upgrades). A throwing authorizer counts as a no. Example: the mesh module accepts a request that `tailscale serve` relayed for the machine owner's own tailnet login (`Tailscale-User-Login`, which serve overwrites on every request) from one of the owner's own devices (the last `X-Forwarded-For` hop, checked against `tailscale status`). Never trust an identity header alone: check it against a source the client cannot write. An identity header proves the device, not the page: also refuse cross-site browser requests (`Sec-Fetch-Site` other than `same-origin`/`none`, or an `Origin` without it), or any site open in the owner's browser can call the API (CSRF). Headers a proxy on this machine adds prove nothing on their own either: every local process reaches the loopback port and can set them. `ctx.isViaServe(req)` closes that: with `tailscale serve` pointed at `http://127.0.0.1:<port>/<ctx.serveSecret()>`, only requests it relayed arrive under that path (a Unix socket would be tighter, but tailscaled on macOS cannot reach one).
 
+### Owner check
+
+The global gate records how each request passed it: `local` (direct loopback request), `open` (remote access off), `authorizer` (a module authorizer said yes; checked before the token) or `token` (pairing token). Routes that change the machine's own setup (services, configuration) call `ctx.isOwner(req)`:
+
+- `{ ok: true, via: 'local' }`: this machine's own UI, the same check as the `_status`/`_reload` routes (loopback request with a loopback or no `Origin`, or the Electron renderer).
+- `{ ok: true, via: 'authorizer' }`: a module authorizer let the request in (e.g. the owner's other device through `tailscale serve`).
+- `{ ok: false, via: null }`: everything else, notably a request that passed with the pairing token alone, a foreign `Origin` on loopback, or a relayed request while remote access is off.
+
 `ctx.services`:
 
-| Service                        | Content                                                                                                                                                                                                                                                                                                                  |
-| :----------------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `agentService`, `boardService` | the host services (`agentService.listSessions`, `boardService.getBoard`, ...)                                                                                                                                                                                                                                            |
-| `db`                           | `{ getDb, isDatabaseConnected }`                                                                                                                                                                                                                                                                                         |
-| `getBoardSettings()`           | `{ source, ... }` board source from the admin settings                                                                                                                                                                                                                                                                   |
-| `findRepoInKnownDirs(slug)`    | local checkout of `owner/name` in the configured project dirs, or throws                                                                                                                                                                                                                                                 |
-| `getAgentContexts()`           | `{ [jobId]: AgentContext }` (repo, worktree, PRs of each agent)                                                                                                                                                                                                                                                          |
-| `workflow`                     | workflow provider contract ([WORKFLOW_PROVIDER.md](WORKFLOW_PROVIDER.md)): `provider()` -> provider info or null, `context(itemId, { refresh })` -> `{ source, item, state }` (`state` = `item.workflow?.state ?? null`; 404 if not on the board), `start(url)` -> StartResult, `applyGo(ctx, go)` -> `{ status, body }` |
-| `agentLimiter`, `validate`     | the host's rate limiter middleware and `validate(zodSchema)`; `zod` is the host's `z`, so module routes validate like host routes                                                                                                                                                                                        |
-| `sendError(res, error)`        | error response with `error.status` (default 500)                                                                                                                                                                                                                                                                         |
+| Service                        | Content                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| :----------------------------- | :---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `agentService`, `boardService` | the host services (`agentService.listSessions`, `boardService.getBoard`, ...)                                                                                                                                                                                                                                                                                                                                                             |
+| `db`                           | `{ getDb, isDatabaseConnected }`                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `getBoardSettings()`           | `{ source, ... }` board source from the admin settings                                                                                                                                                                                                                                                                                                                                                                                    |
+| `findRepoInKnownDirs(slug)`    | local checkout of `owner/name` in the configured project dirs, or throws                                                                                                                                                                                                                                                                                                                                                                  |
+| `getAgentContexts()`           | `{ [jobId]: AgentContext }` (repo, worktree, PRs of each agent)                                                                                                                                                                                                                                                                                                                                                                           |
+| `workflow`                     | workflow provider contract ([WORKFLOW_PROVIDER.md](WORKFLOW_PROVIDER.md)): `provider()` -> provider info plus `control` (ops without argv) or null, `context(itemId, { refresh })` -> `{ source, item, state }` (`state` = `item.workflow?.state ?? null`; 404 if not on the board), `start(url)` -> StartResult, `applyGo(ctx, go)` -> `{ status, body }`, `control(op, { issue?, input? })` -> `{ code, data, stderr }` (see "control") |
+| `agentLimiter`, `validate`     | the host's rate limiter middleware and `validate(zodSchema)`; `zod` is the host's `z`, so module routes validate like host routes                                                                                                                                                                                                                                                                                                         |
+| `sendError(res, error)`        | error response with `error.status` (default 500)                                                                                                                                                                                                                                                                                                                                                                                          |
 
 Modules must not import host packages (`express`, ...): the Electron bundle has no `node_modules` for them. Everything the host offers comes through `ctx`; a module with its own dependencies bundles them.
 
@@ -100,7 +114,7 @@ Modules must not import host packages (`express`, ...): the Electron bundle has 
 
 - `GET /api/modules` -> `[{ id, name, ui, mode?, slot? }]` (`ui`: boolean; `mode`: `{ label, icon?, keywords?, scoped?, orchestratorFilter? }`; `slot`: `'agents-rail'`). `[]` without modules.
 - `GET /api/modules/<id>/ui.js` is reserved for the module's UI bundle (only if `ui` is set).
-- `GET /api/modules/_status` -> one row per module directory of the last load: `{ entry, id?, name?, version, status: 'loaded'|'error', error? }` (`version`: the `version` string of the default export, else the module's `package.json` `version`, else `null`). `POST /api/modules/_reload` reloads and answers the same rows. Both only for this machine's own UI (loopback request with a loopback or no `Origin`, or the Electron renderer), else `403`. `_` cannot start a module id, so they never shadow a module route.
+- `GET /api/modules/_status` -> one row per module directory of the last load: `{ entry, id?, name?, version, status: 'loaded'|'error', error?, settings? }` (`version`: the `version` string of the default export, else the module's `package.json` `version`, else `null`; `settings`: the module's settings link). `POST /api/modules/_reload` reloads and answers the same rows. Both only for this machine's own UI (loopback request with a loopback or no `Origin`, or the Electron renderer), else `403`. `_` cannot start a module id, so they never shadow a module route.
 
 ## Lifecycle
 

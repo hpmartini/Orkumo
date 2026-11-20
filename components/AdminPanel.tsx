@@ -820,7 +820,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
 
           <RemotePairingSection />
 
-          <ModulesSection />
+          <ModulesSection onNavigate={onClose} />
 
           {/* Keyboard Shortcuts Section */}
           <div className="pt-4 border-t border-gray-700">

@@ -10,6 +10,21 @@ export const API_VERSION = 1;
 const WAITING = new Set(['owner', 'agent', 'poll', null]);
 const PLACEHOLDER = /\{(\w+)\}/g;
 const ALLOWED_PLACEHOLDERS = new Set(['issue', 'uid']);
+/** Operations a provider may declare under `control.ops` (docs/WORKFLOW_PROVIDER.md, "control") */
+export const CONTROL_OPS = new Set([
+  'status',
+  'settings.get',
+  'settings.set',
+  'service.start',
+  'service.stop',
+  'issue.release',
+  'issue.start',
+  'issue.add',
+  'session.end',
+]);
+const OPTION_KEY = /^[a-z][a-zA-Z0-9_-]{0,31}$/;
+export const MAX_CONTROL_INPUT = 16 * 1024;
+const CONTROL_TIMEOUT_MS = 60_000;
 
 let provider = null;
 
@@ -21,6 +36,53 @@ const isFn = (v) => typeof v === 'function';
 
 function checkControl(c, where) {
   if (!c || !isStr(c.label) || !isStr(c.text)) fail(`${where} needs label and text`);
+}
+
+/** argv template of `commands` or `control.ops`: strings, known placeholders, {issue} whole */
+function checkArgv(argv, where) {
+  if (!Array.isArray(argv) || !argv.length || argv.some((a) => typeof a !== 'string')) {
+    fail(`${where} must be a non-empty string array`);
+  }
+  for (const a of argv) {
+    for (const [, p] of a.matchAll(PLACEHOLDER)) {
+      if (!ALLOWED_PLACEHOLDERS.has(p)) fail(`${where}: unknown placeholder {${p}}`);
+    }
+    // pty-host matches the URL only as a whole argument (pty-host/execPolicy.js)
+    if (a.includes('{issue}') && a !== '{issue}')
+      fail(`${where}: {issue} must be a whole argument`);
+  }
+  // not PLACEHOLDER.test: a global regex keeps lastIndex across calls when this throws
+  if (/\{\w+\}/.test(argv[0])) fail(`${where}: the command itself takes no placeholder`);
+}
+
+const isOptStr = (v) => v === undefined || isStr(v);
+
+function checkControlOps(control) {
+  if (!control || typeof control !== 'object') fail('control must be an object');
+  const { ops } = control;
+  if (!ops || typeof ops !== 'object' || Array.isArray(ops)) fail('control.ops must be an object');
+  for (const [name, op] of Object.entries(ops)) {
+    const where = `control.ops.${name}`;
+    if (!CONTROL_OPS.has(name)) fail(`unknown control op "${name}"`);
+    if (!op || typeof op !== 'object') fail(`${where} must be an object`);
+    checkArgv(op.argv, `${where}.argv`);
+    if (op.input !== undefined && typeof op.input !== 'boolean') {
+      fail(`${where}.input must be a boolean`);
+    }
+    if (!isOptStr(op.label) || !isOptStr(op.hint)) fail(`${where}: label and hint must be strings`);
+    if (op.options === undefined) continue;
+    if (!Array.isArray(op.options)) fail(`${where}.options must be an array`);
+    const keys = op.options.map((o) => o?.key);
+    for (const o of op.options) {
+      if (!o || typeof o.key !== 'string' || !OPTION_KEY.test(o.key)) {
+        fail(`${where}.options[].key must match ${OPTION_KEY}`);
+      }
+      if (!isStr(o.label) || !isOptStr(o.hint)) {
+        fail(`${where}.options[] needs a label (hint optional)`);
+      }
+    }
+    if (new Set(keys).size !== keys.length) fail(`${where}.options keys must be unique`);
+  }
 }
 
 /** Throws with the first contract violation of a module's `workflow` declaration */
@@ -52,22 +114,8 @@ export function validateProvider(wf) {
     if (c.waiting) checkControl(c.waiting, 'controls.waiting');
     if (c.modes && !Array.isArray(c.modes.options)) fail('controls.modes.options must be an array');
   }
-  for (const [name, argv] of Object.entries(wf.commands ?? {})) {
-    if (!Array.isArray(argv) || !argv.length || argv.some((a) => typeof a !== 'string')) {
-      fail(`commands.${name} must be a non-empty string array`);
-    }
-    for (const a of argv) {
-      for (const [, p] of a.matchAll(PLACEHOLDER)) {
-        if (!ALLOWED_PLACEHOLDERS.has(p)) fail(`commands.${name}: unknown placeholder {${p}}`);
-      }
-      // pty-host matches the URL only as a whole argument (pty-host/execPolicy.js)
-      if (a.includes('{issue}') && a !== '{issue}')
-        fail(`commands.${name}: {issue} must be a whole argument`);
-    }
-    if (PLACEHOLDER.test(argv[0]))
-      fail(`commands.${name}: the command itself takes no placeholder`);
-    PLACEHOLDER.lastIndex = 0;
-  }
+  for (const [name, argv] of Object.entries(wf.commands ?? {})) checkArgv(argv, `commands.${name}`);
+  if (wf.control !== undefined) checkControlOps(wf.control);
   return wf;
 }
 
@@ -79,11 +127,38 @@ export function setProvider(wf) {
 
 export const getProvider = () => provider;
 
-/** What the client and modules learn about the provider (no functions, no commands) */
+/** What the client learns about the provider (no functions, no commands): GET /api/workflow */
 export function providerInfo() {
   if (!provider) return null;
   const { name, apiVersion, stages, controls = null, sessionName = null } = provider;
   return { name, apiVersion, stages, controls, sessionName };
+}
+
+/** What modules learn (ctx.services.workflow.provider()): providerInfo plus `control` without argv */
+export function moduleProviderInfo() {
+  const info = providerInfo();
+  return info && { ...info, control: controlInfo() };
+}
+
+/** `control` without argv: what a UI needs to label its buttons */
+function controlInfo() {
+  if (!provider.control) return null;
+  const ops = {};
+  for (const [name, { label, hint, input, options }] of Object.entries(provider.control.ops)) {
+    ops[name] = {
+      ...(label !== undefined && { label }),
+      ...(hint !== undefined && { hint }),
+      ...(input === true && { input: true }),
+      ...(options !== undefined && {
+        options: options.map(({ key, label: l, hint: h }) => ({
+          key,
+          label: l,
+          ...(h && { hint: h }),
+        })),
+      }),
+    };
+  }
+  return { ops };
 }
 
 /** Checks one annotate() result; a broken one is logged and treated as "not a workflow item" */
@@ -140,6 +215,57 @@ function hostFor(url) {
 }
 
 const notFound = (msg) => Object.assign(new Error(msg), { status: 404 });
+const badRequest = (msg) => Object.assign(new Error(msg), { status: 400 });
+
+/** Last non-empty stdout line as a JSON object, else null */
+function lastJsonLine(stdout) {
+  const line = stdout
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .pop();
+  if (!line) return null;
+  try {
+    const data = JSON.parse(line);
+    return data && typeof data === 'object' && !Array.isArray(data) ? data : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Runs control op `op` of the provider (docs/WORKFLOW_PROVIDER.md, "control"). `issue` only fills
+ * `{issue}`; `input` goes JSON-serialized to stdin, only for ops declaring `input: true`.
+ * @param {string} op
+ * @param {{ issue?: string, input?: unknown }} [args]
+ * @returns {Promise<{ code: number, data: object | null, stderr: string }>}
+ * @throws Error with `.status` 404 (no provider, op not declared) or 400 (bad issue or input)
+ */
+export async function runControl(op, { issue, input } = {}) {
+  const spec = CONTROL_OPS.has(op) ? provider?.control?.ops[op] : undefined;
+  if (!spec) throw notFound(`No workflow provider with control op "${op}" loaded`);
+  const takesIssue = spec.argv.includes('{issue}');
+  if (takesIssue && (typeof issue !== 'string' || !ISSUE_URL_RE.test(issue))) {
+    throw badRequest('Not a GitHub issue URL');
+  }
+  if (!takesIssue && issue !== undefined) throw badRequest(`Control op "${op}" takes no issue`);
+  let stdin = '';
+  if (input !== undefined) {
+    if (spec.input !== true) throw badRequest(`Control op "${op}" takes no input`);
+    stdin = JSON.stringify(input);
+    if (stdin === undefined) throw badRequest('input must be JSON');
+    if (Buffer.byteLength(stdin) > MAX_CONTROL_INPUT) {
+      throw badRequest(`input exceeds ${MAX_CONTROL_INPUT} bytes`);
+    }
+  }
+  const [command, ...rest] = fillCommand(spec.argv, { issue, uid: hostUid() });
+  // stdin is closed right away without input, so a tool reading it never waits
+  const { code, stdout, stderr } = await runOnHost(command, rest, {
+    timeout: CONTROL_TIMEOUT_MS,
+    input: stdin,
+  });
+  return { code, data: lastJsonLine(stdout), stderr };
+}
 
 /** Starts or wakes the issue now through the provider; the URL comes from the client */
 export async function startIssue(url) {

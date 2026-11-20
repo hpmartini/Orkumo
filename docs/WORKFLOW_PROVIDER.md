@@ -26,6 +26,7 @@ export default {
     commands: {}, // optional, host commands start/go may run
     async start(url, host) {}, // optional, "start now"
     async go(kind, ctx) {}, // optional, side effects of a GO
+    control: { ops: {} }, // optional, operating the tool itself (modules only)
   },
   register(ctx) {},
 };
@@ -123,10 +124,64 @@ them to pty-host, which runs nothing that is not in its own allowlist (below).
 `{ note?: string, start?: StartResult }`; `note` is appended to the toast. Without `go` the host
 just calls `start`.
 
+## `control` — optional, operating the workflow tool (modules only)
+
+A provider can let a module operate the tool behind it (status, settings, background service,
+releasing and starting issues, ending sessions). Like `commands`, each operation is a fixed argv
+template; request data never becomes an argument.
+
+```js
+control: {
+  ops: {
+    status: { argv: ['my-tool', 'status', '--json'] },
+    'settings.get': { argv: ['my-tool', 'config', 'get', '--json'] },
+    'settings.set': { argv: ['my-tool', 'config', 'set', '--json'], input: true },
+    'service.start': { argv: ['my-tool', 'service', 'start', '--json'] },
+    'service.stop': { argv: ['my-tool', 'service', 'stop', '--json'] },
+    'issue.release': { argv: ['my-tool', 'release', '{issue}', '--json'], label: 'Release', hint: 'Starts at the next poll' },
+    'issue.start': { argv: ['my-tool', 'start', '{issue}', '--json'], label: 'Start now' },
+    'issue.add': {
+      argv: ['my-tool', 'add', '{issue}', '--json'],
+      input: true,
+      label: 'Add',
+      options: [{ key: 'fast', label: 'Fast lane', hint: 'optional tooltip' }],
+    },
+    'session.end': { argv: ['my-tool', 'end', '--json'], input: true, label: 'End session' },
+  },
+}
+```
+
+- Op names are exactly these nine; each is optional (a UI hides what is missing). An unknown name
+  makes the provider invalid.
+- `argv`: same rules as `commands` (`{issue}` only as a whole argument, `{uid}` anywhere, no other
+  placeholders, none in the command).
+- `input: true`: the op accepts input on stdin. `label`, `hint`: optional strings for the UI.
+  `options`: `{ key, label, hint? }[]`, `key` matching `^[a-z][a-zA-Z0-9_-]{0,31}$`, unique; the
+  tool reads chosen options from its input, the host only passes them on.
+
+Modules run an op with `ctx.services.workflow.control(op, { issue?, input? })` ->
+`Promise<{ code, data, stderr }>`:
+
+- `issue` fills `{issue}` and must match `^https://github.com/<owner>/<repo>/issues/<n>$`; an op
+  with `{issue}` requires it, one without refuses it.
+- `input` is serialized with `JSON.stringify` and written to the tool's stdin (at most 16 KB);
+  without input stdin is empty and closed, so a tool reading it never waits.
+- `data` is the last non-empty stdout line parsed as a JSON object, else `null`; `code` the exit
+  code. Time limit 60 s; a timed-out run has a non-zero `code` and `(timed out)` in `stderr`.
+- Throws an `Error` with `status` 404 (no provider, no `control`, op not declared) or 400 (bad
+  `issue`, `input` for an op without `input: true`, input over 16 KB or not serializable).
+
+`ctx.services.workflow.provider()` carries `control: { ops: { [op]: { label?, hint?, input?,
+options? } } } | null`, never argv. The HTTP API has no control routes and `GET /api/workflow` does
+not list `control`: a module that offers control decides who may use it (`ctx.isOwner`,
+[MODULES.md](MODULES.md)).
+
 ## pty-host allowlist (Docker)
 
 pty-host runs `claude` with any arguments and otherwise only argv lists from an owner-written JSON
 file: `PTY_HOST_EXEC_RULES`, default `~/.config/orkumo/exec-rules.json`. Missing file: only `claude`.
+The rules check argv only; the optional `input` of an `/exec` request (a string, at most 16 KB) goes
+to the command's stdin.
 
 ```json
 [{ "command": "my-tool", "args": ["start", "{issue}", "--json"] }]

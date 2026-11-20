@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Puzzle, RefreshCw } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Puzzle, RefreshCw, Settings2 } from 'lucide-react';
 import {
   fetchModuleStatus,
   reloadModules,
@@ -8,10 +9,17 @@ import {
 } from '../hooks/useModules';
 
 /**
- * Admin panel: loaded modules with version and load error, and "Module neu laden" without a restart
- * (docs/MODULES.md, "Lifecycle"). Local only: hidden where the status route refuses (iOS app, remote backend).
+ * Admin panel: loaded modules with version and load error, a link to each module's own settings
+ * page, and "Reload modules" without a restart (docs/MODULES.md, "Lifecycle", "Settings link").
+ * Local only: hidden where the status route refuses (iOS app, remote backend).
+ * @param onNavigate called after a settings link navigated (the panel closes itself)
  */
-export function ModulesSection() {
+export function ModulesSection({ onNavigate }: { onNavigate?: () => void }) {
+  const navigate = useNavigate();
+  const openSettings = (to: string) => {
+    navigate(to);
+    onNavigate?.();
+  };
   const [modules, setModules] = useState<ModuleStatus[] | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -81,6 +89,17 @@ export function ModulesSection() {
                   >
                     {m.status === 'loaded' ? 'loaded' : 'Error'}
                   </span>
+                  {m.settings && (
+                    <button
+                      type="button"
+                      title={m.settings.hint}
+                      onClick={() => m.settings && openSettings(m.settings.to)}
+                      className="flex items-center gap-1 px-2 py-0.5 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded transition-colors"
+                    >
+                      <Settings2 size={12} />
+                      {m.settings.label}
+                    </button>
+                  )}
                 </div>
                 {m.error && (
                   <p className="text-xs text-red-400 break-words font-mono mt-0.5">{m.error}</p>
