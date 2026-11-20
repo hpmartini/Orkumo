@@ -4,7 +4,12 @@ import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { boardUrl, codeUrl } from '../utils/codeTarget';
 import { setAgentTarget, useAgentTarget } from '../utils/agentTarget';
-import { connectBackend, disconnectBackend, getBackend, type Backend } from '../utils/backendTarget';
+import {
+  connectBackend,
+  disconnectBackend,
+  getBackend,
+  type Backend,
+} from '../utils/backendTarget';
 
 /** What the shell hands a module UI on mount and on every update (docs/MODULES.md, "Frontend") */
 export interface ModuleHost {
@@ -29,6 +34,8 @@ export interface ModuleHost {
   connectBackend: (prefix: string, label: string) => void;
   /** Back to this machine; reloads */
   disconnectBackend: () => void;
+  /** Set when the UI is shown inside an orchestrator's agent pane (`Show in <label>`) */
+  pane?: { orchestrator: string };
 }
 
 interface MountHandle {
