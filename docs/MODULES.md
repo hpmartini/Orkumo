@@ -1,6 +1,6 @@
 # Optional Modules
 
-At start the server loads optional modules from a directory. No directory, no modules: no routes, no UI, nothing in the build changes. Modules are how separately distributed features plug into Orkumo without touching this repo.
+At start the server loads optional modules from a directory; "Module neu laden" loads them again without a restart (see Lifecycle). No directory, no modules: no routes, no UI, nothing in the build changes. Modules are how separately distributed features plug into Orkumo without touching this repo.
 
 ## Location
 
@@ -34,6 +34,7 @@ export default {
     orchestratorFilter: false,
   }, // optional, needs ui
   slot: 'agents-rail', // optional, needs ui, excludes mode: where the UI renders (see Slots)
+  version: '1.2.0', // optional, shown in the admin panel; else package.json `version`
   async register(ctx) {}, // may be async
 };
 ```
@@ -68,6 +69,7 @@ Without the module there is no route, no toggle, no palette entry, no rail entry
 | `addAuthorizer(fn)`  | sync `fn(req)`; `=== true` lets a non-local request in without the pairing token (only with remote access on)             |
 | `isViaServe(req)`    | `true` when the request came in under the serve path secret, i.e. was relayed by `tailscale serve` (see Authorizers)      |
 | `serveSecret()`      | that secret, for the setup command `tailscale serve … http://127.0.0.1:<port>/<secret>`; file `<data>/serve-secret` (600) |
+| `onDispose(fn)`      | `fn()` (may be async) runs when the module is unloaded; end timers, watchers, servers, listeners here (see Lifecycle)     |
 
 `onUpgrade` and `addAuthorizer` take effect only after `register` succeeded, like the routes.
 
@@ -98,6 +100,28 @@ Modules must not import host packages (`express`, ...): the Electron bundle has 
 
 - `GET /api/modules` -> `[{ id, name, ui, mode?, slot? }]` (`ui`: boolean; `mode`: `{ label, icon?, keywords?, scoped?, orchestratorFilter? }`; `slot`: `'agents-rail'`). `[]` without modules.
 - `GET /api/modules/<id>/ui.js` is reserved for the module's UI bundle (only if `ui` is set).
+- `GET /api/modules/_status` -> one row per module directory of the last load: `{ entry, id?, name?, version, status: 'loaded'|'error', error? }` (`version`: the `version` string of the default export, else the module's `package.json` `version`, else `null`). `POST /api/modules/_reload` reloads and answers the same rows. Both only for this machine's own UI (loopback request with a loopback or no `Origin`, or the Electron renderer), else `403`. `_` cannot start a module id, so they never shadow a module route.
+
+## Lifecycle
+
+Load at server start, then again on every reload: Admin panel → Module → "Module neu laden", or the palette command `Reload modules`. A reload
+
+1. unloads every module, last loaded first: its routes, upgrade handler, authorizers and workflow provider go away, then its `onDispose` callbacks run (last registered first, each at most 5 s; a throwing or hanging one is logged and skipped);
+2. loads the module directories of the start again, like at start. `index.js` is imported under a new URL (`?v=<n>`), so Node evaluates it anew; relative imports of it stay cached, so a module that wants to be reloadable ships one bundled file;
+3. answers the per-module rows (above). The shell then refetches the module list, unmounts every module UI and imports its `ui.js` under a new URL, without a page reload. A module that is gone loses its mode and slot; a new one appears.
+
+Reloads (and the start load) run one after another. A module that fails on reload is gone until the next reload that succeeds; the others are unaffected. Old instances are not freed: Node keeps every evaluated `index.js` in its module cache and the browser every imported `ui.js` (a bundle with its own copy of a library like Three.js warns about multiple instances). A restart clears both. What an old instance keeps running is the module's business, through `onDispose`.
+
+A module without `onDispose` that starts a timer (`setInterval`), a server or a listener on a host service keeps it running after a reload, next to the new instance. Register the cleanup right where the resource starts:
+
+```js
+async register(ctx) {
+  const timer = setInterval(refresh, 30_000);
+  ctx.onDispose?.(() => clearInterval(timer)); // `?.`: hosts before the reload feature have no onDispose
+}
+```
+
+`onDispose` callbacks also run when `register` throws, so what `register` started before failing ends too.
 
 ## Frontend
 
@@ -167,7 +191,7 @@ code-server runs with `--auth none`, so where it listens is its access control. 
 
 ## Failure behavior
 
-Import errors, validation errors (bad/duplicate id, `ui` outside the module directory) and exceptions in `register` are logged as `[Modules]` errors and the module is skipped. Its routes are mounted only after `register` succeeded, so a failed module leaves no route. A `register` that never resolves delays server start; there is no timeout.
+Import errors, validation errors (bad/duplicate id, `ui` outside the module directory) and exceptions in `register` are logged as `[Modules]` errors and the module is skipped; `_status` shows it with `status: 'error'` and the message. Its routes are mounted only after `register` succeeded, so a failed module leaves no route, and its `onDispose` callbacks run. A `register` that never resolves delays server start and blocks every later reload; there is no timeout.
 
 ## Security
 

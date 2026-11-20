@@ -165,10 +165,15 @@ const authorizers = [];
 /**
  * Extra sync check a module adds (docs/MODULES.md, ctx.addAuthorizer): `fn(req) === true` lets a
  * non-local request in without the pairing token. A throwing authorizer counts as a no.
+ * @returns {() => void} removes it again (module unload)
  */
 export function addAuthorizer(fn) {
   if (typeof fn !== 'function') throw new Error('authorizer must be a function');
   authorizers.push(fn);
+  return () => {
+    const i = authorizers.indexOf(fn);
+    if (i !== -1) authorizers.splice(i, 1);
+  };
 }
 
 const passesAuthorizer = (req) =>
