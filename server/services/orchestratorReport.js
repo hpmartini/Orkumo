@@ -13,7 +13,11 @@ export const REPORT_SCHEMA_VERSION = 1;
 export const TASK_STATES = ['planned', 'running', 'waiting', 'done', 'cancelled'];
 export const INBOX_KINDS = ['decision', 'todo', 'approval'];
 
-const id = z.string().regex(/^[\w.:-]{1,200}$/);
+// Object.prototype names (`constructor`, `__proto__`) would read as answered or never persist
+const id = z
+  .string()
+  .regex(/^[\w.:-]{1,200}$/)
+  .refine((v) => !(v in Object.prototype), 'Reserved id');
 const text = (max) => z.string().trim().min(1).max(max);
 const url = z.string().url().max(500);
 const time = z.iso.datetime({ offset: true });

@@ -1,7 +1,7 @@
 /**
  * Status reports of orchestrators (`orkumo report`): the latest report per orchestrator, the
  * answers given in the Status view, and a change log derived by comparing snapshots. Files under
- * `<data>/orchestrator/`: `reports/<id>.json` (written atomically) and `changes.jsonl`.
+ * `<data>/orchestrator-reports/` (outside the orchestrator workspace, which orchestrators may write): `reports/<id>.json` (written atomically) and `changes.jsonl`.
  */
 import { execFile } from 'child_process';
 import fs from 'fs';
@@ -165,7 +165,14 @@ export function createReportStore(dir) {
         .readFileSync(logFile, 'utf8')
         .split('\n')
         .filter(Boolean)
-        .map((line) => JSON.parse(line));
+        .flatMap((line) => {
+          // A line cut off by a crash must not take the whole view down
+          try {
+            return [JSON.parse(line)];
+          } catch {
+            return [];
+          }
+        });
     },
   };
 }

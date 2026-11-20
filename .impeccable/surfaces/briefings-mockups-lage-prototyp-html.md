@@ -1,7 +1,7 @@
 ---
 version: 1
-slug: "briefings-mockups-lage-prototyp-html"
-primary_target: "briefings/mockups/lage-prototyp.html"
+slug: 'briefings-mockups-lage-prototyp-html'
+primary_target: 'briefings/mockups/lage-prototyp.html'
 related_targets: []
 ---
 
@@ -9,7 +9,7 @@ related_targets: []
 
 Mode: Operate. Scope: the "Lage" work mode (prototype now: briefings/mockups/lage-prototyp.html; later the Pro module in DevHub-pro). Inherits the app world (Ghostty blue gray scale, Inter, lucide, cursor accent #8fd0ff), not the landing DESIGN.md.
 
-Audience/job: Hape, several times a day, between agent sessions: see what needs him, act in place, check that nothing is stuck. Constraints: neutral sample data only (public repo), German UI copy, dark app shell.
+Audience/job: Hape, several times a day, between agent sessions: see what needs him, act in place, check that nothing is stuck. Constraints: neutral sample data only (public repo), English UI copy (owner decision 2026-11-20), dark app shell.
 
 ## Direction contract
 

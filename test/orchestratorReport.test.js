@@ -11,6 +11,12 @@ describe('orchestrator report schema', () => {
     expect(parseReport(example)).toMatchObject({ ok: true });
   });
 
+  it.each(['constructor', '__proto__', 'toString'])('rejects the reserved entry id %s', (bad) => {
+    const r = structuredClone(example);
+    r.inbox[0].id = bad;
+    expect(parseReport(r)).toMatchObject({ ok: false });
+  });
+
   it.each([
     ['missing orchestrator id', (r) => delete r.orchestrator.id, 'orchestrator.id'],
     [

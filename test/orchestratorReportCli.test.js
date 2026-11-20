@@ -148,7 +148,7 @@ describe('orkumo report', () => {
     });
     expect(after.reports[0].report.inbox.map((e) => e.id)).toEqual(example.inbox.map((e) => e.id));
     expect(after.changes).toHaveLength(1);
-    expect(fs.existsSync(path.join(data, 'orchestrator/reports/release.json'))).toBe(true);
+    expect(fs.existsSync(path.join(data, 'orchestrator-reports/reports/release.json'))).toBe(true);
   }, 90_000);
 
   it('answers only open entries', async () => {

@@ -143,6 +143,13 @@ describe('report store', () => {
     ]);
   });
 
+  it('skips a change log line cut off by a crash', () => {
+    const s = createReportStore(dir);
+    s.submit(clone(example), { now: T0 });
+    fs.appendFileSync(path.join(dir, 'changes.jsonl'), '{"at":"2026-');
+    expect(s.changes()).toHaveLength(1);
+  });
+
   it('an answer stays until the next report drops the entry (AC-4)', () => {
     const s = createReportStore(dir);
     s.submit(clone(example), { now: T0 });

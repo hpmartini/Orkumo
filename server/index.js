@@ -2237,7 +2237,10 @@ app.get('/api/orchestrator/projects', async (req, res) => {
 });
 
 // Status reports of orchestrators (`orkumo report`) and the answers given in the Status view
-const reportStore = orchestratorReports.createReportStore(orchestrator.orchestratorDir());
+// Next to the workspace, not in it: the workspace guard lets orchestrators write plain files there
+const reportStore = orchestratorReports.createReportStore(
+  path.join(path.dirname(orchestrator.orchestratorDir()), 'orchestrator-reports')
+);
 
 /** Agents with display state, activity and PRs: what the stale check and the sender check read */
 async function reportAgents() {
@@ -2355,7 +2358,10 @@ app.post(
     const target =
       sessions.find((s) =>
         isOrchestratorSessionFor(s, req.params.id, orchestrators, orchestratorRoles)
-      ) ?? orchestrator.findSessionByRef(sessions, state.report.orchestrator.agentId);
+      ) ??
+      [orchestrator.findSessionByRef(sessions, state.report.orchestrator.agentId)].find(
+        (s) => s && orchestrator.isOrchestratorSession(s, orchestrators)
+      );
     if (!target) return res.status(409).json({ error: 'The orchestrator is not running' });
     const route = orchestratorReports.answerTarget(target);
     if (!route) return res.status(409).json({ error: 'The orchestrator cannot be reached' });
@@ -2371,11 +2377,15 @@ app.post(
       } else {
         await agentService.replySession(route.id, typed.data, { mode: 'auto' });
       }
-      const saved = reportStore.answer(req.params.id, entry.id, {
-        option: option?.id ?? null,
-        text: req.body.text ?? null,
-      });
-      res.json({ delivered: true, answer: saved.answers[entry.id] });
+      const answer = { option: option?.id ?? null, text: req.body.text ?? null };
+      try {
+        const saved = reportStore.answer(req.params.id, entry.id, answer);
+        res.json({ delivered: true, answer: saved.answers[entry.id] });
+      } catch (error) {
+        // A report that came in meanwhile already closed the entry: the message still went out
+        if (error.status !== 404) throw error;
+        res.json({ delivered: true, answer });
+      }
     } catch (error) {
       sendAgentError(res, error);
     }
