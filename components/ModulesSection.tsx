@@ -33,7 +33,7 @@ export function ModulesSection() {
       setModules(await reloadModules());
       setReloaded(true);
     } catch (e) {
-      setError(`Neu laden fehlgeschlagen: ${(e as Error).message}`);
+      setError(`Reload failed: ${(e as Error).message}`);
     } finally {
       setBusy(false);
     }
@@ -46,7 +46,7 @@ export function ModulesSection() {
       <div className="flex items-center justify-between mb-4">
         <div className="flex items-center gap-2">
           <Puzzle className="text-amber-400" size={18} />
-          <label className="text-sm font-medium text-gray-300">Module</label>
+          <label className="text-sm font-medium text-gray-300">Modules</label>
         </div>
         <button
           type="button"
@@ -55,12 +55,12 @@ export function ModulesSection() {
           className="flex items-center gap-1 px-3 py-1.5 text-xs bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded transition-colors"
         >
           <RefreshCw size={14} className={busy ? 'animate-spin' : ''} />
-          Module neu laden
+          Reload modules
         </button>
       </div>
       <div className="p-4 bg-gray-900 rounded-lg border border-gray-700 space-y-2">
         {modules.length === 0 ? (
-          <p className="text-xs text-gray-500">Keine Module installiert.</p>
+          <p className="text-xs text-gray-500">No modules installed.</p>
         ) : (
           <ul className="space-y-1.5">
             {modules.map((m) => (
@@ -70,7 +70,7 @@ export function ModulesSection() {
                     {m.name ?? m.entry}
                   </span>
                   <span className="text-xs text-gray-500 font-mono">
-                    {m.version ? `v${m.version}` : 'Version unbekannt'}
+                    {m.version ? `v${m.version}` : 'Version unknown'}
                   </span>
                   <span
                     className={`rounded-full px-1.5 text-[10.5px] font-medium leading-[18px] border ${
@@ -79,7 +79,7 @@ export function ModulesSection() {
                         : 'border-red-400/60 bg-red-400/10 text-red-300'
                     }`}
                   >
-                    {m.status === 'loaded' ? 'geladen' : 'Fehler'}
+                    {m.status === 'loaded' ? 'loaded' : 'Error'}
                   </span>
                 </div>
                 {m.error && (
@@ -91,7 +91,7 @@ export function ModulesSection() {
         )}
         {reloaded && (
           <p role="status" className="text-xs text-emerald-400">
-            Neu geladen, ohne Neustart.
+            Reloaded without a restart.
           </p>
         )}
         {error && (

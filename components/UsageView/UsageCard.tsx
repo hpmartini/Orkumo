@@ -18,18 +18,18 @@ export const UsageCard: React.FC<UsageCardProps> = ({ onOpen }) => {
     <div className="rounded-xl border border-gray-700 bg-gray-800 p-4">
       <div className="flex items-center gap-2 mb-3">
         <BarChart3 size={16} className="text-blue-400" aria-hidden="true" />
-        <h3 className="text-sm font-semibold text-gray-200 mr-auto">Nutzung</h3>
+        <h3 className="text-sm font-semibold text-gray-200 mr-auto">Usage</h3>
         <button
           onClick={refresh}
           disabled={loading}
-          aria-label="Nutzung aktualisieren"
+          aria-label="Refresh usage"
           className="p-1 rounded text-gray-500 hover:text-gray-200 hover:bg-gray-700 disabled:opacity-50"
         >
           <RefreshCw size={12} className={loading ? 'animate-spin' : ''} />
         </button>
         <button
           onClick={onOpen}
-          aria-label="Nutzungsdetails öffnen"
+          aria-label="Open usage details"
           className="flex items-center gap-0.5 px-2 py-1 rounded text-xs text-blue-300 hover:bg-gray-700"
         >
           Details <ChevronRight size={12} aria-hidden="true" />
@@ -38,24 +38,24 @@ export const UsageCard: React.FC<UsageCardProps> = ({ onOpen }) => {
 
       {error && !data && (
         <div role="alert" className="text-xs text-red-300">
-          Nicht geladen.{' '}
+          Not loaded.{' '}
           <button
             onClick={refresh}
-            aria-label="Laden erneut versuchen"
+            aria-label="Retry loading"
             className="underline hover:text-red-200"
           >
-            Erneut versuchen
+            Retry
           </button>
         </div>
       )}
       {!data && !error && (
-        <div className="space-y-2 animate-pulse" aria-busy="true" aria-label="Nutzung wird geladen">
+        <div className="space-y-2 animate-pulse" aria-busy="true" aria-label="Loading usage">
           <div className="h-8 rounded bg-gray-700/60" />
           <div className="h-8 rounded bg-gray-700/60" />
         </div>
       )}
       {data && data.providers.length === 0 && (
-        <p className="text-xs text-gray-500">Keine Anbieter gefunden.</p>
+        <p className="text-xs text-gray-500">No providers found.</p>
       )}
 
       {data && data.providers.length > 0 && (
@@ -70,9 +70,9 @@ export const UsageCard: React.FC<UsageCardProps> = ({ onOpen }) => {
                 {staleAge(p.limits?.asOf, now) && (
                   <span
                     className="block text-[10px] text-yellow-400"
-                    title={`Limit-Stand ${staleAge(p.limits?.asOf, now)}`}
+                    title={`Limit as of ${staleAge(p.limits?.asOf, now)}`}
                   >
-                    veraltet · {staleAge(p.limits?.asOf, now)}
+                    stale · {staleAge(p.limits?.asOf, now)}
                   </span>
                 )}
               </span>
@@ -81,33 +81,33 @@ export const UsageCard: React.FC<UsageCardProps> = ({ onOpen }) => {
                   {p.limits && !p.limits.fiveHour ? (
                     <span
                       className="text-[11px] text-gray-500"
-                      title="Die Quelle liefert kein 5-Stunden-Fenster"
+                      title="The source has no 5-hour window"
                     >
-                      kein 5-h-Limit
+                      no 5h limit
                     </span>
                   ) : (
                     <LimitBar
                       label="5 h"
                       window={p.limits?.fiveHour}
-                      unknownText="unbekannt"
+                      unknownText="unknown"
                       compact
                       now={now}
                     />
                   )}
                   <LimitBar
-                    label="Woche"
+                    label="Week"
                     window={p.limits?.weekly}
-                    unknownText="unbekannt"
+                    unknownText="unknown"
                     compact
                     now={now}
                   />
                 </>
               ) : (
-                <span className="col-span-2 text-[11px] text-gray-500">nicht verfügbar</span>
+                <span className="col-span-2 text-[11px] text-gray-500">not available</span>
               )}
-              <span className="text-right text-xs tabular-nums text-gray-200" title="Tokens heute">
+              <span className="text-right text-xs tabular-nums text-gray-200" title="Tokens today">
                 {formatTokens(tokensOn(p.daily, today))}
-                <span className="block text-[10px] text-gray-500">heute</span>
+                <span className="block text-[10px] text-gray-500">today</span>
               </span>
             </li>
           ))}

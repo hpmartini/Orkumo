@@ -107,7 +107,7 @@ const AgentIssueCreate: React.FC<IssueCreateProps> = ({
         toast(
           (t) => (
             <span className="text-xs">
-              {key} angelegt
+              {`${key} created`}
               <button
                 onClick={() => {
                   toast.dismiss(t.id);
@@ -115,7 +115,7 @@ const AgentIssueCreate: React.FC<IssueCreateProps> = ({
                 }}
                 className="ml-3 text-cursor hover:underline underline-offset-2"
               >
-                Im Board öffnen
+                Open in board
               </button>
             </span>
           ),

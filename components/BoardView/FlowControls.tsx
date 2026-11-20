@@ -30,14 +30,14 @@ export const FlowControls: React.FC<{
 }> = ({ labels, repoOptions, onSave, issueUrl, issueId }) => {
   const controls = useWorkflowProvider()?.controls;
   const [startMsg, setStartMsg] = useState<string | null>(null);
-  const [startWhat, setStartWhat] = useState('Umsetzung');
+  const [starting, setStarting] = useState(false);
   const [feedback, setFeedback] = useState('');
   const names = labels.map((l) => l.name);
   const exists = (label: string) => !!repoOptions?.labels.some((l) => l.name === label);
   const apply = (next: string[]) =>
     onSave({ labels: next }, { labels: labelsFor(next, repoOptions) });
   const missing = (label: string) =>
-    repoOptions && !exists(label) ? `Label ${label} gibt es im Repo nicht` : undefined;
+    repoOptions && !exists(label) ? `Label ${label} does not exist in the repo` : undefined;
   const toggle = (label: string, text: string, hint: string) => {
     const on = names.includes(label);
     return (
@@ -45,7 +45,7 @@ export const FlowControls: React.FC<{
         onClick={() => apply(toggleLabel(names, label, !on))}
         disabled={!exists(label)}
         aria-pressed={on}
-        title={missing(label) ?? `${hint} (${label} ${on ? 'entfernen' : 'setzen'})`}
+        title={missing(label) ?? `${hint} (${on ? `remove ${label}` : `set ${label}`})`}
         className={`${BTN} ${btnState(on)}`}
       >
         {text}
@@ -54,23 +54,29 @@ export const FlowControls: React.FC<{
   };
   const startLabel = controls?.start?.label ?? '';
   const building = names.includes(startLabel);
-  const busy = startMsg === 'startet…';
+  const busy = starting;
   /** `prepare` writes comment/label; only when it succeeds the issue starts now */
   const startAfter = async (what: string, prepare: () => Promise<boolean>) => {
-    setStartWhat(what);
-    setStartMsg('startet…');
+    const say = (m: string | null) => setStartMsg(m && `${what}: ${m}`);
+    setStarting(true);
+    say('starting…');
     try {
-      if (!(await prepare())) return setStartMsg(null);
-      setStartMsg(issueUrl ? startText(await startWorkflow(issueUrl)) : null);
+      if (!(await prepare())) return say(null);
+      say(issueUrl ? startText(await startWorkflow(issueUrl)) : null);
     } catch (e) {
-      setStartMsg(`Nicht gestartet: ${e instanceof Error ? e.message : 'Fehler'}`);
+      say(`not started: ${e instanceof Error ? e.message : 'error'}`);
+    } finally {
+      setStarting(false);
     }
   };
   const build = () =>
-    startAfter('Umsetzung', async () => building || apply(toggleLabel(names, startLabel, true)));
+    startAfter(
+      'Implementation',
+      async () => building || apply(toggleLabel(names, startLabel, true))
+    );
   const text = feedback.trim();
   const sendFeedback = (label: string) =>
-    startAfter('Rückmeldung', async () => {
+    startAfter('Feedback', async () => {
       if (!issueId) return false;
       // comment first: when the poll sees the label, the feedback must already be there
       await addIssueComment(issueId, text);
@@ -84,9 +90,7 @@ export const FlowControls: React.FC<{
       disabled={!exists(label) || !issueId || !text || busy}
       title={
         missing(label) ??
-        (text
-          ? `${hint}: Rückmeldung als Kommentar, ${label} setzen`
-          : 'Erst Rückmeldung schreiben')
+        (text ? `${hint}: feedback as comment, set ${label}` : 'Write feedback first')
       }
       className={`${BTN} ${btnState(false)}`}
     >
@@ -98,9 +102,9 @@ export const FlowControls: React.FC<{
   const mode = modes ? currentMode(names, modes) : null;
 
   return (
-    <section aria-label="Kontrollfluss">
+    <section aria-label="Control flow">
       <h3 className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-2">
-        Kontrollfluss
+        Control flow
         {waiting && names.includes(waiting.label) && (
           <span className="px-1.5 rounded bg-amber-500/20 text-amber-300 font-normal">
             {waiting.text}
@@ -130,8 +134,8 @@ export const FlowControls: React.FC<{
           value={feedback}
           onChange={(e) => setFeedback(e.target.value)}
           rows={2}
-          placeholder="Rückmeldung an die Session (wird als Kommentar gepostet)"
-          aria-label="Rückmeldung"
+          placeholder="Feedback to the session (posted as a comment)"
+          aria-label="Feedback"
           className="w-full bg-gray-850 border border-gray-700 rounded px-2 py-1.5 text-xs text-gray-100 resize-y focus:outline-none focus:border-gray-500"
         />
         <div className="mt-1 flex flex-wrap gap-1.5">
@@ -139,10 +143,10 @@ export const FlowControls: React.FC<{
         </div>
       </div>
       <p role="status" className="mt-1.5 text-xs text-gray-400 empty:hidden">
-        {startMsg && `${startWhat}: ${startMsg}`}
+        {startMsg}
       </p>
       {modes && (
-        <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Modus">
+        <div className="mt-2 flex flex-wrap gap-1.5" role="radiogroup" aria-label="Mode">
           {modes.options.map(({ text, label }) => (
             <button
               key={label ?? 'default'}
@@ -150,7 +154,7 @@ export const FlowControls: React.FC<{
               aria-checked={mode === label}
               onClick={() => mode !== label && apply(setMode(names, modes, label))}
               disabled={!!label && !exists(label)}
-              title={label ? (missing(label) ?? label) : 'Kein Modus-Label'}
+              title={label ? (missing(label) ?? label) : 'No mode label'}
               className={`${BTN} ${btnState(mode === label)}`}
             >
               {text}

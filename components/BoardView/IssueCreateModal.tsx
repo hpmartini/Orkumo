@@ -132,7 +132,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
         setBody(fullBody);
         setImages([]);
       } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Bilder nicht hochgeladen');
+        toast.error(err instanceof Error ? err.message : 'Images not uploaded');
         setSaving(false);
         return;
       }
@@ -158,12 +158,12 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
     } catch (err) {
       const issue = errorDetails(err).issue as { id?: string; url?: string | null } | undefined;
       if (issue?.id) setOrphan((o) => ({ id: issue.id!, url: issue.url ?? o?.url ?? null }));
-      toast.error(err instanceof Error ? err.message : 'Issue nicht angelegt');
+      toast.error(err instanceof Error ? err.message : 'Issue not created');
       setSaving(false);
     }
   };
 
-  const none = <span className="text-gray-400">keine</span>;
+  const none = <span className="text-gray-400">none</span>;
   return (
     <div
       className="fixed inset-0 z-[90] bg-gray-950/70 flex items-start justify-center px-4 pt-[10vh]"
@@ -195,7 +195,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
         <form ref={formRef} onSubmit={submit}>
           <div className="flex items-center mb-3">
             <h2 id="issue-create-title" className="text-sm font-semibold text-gray-50">
-              Neues Issue
+              New issue
             </h2>
             {onKindChange && (
               <div className="ml-3">
@@ -213,7 +213,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               type="button"
               onClick={onClose}
               className="ml-auto p-1.5 rounded-md text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
-              aria-label="Schließen"
+              aria-label="Close"
             >
               <X size={15} />
             </button>
@@ -254,7 +254,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
                   onChange={(e) => setStatusOptionId(e.target.value)}
                   className={FIELD_INPUT}
                 >
-                  {!statusOptionId && <option value="">Backlog (Standard)</option>}
+                  {!statusOptionId && <option value="">Backlog (default)</option>}
                   {statusOptions.map((o) => (
                     <option key={o.id} value={o.id}>
                       {o.name}
@@ -265,7 +265,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             )}
 
             <label htmlFor="issue-create-name" className="text-gray-400">
-              Titel
+              Title
             </label>
             <div className="relative">
               <input
@@ -302,8 +302,8 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
                 disabled={!!orphan}
                 placeholder={
                   repos && repos.length > 1
-                    ? 'Was soll passieren? (# wählt das Repository)'
-                    : 'Was soll passieren?'
+                    ? 'What should happen? (# picks the repository)'
+                    : 'What should happen?'
                 }
                 role="combobox"
                 aria-expanded={!!hashRepos}
@@ -323,7 +323,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
                   className="absolute z-10 left-0 right-0 top-full mt-1 max-h-56 overflow-y-auto bg-gray-850 border border-gray-600 rounded shadow-xl py-1"
                 >
                   {hashRepos.length === 0 && (
-                    <li className="px-2 py-1 text-gray-400">Kein Repository passt</li>
+                    <li className="px-2 py-1 text-gray-400">No matching repository</li>
                   )}
                   {hashRepos.map((r, i) => (
                     <li
@@ -351,7 +351,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             </div>
 
             <label htmlFor="issue-create-body" className="text-gray-400 self-start pt-1">
-              Beschreibung
+              Description
             </label>
             <textarea
               id="issue-create-body"
@@ -363,14 +363,14 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               className={`${FIELD_INPUT} font-mono resize-y`}
             />
 
-            <span className="text-gray-400 self-start pt-3">Bilder</span>
+            <span className="text-gray-400 self-start pt-3">Images</span>
             <ImageAttachments
               images={images}
               onChange={setImages}
               disabled={!!orphan || saving}
               note={
                 images.length
-                  ? `Werden in ${repo || 'das Repo'} (Branch issue-assets) hochgeladen und sind so sichtbar wie das Repo`
+                  ? `Uploaded to ${repo || 'the repo'} (branch issue-assets); as visible as the repo`
                   : undefined
               }
             />
@@ -413,10 +413,10 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
             />
           </div>
 
-          {error && <p className="mt-2 text-xs text-red-300">Auswahl nicht geladen: {error}</p>}
+          {error && <p className="mt-2 text-xs text-red-300">{`Options not loaded: ${error}`}</p>}
           {orphan && (
             <p role="status" className="mt-3 text-xs text-amber-200">
-              Das Issue ist auf GitHub angelegt
+              Issue created on GitHub
               {orphan.url && (
                 <>
                   {' '}
@@ -427,13 +427,13 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
                     rel="noopener noreferrer"
                     className="underline"
                   >
-                    öffnen
+                    open
                   </a>
                   )
                 </>
               )}
-              , steht aber noch nicht auf dem Board. „Erneut aufs Board setzen“ wiederholt nur
-              diesen Schritt, ohne ein zweites Issue anzulegen.
+              , but not on the board yet. “Retry adding to board” only repeats that step and will
+              not create a second issue.
             </p>
           )}
           <div className="mt-4 flex items-center justify-end gap-2">
@@ -442,14 +442,14 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               onClick={onClose}
               className="px-3 py-1.5 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-700"
             >
-              Abbrechen
+              Cancel
             </button>
             <button
               type="submit"
               disabled={!repo || !title.trim() || saving}
               className="px-3 py-1.5 rounded text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50 transition-colors"
             >
-              {saving ? 'Lege an …' : orphan ? 'Erneut aufs Board setzen' : 'Issue anlegen (⌘↵)'}
+              {saving ? 'Creating…' : orphan ? 'Retry adding to board' : 'Create issue (⌘↵)'}
             </button>
           </div>
         </form>

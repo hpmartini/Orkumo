@@ -157,8 +157,8 @@ export const QuickWindow: React.FC = () => {
           aria-label="Quick prompt"
           placeholder={
             chatId
-              ? 'Folgefrage … (Cmd+Enter öffnet den Chat in Orkumo)'
-              : 'Frag etwas … (Enter antwortet hier, Cmd+Enter in Orkumo, Esc schließt)'
+              ? 'Follow-up … (Cmd+Enter opens the chat in Orkumo)'
+              : 'Ask something … (Enter answers here, Cmd+Enter in Orkumo, Esc closes)'
           }
           className="flex-1 bg-transparent text-base text-gray-100 placeholder:text-gray-500 focus:outline-none"
         />
@@ -168,7 +168,7 @@ export const QuickWindow: React.FC = () => {
             onClick={() => openInOrkumo(text)}
             className="shrink-0 flex items-center gap-1 rounded border border-gray-700 px-2 py-1 text-xs text-gray-300 hover:bg-gray-800"
           >
-            <ExternalLink size={12} aria-hidden /> In Orkumo öffnen
+            <ExternalLink size={12} aria-hidden /> Open in Orkumo
           </button>
         )}
       </form>
@@ -200,7 +200,7 @@ export const QuickWindow: React.FC = () => {
           })}
           {waiting && (
             <p className="text-xs text-gray-500">
-              … (wartet es auf eine Freigabe: „In Orkumo öffnen“, um sie zu beantworten)
+              … (waiting for an approval: "Open in Orkumo" to answer it)
             </p>
           )}
         </div>

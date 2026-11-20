@@ -22,7 +22,7 @@ function toastBoxes(): ToastBox[] {
 /**
  * Toaster whose toasts never block the controls underneath (issue #183): the toast body
  * ignores the pointer, fades while the pointer is over it, and clicks reach what lies below.
- * Buttons in a toast (its "×", "Rückgängig" …) stay clickable.
+ * Buttons in a toast (its "×", "Undo" …) stay clickable.
  */
 export function PassThroughToaster(props: Omit<ToasterProps, 'children'>) {
   const [faded, setFaded] = useState<string | null>(null);
@@ -65,7 +65,7 @@ export function PassThroughToaster(props: Omit<ToasterProps, 'children'>) {
               <button
                 type="button"
                 data-toast-close={t.id}
-                aria-label="Benachrichtigung schließen"
+                aria-label="Dismiss notification"
                 onClick={() => toast.dismiss(t.id)}
                 className="ml-1 p-0.5 rounded text-gray-400 hover:text-gray-100 hover:bg-white/10 focus-visible:outline focus-visible:outline-1 focus-visible:outline-gray-300"
               >

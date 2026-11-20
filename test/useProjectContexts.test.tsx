@@ -17,7 +17,7 @@ const WORKSPACE = 'devOrbitAgentWorkspace.v2';
 const RAIL = 'devOrbitAgentRail.v1';
 const list = {
   contexts: [
-    { id: 'all', name: 'Alle', appIds: null, boardFilter: [] },
+    { id: 'all', name: 'All', appIds: null, boardFilter: [] },
     { id: 'epic', name: 'Epic', appIds: ['a'], boardFilter: [] },
   ],
   activeContextId: 'all',

@@ -617,7 +617,7 @@ describe('boardService - writes vs. board fetches (#72)', () => {
       (e) => e
     );
     expect(err.status).toBe(502);
-    expect(err.message).toMatch(/GitHub CLI \(gh\) nicht gefunden/);
+    expect(err.message).toMatch(/GitHub CLI \(gh\) not found/);
   });
 });
 

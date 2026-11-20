@@ -196,14 +196,14 @@ describe('IssueModal (#104)', () => {
   it('quote and reply fill the composer, send posts it', async () => {
     renderModal();
     await screen.findByText('Rückfrage?');
-    fireEvent.click(screen.getByRole('button', { name: 'Zitieren' }));
-    const box = screen.getByLabelText('Neuer Kommentar') as HTMLTextAreaElement;
+    fireEvent.click(screen.getByRole('button', { name: 'Quote' }));
+    const box = screen.getByLabelText('New comment') as HTMLTextAreaElement;
     expect(box.value).toContain('> Rückfrage?');
-    fireEvent.click(screen.getByRole('button', { name: 'Antworten' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Reply' }));
     expect(box.value.endsWith('@hpmartini ')).toBe(true);
     fireEvent.change(box, { target: { value: 'Ja, so.' } });
     api.addIssueComment.mockResolvedValue([comment, { ...comment, id: 'C2', body: 'Ja, so.' }]);
-    fireEvent.click(screen.getByRole('button', { name: 'Kommentieren' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
     await waitFor(() => expect(api.addIssueComment).toHaveBeenCalledWith('I_1', 'Ja, so.'));
     expect(await screen.findByText('Ja, so.')).toBeTruthy();
     expect(box.value).toBe('');
@@ -212,11 +212,11 @@ describe('IssueModal (#104)', () => {
   it('keeps the draft when sending fails', async () => {
     renderModal();
     await screen.findByText('Rückfrage?');
-    const box = screen.getByLabelText('Neuer Kommentar') as HTMLTextAreaElement;
+    const box = screen.getByLabelText('New comment') as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: 'Wichtig' } });
     api.addIssueComment.mockRejectedValue(new Error('gh down'));
-    fireEvent.click(screen.getByRole('button', { name: 'Kommentieren' }));
-    expect(await screen.findByText(/Nicht gesendet: gh down/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Comment' }));
+    expect(await screen.findByText(/Not sent: gh down/)).toBeTruthy();
     expect(box.value).toBe('Wichtig');
   });
 
@@ -247,7 +247,7 @@ describe('IssueModal (#104)', () => {
     );
     // #136 AC-6: modes Default and Image only, switches dynamic/delegate/review
     expect(
-      within(screen.getByRole('radiogroup', { name: 'Modus' }))
+      within(screen.getByRole('radiogroup', { name: 'Mode' }))
         .getAllByRole('radio')
         .map((b) => b.textContent)
     ).toEqual(['Default', 'Image']);
@@ -266,7 +266,7 @@ describe('IssueModal (#104)', () => {
     await waitFor(() => expect(build.disabled).toBe(false));
     expect(build.getAttribute('aria-pressed')).toBe('true');
     fireEvent.click(build);
-    await screen.findByText('Umsetzung: gestartet');
+    await screen.findByText('Implementation: started');
     fireEvent.click(build);
     await waitFor(() => expect(api.startWorkflow).toHaveBeenCalledTimes(2));
     expect(api.startWorkflow).toHaveBeenCalledWith('https://github.com/o/r/issues/7');
@@ -303,17 +303,17 @@ describe('IssueModal (#104)', () => {
   });
 
   it.each([
-    [{ action: 'start', reason: 'Todo' }, 'Umsetzung: gestartet'],
-    [{ action: 'resume', reason: 'wf:build' }, 'Umsetzung: gestartet'],
+    [{ action: 'start', reason: 'Todo' }, 'Implementation: started'],
+    [{ action: 'resume', reason: 'wf:build' }, 'Implementation: started'],
     [
       { action: 'none', reason: 'kein Platz frei (4/4)', full: true },
-      'Umsetzung: kein Platz frei (4/4), startet, sobald einer frei wird',
+      'Implementation: kein Platz frei (4/4), starts when a slot is free',
     ],
     [
       { action: 'queued', reason: 'startet mit dem nächsten Poll' },
-      'Umsetzung: startet mit dem nächsten Poll',
+      'Implementation: startet mit dem nächsten Poll',
     ],
-    [{ action: 'none', reason: 'Issue nicht auf MACC' }, 'Umsetzung: Issue nicht auf MACC'],
+    [{ action: 'none', reason: 'Issue nicht auf MACC' }, 'Implementation: Issue nicht auf MACC'],
   ])('AC-4: dialog reports %j', async (result, text) => {
     api.startWorkflow.mockResolvedValue(result);
     renderModal();
@@ -329,7 +329,7 @@ describe('IssueModal (#104)', () => {
     const build = (await screen.findByRole('button', { name: 'Umsetzen' })) as HTMLButtonElement;
     await waitFor(() => expect(build.disabled).toBe(false));
     fireEvent.click(build);
-    expect(await screen.findByText('Umsetzung: Nicht gestartet: wf start: boom')).toBeTruthy();
+    expect(await screen.findByText('Implementation: not started: wf start: boom')).toBeTruthy();
     expect(build.getAttribute('aria-pressed')).toBe('true');
   });
 
@@ -381,7 +381,7 @@ describe('IssueModal (#104)', () => {
     const start = await screen.findByRole('button', { name: /Jetzt starten/ });
     fireEvent.click(start);
     expect(api.sendGo).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByRole('button', { name: /Wirklich/ }));
+    fireEvent.click(screen.getByRole('button', { name: /Sure/ }));
     await waitFor(() => expect(api.sendGo).toHaveBeenCalledWith('PVTI_1', 'poll'));
   });
 
@@ -402,7 +402,7 @@ describe('IssueModal (#104)', () => {
     api.fetchBoard.mockResolvedValue({ ...board, items: [{ ...item, workflow: null }] });
     renderModal();
     await screen.findByText('Rückfrage?');
-    expect(screen.queryByRole('region', { name: 'Kontrollfluss' })).toBeNull();
+    expect(screen.queryByRole('region', { name: 'Control flow' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Umsetzen' })).toBeNull();
     expect(screen.queryByRole('button', { name: /Jetzt starten/ })).toBeNull();
   });
@@ -435,7 +435,7 @@ describe.each([
       )
     );
     expect(b.disabled).toBe(true);
-    fireEvent.change(screen.getByLabelText('Rückmeldung'), { target: { value: '   ' } });
+    fireEvent.change(screen.getByLabelText('Feedback'), { target: { value: '   ' } });
     expect(b.disabled).toBe(true);
   });
 
@@ -443,7 +443,7 @@ describe.each([
     api.addIssueComment.mockResolvedValue([]);
     renderModal();
     const b = await button();
-    const box = screen.getByLabelText('Rückmeldung') as HTMLTextAreaElement;
+    const box = screen.getByLabelText('Feedback') as HTMLTextAreaElement;
     fireEvent.change(box, { target: { value: ' Bitte Abschnitt 2 kürzen ' } });
     await waitFor(() => expect(b.disabled).toBe(false));
     fireEvent.click(b);
@@ -457,7 +457,7 @@ describe.each([
       (m) => m.mock.invocationCallOrder[0]
     );
     expect(order).toEqual([...order].sort((a, b) => a - b));
-    expect((await screen.findByRole('status')).textContent).toBe('Rückmeldung: gestartet');
+    expect((await screen.findByRole('status')).textContent).toBe('Feedback: started');
     expect(box.value).toBe('');
   });
 
@@ -465,10 +465,10 @@ describe.each([
     api.addIssueComment.mockRejectedValue(new Error('gh down'));
     renderModal();
     const b = await button();
-    fireEvent.change(screen.getByLabelText('Rückmeldung'), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText('Feedback'), { target: { value: 'x' } });
     await waitFor(() => expect(b.disabled).toBe(false));
     fireEvent.click(b);
-    expect(await screen.findByText('Rückmeldung: Nicht gestartet: gh down')).toBeTruthy();
+    expect(await screen.findByText('Feedback: not started: gh down')).toBeTruthy();
     expect(api.updateBoardIssue).not.toHaveBeenCalled();
     expect(api.startWorkflow).not.toHaveBeenCalled();
   });
@@ -482,13 +482,13 @@ describe.each([
     });
     renderModal();
     const b = await button();
-    fireEvent.change(screen.getByLabelText('Rückmeldung'), { target: { value: 'x' } });
+    fireEvent.change(screen.getByLabelText('Feedback'), { target: { value: 'x' } });
     await waitFor(() =>
       expect((screen.getByRole('button', { name: 'Umsetzen' }) as HTMLButtonElement).disabled).toBe(
         false
       )
     );
     expect(b.disabled).toBe(true);
-    expect(b.title).toBe(`Label ${label} gibt es im Repo nicht`);
+    expect(b.title).toBe(`Label ${label} does not exist in the repo`);
   });
 });

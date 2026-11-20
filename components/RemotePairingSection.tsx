@@ -38,7 +38,7 @@ export function RemotePairingSection() {
       const { saved } = (await res.json()) as { saved: boolean };
       setInfo((prev) => (prev ? { ...prev, saved } : prev));
     } catch {
-      setSaveError('Speichern fehlgeschlagen');
+      setSaveError('Saving failed');
     }
   }
 
@@ -73,7 +73,7 @@ export function RemotePairingSection() {
         type="button"
         onClick={() => navigator.clipboard?.writeText(value)}
         className="p-1.5 rounded hover:bg-gray-700 transition-colors"
-        aria-label={`${label} kopieren`}
+        aria-label={`Copy ${label}`}
       >
         <Copy size={14} className="text-gray-400" />
       </button>
@@ -85,7 +85,7 @@ export function RemotePairingSection() {
       <div className="flex items-center gap-2 mb-4">
         <Smartphone className="text-sky-400" size={18} />
         <label className="text-sm font-medium text-gray-300">
-          Remote-Zugang (iOS-App, Cluster)
+          Remote access (iOS app, cluster)
         </label>
       </div>
       <div className="p-4 bg-gray-900 rounded-lg border border-gray-700 space-y-2">
@@ -97,7 +97,7 @@ export function RemotePairingSection() {
             onChange={(e) => setRemote(e.target.checked)}
             className="h-4 w-4 accent-sky-500"
           />
-          Remote-/Cluster-Zugang über Tailscale
+          Remote/cluster access via Tailscale
           <span className="rounded-full border border-amber-400/60 bg-amber-400/10 px-1.5 text-[10.5px] font-medium leading-[18px] text-amber-300">
             Pro
           </span>
@@ -109,12 +109,12 @@ export function RemotePairingSection() {
         </p>
         {forced && (
           <p className="text-xs text-gray-500">
-            Festgelegt durch <code>DEVORBIT_REMOTE={info.env}</code> beim Start.
+            Set by <code>DEVORBIT_REMOTE={info.env}</code> at startup.
           </p>
         )}
         {pending && (
           <p role="status" className="text-xs text-amber-400">
-            Gespeichert. Wirkt nach einem Neustart von Orkumo.
+            Saved. Takes effect after Orkumo restarts.
           </p>
         )}
         {saveError && (
@@ -124,25 +124,25 @@ export function RemotePairingSection() {
         )}
         {info.enabled ? (
           <>
-            {row('Adresse', info.url ?? 'Tailscale nicht gefunden: DEVORBIT_REMOTE_URL setzen')}
+            {row('Address', info.url ?? 'Tailscale not found: set DEVORBIT_REMOTE_URL')}
             {info.token && row('Token', info.token)}
             {info.link && row('Link', info.link)}
             {qr && (
               <img
                 src={qr}
-                alt="Pairing-QR-Code für die iOS-App"
+                alt="Pairing QR code for the iOS app"
                 className="mx-auto h-40 w-40 rounded bg-white p-1"
               />
             )}
             <p className="text-xs text-gray-500">
-              QR-Code mit der iPhone/iPad-Kamera scannen, den Link öffnen (AirDrop, Notiz) oder
-              Adresse und Token in der App eingeben.
+              Scan the QR code with the iPhone/iPad camera, open the link (AirDrop, note) or enter
+              the address and token in the app.
             </p>
           </>
         ) : pending ? null : (
           <p className="text-xs text-gray-400">
-            Remote-Zugang ist aus. Oben einschalten, Orkumo neu starten und die Tailscale-Freigabe
-            einrichten (Modus Cluster oder README, Abschnitt iOS).
+            Remote access is off. Turn it on above, restart Orkumo and set up the Tailscale share
+            (cluster mode or README, iOS section).
           </p>
         )}
       </div>

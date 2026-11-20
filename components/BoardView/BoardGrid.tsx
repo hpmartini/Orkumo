@@ -117,7 +117,7 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
               key={col.key}
               {...dropProps(col)}
               className="min-h-[3.25rem] rounded border border-dashed border-gray-700/60"
-              title={`Auf ${col.option?.name} ziehen`}
+              title={`Drag to ${col.option?.name}`}
             />
           );
         const cellKey = `${lane.key}|${col.key}`;
@@ -152,7 +152,7 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
                 onClick={() => setExpandedCells((s) => toggle(s, cellKey))}
                 className="w-full text-[11px] text-gray-400 hover:text-white py-1"
               >
-                {expanded ? 'Weniger anzeigen' : `+ ${cell.length - MAX_CARDS} weitere`}
+                {expanded ? 'Show less' : `+ ${cell.length - MAX_CARDS} more`}
               </button>
             )}
           </div>
@@ -170,7 +170,7 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
         {columns.map((col) => {
           const count = allItems.filter((i) => visibleIn(col, i)).length;
           const done = !!col.option && isDoneOption(col.option);
-          const name = col.option?.name ?? 'Ohne Status';
+          const name = col.option?.name ?? 'No status';
           if (folded(col))
             return (
               <button
@@ -180,7 +180,7 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
                 aria-label={`${name} (${count})`}
                 className={`flex flex-col items-center gap-1.5 py-1.5 ${HEAD}`}
                 style={{ background: columnTint(col.option?.color ?? 'GRAY').head }}
-                title={`${name}${done ? ` (letzte ${DONE_WINDOW_DAYS} Tage)` : ''} ausklappen`}
+                title={`Expand ${name}${done ? ` (last ${DONE_WINDOW_DAYS} days)` : ''}`}
               >
                 <span className="font-normal text-gray-300 tabular-nums">{count}</span>
                 <span className="[writing-mode:vertical-rl] whitespace-nowrap">{name}</span>
@@ -193,13 +193,13 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
               aria-label={`${name} (${count})`}
               className={`self-start flex flex-1 min-w-0 items-center gap-2 px-2 py-1.5 text-left ${HEAD}`}
               style={{ background: columnTint(col.option?.color ?? 'GRAY').head }}
-              title={`${name} einklappen`}
+              title={`Collapse ${name}`}
             >
               <span className="truncate">{name}</span>
               <span className="font-normal text-gray-300 tabular-nums">{count}</span>
               {done && (
                 <span className="font-normal text-[11px] text-gray-300">
-                  · {DONE_WINDOW_DAYS} Tage
+                  {`· ${DONE_WINDOW_DAYS} days`}
                 </span>
               )}
             </button>
@@ -215,8 +215,8 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
                 onClick={() => props.onCreate?.(optionId)}
                 className={`px-1.5 text-gray-200 ${HEAD}`}
                 style={{ background: columnTint(col.option.color).head }}
-                title={`Neues Issue in ${name}`}
-                aria-label={`Neues Issue in ${name}`}
+                title={`New issue in ${name}`}
+                aria-label={`New issue in ${name}`}
               >
                 <Plus size={14} />
               </button>
@@ -227,12 +227,12 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
 
       {lanes.length === 0 && (
         <div className="px-4 py-16 text-center text-gray-400">
-          Keine Items in dieser Auswahl.{' '}
+          No items in this selection.{' '}
           <button
             onClick={props.onReset}
             className="text-cursor hover:underline underline-offset-2"
           >
-            Filter zurücksetzen
+            Reset filters
           </button>
         </div>
       )}
@@ -277,7 +277,7 @@ export const BoardGrid: React.FC<BoardGridProps> = (props) => {
                       style={{ width: `${Math.round((lane.done / lane.total) * 100)}%` }}
                     />
                   </span>
-                  {lane.done}/{lane.total} erledigt
+                  {`${lane.done}/${lane.total} done`}
                 </span>
               )}
             </button>

@@ -73,7 +73,7 @@ describe('PassThroughToaster', () => {
   it('closes a toast with its × button (AC-3)', async () => {
     render(<PassThroughToaster position="top-right" />);
     act(() => void toast('Weg damit'));
-    fireEvent.click(await screen.findByRole('button', { name: 'Benachrichtigung schließen' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Dismiss notification' }));
     await waitFor(() => expect(screen.queryByText('Weg damit')).toBeNull(), { timeout: 3000 }); // exit animation + removeDelay
   });
 
@@ -81,7 +81,7 @@ describe('PassThroughToaster', () => {
     const onUndo = vi.fn();
     render(<PassThroughToaster position="top-right" />);
     act(() => undoToast('Verschoben', onUndo));
-    const undo = await screen.findByRole('button', { name: 'Rückgängig' });
+    const undo = await screen.findByRole('button', { name: 'Undo' });
     const bar = layout();
 
     await move(230, 20);

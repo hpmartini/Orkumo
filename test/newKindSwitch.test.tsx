@@ -96,9 +96,9 @@ describe('kind switch in the dialogs (#271)', () => {
       />
     );
     expect(tab('Issue')).toHaveAttribute('aria-selected', 'true');
-    expect(screen.getByLabelText('Titel')).toHaveValue('Fix login');
-    expect(screen.getByLabelText('Beschreibung')).toHaveValue('Steps');
-    fireEvent.change(screen.getByLabelText('Titel'), { target: { value: 'Fix logout' } });
+    expect(screen.getByLabelText('Title')).toHaveValue('Fix login');
+    expect(screen.getByLabelText('Description')).toHaveValue('Steps');
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Fix logout' } });
     fireEvent.click(tab('Agent'));
     expect(onKindChange).toHaveBeenCalledWith('agent', {
       title: 'Fix logout',

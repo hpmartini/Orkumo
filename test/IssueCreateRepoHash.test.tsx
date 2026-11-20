@@ -47,7 +47,7 @@ describe('IssueCreateModal repository via #', () => {
     render(
       <IssueCreateModal repo={repos[0]} repos={repos} onClose={onClose} onCreated={vi.fn()} />
     );
-    return { title: screen.getByLabelText('Titel') as HTMLInputElement, onClose };
+    return { title: screen.getByLabelText('Title') as HTMLInputElement, onClose };
   };
   const repoSelect = () =>
     screen.getByLabelText('Repository', { selector: 'select' }) as HTMLInputElement; // only `.value` is read

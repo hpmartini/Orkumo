@@ -28,7 +28,7 @@ export function undoToast(message: string, onUndo: () => void) {
           }}
           className="ml-3 text-cursor hover:underline underline-offset-2"
         >
-          Rückgängig
+          Undo
         </button>
       </span>
     ),
@@ -78,7 +78,7 @@ export function useBoard(active: boolean) {
       });
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Board konnte nicht geladen werden');
+      setError(err instanceof Error ? err.message : 'Board could not be loaded');
     } finally {
       setLoading(false);
     }
@@ -105,7 +105,7 @@ export function useBoard(active: boolean) {
       setSettings(await updateBoardSettings(patch));
     } catch (err) {
       setSettings(previous);
-      toast.error(err instanceof Error ? err.message : 'Board-Einstellungen nicht gespeichert');
+      toast.error(err instanceof Error ? err.message : 'Board settings not saved');
     }
   }, []);
 
@@ -120,7 +120,7 @@ export function useBoard(active: boolean) {
       if (!board || !item || item.statusOptionId === optionId) return;
       const before = { statusOptionId: item.statusOptionId, updatedAt: item.updatedAt };
       const name = (id: string | null) =>
-        board.statusField.options.find((o) => o.id === id)?.name ?? 'ohne Status';
+        board.statusField.options.find((o) => o.id === id)?.name ?? 'no status';
       // Fresh updatedAt keeps the card inside the Done window right after the drop
       patchItem(itemId, { statusOptionId: optionId, updatedAt: new Date().toISOString() });
       const seq = ++moveSeq.current;
@@ -140,7 +140,7 @@ export function useBoard(active: boolean) {
       } catch (err) {
         if (isLatest()) patchItem(itemId, before);
         toast.error(
-          `${itemKey(item)}: Status nicht gesetzt (${err instanceof Error ? err.message : 'Fehler'})`
+          `${itemKey(item)}: status not set (${err instanceof Error ? err.message : 'error'})`
         );
       } finally {
         if (isLatest()) pending.current.delete(itemId);
@@ -181,9 +181,9 @@ export function useBoard(active: boolean) {
         const current = errorDetails(err).item as BoardItem | undefined;
         if (current?.itemId === itemId) upsertItem(current);
         else patchItem(itemId, item);
-        const reason = err instanceof Error ? err.message : 'Fehler';
+        const reason = err instanceof Error ? err.message : 'error';
         toast.error(
-          `${itemKey(item)}: ${current ? 'nicht vollständig gespeichert, aktueller Stand geladen' : 'nicht gespeichert'} (${reason})`
+          `${itemKey(item)}: ${current ? 'not fully saved, current state loaded' : 'not saved'} (${reason})`
         );
         return false;
       }

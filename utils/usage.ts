@@ -26,7 +26,7 @@ export function cacheHitRate(t: UsageTokens): number | null {
   return prompt > 0 ? t.cacheRead / prompt : null;
 }
 
-/** "Alle": sums totals and merges daily rows per date+model across providers */
+/** "All": sums totals and merges daily rows per date+model across providers */
 export function aggregateProviders(providers: UsageProvider[]): UsageProvider {
   const totals: UsageTotals = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 };
   const merged = new Map<string, UsageDaily>();
@@ -48,7 +48,7 @@ export function aggregateProviders(providers: UsageProvider[]): UsageProvider {
   }
   return {
     id: ALL_PROVIDERS_ID,
-    label: 'Alle',
+    label: 'All',
     kind: 'all',
     available: providers.some((p) => p.available),
     limits: null,
@@ -110,7 +110,7 @@ export const seriesByModel = (daily: UsageDaily[], dates: string[]): StackedSeri
     dates
   );
 
-/** Recharts rows stacked per provider (for "Alle") */
+/** Recharts rows stacked per provider (for "All") */
 export const seriesByProvider = (providers: UsageProvider[], dates: string[]): StackedSeries =>
   stack(
     providers.flatMap((p) =>
@@ -185,18 +185,18 @@ export function formatPercent(rate: number | null): string {
 /** Limit snapshots older than this are flagged with their age instead of passing as live */
 export const LIMITS_STALE_MS = 60 * 60_000;
 
-/** "12 min", "3 h", "26 T" */
+/** "12 min", "3 h", "26 d" */
 export function formatAge(ms: number): string {
   const min = Math.max(0, Math.floor(ms / 60_000));
   if (min < 60) return `${min} min`;
   if (min < 1440) return `${Math.floor(min / 60)} h`;
-  return `${Math.floor(min / 1440)} T`;
+  return `${Math.floor(min / 1440)} d`;
 }
 
-/** null when fresh, else "vor 26 T" for the stale hint */
+/** null when fresh, else "26 d ago" for the stale hint */
 export function staleAge(asOf: number | null | undefined, now: number): string | null {
   if (asOf == null) return null;
-  return now - asOf > LIMITS_STALE_MS ? `vor ${formatAge(now - asOf)}` : null;
+  return now - asOf > LIMITS_STALE_MS ? `${formatAge(now - asOf)} ago` : null;
 }
 
 export type SessionSort = 'recent' | 'tokens' | 'duration';

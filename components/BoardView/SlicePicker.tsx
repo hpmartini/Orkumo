@@ -39,12 +39,12 @@ export const SlicePicker: React.FC<SlicePickerProps> = ({
         data-popover-trigger
         aria-haspopup="listbox"
         aria-expanded={open}
-        aria-label={`${kindLabel} wählen`}
+        aria-label={`Select ${kindLabel}`}
         title={selected ?? undefined}
         className="flex items-center gap-1.5 max-w-56 bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs hover:border-gray-500"
       >
         <span className="truncate min-w-0">
-          {selected ? <SliceName value={selected} /> : `Alle (${allCount})`}
+          {selected ? <SliceName value={selected} /> : `All (${allCount})`}
         </span>
         <ChevronDown size={12} className="shrink-0 text-gray-400" />
       </button>
@@ -121,7 +121,7 @@ const SliceList: React.FC<SlicePickerProps & { onClose: () => void }> = ({
         className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer whitespace-nowrap text-sm ${i === active ? 'bg-gray-800' : ''} ${isSelected ? 'text-blue-300' : 'text-gray-100'} ${row.entry?.hidden ? 'opacity-60' : ''}`}
       >
         <Check size={14} className={`shrink-0 ${isSelected ? '' : 'invisible'}`} />
-        {row.value ? <SliceName value={row.value} /> : <span className="font-medium">Alle</span>}
+        {row.value ? <SliceName value={row.value} /> : <span className="font-medium">All</span>}
         <span className="ml-auto shrink-0 pl-2 tabular-nums text-[11px] text-gray-400 bg-gray-800 border border-gray-700 rounded-full px-1.5">
           {row.entry?.count ?? allCount}
         </span>
@@ -145,12 +145,12 @@ const SliceList: React.FC<SlicePickerProps & { onClose: () => void }> = ({
             setActive(0);
           }}
           onKeyDown={onKeyDown}
-          placeholder={`${kindLabel} suchen…`}
+          placeholder={`Search ${kindLabel}…`}
           role="combobox"
           aria-expanded
           aria-controls={`${id}-list`}
           aria-activedescendant={rows.length ? optionId(active) : undefined}
-          aria-label={`${kindLabel} suchen`}
+          aria-label={`Search ${kindLabel}`}
           className="w-full bg-transparent text-sm text-gray-100 placeholder-gray-500 outline-none"
         />
       </div>
@@ -171,7 +171,7 @@ const SliceList: React.FC<SlicePickerProps & { onClose: () => void }> = ({
             </ul>
           </li>
         ))}
-        {rows.length === 0 && <li className="px-3 py-3 text-sm text-gray-500">Keine Treffer</li>}
+        {rows.length === 0 && <li className="px-3 py-3 text-sm text-gray-500">No matches</li>}
       </ul>
     </div>
   );
