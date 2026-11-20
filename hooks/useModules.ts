@@ -33,6 +33,8 @@ export interface ModuleStatus {
   version: string | null;
   status: 'loaded' | 'error';
   error?: string;
+  /** Link to the module's own settings page (docs/MODULES.md, "Settings link"); `to` is an app path */
+  settings?: { label: string; hint?: string; to: string };
 }
 
 // Bumped after every module reload: lists refetch, module UIs import their ui.js anew

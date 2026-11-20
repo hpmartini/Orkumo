@@ -13,11 +13,10 @@
 import { WebSocketServer } from 'ws';
 import * as pty from 'node-pty';
 import http from 'http';
-import { execFile as execFileCb } from 'child_process';
 import os from 'os';
 import fs from 'fs';
 import crypto from 'crypto';
-import { isAllowedExec } from './execPolicy.js';
+import { parseExecRequest, runExec } from './execRun.js';
 import { HARNESS_COMMANDS, harnessArgsError } from '../config/harnesses.js';
 import { ptyBaseEnv } from '../config/ptyEnv.js';
 
@@ -216,30 +215,6 @@ wss.on('listening', () => {
 // HTTP /exec endpoint - lets the API container run commands on the host
 // ---------------------------------------------------------------------------
 
-const execFileAsync = (bin, args, options) =>
-  new Promise((resolve) => {
-    execFileCb(
-      bin,
-      args,
-      {
-        cwd: options.cwd,
-        timeout: options.timeout,
-        maxBuffer: 8 * 1024 * 1024,
-        env: { ...process.env, ...(options.env || {}) },
-      },
-      (error, stdout, stderr) => {
-        resolve({
-          code: error ? (typeof error.code === 'number' ? error.code : 1) : 0,
-          stdout: String(stdout || ''),
-          // a missing binary (ENOENT) has no stderr; the API falls back on its message
-          stderr:
-            (String(stderr || '') || (error?.code === 'ENOENT' ? error.message : '')) +
-            (error && error.killed ? '\n(timed out)' : ''),
-        });
-      }
-    );
-  });
-
 /**
  * Resolve a binary by name the same way `resolveClaudeBinary` does on the
  * server side, so the host can find `claude` installed under ~/.local/bin
@@ -317,17 +292,13 @@ const httpServer = http.createServer(async (req, res) => {
       return;
     }
 
-    const { command, args = [], cwd, timeout = 60000 } = body || {};
-    if (!isAllowedExec(command, args)) {
-      res.writeHead(403, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: 'Command not allowed' }));
+    const parsed = parseExecRequest(body);
+    if (parsed.error) {
+      res.writeHead(parsed.status, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: parsed.error }));
       return;
     }
-    if (!Array.isArray(args) || args.some((a) => typeof a !== 'string')) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: '`args` must be a string array' }));
-      return;
-    }
+    const { command, args, cwd, timeout, input } = parsed;
 
     // fixed path for launchctl; resolveBinary prefers CLAUDE_CLI_PATH for claude
     const bin = command === 'launchctl' ? '/bin/launchctl' : resolveBinary(command) || command;
@@ -336,10 +307,7 @@ const httpServer = http.createServer(async (req, res) => {
         ? cwd
         : process.env.HOME || os.homedir();
 
-    const result = await execFileAsync(bin, args, {
-      cwd: resolvedCwd,
-      timeout,
-    });
+    const result = await runExec(bin, args, { cwd: resolvedCwd, timeout, input });
 
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify(result));

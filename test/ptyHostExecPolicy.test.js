@@ -3,6 +3,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { isAllowedExec, loadRules } from '../pty-host/execPolicy.js';
+import { MAX_EXEC_INPUT, parseExecRequest, runExec } from '../pty-host/execRun.js';
 
 const RULES = [
   { command: 'wf-tool', args: ['start', '{issue}', '--json'] },
@@ -69,5 +70,49 @@ describe('loadRules', () => {
     expect(loadRules(write('{'))).toEqual([]);
     const bad = [{ command: 'x' }, { command: '', args: [] }, { command: 'y', args: [1] }];
     expect(loadRules(write(JSON.stringify([...RULES, ...bad])))).toEqual(RULES);
+  });
+});
+
+describe('pty-host /exec request', () => {
+  const ok = (command, args) => allowed(command, args);
+
+  it('checks argv against the allowlist; input never changes the verdict', () => {
+    const args = ['start', url, '--json'];
+    expect(parseExecRequest({ command: 'wf-tool', args, input: '{"a":1}' }, ok)).toEqual({
+      command: 'wf-tool',
+      args,
+      cwd: undefined,
+      timeout: 60000,
+      input: '{"a":1}',
+    });
+    expect(
+      parseExecRequest({ command: 'wf-tool', args: ['stop', url, '--json'], input: 'x' }, ok)
+    ).toEqual({ status: 403, error: 'Command not allowed' });
+  });
+
+  it('refuses input that is no string or exceeds 16 KB', () => {
+    const args = ['start', url, '--json'];
+    expect(parseExecRequest({ command: 'wf-tool', args, input: { a: 1 } }, ok).status).toBe(400);
+    expect(
+      parseExecRequest({ command: 'wf-tool', args, input: 'x'.repeat(MAX_EXEC_INPUT + 1) }, ok)
+        .status
+    ).toBe(400);
+    expect(
+      parseExecRequest({ command: 'wf-tool', args, input: 'x'.repeat(MAX_EXEC_INPUT) }, ok)
+    ).not.toHaveProperty('error');
+  });
+
+  it('runExec hands input to stdin and closes it; without input stdin stays untouched', async () => {
+    const cat = ['-e', 'process.stdin.pipe(process.stdout)'];
+    expect(await runExec(process.execPath, cat, { timeout: 10000, input: '{"x":1}' })).toEqual({
+      code: 0,
+      stdout: '{"x":1}',
+      stderr: '',
+    });
+    const quick = await runExec(process.execPath, ['-e', 'process.exit(2)'], {
+      timeout: 10000,
+      input: 'x'.repeat(MAX_EXEC_INPUT),
+    });
+    expect(quick.code).toBe(2);
   });
 });

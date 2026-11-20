@@ -74,6 +74,28 @@ export function isLocalRequest(req) {
   return !FORWARD_HEADERS.some((h) => req.headers[h] !== undefined);
 }
 
+// Per-launch secret Electron main adds to its own windows' requests (electron/rendererSecret.js);
+// server/index.js hands it over at boot and drops it from the env.
+let rendererSecret = Buffer.alloc(0);
+/** @param {string} value DEVORBIT_RENDERER_SECRET; shorter than 32 bytes disables it */
+export function setRendererSecret(value) {
+  rendererSecret = Buffer.from(value ?? '');
+}
+
+/** Request from the Electron renderer of this launch (header `x-orkumo-renderer`) */
+export function hasRendererSecret(req) {
+  const sent = Buffer.from(String(req.headers['x-orkumo-renderer'] ?? ''));
+  return (
+    rendererSecret.length >= 32 &&
+    sent.length === rendererSecret.length &&
+    crypto.timingSafeEqual(sent, rendererSecret)
+  );
+}
+
+/** This machine's own UI: a direct loopback request from a loopback page or the Electron renderer */
+export const isLocalAdmin = (req) =>
+  isLocalRequest(req) && (isLoopbackOrigin(req.headers.origin) || hasRendererSecret(req));
+
 const secrets = new Map();
 
 /** Random secret, created on first use and kept in the data dir (mode 600). */
@@ -185,16 +207,34 @@ const passesAuthorizer = (req) =>
     }
   });
 
+/**
+ * How a request may pass the gate: `local` (trusted loopback), `open` (remote access off),
+ * `authorizer` (a module authorizer said yes), `token` (pairing token), or null (refused).
+ * The authorizer goes first: a request it accepts counts as such even if it carries a token.
+ */
+function gateVia(req) {
+  if (trustsLoopback() && isLocalRequest(req)) return 'local';
+  if (!isRemoteEnabled()) return 'open';
+  if (passesAuthorizer(req)) return 'authorizer';
+  return isValidToken(tokenFrom(req)) ? 'token' : null;
+}
+
 /** True when the request may proceed. Used for HTTP requests and WebSocket upgrades alike. */
 export function isAuthorized(req) {
-  if (!isRemoteEnabled() || (trustsLoopback() && isLocalRequest(req))) return true;
-  return isValidToken(tokenFrom(req)) || passesAuthorizer(req);
+  return gateVia(req) !== null;
 }
+
+const passedVia = new WeakMap();
+
+/** How the request passed requireRemoteToken (see gateVia), null if it did not run */
+export const authVia = (req) => passedVia.get(req) ?? null;
 
 export function requireRemoteToken(req, res, next) {
   // CORS preflights carry no custom headers; the cors middleware answers them before this runs.
-  if (isAuthorized(req)) return next();
-  res.status(401).json({ error: 'Pairing token missing or invalid' });
+  const via = gateVia(req);
+  if (via === null) return res.status(401).json({ error: 'Pairing token missing or invalid' });
+  passedVia.set(req, via);
+  next();
 }
 
 /** Deep link the app understands; also what a QR code would encode. */

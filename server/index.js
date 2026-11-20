@@ -5,7 +5,6 @@ import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { agentViewSettingsSchema, optionalShortString } from './schemas/agentViewSettings.js';
 import http, { createServer } from 'http';
-import { timingSafeEqual } from 'crypto';
 import { WebSocketServer } from 'ws';
 import path from 'path';
 import os from 'os';
@@ -192,16 +191,9 @@ const isAllowedOrigin = (origin) => {
 // local file sends the same, so that shape passes only with the per-launch secret Electron main
 // adds to its own windows' requests (electron/rendererSecret.js), or with the pairing token.
 // Read once and dropped from the env, so PTYs and agents do not inherit it.
-const RENDERER_SECRET = Buffer.from(process.env.DEVORBIT_RENDERER_SECRET ?? '');
+remoteAccess.setRendererSecret(process.env.DEVORBIT_RENDERER_SECRET ?? '');
 delete process.env.DEVORBIT_RENDERER_SECRET;
-const hasRendererSecret = (req) => {
-  const sent = Buffer.from(String(req.headers['x-orkumo-renderer'] ?? ''));
-  return (
-    RENDERER_SECRET.length >= 32 &&
-    sent.length === RENDERER_SECRET.length &&
-    timingSafeEqual(sent, RENDERER_SECRET)
-  );
-};
+const { hasRendererSecret } = remoteAccess;
 const isOpaqueRequest = (req) => {
   const origin = req.headers.origin;
   if (origin) return remoteAccess.isOpaqueOrigin(origin);
@@ -268,11 +260,12 @@ const moduleHost = createModuleHost({
     getAgentContexts,
     // docs/WORKFLOW_PROVIDER.md: modules see the provider only through the contract
     workflow: {
-      provider: () => workflowProvider.providerInfo(),
+      provider: () => workflowProvider.moduleProviderInfo(),
       context: workflowContext,
       start: (url) => workflowProvider.startIssue(url),
       applyGo: (ctx, go) =>
         workflowProvider.applyGo(ctx, go, { updateIssue: boardService.updateIssue }),
+      control: (op, args) => workflowProvider.runControl(op, args),
     },
     get agentLimiter() {
       return agentLimiter;
@@ -282,9 +275,7 @@ const moduleHost = createModuleHost({
     sendError: sendAgentError,
   },
   // Module status and reload: this machine's own UI only (loopback page or the Electron renderer)
-  isAdmin: (req) =>
-    remoteAccess.isLocalRequest(req) &&
-    (remoteAccess.isLoopbackOrigin(req.headers.origin) || hasRendererSecret(req)),
+  isAdmin: remoteAccess.isLocalAdmin,
   // Cached board items carry the old provider's `workflow`
   onReload: () => boardService.dropCachedBoard(),
 });

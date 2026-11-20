@@ -8,6 +8,8 @@ import {
   annotateItem,
   applyGo,
   providerInfo,
+  moduleProviderInfo,
+  runControl,
 } from '../server/services/workflowProvider.js';
 import { createModuleHost } from '../server/services/moduleLoader.js';
 import { mapItem, withWorkflow } from '../server/services/boardService.js';
@@ -84,8 +86,67 @@ describe('validateProvider', () => {
       { ...ok, commands: { go: ['t', '--issue={issue}'] } },
       /whole argument/,
     ],
-    ['non-string argv', { ...ok, commands: { go: ['t', 1] } }, /string array/],
     ['bad sessionName', { ...ok, sessionName: '(' }, /Invalid regular expression|Unterminated/],
+    [
+      'unknown control op',
+      { ...ok, control: { ops: { 'issue.delete': { argv: ['t'] } } } },
+      /unknown control op/,
+    ],
+    ['control without ops', { ...ok, control: {} }, /control.ops/],
+    [
+      'control argv with {issue} inside an argument',
+      { ...ok, control: { ops: { 'issue.add': { argv: ['t', '--url={issue}'] } } } },
+      /whole argument/,
+    ],
+    [
+      'control argv with an unknown placeholder',
+      { ...ok, control: { ops: { status: { argv: ['t', '{input}'] } } } },
+      /unknown placeholder/,
+    ],
+    ['empty control argv', { ...ok, control: { ops: { status: { argv: [] } } } }, /string array/],
+    [
+      'non-boolean input',
+      { ...ok, control: { ops: { 'settings.set': { argv: ['t'], input: 'yes' } } } },
+      /input must be a boolean/,
+    ],
+    [
+      'non-string label',
+      { ...ok, control: { ops: { status: { argv: ['t'], label: 3 } } } },
+      /label and hint/,
+    ],
+    [
+      'an option key that is no identifier',
+      {
+        ...ok,
+        control: {
+          ops: { 'issue.add': { argv: ['t'], options: [{ key: 'Run fast', label: 'x' }] } },
+        },
+      },
+      /options\[\]\.key/,
+    ],
+    [
+      'an option without label',
+      { ...ok, control: { ops: { 'issue.add': { argv: ['t'], options: [{ key: 'fast' }] } } } },
+      /needs a label/,
+    ],
+    [
+      'duplicate option keys',
+      {
+        ...ok,
+        control: {
+          ops: {
+            'issue.add': {
+              argv: ['t'],
+              options: [
+                { key: 'fast', label: 'a' },
+                { key: 'fast', label: 'b' },
+              ],
+            },
+          },
+        },
+      },
+      /unique/,
+    ],
   ])('refuses %s', (_l, wf, err) => {
     expect(() => validateProvider(wf)).toThrow(err);
   });
@@ -99,11 +160,125 @@ describe('validateProvider', () => {
       controls: null,
       sessionName: null,
     });
+    expect(moduleProviderInfo()).toEqual({ ...providerInfo(), control: null });
+  });
+
+  it('modules see control ops without argv; the client sees no control', () => {
+    setProvider({
+      ...ok,
+      control: {
+        ops: {
+          status: { argv: ['t', 'status'] },
+          'issue.add': {
+            argv: ['t', 'add', '{issue}'],
+            input: true,
+            label: 'Add',
+            hint: 'Adds it',
+            options: [
+              { key: 'fast', label: 'Fast', hint: 'Quicker' },
+              { key: 'slow', label: 'Slow' },
+            ],
+          },
+        },
+      },
+    });
+    expect(providerInfo()).not.toHaveProperty('control');
+    expect(moduleProviderInfo().control).toEqual({
+      ops: {
+        status: {},
+        'issue.add': {
+          label: 'Add',
+          hint: 'Adds it',
+          input: true,
+          options: [
+            { key: 'fast', label: 'Fast', hint: 'Quicker' },
+            { key: 'slow', label: 'Slow' },
+          ],
+        },
+      },
+    });
+    expect(JSON.stringify(moduleProviderInfo())).not.toContain('argv');
   });
 
   it('refuses a second provider', () => {
     setProvider(ok);
     expect(() => setProvider(ok)).toThrow(/already loaded/);
+  });
+});
+
+describe('runControl', () => {
+  const base = {
+    apiVersion: 1,
+    name: 'X',
+    stages: [{ id: 'a', label: 'A' }],
+    annotate: () => null,
+  };
+  // A fake tool: echoes its arguments and stdin as the last stdout line, after a noise line
+  const ECHO = [
+    process.execPath,
+    '-e',
+    "let d='';process.stdin.on('data',(c)=>(d+=c));process.stdin.on('end',()=>" +
+      "console.log('working...\\n'+JSON.stringify({ok:true,args:process.argv.slice(1),stdin:d})))",
+  ];
+  const URL = 'https://github.com/acme/site/issues/12';
+  const load = () =>
+    setProvider({
+      ...base,
+      control: {
+        ops: {
+          status: { argv: [...ECHO, 'status'] },
+          'settings.set': { argv: [...ECHO, 'set'], input: true },
+          'issue.release': { argv: [...ECHO, 'release', '{issue}'] },
+          'service.stop': {
+            argv: [process.execPath, '-e', "console.log('plain');process.exit(3)"],
+          },
+        },
+      },
+    });
+
+  it('404 without provider, without control or for an undeclared op', async () => {
+    await expect(runControl('status')).rejects.toMatchObject({ status: 404 });
+    setProvider(base);
+    await expect(runControl('status')).rejects.toMatchObject({ status: 404 });
+    setProvider(null);
+    load();
+    await expect(runControl('session.end')).rejects.toMatchObject({ status: 404 });
+    await expect(runControl('constructor')).rejects.toMatchObject({ status: 404 });
+  });
+
+  it('runs the declared argv; stdin closed and empty without input; data is the last line', async () => {
+    load();
+    expect(await runControl('status')).toEqual({
+      code: 0,
+      data: { ok: true, args: ['status'], stdin: '' },
+      stderr: '',
+    });
+  });
+
+  it('fills {issue} with a checked URL only', async () => {
+    load();
+    const r = await runControl('issue.release', { issue: URL });
+    expect(r.data.args).toEqual(['release', URL]);
+    for (const issue of [undefined, 'https://github.com/acme/site/pull/12', `${URL} --all`]) {
+      await expect(runControl('issue.release', { issue })).rejects.toMatchObject({ status: 400 });
+    }
+    await expect(runControl('status', { issue: URL })).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('passes input as JSON on stdin, only for input ops, at most 16 KB', async () => {
+    load();
+    const r = await runControl('settings.set', { input: { values: { 'a.b': 4 } } });
+    expect(JSON.parse(r.data.stdin)).toEqual({ values: { 'a.b': 4 } });
+    expect(r.data.args).toEqual(['set']);
+    await expect(runControl('status', { input: {} })).rejects.toMatchObject({ status: 400 });
+    await expect(
+      runControl('settings.set', { input: { v: 'x'.repeat(16 * 1024) } })
+    ).rejects.toMatchObject({ status: 400 });
+  });
+
+  it('an unparsable last line gives data null with the exit code', async () => {
+    load();
+    expect(await runControl('service.stop')).toEqual({ code: 3, data: null, stderr: '' });
   });
 });
 

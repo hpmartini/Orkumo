@@ -7,7 +7,9 @@ import { fileURLToPath } from 'url';
 import { createModuleHost, getModulesDir } from '../server/services/moduleLoader.js';
 import { getDataPath } from '../server/services/dataPath.js';
 import { getProvider, setProvider } from '../server/services/workflowProvider.js';
-import { isAuthorized } from '../server/services/remoteAccess.js';
+import * as remoteAccess from '../server/services/remoteAccess.js';
+
+const { isAuthorized } = remoteAccess;
 
 const FIXTURES = path.join(path.dirname(fileURLToPath(import.meta.url)), 'fixtures');
 const fixture = (name) => path.join(FIXTURES, name);
@@ -309,6 +311,102 @@ describe('moduleLoader reload', () => {
     const res = await get('/_reload', { method: 'POST' });
     expect(res.status).toBe(200);
     expect((await res.json())[0]).toMatchObject({ name: 'Changing 2', version: '1.2.4' });
+  });
+});
+
+describe('module settings link and ctx.isOwner', () => {
+  const ownerModule = `export default {
+    id: 'owner', name: 'Owner',
+    settings: { label: 'Open settings', hint: 'Its own page', to: '/owner?view=settings' },
+    register({ router, addAuthorizer, isOwner }) {
+      addAuthorizer((req) => req.headers['x-test-peer'] === 'yes');
+      router.get('/who', (req, res) => res.json(isOwner(req)));
+    },
+  };`;
+  const settingsModule = (id, settings) => `export default {
+    id: '${id}', name: '${id}', settings: ${settings}, register() {},
+  };`;
+  const REMOTE = { 'X-Forwarded-For': '100.64.0.7' };
+  const SECRET = 's'.repeat(32);
+
+  beforeEach(() => {
+    tmp = fs.mkdtempSync(path.join(FIXTURES, 'tmp-owner-'));
+    vi.stubEnv('DEVORBIT_DATA_PATH', path.join(tmp, 'data'));
+    vi.stubEnv('DEVORBIT_REMOTE', 'true');
+    remoteAccess.resetTokenCache();
+    remoteAccess.setRendererSecret(SECRET);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    remoteAccess.resetTokenCache();
+    remoteAccess.setRendererSecret('');
+  });
+
+  /** Module host behind the global gate, wired as in server/index.js */
+  async function startGated(dir) {
+    host = createModuleHost({ services: {}, logger, isAdmin: remoteAccess.isLocalAdmin });
+    const app = express();
+    app.use(remoteAccess.requireRemoteToken);
+    app.use('/api/modules', host.router);
+    await host.load(dir);
+    server = await new Promise((resolve) => {
+      const s = app.listen(0, '127.0.0.1', () => resolve(s));
+    });
+    return (p, headers = {}) =>
+      fetch(`http://127.0.0.1:${server.address().port}/api/modules${p}`, { headers });
+  }
+
+  it('owner: local page or renderer, or let in by an authorizer; never by token alone', async () => {
+    const mods = path.join(tmp, 'mods');
+    writeModule(mods, 'owner', ownerModule);
+    const get = await startGated(mods);
+    const who = async (headers) => {
+      const res = await get('/owner/who', headers);
+      return res.status === 200 ? res.json() : res.status;
+    };
+    const local = { ok: true, via: 'local' };
+    const no = { ok: false, via: null };
+    const token = { 'X-DevOrbit-Token': remoteAccess.getToken() };
+
+    expect(await who({})).toEqual(local);
+    expect(await who({ Origin: 'http://localhost:5173' })).toEqual(local);
+    expect(await who({ Origin: 'null', 'X-Orkumo-Renderer': SECRET })).toEqual(local);
+    expect(await who({ Origin: 'null', 'X-Orkumo-Renderer': 'x'.repeat(32) })).toEqual(no);
+    expect(await who({ Origin: 'https://evil.example' })).toEqual(no);
+    expect(await who({ ...REMOTE, ...token })).toEqual(no);
+    expect(await who({ ...REMOTE, 'X-Test-Peer': 'yes' })).toEqual({ ok: true, via: 'authorizer' });
+    expect(await who({ ...REMOTE, ...token, 'X-Test-Peer': 'yes' })).toEqual({
+      ok: true,
+      via: 'authorizer',
+    });
+    expect(await who(REMOTE)).toBe(401);
+
+    // remote access off: a relayed request passes the gate, but is no owner
+    vi.stubEnv('DEVORBIT_REMOTE', 'false');
+    expect(await who(REMOTE)).toEqual(no);
+  });
+
+  it('settings: validated and listed in the status rows', async () => {
+    const mods = path.join(tmp, 'mods');
+    writeModule(mods, 'owner', ownerModule);
+    writeModule(mods, 'abs', settingsModule('abs', `{ label: 'X', to: 'https://example.com' }`));
+    writeModule(mods, 'proto', settingsModule('proto', `{ label: 'X', to: '//example.com' }`));
+    writeModule(mods, 'nolabel', settingsModule('nolabel', `{ to: '/x' }`));
+    writeModule(mods, 'badhint', settingsModule('badhint', `{ label: 'X', hint: 1, to: '/x' }`));
+    writeModule(mods, 'plain', settingsModule('plain', `{ label: 'Plain', to: '/plain' }`));
+    const get = await startGated(mods);
+    const rows = await (await get('/_status')).json();
+    const byEntry = Object.fromEntries(rows.map((r) => [r.entry, r]));
+    expect(byEntry.owner.settings).toEqual({
+      label: 'Open settings',
+      hint: 'Its own page',
+      to: '/owner?view=settings',
+    });
+    expect(byEntry.plain.settings).toEqual({ label: 'Plain', to: '/plain' });
+    for (const entry of ['abs', 'proto', 'nolabel', 'badhint']) {
+      expect(byEntry[entry]).toMatchObject({ status: 'error' });
+      expect(byEntry[entry].error).toMatch(/settings\./);
+    }
   });
 });
 

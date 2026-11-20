@@ -15,7 +15,7 @@ import path from 'path';
 import { pathToFileURL } from 'url';
 import { getDataPath } from './dataPath.js';
 import { getProvider, setProvider, validateProvider } from './workflowProvider.js';
-import { addAuthorizer, getServeSecret, isViaServe } from './remoteAccess.js';
+import { addAuthorizer, authVia, getServeSecret, isViaServe } from './remoteAccess.js';
 
 // Same pattern as ideIdSchema in server/index.js; the id becomes a URL segment.
 const MODULE_ID = /^[a-z0-9-]+$/;
@@ -71,6 +71,22 @@ function parseSlot({ slot, ui, mode }) {
   return slot;
 }
 
+/** Validated `settings` link of a module (Admin panel, Modules section), or undefined */
+function parseSettings({ settings }) {
+  if (settings === undefined) return undefined;
+  if (!settings || typeof settings !== 'object') throw new Error('settings must be an object');
+  const { label, hint, to } = settings;
+  if (typeof label !== 'string' || !label.trim())
+    throw new Error('settings.label must be a string');
+  if (hint !== undefined && typeof hint !== 'string')
+    throw new Error('settings.hint must be a string');
+  // an app path: `//host` would leave the app
+  if (typeof to !== 'string' || !to.startsWith('/') || to.startsWith('//')) {
+    throw new Error('settings.to must be an app path starting with /');
+  }
+  return { label, ...(hint !== undefined && { hint }), to };
+}
+
 function createLogger(prefix) {
   return {
     info: (...args) => console.log(prefix, ...args),
@@ -103,7 +119,8 @@ function readVersion(moduleDir) {
 /**
  * @param {{ services: object, logger?: object, isAdmin?: (req) => boolean, onReload?: () => void }}
  *   options services are handed to modules as ctx.services; isAdmin gates the status and reload
- *   routes (owner only); onReload runs after every reload (host caches built from module output)
+ *   routes (owner only) and is the local half of ctx.isOwner; onReload runs after every reload
+ *   (host caches built from module output)
  * @returns {{ router: import('express').Router, load: (dir: string) => Promise<object[]>,
  *   reload: () => Promise<object[]>, upgradeHandler: (id: string) => Function | undefined }}
  *   router is mounted once, synchronously; it dispatches to the routers of the current module
@@ -156,6 +173,16 @@ export function createModuleHost({
     }
   });
 
+  /**
+   * ctx.isOwner (docs/MODULES.md): this machine's own UI, or a request a module authorizer let in.
+   * Passing with the pairing token alone is no owner.
+   */
+  const isOwner = (req) => {
+    if (isAdmin(req)) return { ok: true, via: 'local' };
+    if (authVia(req) === 'authorizer') return { ok: true, via: 'authorizer' };
+    return { ok: false, via: null };
+  };
+
   router.use((req, res, next) => modules(req, res, next));
 
   async function loadOne(dir, entry) {
@@ -173,6 +200,7 @@ export function createModuleHost({
     if (typeof mod.register !== 'function') throw new Error('register must be a function');
     const mode = parseMode(mod);
     const slot = parseSlot(mod);
+    const settings = parseSettings(mod);
     if (mod.workflow !== undefined) {
       if (getProvider())
         throw new Error(`a workflow provider is already loaded (${getProvider().name})`);
@@ -226,6 +254,7 @@ export function createModuleHost({
         disposers.push(fn);
       },
       isViaServe,
+      isOwner,
       serveSecret: getServeSecret,
     };
     try {
@@ -247,7 +276,7 @@ export function createModuleHost({
       await runDisposers();
     };
     const version = typeof mod.version === 'string' ? mod.version : undefined;
-    loaded.push({ id: mod.id, name: mod.name, version, ui: uiFile, mode, slot, dispose });
+    loaded.push({ id: mod.id, name: mod.name, version, ui: uiFile, mode, slot, settings, dispose });
   }
 
   /** Ends the current generation: hooks off, routes gone, dispose callbacks run (last loaded first) */
@@ -304,8 +333,15 @@ export function createModuleHost({
       const version = readVersion(path.join(dir, entry));
       try {
         await loadOne(dir, entry);
-        const { id, name, version: own } = loaded[loaded.length - 1];
-        results.push({ entry, id, name, version: own ?? version, status: 'loaded' });
+        const { id, name, version: own, settings } = loaded[loaded.length - 1];
+        results.push({
+          entry,
+          id,
+          name,
+          version: own ?? version,
+          status: 'loaded',
+          ...(settings && { settings }),
+        });
         logger.info(`Loaded module "${id}" from ${entry}`);
       } catch (error) {
         results.push({ entry, version, status: 'error', error: String(error?.message ?? error) });

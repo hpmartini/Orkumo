@@ -56,7 +56,8 @@ const PTY_HOST_HTTP_TOKEN = process.env.PTY_HOST_HTTP_TOKEN || '';
  *
  * @param {string} command - binary name (e.g. "claude") or absolute path
  * @param {string[]} args
- * @param {{cwd?: string, timeout?: number, env?: object}} options
+ * @param {{cwd?: string, timeout?: number, env?: object, input?: string}} options `input` is
+ *   written to the child's stdin, which is then closed (without it stdin stays as before)
  */
 export async function runOnHost(command, args, options = {}) {
   if (!PTY_HOST_HTTP_URL) {
@@ -78,6 +79,7 @@ export async function runOnHost(command, args, options = {}) {
         cwd: options.cwd,
         timeout: options.timeout ?? CLI_TIMEOUT,
         env: options.env,
+        input: options.input,
       }),
       signal: ctrl.signal,
     });
@@ -107,7 +109,7 @@ export async function runOnHost(command, args, options = {}) {
  */
 function runLocal(command, args, options = {}) {
   return new Promise((resolve) => {
-    execFile(
+    const child = execFile(
       command,
       args,
       {
@@ -127,6 +129,11 @@ function runLocal(command, args, options = {}) {
         });
       }
     );
+    if (options.input !== undefined && child.stdin) {
+      // a child that exits without reading stdin makes the write fail with EPIPE; its exit code tells
+      child.stdin.on('error', () => {});
+      child.stdin.end(options.input);
+    }
   });
 }
 
