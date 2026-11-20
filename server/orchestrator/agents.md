@@ -58,7 +58,8 @@ Hape reads the state of all orchestrators in Orkumo's **Status** view, not in yo
 your state changed**: a task started, finished or got blocked, a PR opened, turned green or merged,
 or you need a decision, todo or approval from Hape. Always the whole snapshot, never a delta: an
 inbox entry missing from the next report counts as closed. Schema and a complete example:
-`report.schema.json` and `report.example.json` next to the CLI (`{{CLI}}`).
+`report.schema.json` and `report.example.json` next to the CLI (`{{CLI}}`). The skill
+`/status-report` walks you through it.
 
 - `orchestrator.id`: your role id if you have a role, else your agent id. The CLI fills in
   `agentId`; a report under another orchestrator's id is refused.
