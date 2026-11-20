@@ -227,11 +227,11 @@ export const senderId = (env) =>
  */
 export function senderLine(agents, env) {
   const id = senderId(env);
-  if (!id) return '[via orkumo send, Absender unbekannt]';
+  if (!id) return '[via orkumo send, sender unknown]';
   const me = agents.find((a) => a.id === id || a.sessionId === id);
   return me
-    ? `[von Agent ${me.id} „${me.name || me.harness}“ via orkumo send]`
-    : `[von Agent ${id} via orkumo send]`;
+    ? `[from agent ${me.id} "${me.name || me.harness}" via orkumo send]`
+    : `[from agent ${id} via orkumo send]`;
 }
 
 /** How `agent` is stopped: jobs and omp sessions by id, other pane agents by their pane */
