@@ -52,6 +52,15 @@ describe('ensureOrchestratorWorkspace', () => {
       const skill = fs.readFileSync(path.join(dir, root, 'skills', SKILL_NAME, 'SKILL.md'), 'utf8');
       expect(skill).toMatch(/^---\nname: orkumo-orchestrator\ndescription: /);
       expect(skill).toContain('http://127.0.0.1:4555/api');
+      // `/status-report`: builds the full snapshot against the schema and sends it
+      const report = fs.readFileSync(
+        path.join(dir, root, 'skills', 'status-report', 'SKILL.md'),
+        'utf8'
+      );
+      expect(report).toMatch(/^---\nname: status-report\ndescription: /);
+      expect(report).toContain(path.join(dataDir, 'orchestrator-bin', 'report.schema.json'));
+      expect(report).toContain(`"${cli}" report -`);
+      expect(report).not.toContain('{{');
     }
     expect(fs.statSync(cli).mode & 0o111).toBeTruthy();
     expect(fs.readFileSync(path.join(dataDir, 'orchestrator-bin', 'orkumo.mjs'), 'utf8')).toBe(
