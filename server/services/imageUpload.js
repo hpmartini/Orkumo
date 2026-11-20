@@ -112,7 +112,7 @@ function ghRest(method, endpoint, body) {
       { timeout: 60_000, maxBuffer: 8 * 1024 * 1024 },
       (error, stdout, stderr) => {
         if (error?.code === 'ENOENT') {
-          return reject(httpError('GitHub CLI (gh) nicht im PATH des Orkumo-Servers', 502));
+          return reject(httpError('GitHub CLI (gh) not on the PATH of the Orkumo server', 502));
         }
         let payload = null;
         try {

@@ -757,7 +757,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           <div className="pt-4 border-t border-gray-700">
             <div className="flex items-center gap-2 mb-4">
               <Kanban className="text-emerald-400" size={18} />
-              <label className="text-sm font-medium text-gray-300">Board-Quelle</label>
+              <label className="text-sm font-medium text-gray-300">Board source</label>
             </div>
             <form
               className="p-4 bg-gray-900 rounded-lg border border-gray-700 space-y-3"
@@ -767,7 +767,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               }}
             >
               <p className="text-xs text-gray-500">
-                GitHub-Project, das das Board zeigt (User oder Organisation + Project-Nummer).
+                GitHub project the board shows (user or organization + project number).
               </p>
               <div className="flex gap-2">
                 <label className="flex-1 text-xs text-gray-400">
@@ -785,7 +785,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   />
                 </label>
                 <label className="w-28 text-xs text-gray-400">
-                  Project-Nr.
+                  Project number
                   <input
                     type="number"
                     min={1}
@@ -803,7 +803,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                 {boardSourceSaved && (
                   <span className="flex items-center gap-1 text-xs text-green-400">
                     <CheckCircle size={14} />
-                    Gespeichert
+                    Saved
                   </span>
                 )}
                 <button
@@ -812,7 +812,7 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
                   className="flex items-center gap-1 px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded transition-colors"
                 >
                   <Save size={14} />
-                  Speichern
+                  Save
                 </button>
               </div>
             </form>

@@ -94,7 +94,7 @@ export function ghGraphql(query, stringVars = {}, typedVars = {}) {
         if (error?.code === 'ENOENT') {
           return reject(
             httpError(
-              `GitHub CLI (gh) nicht gefunden: nicht im PATH des Orkumo-Servers (${process.env.PATH || 'leer'}). gh installieren bzw. Desktop-App von main neu bauen.`,
+              `GitHub CLI (gh) not found: not on the PATH of the Orkumo server (${process.env.PATH || 'empty'}). Install gh or rebuild the desktop app from main.`,
               502
             )
           );
@@ -658,7 +658,7 @@ export async function createIssue(source, input, { allowed } = {}) {
     return await refetchItem(source, itemId, true);
   } catch (error) {
     const ref = issue.number ? `${input.repo}#${issue.number}` : 'Issue';
-    throw detailedError(`${ref} angelegt, aber nicht aufs Board gesetzt: ${error.message}`, 502, {
+    throw detailedError(`${ref} created, but not added to the board: ${error.message}`, 502, {
       issue,
     });
   }

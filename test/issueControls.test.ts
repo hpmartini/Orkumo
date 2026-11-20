@@ -55,12 +55,12 @@ describe('mode labels', () => {
 describe('comment quoting', () => {
   it('quotes every line with attribution', () => {
     expect(quoteComment(comment)).toBe(
-      '> **@hpmartini** [schrieb](https://x/c1):\n>\n> Zeile 1\n>\n> Zeile 3\n\n'
+      '> **@hpmartini** [wrote](https://x/c1):\n>\n> Zeile 1\n>\n> Zeile 3\n\n'
     );
   });
   it('drops workflow markers (HTML comments) from the quote', () => {
     const q = quoteComment({ ...comment, body: 'Text\n\n<!-- wf:start session=x -->' });
-    expect(q).toBe('> **@hpmartini** [schrieb](https://x/c1):\n>\n> Text\n\n');
+    expect(q).toBe('> **@hpmartini** [wrote](https://x/c1):\n>\n> Text\n\n');
   });
   it('reply quotes and mentions the author', () => {
     const r = replyText(comment);
@@ -75,16 +75,16 @@ describe('comment quoting', () => {
 
 describe('startText (AC-4)', () => {
   it('started, queued, no slot, other reason', () => {
-    expect(startText({ action: 'start', reason: 'x' })).toBe('gestartet');
-    expect(startText({ action: 'resume', reason: 'x' })).toBe('gestartet');
+    expect(startText({ action: 'start', reason: 'x' })).toBe('started');
+    expect(startText({ action: 'resume', reason: 'x' })).toBe('started');
     expect(startText({ action: 'queued', reason: 'mit dem nächsten Poll' })).toBe(
       'mit dem nächsten Poll'
     );
-    expect(startText({ action: 'queued', reason: '' })).toBe('startet später');
+    expect(startText({ action: 'queued', reason: '' })).toBe('starts later');
     expect(startText({ action: 'none', reason: 'kein Platz frei (2/4)', full: true })).toBe(
-      'kein Platz frei (2/4), startet, sobald einer frei wird'
+      'kein Platz frei (2/4), starts when a slot is free'
     );
     expect(startText({ action: 'none', reason: 'nichts freigegeben' })).toBe('nichts freigegeben');
-    expect(startText({ action: 'none', reason: '' })).toBe('nicht gestartet');
+    expect(startText({ action: 'none', reason: '' })).toBe('not started');
   });
 });

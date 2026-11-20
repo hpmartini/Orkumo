@@ -38,8 +38,8 @@ import { FlowControls } from './FlowControls';
 import { IssueComments } from './IssueComments';
 
 const VIA: Record<AgentIssueLink['via'], string> = {
-  workflow: 'Workflow-Kommentar',
-  pr: 'verlinkten PR',
+  workflow: 'workflow comment',
+  pr: 'linked PR',
 };
 
 interface BoardItemPanelProps {
@@ -98,7 +98,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
     let alive = true;
     fetchIssueDetails(issueId)
       .then((d) => alive && (setDetails(d), setDetailsError(null)))
-      .catch((e) => alive && setDetailsError(e instanceof Error ? e.message : 'Fehler'));
+      .catch((e) => alive && setDetailsError(e instanceof Error ? e.message : 'Error'));
     return () => {
       alive = false;
     };
@@ -115,7 +115,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
       loadDetails();
     return ok;
   };
-  const none = <Muted>keine</Muted>;
+  const none = <Muted>none</Muted>;
   const subs = items.filter((i) => i.parent && issueKey(i.parent.repo, i.parent.number) === key);
   const statusName = (id: string | null) => options.find((o) => o.id === id)?.name ?? '–';
   // only GOs the provider marks `panel` are offered here; the others stay in the workflow view
@@ -128,12 +128,12 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
       onClick={() => parentKey && onOpenKey(parentKey)}
       disabled={!parentOnBoard}
       className="text-left enabled:hover:text-white"
-      title={parentOnBoard ? 'Parent öffnen' : 'Parent ist nicht auf dem Board'}
+      title={parentOnBoard ? 'Open parent' : 'Parent is not on the board'}
     >
       <span className="font-mono text-gray-400">#{item.parent.number}</span> {item.parent.title}
     </button>
   ) : (
-    <Muted>keiner</Muted>
+    <Muted>none</Muted>
   );
 
   useEffect(() => {
@@ -152,18 +152,18 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           ? 'w-[640px] max-w-full max-h-[85vh] flex flex-col bg-gray-900 border border-gray-700 rounded-lg shadow-[0_0_40px_-8px_rgba(0,0,0,.6)]'
           : 'absolute top-0 right-0 z-20 h-full w-[420px] max-w-full flex flex-col bg-gray-900 border-l border-gray-700 shadow-[0_0_40px_-8px_rgba(0,0,0,.6)]'
       }
-      aria-label="Issue-Details"
+      aria-label="Issue details"
     >
       <div className="flex items-center gap-2 px-4 h-12 border-b border-gray-700 shrink-0">
         <ItemIcon item={item} size={16} />
         <span className="font-mono text-xs text-gray-400 truncate">
-          {item.number != null ? `${item.repo}#${item.number}` : 'Entwurf'}
+          {item.number != null ? `${item.repo}#${item.number}` : 'Draft'}
         </span>
         <div className="flex-1" />
         {onOpenBoard && (
           <button
             onClick={onOpenBoard}
-            title="Im Board öffnen"
+            title="Open in board"
             className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800"
           >
             <KanbanSquare size={14} />
@@ -175,8 +175,8 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           disabled={!item.repo && !links.length}
           title={
             item.repo || links.length
-              ? 'Im Code-Modus öffnen (Worktree des Agents, sonst Repo)'
-              : 'Kein Repo und kein Agent verknüpft'
+              ? 'Open in code mode (agent worktree, else repo)'
+              : 'No repo and no agent linked'
           }
           className="flex items-center gap-1 px-2 py-1 rounded text-xs text-gray-300 hover:text-white hover:bg-gray-800 disabled:opacity-40 disabled:pointer-events-none"
         >
@@ -198,8 +198,8 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           ref={closeRef}
           onClick={onClose}
           className="p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
-          aria-label="Schließen (Esc)"
-          title="Schließen (Esc)"
+          aria-label="Close (Esc)"
+          title="Close (Esc)"
         >
           <X size={16} />
         </button>
@@ -216,7 +216,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
               className="bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-100"
               aria-label="Status"
             >
-              {!item.statusOptionId && <option value="">Ohne Status</option>}
+              {!item.statusOptionId && <option value="">No status</option>}
               {options.map((o) => (
                 <option key={o.id} value={o.id}>
                   {o.name}
@@ -226,13 +226,13 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
           </dd>
           {editable && (
             <>
-              <dt className="text-gray-400">Zustand</dt>
+              <dt className="text-gray-400">State</dt>
               <dd>
                 <IssueStateSelect item={item} onSave={save} />
               </dd>
             </>
           )}
-          <dt className="text-gray-400">Projekt</dt>
+          <dt className="text-gray-400">Repository</dt>
           <dd className="text-gray-200">{item.repo ?? <Muted>–</Muted>}</dd>
           <dt className="text-gray-400">Labels</dt>
           <dd className="flex flex-wrap gap-1 min-w-0">
@@ -304,9 +304,9 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
               </dd>
             </>
           )}
-          <dt className="text-gray-400">Aktualisiert</dt>
+          <dt className="text-gray-400">Updated</dt>
           <dd className="text-gray-200 tabular-nums">
-            {new Date(item.updatedAt).toLocaleString('de-DE', {
+            {new Date(item.updatedAt).toLocaleString(undefined, {
               dateStyle: 'medium',
               timeStyle: 'short',
             })}
@@ -329,7 +329,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
             onGo={() =>
               sendGo(item.itemId, panelGo.kind).then(
                 (res) => void toast.success(goDoneText(key, res.start, res.note)),
-                (e) => void toast.error(e instanceof Error ? e.message : 'GO nicht gesendet')
+                (e) => void toast.error(e instanceof Error ? e.message : 'GO not sent')
               )
             }
           />
@@ -338,7 +338,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
         <section>
           <h3 className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
             <Bot size={14} />
-            Agents an diesem Issue <span className="font-normal text-gray-400">{links.length}</span>
+            Agents on this issue <span className="font-normal text-gray-400">{links.length}</span>
           </h3>
           {links.length ? (
             <ul className="space-y-1.5">
@@ -357,8 +357,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                       <span className="font-mono text-[11px] text-gray-400">{link.jobId}</span>
                     </div>
                     <div className="mt-1 text-[11px] text-gray-400">
-                      verknüpft über {VIA[link.via]}
-                      {!session && ' · keine laufende Session'}
+                      {`linked via ${VIA[link.via]}${session ? '' : ' · no running session'}`}
                     </div>
                     <div className="mt-2 flex gap-1.5">
                       <button
@@ -366,12 +365,12 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                         className="flex items-center gap-1 px-2 py-1 rounded bg-sel text-white text-xs hover:bg-gray-750"
                       >
                         <Terminal size={14} />
-                        Öffnen
+                        Open
                       </button>
                       <button
                         onClick={() => onOpenCode([link.jobId])}
                         disabled={!session}
-                        title={session ? session.cwd : 'Keine laufende Session'}
+                        title={session ? session.cwd : 'No running session'}
                         className="flex items-center gap-1 px-2 py-1 rounded text-gray-300 text-xs hover:text-white hover:bg-gray-800 disabled:opacity-40 disabled:pointer-events-none"
                       >
                         <Code2 size={14} />
@@ -382,7 +381,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                         className="flex items-center gap-1 px-2 py-1 rounded text-gray-300 text-xs hover:text-white hover:bg-gray-800"
                       >
                         <Funnel size={14} />
-                        Seine Issues
+                        Its issues
                       </button>
                     </div>
                   </li>
@@ -391,14 +390,14 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
             </ul>
           ) : (
             <div className="rounded-md border border-dashed border-gray-700 px-3 py-3 text-xs text-gray-400 flex items-center gap-2">
-              Kein Agent verknüpft.
+              No agent linked.
               {item.url && (
                 <button
                   onClick={() => onStartAgent(item)}
                   className="ml-auto flex items-center gap-1 px-2 py-1 rounded text-gray-200 hover:text-white hover:bg-gray-800 transition-colors"
                 >
                   <Play size={14} />
-                  Agent starten
+                  Start agent
                 </button>
               )}
             </div>
@@ -430,7 +429,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
               ))}
             </ul>
           ) : (
-            <p className="text-xs text-gray-400">Noch kein PR.</p>
+            <p className="text-xs text-gray-400">No PR yet.</p>
           )}
         </section>
 
@@ -455,7 +454,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                         onClick={() => onOpenKey(subKey)}
                         disabled={!onBoard}
                         className="flex-1 min-w-0 flex items-center gap-2 text-left text-gray-200 enabled:hover:text-white"
-                        title={onBoard ? 'Sub-Issue öffnen' : 'Nicht auf dem Board'}
+                        title={onBoard ? 'Open sub-issue' : 'Not on the board'}
                       >
                         <span className="font-mono text-gray-400">#{s.number}</span>
                         <span className="flex-1 truncate">{s.title}</span>
@@ -467,8 +466,8 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                         <button
                           onClick={() => save({ removeSubIssue: s.id })}
                           className="p-0.5 rounded text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-                          aria-label={`#${s.number} als Sub-Issue entfernen`}
-                          title="Als Sub-Issue entfernen"
+                          aria-label={`Remove #${s.number} as sub-issue`}
+                          title="Remove as sub-issue"
                         >
                           <X size={11} />
                         </button>

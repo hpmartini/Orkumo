@@ -34,7 +34,7 @@ function renderGrid(onMove = vi.fn()) {
     <BoardGrid
       columns={columns}
       options={options}
-      lanes={[{ key: 'all', title: 'Alle', parent: null, items: [item], done: 0, total: 1 }]}
+      lanes={[{ key: 'all', title: 'All', parent: null, items: [item], done: 0, total: 1 }]}
       laneMode="none"
       now={Date.parse('2026-10-02T00:00:00Z')}
       selectedKey={null}
@@ -78,7 +78,7 @@ describe('BoardGrid column folding', () => {
 
   it('accepts drops on a folded column', () => {
     const onMove = renderGrid();
-    const cell = screen.getByTitle('Auf Done ziehen');
+    const cell = screen.getByTitle('Drag to Done');
     const dataTransfer = { types: ['x'], getData: () => 'PVTI_1' };
     fireEvent.drop(cell, { dataTransfer });
     expect(onMove).toHaveBeenCalledWith('PVTI_1', 'done');
@@ -102,7 +102,7 @@ describe('BoardGrid with the mw 7.9 MACC columns', () => {
       <BoardGrid
         columns={boardColumns(macc, [card])}
         options={macc}
-        lanes={[{ key: 'all', title: 'Alle', parent: null, items: [card], done: 0, total: 1 }]}
+        lanes={[{ key: 'all', title: 'All', parent: null, items: [card], done: 0, total: 1 }]}
         laneMode="none"
         now={Date.parse('2026-11-05T00:00:00Z')}
         selectedKey={null}

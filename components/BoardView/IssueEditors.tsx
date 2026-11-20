@@ -39,7 +39,7 @@ export const EditableTitle: React.FC<{ title: string; editable: boolean; onSave:
         autoFocus
         value={draft}
         maxLength={256}
-        aria-label="Titel"
+        aria-label="Title"
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
@@ -55,7 +55,7 @@ export const EditableTitle: React.FC<{ title: string; editable: boolean; onSave:
         <button
           onClick={() => setDraft(title)}
           className="text-left hover:text-gray-200 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor rounded"
-          title="Titel bearbeiten"
+          title="Edit title"
         >
           {title}
           <Pencil
@@ -71,9 +71,9 @@ export const EditableTitle: React.FC<{ title: string; editable: boolean; onSave:
 };
 
 const STATES = [
-  { value: 'OPEN', label: 'Offen' },
-  { value: 'COMPLETED', label: 'Geschlossen: erledigt' },
-  { value: 'NOT_PLANNED', label: 'Geschlossen: nicht geplant' },
+  { value: 'OPEN', label: 'Open' },
+  { value: 'COMPLETED', label: 'Closed: completed' },
+  { value: 'NOT_PLANNED', label: 'Closed: not planned' },
 ] as const;
 
 export const IssueStateSelect: React.FC<{ item: BoardItem; onSave: IssueSave }> = ({
@@ -89,7 +89,7 @@ export const IssueStateSelect: React.FC<{ item: BoardItem; onSave: IssueSave }> 
   return (
     <select
       value={current}
-      aria-label="Zustand"
+      aria-label="State"
       onChange={(e) => {
         const v = e.target.value as (typeof STATES)[number]['value'];
         if (v === 'OPEN') onSave({ state: 'OPEN' }, { state: 'OPEN', stateReason: 'REOPENED' });
@@ -130,7 +130,7 @@ const RefInput: React.FC<{
         value={text}
         onChange={(e) => setText(e.target.value)}
         onKeyDown={(e) => onCancel && stopEscape(e, onCancel)}
-        placeholder="#12 oder owner/repo#12"
+        placeholder="#12 or owner/repo#12"
         aria-label={label}
         className={FIELD_INPUT}
       />
@@ -138,7 +138,7 @@ const RefInput: React.FC<{
         {busy ? '…' : 'OK'}
       </button>
       {onCancel && (
-        <button type="button" onClick={onCancel} className={GHOST_BTN} aria-label="Abbrechen">
+        <button type="button" onClick={onCancel} className={GHOST_BTN} aria-label="Cancel">
           <X size={12} />
         </button>
       )}
@@ -155,7 +155,7 @@ export const ParentEditor: React.FC<{
   if (editing)
     return (
       <RefInput
-        label="Parent-Issue"
+        label="Parent issue"
         repo={item.repo}
         onCancel={() => setEditing(false)}
         onSubmit={async (parent) => {
@@ -171,8 +171,8 @@ export const ParentEditor: React.FC<{
       <button
         onClick={() => setEditing(true)}
         className="p-0.5 rounded text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-        aria-label={item.parent ? 'Parent ändern' : 'Parent setzen'}
-        title={item.parent ? 'Parent ändern' : 'Parent setzen'}
+        aria-label={item.parent ? 'Change parent' : 'Set parent'}
+        title={item.parent ? 'Change parent' : 'Set parent'}
       >
         <Pencil size={11} />
       </button>
@@ -180,8 +180,8 @@ export const ParentEditor: React.FC<{
         <button
           onClick={() => onSave({ parent: null }, { parent: null })}
           className="p-0.5 rounded text-gray-500 hover:text-white opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
-          aria-label="Parent entfernen"
-          title="Parent entfernen"
+          aria-label="Remove parent"
+          title="Remove parent"
         >
           <X size={11} />
         </button>
@@ -208,10 +208,10 @@ export const IssueBody: React.FC<{
   return (
     <section>
       <h3 className="text-xs font-semibold text-gray-300 mb-2 flex items-center gap-1.5">
-        Beschreibung
+        Description
         {draft === null && body !== null && (
           <button onClick={() => setDraft(body)} className={`ml-auto ${GHOST_BTN}`}>
-            <Pencil size={12} /> Bearbeiten
+            <Pencil size={12} /> Edit
           </button>
         )}
       </h3>
@@ -226,28 +226,28 @@ export const IssueBody: React.FC<{
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) save();
             }}
             rows={10}
-            aria-label="Beschreibung (Markdown)"
+            aria-label="Description (Markdown)"
             className={`${FIELD_INPUT} font-mono resize-y`}
           />
           <div className="flex justify-end gap-1.5">
             <button onClick={() => setDraft(null)} className={GHOST_BTN}>
-              Abbrechen
+              Cancel
             </button>
             <button onClick={save} disabled={saving} className={PRIMARY_BTN}>
-              {saving ? 'Speichere …' : 'Speichern'}
+              {saving ? 'Saving…' : 'Save'}
             </button>
           </div>
         </div>
       ) : error ? (
-        <p className="text-xs text-red-300">Nicht geladen: {error}</p>
+        <p className="text-xs text-red-300">{`Not loaded: ${error}`}</p>
       ) : body === null ? (
-        <p className="text-xs text-gray-400">Lade …</p>
+        <p className="text-xs text-gray-400">Loading…</p>
       ) : body.trim() ? (
         <div className="text-xs text-gray-200 whitespace-pre-wrap break-words leading-relaxed max-h-72 overflow-y-auto thin-scrollbar rounded-md border border-gray-700 bg-gray-850 px-3 py-2">
           {body}
         </div>
       ) : (
-        <p className="text-xs text-gray-400">Keine Beschreibung.</p>
+        <p className="text-xs text-gray-400">No description.</p>
       )}
     </section>
   );
@@ -262,7 +262,7 @@ export const AddSubIssue: React.FC<{ repo: string | null; onSave: IssueSave }> =
   return open ? (
     <div className="mt-2">
       <RefInput
-        label="Sub-Issue hinzufügen"
+        label="Add sub-issue"
         repo={repo}
         onCancel={() => setOpen(false)}
         onSubmit={(addSubIssue) => onSave({ addSubIssue })}
@@ -270,7 +270,7 @@ export const AddSubIssue: React.FC<{ repo: string | null; onSave: IssueSave }> =
     </div>
   ) : (
     <button onClick={() => setOpen(true)} className={`mt-1.5 ${GHOST_BTN}`}>
-      <Plus size={12} /> Sub-Issue hinzufügen
+      <Plus size={12} /> Add sub-issue
     </button>
   );
 };

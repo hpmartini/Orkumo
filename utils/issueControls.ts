@@ -13,10 +13,10 @@ export function toggleLabel(names: string[], label: string, on: boolean): string
 
 /** Dialog/toast text for a start: started, queued, waiting for a free slot, or the provider's reason */
 export function startText(s: StartResult): string {
-  if (s.action === 'start' || s.action === 'resume') return 'gestartet';
-  if (s.action === 'queued') return s.reason || 'startet später';
-  if (s.full) return `${s.reason}, startet, sobald einer frei wird`;
-  return s.reason || 'nicht gestartet';
+  if (s.action === 'start' || s.action === 'resume') return 'started';
+  if (s.action === 'queued') return s.reason || 'starts later';
+  if (s.full) return `${s.reason}, starts when a slot is free`;
+  return s.reason || 'not started';
 }
 
 /** Label of the active mode (null: default, no mode label set) */
@@ -43,7 +43,7 @@ export function quoteComment(c: Pick<IssueComment, 'author' | 'body' | 'url'>): 
     .split('\n')
     .map((l) => (l ? `> ${l}` : '>'))
     .join('\n');
-  return `> **@${c.author}** [schrieb](${c.url}):\n>\n${quoted}\n\n`;
+  return `> **@${c.author}** [wrote](${c.url}):\n>\n${quoted}\n\n`;
 }
 
 /** GitHub has no threaded issue comments: a reply mentions the author and quotes the comment */

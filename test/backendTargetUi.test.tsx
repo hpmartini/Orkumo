@@ -65,7 +65,7 @@ describe('module host', () => {
 describe('BackendBar', () => {
   it('shows the connected instance and disconnects on "Trennen"', async () => {
     render(<BackendBar />);
-    expect(screen.getByRole('status')).toHaveTextContent('Verbunden mit laptop');
+    expect(screen.getByRole('status')).toHaveTextContent('Connected to laptop');
     await userEvent.click(screen.getByRole('button', { name: /Trennen/ }));
     expect(state.disconnect).toHaveBeenCalledTimes(1);
   });

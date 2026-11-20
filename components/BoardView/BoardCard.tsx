@@ -37,9 +37,9 @@ export const LabelChip: React.FC<{ label: BoardLabel }> = ({ label }) => {
 
 const CHECKS: Record<'success' | 'failure' | 'pending', { icon: React.ReactNode; label: string }> =
   {
-    success: { icon: <CheckCircle2 size={12} className="text-emerald-400" />, label: 'CI grün' },
-    failure: { icon: <CircleX size={12} className="text-red-300" />, label: 'CI rot' },
-    pending: { icon: <CircleDashed size={12} className="text-yellow-400" />, label: 'CI läuft' },
+    success: { icon: <CheckCircle2 size={12} className="text-emerald-400" />, label: 'CI passing' },
+    failure: { icon: <CircleX size={12} className="text-red-300" />, label: 'CI failing' },
+    pending: { icon: <CircleDashed size={12} className="text-yellow-400" />, label: 'CI running' },
   };
 
 export const CheckIcon: React.FC<{ state: BoardCheckState }> = ({ state }) =>
@@ -67,7 +67,7 @@ export const AgentGlyph: React.FC<{ session?: AgentSession }> = ({ session }) =>
   return (
     <span
       className={`w-3 text-center leading-none ${g ? g.className : 'text-gray-500'} ${g?.animate ? 'motion-safe:animate-pulse' : ''}`}
-      title={g?.label ?? 'Keine laufende Session'}
+      title={g?.label ?? 'No running session'}
       aria-hidden="true"
     >
       {g?.glyph ?? '∙'}
@@ -117,15 +117,13 @@ export const BoardCard: React.FC<BoardCardProps> = ({
       <div className="flex items-center gap-1.5 text-[11px] text-gray-400">
         <ItemIcon item={item} />
         <span className="font-mono truncate">
-          {item.number != null
-            ? `${hideRepo ? '' : shortRepo(item.repo)}#${item.number}`
-            : 'Entwurf'}
+          {item.number != null ? `${hideRepo ? '' : shortRepo(item.repo)}#${item.number}` : 'Draft'}
         </span>
         {self && <CheckIcon state={self.checks} />}
         {item.subIssues.total > 0 && (
           <span
             className="ml-auto flex items-center gap-1 tabular-nums"
-            title="Sub-Issues erledigt"
+            title="Sub-issues completed"
           >
             <ListChecks size={12} />
             {item.subIssues.completed}/{item.subIssues.total}
@@ -150,7 +148,7 @@ export const BoardCard: React.FC<BoardCardProps> = ({
                 onAgent(id);
               }}
               className="flex items-center gap-1 text-[11px] px-1.5 py-px rounded bg-gray-950/50 border border-gray-700 text-gray-200 hover:border-cursor hover:text-white"
-              title={`${sessionsById.get(id)?.name ?? id}: Board auf seine Issues filtern`}
+              title={`${sessionsById.get(id)?.name ?? id}: filter board to its issues`}
             >
               <AgentGlyph session={sessionsById.get(id)} />
               <Bot size={12} />

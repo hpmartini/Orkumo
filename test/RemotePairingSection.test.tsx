@@ -15,7 +15,7 @@ describe('RemotePairingSection', () => {
       )
     );
     render(<RemotePairingSection />);
-    const qr = await screen.findByAltText('Pairing-QR-Code für die iOS-App');
+    const qr = await screen.findByAltText('Pairing QR code for the iOS app');
     expect(qr.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
     expect(screen.getByText('https://mac.tail1.ts.net')).toBeTruthy();
     expect(screen.getByText(LINK)).toBeTruthy();
@@ -27,7 +27,7 @@ describe('RemotePairingSection', () => {
       vi.fn(async () => Response.json({ enabled: false }))
     );
     render(<RemotePairingSection />);
-    expect(await screen.findByText(/Remote-Zugang ist aus/)).toBeTruthy();
+    expect(await screen.findByText(/Remote access is off/)).toBeTruthy();
   });
 
   it('marks cluster as Pro and says when its module is missing', async () => {

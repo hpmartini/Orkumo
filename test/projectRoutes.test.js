@@ -80,7 +80,7 @@ describe('project routes', { timeout: 60_000 }, () => {
       path.join(dataDir, 'settings.json'),
       JSON.stringify({
         contexts: [
-          { id: 'all', name: 'Alle', appIds: null, boardFilter: [] },
+          { id: 'all', name: 'All', appIds: null, boardFilter: [] },
           {
             id: 'c1',
             name: 'Mixed',
