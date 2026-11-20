@@ -58,6 +58,7 @@ import {
 } from '../types';
 import { formatShortcut } from '../hooks/useKeyboardShortcuts';
 import { RemotePairingSection } from './RemotePairingSection';
+import { ModulesSection } from './ModulesSection';
 import { UpdatesSection } from './UpdatesSection';
 import { ProjectsSettings } from './ProjectsSettings';
 
@@ -818,6 +819,8 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
           </div>
 
           <RemotePairingSection />
+
+          <ModulesSection />
 
           {/* Keyboard Shortcuts Section */}
           <div className="pt-4 border-t border-gray-700">

@@ -1,8 +1,8 @@
 /**
  * Module Loader
  *
- * Loads optional modules from a directory at server start. One subdirectory per
- * module, each with an index.js whose default export is
+ * Loads optional modules from a directory at server start and again on reload(). One subdirectory
+ * per module, each with an index.js whose default export is
  * { id, name, register(ctx), ui?, mode?, workflow? }. See docs/MODULES.md for the contract,
  * docs/WORKFLOW_PROVIDER.md for `workflow`.
  *
@@ -79,16 +79,58 @@ function createLogger(prefix) {
   };
 }
 
+// A dispose step that never settles must not block the next load
+const DISPOSE_TIMEOUT_MS = 5000;
+
+function withTimeout(promise, ms, what) {
+  let timer;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms} ms`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/** `version` of the module's package.json, or null (for a module without its own `version`) */
+function readVersion(moduleDir) {
+  try {
+    const { version } = JSON.parse(fs.readFileSync(path.join(moduleDir, 'package.json'), 'utf8'));
+    return typeof version === 'string' ? version : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
- * @param {{ services: object, logger?: object }} options services are handed to modules as ctx.services
- * @returns {{ router: import('express').Router, load: (dir: string) => Promise<object[]> }}
- *   router is mounted once, synchronously; load() attaches module routers later (Express resolves
- *   the router stack per request, so routes added after mounting still match).
+ * @param {{ services: object, logger?: object, isAdmin?: (req) => boolean, onReload?: () => void }}
+ *   options services are handed to modules as ctx.services; isAdmin gates the status and reload
+ *   routes (owner only); onReload runs after every reload (host caches built from module output)
+ * @returns {{ router: import('express').Router, load: (dir: string) => Promise<object[]>,
+ *   reload: () => Promise<object[]>, upgradeHandler: (id: string) => Function | undefined }}
+ *   router is mounted once, synchronously; it dispatches to the routers of the current module
+ *   generation, which reload() replaces.
  */
-export function createModuleHost({ services, logger = createLogger('[Modules]') }) {
+export function createModuleHost({
+  services,
+  logger = createLogger('[Modules]'),
+  isAdmin = () => false,
+  onReload = () => {},
+}) {
   const router = express.Router();
-  const loaded = [];
-  const upgradeHandlers = new Map();
+  // Current generation: module records { id, name, ui, mode, slot, dispose }, their routers, upgrades
+  let loaded = [];
+  let modules = express.Router();
+  let upgradeHandlers = new Map();
+  // One row per module directory of the last load: { entry, id?, name?, version, status, error? }
+  let results = [];
+  let dirsLoaded = null;
+  let generation = 0;
+  // Loads and reloads run one after another
+  let queue = Promise.resolve();
+  const serialized = (fn) => {
+    const run = queue.then(fn);
+    queue = run.catch(() => {});
+    return run;
+  };
 
   router.get('/', (_req, res) => {
     res.json(
@@ -102,10 +144,25 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
     );
   });
 
+  // `_` cannot start a module id (MODULE_ID), so these never shadow a module route
+  const ownerOnly = (req, res, next) =>
+    isAdmin(req) ? next() : res.status(403).json({ error: 'Local only' });
+  router.get('/_status', ownerOnly, (_req, res) => res.json(results));
+  router.post('/_reload', ownerOnly, async (_req, res) => {
+    try {
+      res.json(await reload());
+    } catch (error) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  router.use((req, res, next) => modules(req, res, next));
+
   async function loadOne(dir, entry) {
     const moduleDir = path.join(dir, entry);
-    const mod = (await import(pathToFileURL(path.join(moduleDir, 'index.js')).href)).default;
-
+    // A new URL per generation: Node caches ES modules per URL, so a reload re-evaluates index.js
+    const url = `${pathToFileURL(path.join(moduleDir, 'index.js')).href}?v=${generation}`;
+    const mod = (await import(url)).default;
     if (!mod || typeof mod !== 'object') throw new Error('default export must be an object');
     if (typeof mod.id !== 'string' || !MODULE_ID.test(mod.id)) {
       throw new Error(`invalid id ${JSON.stringify(mod.id)} (allowed: ${MODULE_ID})`);
@@ -139,7 +196,17 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
 
     let onUpgrade = null;
     const authorizers = [];
-    await mod.register({
+    const disposers = [];
+    const runDisposers = async () => {
+      for (const fn of disposers.reverse()) {
+        try {
+          await withTimeout(Promise.resolve().then(fn), DISPOSE_TIMEOUT_MS, 'dispose');
+        } catch (error) {
+          logger.error(`Dispose of module "${mod.id}" failed:`, error);
+        }
+      }
+    };
+    const ctx = {
       id: mod.id,
       dir: moduleDir,
       dataDir: path.join(getDataPath(), 'module-data', mod.id),
@@ -154,23 +221,72 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
         if (typeof fn !== 'function') throw new Error('addAuthorizer needs a function');
         authorizers.push(fn);
       },
+      onDispose(fn) {
+        if (typeof fn !== 'function') throw new Error('onDispose needs a function');
+        disposers.push(fn);
+      },
       isViaServe,
       serveSecret: getServeSecret,
-    });
+    };
+    try {
+      await mod.register(ctx);
+    } catch (error) {
+      // What register started before it failed (timers, watchers) ends here
+      await runDisposers();
+      throw error;
+    }
 
     // Mount only after register succeeded: a failing module leaves no route or hook behind.
-    router.use(`/${mod.id}`, moduleRouter);
+    modules.use(`/${mod.id}`, moduleRouter);
     if (onUpgrade) upgradeHandlers.set(mod.id, onUpgrade);
-    authorizers.forEach(addAuthorizer);
+    const removeAuthorizers = authorizers.map(addAuthorizer);
     if (mod.workflow !== undefined) setProvider(mod.workflow);
-    loaded.push({ id: mod.id, name: mod.name, ui: uiFile, mode, slot });
+    const dispose = async () => {
+      removeAuthorizers.forEach((remove) => remove());
+      if (mod.workflow !== undefined) setProvider(null);
+      await runDisposers();
+    };
+    const version = typeof mod.version === 'string' ? mod.version : undefined;
+    loaded.push({ id: mod.id, name: mod.name, version, ui: uiFile, mode, slot, dispose });
+  }
+
+  /** Ends the current generation: hooks off, routes gone, dispose callbacks run (last loaded first) */
+  async function unloadAll() {
+    const old = loaded;
+    loaded = [];
+    modules = express.Router();
+    upgradeHandlers = new Map();
+    results = [];
+    generation += 1;
+    for (const m of old.reverse()) {
+      await m.dispose();
+      logger.info(`Unloaded module "${m.id}"`);
+    }
+  }
+
+  async function loadDirs(dirs) {
+    dirsLoaded = dirs;
+    for (const dir of String(dirs).split(path.delimiter).filter(Boolean)) await loadDir(dir);
   }
 
   /** Loads every module of `dirs` (one directory or a path list), in list order */
-  async function load(dirs) {
-    for (const dir of String(dirs).split(path.delimiter).filter(Boolean)) await loadDir(dir);
-    return loaded.map(({ id, name }) => ({ id, name }));
-  }
+  const load = (dirs) =>
+    serialized(async () => {
+      await loadDirs(dirs);
+      return loaded.map(({ id, name }) => ({ id, name }));
+    });
+
+  /**
+   * Unloads every module and loads the directories of the last load() again, without a restart.
+   * @returns per module directory { entry, id?, name?, version, status: 'loaded'|'error', error? }
+   */
+  const reload = () =>
+    serialized(async () => {
+      await unloadAll();
+      if (dirsLoaded !== null) await loadDirs(dirsLoaded);
+      onReload();
+      return results;
+    });
 
   async function loadDir(dir) {
     if (!fs.existsSync(dir)) return;
@@ -185,10 +301,14 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
 
     for (const entry of entries) {
       if (!fs.existsSync(path.join(dir, entry, 'index.js'))) continue;
+      const version = readVersion(path.join(dir, entry));
       try {
         await loadOne(dir, entry);
-        logger.info(`Loaded module "${loaded[loaded.length - 1].id}" from ${entry}`);
+        const { id, name, version: own } = loaded[loaded.length - 1];
+        results.push({ entry, id, name, version: own ?? version, status: 'loaded' });
+        logger.info(`Loaded module "${id}" from ${entry}`);
       } catch (error) {
+        results.push({ entry, version, status: 'error', error: String(error?.message ?? error) });
         logger.error(`Skipping module in ${entry}:`, error);
       }
     }
@@ -197,5 +317,5 @@ export function createModuleHost({ services, logger = createLogger('[Modules]') 
   /** WebSocket upgrade handler of module `id` (ctx.onUpgrade), or undefined */
   const upgradeHandler = (id) => upgradeHandlers.get(id);
 
-  return { router, load, upgradeHandler };
+  return { router, load, reload, upgradeHandler };
 }
