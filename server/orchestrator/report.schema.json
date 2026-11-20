@@ -85,6 +85,12 @@
                   "minLength": 1,
                   "maxLength": 1000
                 },
+                "description": {
+                  "description": "Markdown: the full picture, as detailed as the chat",
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 20000
+                },
                 "refs": {
                   "type": "object",
                   "properties": {
@@ -154,13 +160,21 @@
                 "maxLength": 200
               },
               "detail": {
+                "description": "One line: the short summary",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 4000
               },
+              "description": {
+                "description": "Markdown: the full picture, as detailed as the chat",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20000
+              },
               "projectId": {
                 "type": "string",
-                "pattern": "^[\\w.:-]{1,200}$"
+                "pattern": "^[\\w.:-]{1,200}$",
+                "description": "id of a project of this report; a project 'general' for items without one"
               },
               "taskId": {
                 "type": "string",
@@ -246,7 +260,15 @@
                 "description": "id of one of the options"
               }
             },
-            "required": ["id", "title", "createdAt", "kind", "options", "recommendation"],
+            "required": [
+              "id",
+              "title",
+              "projectId",
+              "createdAt",
+              "kind",
+              "options",
+              "recommendation"
+            ],
             "additionalProperties": false
           },
           {
@@ -263,13 +285,21 @@
                 "maxLength": 200
               },
               "detail": {
+                "description": "One line: the short summary",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 4000
               },
+              "description": {
+                "description": "Markdown: the full picture, as detailed as the chat",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20000
+              },
               "projectId": {
                 "type": "string",
-                "pattern": "^[\\w.:-]{1,200}$"
+                "pattern": "^[\\w.:-]{1,200}$",
+                "description": "id of a project of this report; a project 'general' for items without one"
               },
               "taskId": {
                 "type": "string",
@@ -324,7 +354,7 @@
                 "const": "todo"
               }
             },
-            "required": ["id", "title", "createdAt", "kind"],
+            "required": ["id", "title", "projectId", "createdAt", "kind"],
             "additionalProperties": false
           },
           {
@@ -341,13 +371,21 @@
                 "maxLength": 200
               },
               "detail": {
+                "description": "One line: the short summary",
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 4000
               },
+              "description": {
+                "description": "Markdown: the full picture, as detailed as the chat",
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 20000
+              },
               "projectId": {
                 "type": "string",
-                "pattern": "^[\\w.:-]{1,200}$"
+                "pattern": "^[\\w.:-]{1,200}$",
+                "description": "id of a project of this report; a project 'general' for items without one"
               },
               "taskId": {
                 "type": "string",
@@ -407,7 +445,7 @@
                 "format": "uri"
               }
             },
-            "required": ["id", "title", "createdAt", "kind", "pr"],
+            "required": ["id", "title", "projectId", "createdAt", "kind", "pr"],
             "additionalProperties": false
           }
         ]

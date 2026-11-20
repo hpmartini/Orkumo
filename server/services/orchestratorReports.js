@@ -102,6 +102,37 @@ function writeAtomic(file, data) {
 
 const httpError = (status, message) => Object.assign(new Error(message), { status });
 
+/** Chat context key → what counts as a change of that item (inbox entries and tasks) */
+const contextItems = (report) =>
+  new Map([
+    ...(report?.inbox || []).map((e) => [
+      `inbox:${e.id}`,
+      JSON.stringify([e.title, e.detail, e.description, e.options, e.pr]),
+    ]),
+    ...(report?.projects || []).flatMap((p) =>
+      p.tasks.map((t) => [
+        `task:${p.id}:${t.id}`,
+        JSON.stringify([t.title, t.note, t.description, t.state]),
+      ])
+    ),
+  ]);
+
+/**
+ * New or changed items wait for the orchestrator's next answer (`pending[key] = since`); items
+ * still pending keep their time, every item still present keeps its context, gone items drop both
+ */
+function contextState(prev, report, receivedAt) {
+  const before = contextItems(prev?.report);
+  const pending = {};
+  const contexts = {};
+  for (const [key, sig] of contextItems(report)) {
+    if (before.get(key) !== sig) pending[key] = receivedAt;
+    else if (prev?.pending?.[key]) pending[key] = prev.pending[key];
+    if (prev?.contexts?.[key]) contexts[key] = prev.contexts[key];
+  }
+  return { pending, contexts };
+}
+
 export function createReportStore(dir) {
   const reportsDir = path.join(dir, 'reports');
   const logFile = path.join(dir, 'changes.jsonl');
@@ -137,7 +168,14 @@ export function createReportStore(dir) {
       const answers = Object.fromEntries(
         Object.entries(prev?.answers || {}).filter(([entry]) => open.has(entry))
       );
-      const state = { report, receivedAt: new Date(now).toISOString(), answers, watch };
+      const receivedAt = new Date(now).toISOString();
+      const state = {
+        report,
+        receivedAt,
+        answers,
+        watch,
+        ...contextState(prev, report, receivedAt),
+      };
       save(state);
       const change = { at: state.receivedAt, orchestrator: id, ...diff(prev?.report, report) };
       fs.appendFileSync(logFile, `${JSON.stringify(change)}\n`);
@@ -158,6 +196,20 @@ export function createReportStore(dir) {
       if (!state) return;
       state.watch = watch;
       save(state);
+    },
+    /**
+     * Applies `update(state)` → `{ pending, contexts }` to the stored state read fresh, so a report
+     * that came in meanwhile is never overwritten with an older one; returns the stored state
+     */
+    updateContexts(orchestratorId, update) {
+      const state = read(orchestratorId);
+      if (!state) return null;
+      const next = update(state);
+      const same = (a, b) => JSON.stringify(a ?? {}) === JSON.stringify(b ?? {});
+      if (same(next.pending, state.pending) && same(next.contexts, state.contexts)) return state;
+      Object.assign(state, next);
+      save(state);
+      return state;
     },
     changes() {
       if (!fs.existsSync(logFile)) return [];
@@ -240,6 +292,52 @@ export function evaluateReport(state, agents, now = Date.now()) {
   };
 }
 
+/** Pending chat context without an answer for this long is dropped */
+export const CONTEXT_PENDING_MS = 2 * 60 * 60_000;
+export const CONTEXT_MAX_CHARS = 20_000;
+export const isBusyAgent = (agent) => BUSY.has(agent?.displayState);
+// Claude transcripts render a tool call without text as `[tool: <name>]`: not an answer
+const isToolOnly = (text) => text.split('\n').every((l) => /^\[tool: [^\]]*\]$/.test(l.trim()));
+const timeOf = (t) => (t == null ? NaN : new Date(t).getTime());
+
+/**
+ * Chat context of pending items (AC-13): once the orchestrator is not busy, its last assistant
+ * text at or after an item's `since` becomes `contexts[key] = { text, at }`; pending older than
+ * CONTEXT_PENDING_MS is dropped. `entries`: the orchestrator's transcript tail, oldest first.
+ * @returns {{ pending: object, contexts: object }}
+ */
+export function captureContext(state, { busy, entries = [], now = Date.now() }) {
+  const pending = { ...state.pending };
+  const contexts = { ...state.contexts };
+  const last = busy
+    ? null
+    : entries.findLast((e) => e.role === 'assistant' && e.text && !isToolOnly(e.text));
+  const at = timeOf(last?.timestamp);
+  for (const [key, since] of Object.entries(pending)) {
+    if (at >= timeOf(since)) {
+      contexts[key] = {
+        text: last.text.slice(0, CONTEXT_MAX_CHARS),
+        at: new Date(at).toISOString(),
+      };
+      delete pending[key];
+    } else if (now - timeOf(since) >= CONTEXT_PENDING_MS) delete pending[key];
+  }
+  return { pending, contexts };
+}
+
+/**
+ * The live session of orchestrator `id`: the role's current session (a resumed pane has new ids,
+ * the report's agentId may be old), else the session the report's agentId names; null when none
+ */
+export function orchestratorSessionOf(id, agentId, sessions, { orchestrators, orchestratorRoles }) {
+  const own = (s) => isOrchestratorSession(s, orchestrators);
+  return (
+    sessions.find((s) => own(s) && (sessionRole(s, orchestratorRoles) ?? s.id) === id) ??
+    [findSessionByRef(sessions, agentId)].find((s) => s && own(s)) ??
+    null
+  );
+}
+
 /**
  * How an answer reaches the orchestrator, the same way `orkumo send` picks it (sendRoute):
  * a background job by reply, else the pane it runs in; null when it cannot be reached
@@ -249,6 +347,67 @@ export function answerTarget(session) {
   if (session.kind === 'background') return { via: 'reply', id: session.id };
   if (session.paneId) return { via: 'pane', paneId: session.paneId };
   return null;
+}
+
+/**
+ * Types `text` into the orchestrator over `route` (answerTarget); null when delivered, else the
+ * refusal as `{ status, error }`
+ */
+export async function deliverText(route, text, { typeIntoPanePty, replySession }) {
+  if (route.via === 'pane') {
+    if (!typeIntoPanePty(route.paneId, text))
+      return { status: 409, error: 'The orchestrator pane is not running' };
+  } else {
+    await replySession(route.id, text, { mode: 'auto' });
+  }
+  return null;
+}
+
+/** Attachments of an instruction lie in the upload routes' dirs (`agent-images`, `agent-files`) */
+export function attachmentsAllowed(attachments, dirs) {
+  const roots = dirs.map((d) => path.resolve(d) + path.sep);
+  return attachments.every(
+    (a) =>
+      path.isAbsolute(a.path) &&
+      // each attachment is one typed line: no line breaks or other control characters
+      // eslint-disable-next-line no-control-regex
+      !/[\x00-\x1f\x7f]/.test(a.path) &&
+      roots.some((r) => path.resolve(a.path).startsWith(r))
+  );
+}
+
+/**
+ * The message typed into the orchestrator for an instruction from the Status view, built from the
+ * stored report (never from the client); null when the entry or task is not in it
+ * @param {{ entry?: string, task?: { project: string, task: string } }} target
+ */
+export function instructText(report, target, text, attachments = []) {
+  const projectOf = (pid) => report.projects.find((p) => p.id === pid);
+  let item;
+  let project;
+  let label;
+  if (target.entry) {
+    item = report.inbox.find((e) => e.id === target.entry);
+    // reports from before projectId was required: the project of its task
+    project =
+      projectOf(item?.projectId) ??
+      report.projects.find((p) => p.tasks.some((t) => t.id === item?.taskId));
+    label = `entry ${target.entry}`;
+  } else {
+    project = projectOf(target.task.project);
+    item = project?.tasks.find((t) => t.id === target.task.task);
+    label = `task ${target.task.task}`;
+  }
+  if (!item) return null;
+  const refs = [...new Set([item.pr, ...(item.refs?.prs || []), ...(item.refs?.issues || [])])]
+    .filter(Boolean)
+    .join(' ');
+  return [
+    `[Status] ${project?.name ?? 'No project'} · ${item.title} (${label}${refs ? `, refs ${refs}` : ''})`,
+    '',
+    text,
+    ...attachments.map((a) => `[${a.kind === 'image' ? 'Image' : 'File'}: ${a.path}]`),
+  ].join('\n');
 }
 
 /** The message typed into the orchestrator for an answer from the Status view */

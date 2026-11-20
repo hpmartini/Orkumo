@@ -508,7 +508,7 @@ const TAIL_MAX = 16 * 1024 * 1024;
  * until `limit` messages are found: one chunk of a session full of tool output held only the
  * newest prompt.
  */
-export async function readOmpTranscriptTail(file, limit = 40) {
+export async function readOmpTranscriptTail(file, limit = 40, { maxChars = 4000 } = {}) {
   const { size } = await fsp.stat(file);
   const handle = await fsp.open(file, 'r');
   try {
@@ -524,7 +524,7 @@ export async function readOmpTranscriptTail(file, limit = 40) {
       if (role !== 'user' && role !== 'assistant') return true;
       const text = textOf(record.message.content).trim();
       if (!text) return true;
-      entries.push({ role, text: text.slice(0, 4000), timestamp: record.timestamp || null });
+      entries.push({ role, text: text.slice(0, maxChars), timestamp: record.timestamp || null });
       return entries.length < limit;
     });
     return entries.reverse();

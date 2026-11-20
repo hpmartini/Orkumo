@@ -13,11 +13,16 @@ export const REPORT_SCHEMA_VERSION = 1;
 export const TASK_STATES = ['planned', 'running', 'waiting', 'done', 'cancelled'];
 export const INBOX_KINDS = ['decision', 'todo', 'approval'];
 
+/** What a missing or unknown inbox `projectId` tells the orchestrator (the CLI prints it) */
+export const PROJECT_ID_HINT = "add projectId; use a project 'general' for items without a project";
+
 // Object.prototype names (`constructor`, `__proto__`) would read as answered or never persist
-const id = z
-  .string()
-  .regex(/^[\w.:-]{1,200}$/)
-  .refine((v) => !(v in Object.prototype), 'Reserved id');
+const idOf = (params) =>
+  z
+    .string(params)
+    .regex(/^[\w.:-]{1,200}$/)
+    .refine((v) => !(v in Object.prototype), 'Reserved id');
+const id = idOf();
 const text = (max) => z.string().trim().min(1).max(max);
 const url = z.string().url().max(500);
 const time = z.iso.datetime({ offset: true });
@@ -40,6 +45,9 @@ const task = z
     title: text(200),
     state: z.enum(TASK_STATES),
     note: text(1000).optional().describe('One line: what happens now or what blocks'),
+    description: text(20000)
+      .optional()
+      .describe('Markdown: the full picture, as detailed as the chat'),
     refs: refs.optional(),
     updatedAt: time.optional(),
   })
@@ -61,8 +69,13 @@ const project = z
 const inboxBase = {
   id: id.describe('Stable across reports; answers are keyed by it'),
   title: text(200),
-  detail: text(4000).optional(),
-  projectId: id.optional(),
+  detail: text(4000).optional().describe('One line: the short summary'),
+  description: text(20000)
+    .optional()
+    .describe('Markdown: the full picture, as detailed as the chat'),
+  projectId: idOf({
+    error: (iss) => (iss.input === undefined ? PROJECT_ID_HINT : undefined),
+  }).describe("id of a project of this report; a project 'general' for items without one"),
   taskId: id.optional(),
   priority: z.enum(['high', 'normal', 'low']).optional(),
   createdAt: time,
@@ -109,7 +122,14 @@ export const reportSchema = z
       .optional()
       .describe('Free data for other readers; keys start with "x-"'),
   })
-  .strict();
+  .strict()
+  .superRefine((r, ctx) => {
+    const projects = new Set(r.projects.map((p) => p.id));
+    r.inbox.forEach((e, i) => {
+      if (!projects.has(e.projectId))
+        ctx.addIssue({ code: 'custom', message: PROJECT_ID_HINT, path: ['inbox', i, 'projectId'] });
+    });
+  });
 
 /** @returns {{ ok: true, report: object } | { ok: false, errors: string[] }} */
 export function parseReport(input) {
