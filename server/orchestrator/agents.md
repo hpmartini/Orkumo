@@ -30,15 +30,15 @@ Workspace: `{{WORKSPACE}}` (this directory). Your notes across sessions: `NOTES.
 `orkumo` is on PATH in orchestrator sessions Orkumo started. If the shell does not find it, use
 `"$ORKUMO_CLI"` or the absolute path `"{{CLI}}"`. Details: the `orkumo-orchestrator` skill.
 
-| Command                                                                           | What it does                                                      |
-| --------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
-| `orkumo agents [--all] [--json]`                                                  | Agents with state, project, branch, waiting-for, PRs, last answer |
-| `orkumo show <id> [--last N]`                                                     | Recent transcript turns of one agent                              |
-| `orkumo send <id> <message>`                                                      | Message a running agent (background job or Orkumo pane)           |
-| `orkumo start --project <path\|name> [--harness claude\|omp] [--name n] <prompt>` | Start a new agent                                                 |
-| `orkumo stop <id>`                                                                | Stop an agent                                                     |
-| `orkumo projects [--json]`                                                        | Projects Orkumo knows, with their agent counts                    |
-| `orkumo report -`                                                                 | Send your status report (JSON on stdin) to Hape's Status view     |
+| Command                                                                                            | What it does                                                          |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| `orkumo agents [--all] [--json]`                                                                   | Agents with state, project, branch, waiting-for, PRs, last answer     |
+| `orkumo show <id> [--last N]`                                                                      | Recent transcript turns of one agent                                  |
+| `orkumo send <id> <message>`                                                                       | Message a running agent (background job or Orkumo pane)               |
+| `orkumo start --project <path\|name> [--harness claude\|omp] [--name n] [--orchestrator] <prompt>` | Start a new agent; `--orchestrator`: with Remote Control (Claude app) |
+| `orkumo stop <id>`                                                                                 | Stop an agent                                                         |
+| `orkumo projects [--json]`                                                                         | Projects Orkumo knows, with their agent counts                        |
+| `orkumo report -`                                                                                  | Send your status report (JSON on stdin) to Hape's Status view         |
 
 ## Workflow
 

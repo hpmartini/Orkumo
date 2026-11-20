@@ -26,8 +26,9 @@ export const HELP = `orkumo: hand out and watch work of the agents running in Or
   orkumo agents [--all] [--json]          agents with state, project, branch, PRs, last answer
   orkumo show <id> [--last N] [--json]    recent transcript turns of one agent
   orkumo send <id> <message…|->           message an agent (background job or Orkumo pane)
-  orkumo start --project <path|name> [--harness claude|omp] [--name n] <prompt…|->
-                                          start a new agent in a project
+  orkumo start --project <path|name> [--harness claude|omp] [--name n] [--orchestrator] <prompt…|->
+                                          start a new agent in a project; --orchestrator: with
+                                          Remote Control (Claude app), workers run without
   orkumo stop <id>                        stop an agent
   orkumo projects [--json]                projects Orkumo knows
   orkumo report <file|->                  send your status report (JSON, schema: report.schema.json)
@@ -41,7 +42,7 @@ const COMMANDS = {
   agents: { json: true, all: true },
   show: { last: false, json: true },
   send: {},
-  start: { project: false, harness: false, name: false, json: true },
+  start: { project: false, harness: false, name: false, orchestrator: true, json: true },
   stop: {},
   projects: { json: true },
   report: {},
@@ -473,19 +474,27 @@ export async function run(argv, deps = {}) {
         if (!flags.project) throw usage('start needs --project <path|name>.');
         const { projects, defaultHarness } = await api('GET', '/orchestrator/projects');
         const cwd = resolveProject(projects, String(flags.project), { cwd: deps.cwd });
-        const harness = String(flags.harness || defaultHarness || 'claude');
+        // --orchestrator means Claude Code (Remote Control) unless --harness says otherwise
+        const harness = String(
+          flags.harness || (flags.orchestrator ? 'claude' : defaultHarness) || 'claude'
+        );
         if (harness !== 'claude' && harness !== 'omp')
           throw usage(`start runs --harness claude or omp, not "${harness}".`);
         const prompt = await textArg(args, readStdin, 'prompt');
         if (prompt.length < 4)
           throw usage('The prompt is too short: say what the agent should do.');
         if (prompt.startsWith('-')) throw usage('The prompt must not start with "-".');
+        if (flags.orchestrator && harness !== 'claude')
+          throw usage(
+            '--orchestrator needs --harness claude: only Claude Code has Remote Control.'
+          );
         if (harness === 'claude') {
           const result = await api('POST', '/agents/dispatch', {
             prompt,
             cwd,
-            // worker profile: no dialog/plan/remote/artifact tools, strict MCP (agentService.js)
-            profile: 'worker',
+            // worker: no dialog/plan/remote/artifact tools, strict MCP; orchestrator: Remote
+            // Control (agentService.js DISPATCH_PROFILES)
+            profile: flags.orchestrator ? 'orchestrator' : 'worker',
             ...(flags.name ? { name: String(flags.name) } : {}),
           });
           if (flags.json) return json(result);

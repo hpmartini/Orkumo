@@ -51,14 +51,16 @@ from Hape. Don't write your own sender line.
 ## start
 
 ```
-orkumo start --project <path|name> [--harness claude|omp] [--name <name>] <prompt…>
+orkumo start --project <path|name> [--harness claude|omp] [--name <name>] [--orchestrator] <prompt…>
 ```
 
 `--project`: an absolute path, or a project name from `orkumo projects` (case-insensitive, a unique
 prefix is enough). Default harness: Orkumo's default. Claude Code starts as a background session
 (`claude --bg`, `--name` names it); Oh My Pi starts in an Orkumo pane in the project and shows up in
-the rail (it names its session itself). The prompt is the agent's whole briefing: goal, context,
-acceptance criteria, what to report.
+the rail (it names its session itself). `--orchestrator` (Claude Code only) starts it with Remote
+Control, so Hape reaches it from the Claude app; name it `<topic>-orchestrator`. Workers run
+without. The prompt is the agent's whole briefing: goal, context, acceptance criteria, what to
+report.
 
 ## report
 

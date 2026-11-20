@@ -20,7 +20,7 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
  * omp with the user's Claude skills; the prompt is the first message.
  */
 export function quickAgentCommand(
-  { harness, prompt, sessionId, name, model, permissionMode },
+  { harness, prompt, sessionId, name, model, permissionMode, remoteControl },
   deps
 ) {
   if (harness === 'claude') {
@@ -33,6 +33,8 @@ export function quickAgentCommand(
         ...(name ? ['--name', name] : []),
         ...(model ? ['--model', model] : []),
         ...(permissionMode ? ['--permission-mode', permissionMode] : []),
+        // orchestrators only: reachable from the Claude app (the global setting is off)
+        ...(remoteControl ? ['--remote-control', remoteControl] : []),
         // `--` ends the options: a prompt like `--settings=…` stays the first message
         '--',
         prompt,
