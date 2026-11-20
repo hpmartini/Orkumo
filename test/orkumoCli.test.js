@@ -510,6 +510,17 @@ describe('guard (PreToolUse hook)', () => {
       guardDecision({ tool_input: { notebook_path: path.join(ws, '..', 'x.ipynb') } }, ws)
     ).toMatch(/blocked/);
     expect(guardDecision({ tool_input: {} }, ws)).toBeNull();
+    // The report store sits next to the workspace so no orchestrator can forge another's report
+    expect(
+      guardDecision(
+        {
+          tool_input: {
+            file_path: path.join(ws, '..', 'orchestrator-reports', 'reports', 'x.json'),
+          },
+        },
+        ws
+      )
+    ).toMatch(/blocked/);
   });
 
   it('blocks its own instructions, settings and CLI', () => {

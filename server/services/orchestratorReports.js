@@ -254,7 +254,7 @@ export function answerTarget(session) {
 /** The message typed into the orchestrator for an answer from the Status view */
 export function answerText(entry, option, text) {
   return [
-    `[Status answer from Hape] ${entry.title} (entry ${entry.id})`,
+    `[Status answer] ${entry.title} (entry ${entry.id})`,
     option && `Choice: ${option.label} (${option.id})`,
     text,
   ]

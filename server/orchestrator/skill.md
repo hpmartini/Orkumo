@@ -70,7 +70,7 @@ orkumo report <file>
 Sends your full current state (projects, tasks, inbox for Hape) to Orkumo's Status view; rules in
 AGENTS.md under "Status report". Schema and example: `report.schema.json` and
 `report.example.json` next to the CLI (`{{CLI}}`). An invalid report exits non-zero and lists every
-error; nothing is stored. Answers come back as messages starting with `[Status answer from Hape]`.
+error; nothing is stored. Answers come back as messages starting with `[Status answer]`.
 
 ## stop
 

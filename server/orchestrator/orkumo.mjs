@@ -529,7 +529,7 @@ export async function run(argv, deps = {}) {
           `${change.tasks.length} task changes`,
         ].join(', ');
         out(
-          `Report stored for ${change.orchestrator}: ${counts}.${change.notify.length ? ` Hape gets a notification for ${change.notify.length} new decision(s).` : ''}`
+          `Report stored for ${change.orchestrator}: ${counts}.${change.notify.length ? ` The owner gets a notification for ${change.notify.length} new decision(s).` : ''}`
         );
         return 0;
       }

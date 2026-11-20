@@ -327,7 +327,7 @@ describe('answers (AC-4)', () => {
     const entry = example.inbox.find((e) => e.kind === 'decision');
     const text = answerText(entry, entry.options[0], 'and ship it');
     expect(text.split('\n')).toEqual([
-      `[Status answer from Hape] ${entry.title} (entry ${entry.id})`,
+      `[Status answer] ${entry.title} (entry ${entry.id})`,
       `Choice: ${entry.options[0].label} (${entry.options[0].id})`,
       'and ship it',
     ]);

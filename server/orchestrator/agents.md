@@ -64,7 +64,7 @@ inbox entry missing from the next report counts as closed. Schema and a complete
   `agentId`; a report under another orchestrator's id is refused.
 - Keep ids stable across reports (projects, tasks, inbox entries): answers are keyed by them.
 - A decision has 2-8 options and your recommendation. Hape's answer arrives as a message starting
-  with `[Status answer from Hape]`; act on it, then drop the entry from your next report.
+  with `[Status answer]`; act on it, then drop the entry from your next report.
 - The view marks your report stale 30 minutes after a worker finished, a PR turned green or your
   own turn ended without a new report.
 
