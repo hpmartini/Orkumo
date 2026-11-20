@@ -35,6 +35,8 @@ export interface ModuleHost {
   connectBackend: (prefix: string, label: string) => void;
   /** Back to this machine; reloads */
   disconnectBackend: () => void;
+  /** Set when the UI is shown inside an orchestrator's agent pane (`Show in <label>`) */
+  pane?: { orchestrator: string };
 }
 
 interface MountHandle {

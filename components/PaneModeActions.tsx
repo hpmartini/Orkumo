@@ -1,36 +1,109 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ModeEntry } from '../hooks/useModules';
 import { moduleIcon } from './moduleIcon';
+import { ModuleMount, useModuleHost } from './ModuleMount';
+
+/** What agents-ui hands `renderPaneActions`/`renderPaneView` (the parts used here) */
+interface PaneArg {
+  paneId: string;
+  orchestrator: boolean;
+  role: string | null;
+  session: { id: string };
+}
 
 /**
- * `host.renderPaneActions` of the agents view: in an orchestrator pane (tab or split) one
- * `Show in <label>` per module mode with `orchestratorFilter` (docs/MODULES.md). The key is the
- * one reports are stored under: the role id, else the session's row id. Nothing without a module.
+ * A module mode inside one agent pane: its UI with `host.pane` and the query string fixed to
+ * this orchestrator (docs/MODULES.md, "Frontend"). Takes the keys; Esc goes back to the agent.
  */
-export const paneModeActions =
-  (modes: ModeEntry[], navigate: (to: string) => void) =>
-  ({
-    orchestrator,
-    role,
-    session,
-  }: {
-    orchestrator: boolean;
-    role: string | null;
-    session: { id: string };
-  }) => {
-    const filters = modes.filter((m) => m.orchestratorFilter);
-    if (!orchestrator || filters.length === 0) return null;
-    const key = role ?? session.id;
-    return filters.map((m) => {
-      const Icon = moduleIcon(m.icon);
-      return (
-        <button
-          key={m.id}
-          type="button"
-          onClick={() => navigate(`/${m.id}?orchestrator=${encodeURIComponent(key)}`)}
-          className="flex items-center gap-1 px-1.5 py-0.5 rounded border border-gray-600 text-gray-200 shrink-0 hover:border-cursor/60 hover:bg-white/5"
-        >
-          <Icon size={11} aria-hidden="true" /> Show in {m.label}
-        </button>
-      );
-    });
-  };
+function PaneModeView({
+  modeId,
+  orchestrator,
+  onClose,
+}: {
+  modeId: string;
+  orchestrator: string;
+  onClose: () => void;
+}) {
+  const base = useModuleHost(true);
+  const host = useMemo(
+    () => ({
+      ...base,
+      search: `orchestrator=${encodeURIComponent(orchestrator)}`,
+      setSearch: () => {},
+      pane: { orchestrator },
+    }),
+    [base, orchestrator]
+  );
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => ref.current?.focus(), []);
+  return (
+    <div
+      ref={ref}
+      tabIndex={-1}
+      className="flex-1 min-h-0 flex flex-col outline-none"
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape') return;
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <ModuleMount id={modeId} host={host} className="flex-1 min-h-0" />
+    </div>
+  );
+}
+
+/**
+ * `host.renderPaneActions`/`renderPaneView` of the agents view: in an orchestrator pane (tab or
+ * split) one `Show in <label>` per module mode with `orchestratorFilter` (docs/MODULES.md). It
+ * toggles that pane, and only that one, between the agent and the mode filtered on the key reports
+ * are stored under: the role id, else the session's row id. Nothing without a module.
+ */
+export function usePaneModes(modes: ModeEntry[]) {
+  // paneId -> mode shown in place of the agent; not persisted, a reload shows the agents again
+  const [open, setOpen] = useState<Record<string, string>>({});
+  const filters = useMemo(() => modes.filter((m) => m.orchestratorFilter), [modes]);
+  return useMemo(() => {
+    const set = (paneId: string, modeId: string | null) =>
+      setOpen((prev) => {
+        const { [paneId]: _closed, ...rest } = prev;
+        return modeId ? { ...rest, [paneId]: modeId } : rest;
+      });
+    const usable = (p: PaneArg) => p.orchestrator && filters.length > 0;
+    return {
+      renderPaneActions: (p: PaneArg) =>
+        usable(p)
+          ? filters.map((m) => {
+              const Icon = moduleIcon(m.icon);
+              const shown = open[p.paneId] === m.id;
+              return (
+                <button
+                  key={m.id}
+                  type="button"
+                  aria-pressed={shown}
+                  title={shown ? 'Back to the agent (Esc)' : undefined}
+                  onClick={() => set(p.paneId, shown ? null : m.id)}
+                  className={`flex items-center gap-1 px-1.5 py-0.5 rounded border shrink-0 ${
+                    shown
+                      ? 'border-blue-400/70 bg-blue-500/20 text-white hover:bg-blue-500/30'
+                      : 'border-gray-600 text-gray-200 hover:border-cursor/60 hover:bg-white/5'
+                  }`}
+                >
+                  <Icon size={11} aria-hidden="true" /> Show in {m.label}
+                </button>
+              );
+            })
+          : null,
+      renderPaneView: (p: PaneArg) => {
+        const mode = usable(p) ? filters.find((m) => m.id === open[p.paneId]) : undefined;
+        return mode ? (
+          <PaneModeView
+            key={mode.id}
+            modeId={mode.id}
+            orchestrator={p.role ?? p.session.id}
+            onClose={() => set(p.paneId, null)}
+          />
+        ) : null;
+      },
+    };
+  }, [filters, open]);
+}
