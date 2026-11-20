@@ -197,7 +197,7 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
                   days === d ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'
                 }`}
               >
-                {d}T
+                {`${d}d`}
               </button>
             ))}
           </div>
@@ -278,8 +278,8 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
                 ))}
               </section>
             ) : (
-              <section className={`${card} p-4`} aria-label="Plan-Limits">
-                <h2 className="text-sm font-medium text-gray-300 mb-3">Plan-Limits</h2>
+              <section className={`${card} p-4`} aria-label="Plan limits">
+                <h2 className="text-sm font-medium text-gray-300 mb-3">Plan limits</h2>
                 <ProviderLimits provider={current} now={now} />
               </section>
             )}
