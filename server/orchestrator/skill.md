@@ -72,7 +72,15 @@ orkumo report <file>
 Sends your full current state (projects, tasks, inbox for Hape) to Orkumo's Status view; rules in
 AGENTS.md under "Status report". Schema and example: `report.schema.json` and
 `report.example.json` next to the CLI (`{{CLI}}`). An invalid report exits non-zero and lists every
-error; nothing is stored. Answers come back as messages starting with `[Status answer]`.
+error; nothing is stored. Answers come back as messages starting with `[Status answer]`,
+instructions as messages starting with `[Status]`.
+
+Titles short; `detail`/`note` one line; `description` (Markdown) as detailed as your chat answer:
+starting point, what was done, what is open, options with consequences, recommendation with
+reason. Every point for the owner in the chat is exactly one inbox entry with the same wording
+(a PR to merge is an `approval` with `pr`, a deploy question a `decision`, setting a key a
+`todo`), order in `detail`. `projectId` always: a project of the report, `general` (listed in `projects`) for items
+without one. Report first, then write the full answer.
 
 ## stop
 

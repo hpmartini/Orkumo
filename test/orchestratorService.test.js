@@ -91,6 +91,31 @@ describe('ensureOrchestratorWorkspace', () => {
     expect(fs.existsSync(path.join(dir, 'bin'))).toBe(false);
   });
 
+  it('guide, skill and /status-report carry the Status card rules (AC-16)', () => {
+    const { dir } = bootstrap();
+    const rendered = {
+      guide: fs.readFileSync(path.join(dir, 'AGENTS.md'), 'utf8'),
+      skill: fs.readFileSync(path.join(dir, '.claude/skills', SKILL_NAME, 'SKILL.md'), 'utf8'),
+      report: fs.readFileSync(path.join(dir, '.omp/skills/status-report/SKILL.md'), 'utf8'),
+    };
+    for (const [name, text] of Object.entries(rendered)) {
+      const flat = text.replace(/\s+/g, ' ');
+      for (const rule of [
+        /[Tt]itles short/,
+        /`description` \(Markdown\) (is )?as detailed as your chat/,
+        /starting point, what was done, what is open, (the )?options with (their )?consequences, (your )?recommendation with (its )?reason/,
+        /exactly one (inbox )?entry with the same wording/,
+        /PR (to merge|merge) (is |= )?an? `approval` with `pr`/,
+        /deploy question (is )?(= )?a `decision`/,
+        /setting a key (is )?(= )?a `todo`/,
+        /order (of steps )?(goes )?in(to)? `detail`/i,
+        /`projectId`/,
+        /`general`/,
+      ])
+        expect(flat, `${name}: ${rule}`).toMatch(rule);
+    }
+  });
+
   it("is idempotent and keeps the orchestrators' NOTES.md", () => {
     const { dir } = bootstrap();
     fs.writeFileSync(path.join(dir, 'NOTES.md'), 'my notes');
@@ -328,6 +353,24 @@ describe('readSessionTranscript', () => {
     fs.writeFileSync(path.join(dataDir, '-p-app', 'abc.jsonl'), '');
     expect(await readSessionTranscript(tty, 5, d)).toEqual([{ role: 'assistant', text: 'tty' }]);
     expect(d.readTranscriptTail).toHaveBeenCalledWith(path.join(dataDir, '-p-app', 'abc.jsonl'), 5);
+  });
+
+  it('passes a per-entry cap to every reader (chat context of the Status view)', async () => {
+    const d = deps();
+    const cap = { maxChars: 20000 };
+    await readSessionTranscript(s({ id: 'omp-u1', sessionId: 'u1' }), 5, d, cap);
+    expect(d.readOmpTranscriptTail).toHaveBeenCalledWith('/omp/file.jsonl', 5, cap);
+    await readSessionTranscript(s({}), 5, d, cap);
+    expect(d.getTranscriptTail).toHaveBeenCalledWith('job1', 5, cap);
+    const tty = s({ id: 'interactive-1', kind: 'interactive', sessionId: 'abc', cwd: '/p/app' });
+    fs.mkdirSync(path.join(dataDir, '-p-app'));
+    fs.writeFileSync(path.join(dataDir, '-p-app', 'abc.jsonl'), '');
+    await readSessionTranscript(tty, 5, d, cap);
+    expect(d.readTranscriptTail).toHaveBeenCalledWith(
+      path.join(dataDir, '-p-app', 'abc.jsonl'),
+      5,
+      cap
+    );
   });
 
   it('finds sessions by row id, uuid or pane id', () => {

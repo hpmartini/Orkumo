@@ -52,6 +52,7 @@ async function startServer() {
     env: {
       ...process.env,
       HOME: home,
+      CLAUDE_CONFIG_DIR: path.join(home, '.claude'),
       SERVER_PORT: String(port),
       DEVORBIT_DATA_PATH: data,
       CLAUDE_CLI_PATH: path.join(home, 'claude'),
@@ -168,5 +169,87 @@ describe('orkumo report', () => {
     });
     expect(res.status).toBe(409);
     expect((await stored()).reports[0].answers).toEqual({});
+  });
+
+  it('an entry without projectId is refused with the hint (AC-14)', () => {
+    const bad = structuredClone(example);
+    delete bad.inbox[2].projectId;
+    const run = report(bad, 'sess-orch');
+    expect(run.status).not.toBe(0);
+    expect(run.stderr).toContain(
+      "inbox.2.projectId: add projectId; use a project 'general' for items without a project"
+    );
+  });
+
+  it('returns the chat contexts of each report, {} while none was captured', async () => {
+    expect((await stored()).reports[0].contexts).toEqual({});
+  });
+
+  it("captures the orchestrator's full last answer from its transcript (AC-13)", async () => {
+    // Claude terminal transcript: <CLAUDE_CONFIG_DIR>/projects/<slug of cwd>/<sessionId>.jsonl
+    const dir = path.join(home, '.claude', 'projects', tmp.replace(/[^a-zA-Z0-9]/g, '-'));
+    fs.mkdirSync(dir, { recursive: true });
+    const text = `## Where we stand\n\n${'Long answer. '.repeat(500)}`;
+    const at = new Date(Date.now() + 1000).toISOString();
+    const record = {
+      type: 'assistant',
+      timestamp: at,
+      message: { role: 'assistant', content: [{ type: 'text', text }] },
+    };
+    fs.writeFileSync(path.join(dir, 'sess-orch.jsonl'), `${JSON.stringify(record)}\n`);
+    const { contexts } = (await stored()).reports[0];
+    expect(contexts['inbox:rabatt-limit']).toEqual({ text: text.trim(), at });
+    expect(contexts['task:beispiel-shop:checkout-umbau']).toEqual({ text: text.trim(), at });
+  });
+});
+
+describe('instruct (AC-15)', () => {
+  const instruct = (body) =>
+    fetch(`${api}/orchestrator/reports/release/instruct`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+  const error = async (res) => [res.status, (await res.json()).error];
+
+  it('refuses attachments outside the upload dirs', async () => {
+    for (const p of [
+      path.join(data, 'settings.json'),
+      path.join(data, 'agent-files', '..', 'settings.json'),
+    ])
+      expect(
+        await error(
+          await instruct({
+            entry: example.inbox[0].id,
+            text: 'x',
+            attachments: [{ path: p, kind: 'file' }],
+          })
+        )
+      ).toEqual([400, 'Attachments must be files uploaded to Orkumo']);
+  });
+
+  it('needs exactly one of entry or task', async () => {
+    expect((await instruct({ text: 'x' })).status).toBe(400);
+    const both = { entry: example.inbox[0].id, task: { project: 'a', task: 'b' }, text: 'x' };
+    expect((await instruct(both)).status).toBe(400);
+  });
+
+  it('404 for an unknown entry or task', async () => {
+    expect(await error(await instruct({ entry: 'nope', text: 'x' }))).toEqual([
+      404,
+      'No open entry with this id',
+    ]);
+    expect(
+      await error(await instruct({ task: { project: 'beispiel-shop', task: 'nope' }, text: 'x' }))
+    ).toEqual([404, 'No task with this id']);
+  });
+
+  it('409 with the reason when the orchestrator cannot be reached', async () => {
+    const task = { project: 'beispiel-shop', task: 'rabatt-codes' };
+    const image = { path: path.join(data, 'agent-images', 'a.png'), kind: 'image' };
+    expect(await error(await instruct({ task, text: 'Go', attachments: [image] }))).toEqual([
+      409,
+      'The orchestrator cannot be reached',
+    ]);
   });
 });

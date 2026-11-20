@@ -55,6 +55,8 @@
       "projectId": "beispiel-shop",
       "taskId": "rabatt-codes",
       "priority": "high",
+      "detail": "Begrenzung entscheiden, danach baut der Worker weiter",
+      "description": "## Ausgangslage\n\nRabattcodes lassen sich heute beliebig oft einlösen; in der letzten Aktion hat ein Kunde denselben Code 14-mal genutzt.\n\n## Erledigt\n\n- Einlösungen pro Kunde werden gezählt (Task `rabatt-codes`)\n\n## Offen\n\n- Die Grenze selbst\n\n## Optionen\n\n1. **Einmal pro Kunde**: einfach, deckt 90 % der Aktionen; Sonderaktionen brauchen einen zweiten Code.\n2. **Pro Code einstellbar**: ein Feld mehr im Admin, eine Migration.\n\n## Empfehlung\n\nEinmal pro Kunde: keine Migration, und die übrigen 10 % lassen sich mit eigenen Codes abdecken.",
       "createdAt": "2026-11-20T08:55:00+01:00",
       "options": [
         {

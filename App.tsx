@@ -33,6 +33,7 @@ import { ModuleSlot, AgentsRailSlot } from './components/ModuleSlot';
 import { ModeSwitcher } from './components/ModeSwitcher';
 import { moduleIcon } from './components/moduleIcon';
 import { OrkumoAgentsProvider } from './components/AgentsHost';
+import { InstructDialog } from './components/InstructDialog';
 import { usePaneModes } from './components/PaneModeActions';
 import { BackendBar } from './components/BackendBar';
 import { ModuleMode } from './components/ModuleMount';
@@ -552,6 +553,7 @@ function AppContent() {
                     </div>
                   )}
                 </AgentsView>
+                <InstructDialog />
               </AgentsProvider>
             </div>
           </div>
