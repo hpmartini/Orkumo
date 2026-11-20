@@ -36,7 +36,12 @@ import { OrkumoAgentsProvider } from './components/AgentsHost';
 import { paneModeActions } from './components/PaneModeActions';
 import { BackendBar } from './components/BackendBar';
 import { ModuleMode } from './components/ModuleMount';
-import { modeCommands, useModulesState, type ModeEntry } from './hooks/useModules';
+import {
+  modeCommands,
+  reloadModulesWithToast,
+  useModulesState,
+  type ModeEntry,
+} from './hooks/useModules';
 import { useApps } from './hooks';
 import { AgentOverview } from './components/AgentOverview';
 import { UsageView, UsageCard, SessionsCard } from './components/UsageView';
@@ -296,6 +301,13 @@ function AppContent() {
     command('code', 'Open code mode', 'Navigate', () => navigate('/code'), 'ide vscode editor'),
     ...modeCommands(modes, navigate),
     command('settings', 'Open settings', 'Navigate', () => setAdminPanelOpen(true), 'admin'),
+    command(
+      'modules.reload',
+      'Reload modules',
+      'Modules',
+      reloadModulesWithToast,
+      'module neu laden pro plugins'
+    ),
     ...contexts.contexts.map((c) =>
       command(`context.${c.id}`, `Switch to context: ${c.name}`, 'Context', () =>
         contexts.switchTo(c.id)

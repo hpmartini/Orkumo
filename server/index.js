@@ -281,6 +281,10 @@ const moduleHost = createModuleHost({
     z,
     sendError: sendAgentError,
   },
+  // Module status and reload: this machine's own UI only (loopback page or the Electron renderer)
+  isAdmin: (req) =>
+    remoteAccess.isLocalRequest(req) &&
+    (remoteAccess.isLoopbackOrigin(req.headers.origin) || hasRendererSecret(req)),
 });
 app.use('/api/modules', moduleHost.router);
 
