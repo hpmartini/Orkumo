@@ -45,7 +45,7 @@ function parseMode({ mode, ui }) {
   if (mode === undefined) return undefined;
   if (!mode || typeof mode !== 'object') throw new Error('mode must be an object');
   if (ui === undefined) throw new Error('mode needs ui');
-  const { label, icon, keywords, scoped } = mode;
+  const { label, icon, keywords, scoped, orchestratorFilter } = mode;
   if (typeof label !== 'string' || !label.trim()) throw new Error('mode.label must be a string');
   if (icon !== undefined && typeof icon !== 'string') throw new Error('mode.icon must be a string');
   if (keywords !== undefined && typeof keywords !== 'string') {
@@ -54,7 +54,10 @@ function parseMode({ mode, ui }) {
   if (scoped !== undefined && typeof scoped !== 'boolean') {
     throw new Error('mode.scoped must be a boolean');
   }
-  return { label, icon, keywords, scoped };
+  if (orchestratorFilter !== undefined && typeof orchestratorFilter !== 'boolean') {
+    throw new Error('mode.orchestratorFilter must be a boolean');
+  }
+  return { label, icon, keywords, scoped, orchestratorFilter };
 }
 
 // Places in the host UI a module without `mode` may render into (docs/MODULES.md, Slots).

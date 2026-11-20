@@ -26,7 +26,13 @@ export default {
   id: 'my-module', // /^[a-z0-9-]+$/, unique; becomes the URL segment
   name: 'My Module',
   ui: './ui.js', // optional, path inside the module directory
-  mode: { label: 'My Module', icon: 'Puzzle', keywords: 'search words', scoped: false }, // optional, needs ui
+  mode: {
+    label: 'My Module',
+    icon: 'Puzzle',
+    keywords: 'search words',
+    scoped: false,
+    orchestratorFilter: false,
+  }, // optional, needs ui
   slot: 'agents-rail', // optional, needs ui, excludes mode: where the UI renders (see Slots)
   async register(ctx) {}, // may be async
 };
@@ -38,13 +44,14 @@ Ids of host routes (`dashboard`, `usage`, `agents`, `board`, `code`, `pulls`) ar
 
 A module with `mode` brings its own work mode, like Board or Code:
 
-| Field      | Content                                                                                                                                                |
-| :--------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| route      | `/<id>`; the shell keeps the module UI mounted and tells it whether the mode is visible                                                                |
-| `label`    | name in the title-bar toggles, the agents rail and the command palette (`Open <label>`)                                                                |
-| `icon`     | optional lucide icon name from the host allowlist (`Workflow`, `Puzzle`, `Boxes`, `Sparkles`, `Layers`); unknown or missing -> `Puzzle`                |
-| `keywords` | optional palette search words                                                                                                                          |
-| `scoped`   | optional; `true` adds `View <label>` to a repo group and `Show <label>` to an agent with board issues, opening `/<id>?repo=owner/name[&agent=<jobId>]` |
+| Field                | Content                                                                                                                                                |
+| :------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| route                | `/<id>`; the shell keeps the module UI mounted and tells it whether the mode is visible                                                                |
+| `label`              | name in the title-bar toggles, the agents rail and the command palette (`Open <label>`)                                                                |
+| `icon`               | optional lucide icon name from the host allowlist (`Workflow`, `Puzzle`, `Boxes`, `Sparkles`, `Layers`); unknown or missing -> `Puzzle`                |
+| `keywords`           | optional palette search words                                                                                                                          |
+| `scoped`             | optional; `true` adds `View <label>` to a repo group and `Show <label>` to an agent with board issues, opening `/<id>?repo=owner/name[&agent=<jobId>]` |
+| `orchestratorFilter` | optional; `true` adds `Show in <label>` to every orchestrator pane (tab and split), opening `/<id>?orchestrator=<role id, else agent id>`              |
 
 Without the module there is no route, no toggle, no palette entry, no rail entry; `/<id>` redirects to `/dashboard` like any unknown path (`/` itself opens `/agents`).
 
@@ -89,7 +96,7 @@ Modules must not import host packages (`express`, ...): the Electron bundle has 
 
 ## API
 
-- `GET /api/modules` -> `[{ id, name, ui, mode?, slot? }]` (`ui`: boolean; `mode`: `{ label, icon?, keywords?, scoped? }`; `slot`: `'agents-rail'`). `[]` without modules.
+- `GET /api/modules` -> `[{ id, name, ui, mode?, slot? }]` (`ui`: boolean; `mode`: `{ label, icon?, keywords?, scoped?, orchestratorFilter? }`; `slot`: `'agents-rail'`). `[]` without modules.
 - `GET /api/modules/<id>/ui.js` is reserved for the module's UI bundle (only if `ui` is set).
 
 ## Frontend
