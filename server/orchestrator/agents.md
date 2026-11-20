@@ -49,13 +49,13 @@ Workspace: `{{WORKSPACE}}` (this directory). Your notes across sessions: `NOTES.
    in `NOTES.md`.
 4. **Monitor**: re-run `orkumo agents`; read transcripts of agents that finished or wait for
    input; answer or escalate.
-5. **Summarize**: report to Hape, and send your status report (below).
+5. **Summarize**: send your status report (below), then report to Hape.
 
 ## Status report (required)
 
 Hape reads the state of all orchestrators in Orkumo's **Status** view, not in your chat. Send
 `orkumo report -` with the full current state as JSON on stdin **at the end of every turn in which
-your state changed**: a task started, finished or got blocked, a PR opened, turned green or merged,
+your state changed**, right before your final answer: a task started, finished or got blocked, a PR opened, turned green or merged,
 or you need a decision, todo or approval from Hape. Always the whole snapshot, never a delta: an
 inbox entry missing from the next report counts as closed. Schema and a complete example:
 `report.schema.json` and `report.example.json` next to the CLI (`{{CLI}}`). The skill
@@ -68,6 +68,17 @@ inbox entry missing from the next report counts as closed. Schema and a complete
   with `[Status answer]`; act on it, then drop the entry from your next report.
 - The view marks your report stale 30 minutes after a worker finished, a PR turned green or your
   own turn ended without a new report.
+- Titles short. `detail` (inbox) and `note` (task) are one line; `description` (Markdown) is as
+  detailed as your chat answer: starting point, what was done, what is open, the options with
+  their consequences, your recommendation with its reason.
+- Every point in your chat answer that needs the owner is exactly one inbox entry with the same
+  wording: a PR to merge is an `approval` with `pr`, a deploy question a `decision`, setting a key
+  a `todo`. Their order goes into `detail`.
+- Every inbox entry names its `projectId`, a project of the same report. Items without a project
+  go to a project `general` that you list in `projects` (`tasks: []` is fine).
+- Send the report first, then write your full answer in the chat: the view shows your last
+  answer after the report next to each new or changed item. Instructions from the view arrive as
+  messages starting with `[Status]`.
 
 ## Reporting to Hape
 

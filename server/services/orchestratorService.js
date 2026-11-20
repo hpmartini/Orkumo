@@ -374,16 +374,18 @@ export async function buildOverview({
  * terminal's ~/.claude/projects file); [] when there is none.
  * @param {{ getTranscriptTail: Function, readTranscriptTail: Function, projectSlug: Function,
  *   projectsDir: string, findOmpSessionFile?: Function, readOmpTranscriptTail?: Function }} deps
+ * @param {{ maxChars?: number }} [options] per-entry cap of the readers (default 4000)
  */
-export async function readSessionTranscript(session, last, deps) {
+export async function readSessionTranscript(session, last, deps, options) {
+  const extra = options ? [options] : [];
   if (session.id.startsWith('omp-')) {
     const findFile = deps.findOmpSessionFile ?? findOmpSessionFile;
     const readTail = deps.readOmpTranscriptTail ?? readOmpTranscriptTail;
     const file = session.sessionId && (await findFile(session.sessionId));
-    return file ? readTail(file, last) : [];
+    return file ? readTail(file, last, ...extra) : [];
   }
   if (session.kind === 'background') {
-    return (await deps.getTranscriptTail(session.id, last)).entries || [];
+    return (await deps.getTranscriptTail(session.id, last, ...extra)).entries || [];
   }
   if (!session.sessionId || !session.cwd) return [];
   const file = path.join(
@@ -392,7 +394,7 @@ export async function readSessionTranscript(session, last, deps) {
     `${session.sessionId}.jsonl`
   );
   if (!fs.existsSync(file)) return [];
-  return (await deps.readTranscriptTail(file, last)).entries || [];
+  return (await deps.readTranscriptTail(file, last, ...extra)).entries || [];
 }
 
 /** The session an id names (row id, transcript uuid or pane id); null when none */

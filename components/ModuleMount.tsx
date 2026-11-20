@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { boardUrl, codeUrl } from '../utils/codeTarget';
 import { setAgentTarget, useAgentTarget } from '../utils/agentTarget';
+import { openInstruct, type InstructTarget } from './InstructDialog';
 import {
   connectBackend,
   disconnectBackend,
@@ -35,6 +36,10 @@ export interface ModuleHost {
   connectBackend: (prefix: string, label: string) => void;
   /** Back to this machine; reloads */
   disconnectBackend: () => void;
+  /** Set when the UI is shown inside an orchestrator's agent pane (`Show in <label>`) */
+  pane?: { orchestrator: string };
+  /** Opens the Instruct dialog: one message about this item to its orchestrator (Status view) */
+  instruct: (target: InstructTarget) => void;
 }
 
 interface MountHandle {
@@ -77,6 +82,7 @@ export function useModuleHost(active: boolean): ModuleHost {
       backend: getBackend(),
       connectBackend,
       disconnectBackend,
+      instruct: openInstruct,
     }),
     [active, search, agentTarget]
   );

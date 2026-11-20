@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { parseReport, reportSchema } from '../server/services/orchestratorReport.js';
+import {
+  PROJECT_ID_HINT,
+  parseReport,
+  reportSchema,
+} from '../server/services/orchestratorReport.js';
 import published from '../server/orchestrator/report.schema.json';
 import example from '../server/orchestrator/report.example.json';
 
@@ -33,6 +37,11 @@ describe('orchestrator report schema', () => {
     ['approval without pr', (r) => delete r.inbox[1].pr, 'inbox.1.pr'],
     ['unknown top-level field', (r) => (r.extra = 1), '(root)'],
     ['extension key without x-', (r) => (r.extensions = { foo: 1 }), 'extensions'],
+    [
+      'description over 20 000 characters',
+      (r) => (r.inbox[0].description = 'x'.repeat(20001)),
+      'inbox.0.description',
+    ],
   ])('rejects %s', (_name, mutate, path) => {
     const report = clone();
     mutate(report);
@@ -40,6 +49,32 @@ describe('orchestrator report schema', () => {
     expect(result.ok).toBe(false);
     expect(result.errors.join('\n')).toContain(path);
   });
+
+  // AC-14: the hint tells the orchestrator what to do, word for word
+  it.each([
+    ['without', (r) => delete r.inbox[2].projectId],
+    ['with an unknown', (r) => (r.inbox[2].projectId = 'nowhere')],
+  ])('refuses an inbox entry %s projectId with the hint', (_name, mutate) => {
+    const report = clone();
+    mutate(report);
+    expect(parseReport(report)).toEqual({
+      ok: false,
+      errors: [`inbox.2.projectId: ${PROJECT_ID_HINT}`],
+    });
+  });
+
+  it('accepts a project "general" for items without a project', () => {
+    const report = clone();
+    report.projects.push({ id: 'general', name: 'General', tasks: [] });
+    report.inbox[2].projectId = 'general';
+    expect(parseReport(report)).toMatchObject({ ok: true });
+  });
+});
+
+it('published JSON Schema keeps projectId required', () => {
+  for (const entry of published.properties.inbox.items.oneOf ??
+    published.properties.inbox.items.anyOf)
+    expect(entry.required).toContain('projectId');
 });
 
 it('published JSON Schema matches the zod schema (run scripts/orchestrator-report-schema.mjs)', () => {

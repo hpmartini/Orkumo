@@ -88,7 +88,7 @@ import {
 } from './services/chatHistoryService.js';
 import { chatsDir, createOrkumoChatScanner, ensureChatsDir } from './services/orkumoChats.js';
 import * as imageUpload from './services/imageUpload.js';
-import { agentFilesRouter } from './services/agentFiles.js';
+import { agentFilesDir, agentFilesRouter } from './services/agentFiles.js';
 import * as workflowProvider from './services/workflowProvider.js';
 import { ISSUE_URL_RE } from '../utils/issueUrl.js';
 import * as codeService from './services/codeService.js';
@@ -2305,11 +2305,44 @@ async function evaluateReports(now = Date.now()) {
   const shown = reportStore
     .list()
     .filter((state) => !orchestratorReports.isHiddenReport(state, { roleIds, sessions, now }));
-  return shown.map((state) => {
-    const result = orchestratorReports.evaluateReport(state, agents, now);
-    if (result.changed) reportStore.setWatch(state.report.orchestrator.id, result.watch);
-    return { state, ...result };
-  });
+  return Promise.all(
+    shown.map(async (state) => {
+      const result = orchestratorReports.evaluateReport(state, agents, now);
+      if (result.changed) reportStore.setWatch(state.report.orchestrator.id, result.watch);
+      const contexts = await captureReportContext(state, sessions, agents, now).catch(
+        () => state.contexts
+      );
+      return { state, ...result, contexts: contexts ?? {} };
+    })
+  );
+}
+
+/**
+ * Chat context of new or changed items: the orchestrator's last answer once its turn ended
+ * (orchestratorReports.captureContext); reads the transcript only while something is pending
+ */
+async function captureReportContext(state, sessions, agents, now) {
+  const { id, agentId } = state.report.orchestrator;
+  const live = orchestratorReports.captureContext(state, { busy: true, now });
+  let entries = [];
+  let busy = true;
+  if (Object.keys(live.pending).length) {
+    const session = orchestratorReports.orchestratorSessionOf(
+      id,
+      agentId,
+      sessions,
+      settingsService.getAgentViewSettings()
+    );
+    busy = !session || orchestratorReports.isBusyAgent(agents.find((a) => a.id === session.id));
+    if (!busy)
+      entries = await orchestrator.readSessionTranscript(session, 20, orchestratorTranscriptDeps, {
+        maxChars: orchestratorReports.CONTEXT_MAX_CHARS,
+      });
+  }
+  const stored = reportStore.updateContexts(id, (fresh) =>
+    orchestratorReports.captureContext(fresh, { busy, entries, now })
+  );
+  return stored?.contexts;
 }
 // Events are observed while the Status view is closed too: the 30 minutes start at the event
 setInterval(() => {
@@ -2319,10 +2352,11 @@ setInterval(() => {
 /** Latest report per orchestrator with its answers and stale flag, plus the recent change log */
 app.get('/api/orchestrator/reports', async (req, res) => {
   try {
-    const reports = (await evaluateReports()).map(({ state, stale, firstEventAt }) => ({
+    const reports = (await evaluateReports()).map(({ state, stale, firstEventAt, contexts }) => ({
       report: state.report,
       receivedAt: state.receivedAt,
       answers: state.answers,
+      contexts,
       stale,
       firstEventAt,
     }));
@@ -2332,10 +2366,28 @@ app.get('/api/orchestrator/reports', async (req, res) => {
   }
 });
 
-/** The live session of orchestrator `id` (its role id, else its row id) */
-const isOrchestratorSessionFor = (session, id, orchestrators, roles) =>
-  orchestrator.isOrchestratorSession(session, orchestrators) &&
-  (orchestrator.sessionRole(session, roles) ?? session.id) === id;
+/**
+ * Types `text` into orchestrator `id` the way `orkumo send` does (answers and instructions);
+ * null when delivered, else the refusal as `{ status, error }`
+ */
+async function deliverToOrchestrator(id, state, text, max) {
+  const session = orchestratorReports.orchestratorSessionOf(
+    id,
+    state.report.orchestrator.agentId,
+    await agentService.currentSessions(),
+    settingsService.getAgentViewSettings()
+  );
+  if (!session) return { status: 409, error: 'The orchestrator is not running' };
+  const route = orchestratorReports.answerTarget(session);
+  if (!route) return { status: 409, error: 'The orchestrator cannot be reached' };
+  // Titles and labels come from the report: the typed text must not carry control characters
+  const typed = typedTextSchema(max).safeParse(text);
+  if (!typed.success) return { status: 400, error: typed.error.issues[0].message };
+  return orchestratorReports.deliverText(route, typed.data, {
+    typeIntoPanePty,
+    replySession: agentService.replySession,
+  });
+}
 
 /** An answer from the Status view, typed into the orchestrator like `orkumo send` does (AC-4) */
 app.post(
@@ -2358,31 +2410,14 @@ app.post(
     if (!entry) return res.status(404).json({ error: 'No open entry with this id' });
     const option = entry.options?.find((o) => o.id === req.body.option);
     if (req.body.option && !option) return res.status(400).json({ error: 'Unknown option' });
-    const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
-    const sessions = await agentService.currentSessions();
-    // The role's current session; a resumed pane has new ids, the report's agentId may be old
-    const target =
-      sessions.find((s) =>
-        isOrchestratorSessionFor(s, req.params.id, orchestrators, orchestratorRoles)
-      ) ??
-      [orchestrator.findSessionByRef(sessions, state.report.orchestrator.agentId)].find(
-        (s) => s && orchestrator.isOrchestratorSession(s, orchestrators)
-      );
-    if (!target) return res.status(409).json({ error: 'The orchestrator is not running' });
-    const route = orchestratorReports.answerTarget(target);
-    if (!route) return res.status(409).json({ error: 'The orchestrator cannot be reached' });
-    // Titles and labels come from the report: the typed text must not carry control characters
-    const typed = typedTextSchema(8000).safeParse(
-      orchestratorReports.answerText(entry, option, req.body.text)
-    );
-    if (!typed.success) return res.status(400).json({ error: typed.error.issues[0].message });
     try {
-      if (route.via === 'pane') {
-        if (!typeIntoPanePty(route.paneId, typed.data))
-          return res.status(409).json({ error: 'The orchestrator pane is not running' });
-      } else {
-        await agentService.replySession(route.id, typed.data, { mode: 'auto' });
-      }
+      const refused = await deliverToOrchestrator(
+        req.params.id,
+        state,
+        orchestratorReports.answerText(entry, option, req.body.text),
+        8000
+      );
+      if (refused) return res.status(refused.status).json({ error: refused.error });
       const answer = { option: option?.id ?? null, text: req.body.text ?? null };
       try {
         const saved = reportStore.answer(req.params.id, entry.id, answer);
@@ -2392,6 +2427,58 @@ app.post(
         if (error.status !== 404) throw error;
         res.json({ delivered: true, answer });
       }
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/**
+ * An instruction from a Status card or task row (with uploaded images and files), typed into the
+ * reporting orchestrator under a header the server builds from the stored report
+ */
+app.post(
+  '/api/orchestrator/reports/:id/instruct',
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(orchestratorRefSchema),
+  validate(
+    z
+      .object({
+        entry: orchestratorRefSchema.optional(),
+        task: z
+          .object({ project: orchestratorRefSchema, task: orchestratorRefSchema })
+          .strict()
+          .optional(),
+        text: typedTextSchema(8000),
+        attachments: z
+          .array(
+            z
+              .object({ path: z.string().min(1).max(4096), kind: z.enum(['image', 'file']) })
+              .strict()
+          )
+          .max(10)
+          .optional(),
+      })
+      .refine((b) => !b.entry !== !b.task, 'Name exactly one of entry or task')
+  ),
+  async (req, res) => {
+    const attachments = req.body.attachments ?? [];
+    const dirs = [path.join(getDataPath(), 'agent-images'), agentFilesDir()];
+    if (!orchestratorReports.attachmentsAllowed(attachments, dirs))
+      return res.status(400).json({ error: 'Attachments must be files uploaded to Orkumo' });
+    const state = reportStore.get(req.params.id);
+    const text =
+      state && orchestratorReports.instructText(state.report, req.body, req.body.text, attachments);
+    if (!text)
+      return res
+        .status(404)
+        .json({ error: req.body.entry ? 'No open entry with this id' : 'No task with this id' });
+    try {
+      // the header (title, refs), 8000 characters of text and ten attachment lines
+      const refused = await deliverToOrchestrator(req.params.id, state, text, 100000);
+      if (refused) return res.status(refused.status).json({ error: refused.error });
+      res.status(201).json({ delivered: true });
     } catch (error) {
       sendAgentError(res, error);
     }

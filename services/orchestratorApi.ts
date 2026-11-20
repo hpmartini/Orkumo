@@ -28,3 +28,20 @@ export const fetchOrchestratorRoles = (): Promise<{ roles: OrchestratorRole[] }>
 /** "New orchestrator": the default harness as an agent pane in the orchestrator workspace, optionally with a role */
 export const startOrchestrator = (role?: string): Promise<QuickAgent> =>
   request('/orchestrator/start', { method: 'POST', body: JSON.stringify(role ? { role } : {}) });
+
+export interface InstructBody {
+  entry?: string;
+  task?: { project: string; task: string };
+  text: string;
+  attachments?: { path: string; kind: 'image' | 'file' }[];
+}
+
+/** Instruct (Status view): one message to the orchestrator; the server prepends the context header */
+export const instructOrchestrator = (
+  orchestrator: string,
+  body: InstructBody
+): Promise<{ delivered: boolean }> =>
+  request(`/orchestrator/reports/${encodeURIComponent(orchestrator)}/instruct`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });

@@ -33,7 +33,8 @@ import { ModuleSlot, AgentsRailSlot } from './components/ModuleSlot';
 import { ModeSwitcher } from './components/ModeSwitcher';
 import { moduleIcon } from './components/moduleIcon';
 import { OrkumoAgentsProvider } from './components/AgentsHost';
-import { paneModeActions } from './components/PaneModeActions';
+import { InstructDialog } from './components/InstructDialog';
+import { usePaneModes } from './components/PaneModeActions';
 import { BackendBar } from './components/BackendBar';
 import { ModuleMode } from './components/ModuleMount';
 import {
@@ -198,6 +199,7 @@ function AppContent() {
   // The agents view's part of the app shell: activity bar, module UIs after New task, rail modes
   const agentsHost = useHost();
   const agentsTransport = useTransport();
+  const paneModes = usePaneModes(modes);
   const viewHost = useMemo<AgentsHost>(
     () => ({
       ...agentsHost,
@@ -205,9 +207,10 @@ function AppContent() {
         <ModeSwitcher modes={modes} onToggleRail={onToggleRail} />
       ),
       headerSlot: <AgentsRailSlot ids={railSlots} />,
-      renderPaneActions: paneModeActions(modes, navigate),
+      renderPaneActions: paneModes.renderPaneActions,
+      renderPaneView: paneModes.renderPaneView,
     }),
-    [agentsHost, modes, railSlots, navigate]
+    [agentsHost, modes, railSlots, paneModes]
   );
   const railModes = useMemo(() => modes.map((m) => ({ ...m, icon: moduleIcon(m.icon) })), [modes]);
   // `/agents?attach=<jobId>` (e.g. from the board): the view opens it once the session list has it
@@ -550,6 +553,7 @@ function AppContent() {
                     </div>
                   )}
                 </AgentsView>
+                <InstructDialog />
               </AgentsProvider>
             </div>
           </div>

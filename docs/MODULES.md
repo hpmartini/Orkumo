@@ -45,14 +45,14 @@ Ids of host routes (`dashboard`, `usage`, `agents`, `board`, `code`, `pulls`) ar
 
 A module with `mode` brings its own work mode, like Board or Code:
 
-| Field                | Content                                                                                                                                                |
-| :------------------- | :----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| route                | `/<id>`; the shell keeps the module UI mounted and tells it whether the mode is visible                                                                |
-| `label`              | name in the title-bar toggles, the agents rail and the command palette (`Open <label>`)                                                                |
-| `icon`               | optional lucide icon name from the host allowlist (`Workflow`, `Puzzle`, `Boxes`, `Sparkles`, `Layers`); unknown or missing -> `Puzzle`                |
-| `keywords`           | optional palette search words                                                                                                                          |
-| `scoped`             | optional; `true` adds `View <label>` to a repo group and `Show <label>` to an agent with board issues, opening `/<id>?repo=owner/name[&agent=<jobId>]` |
-| `orchestratorFilter` | optional; `true` adds `Show in <label>` to every orchestrator pane (tab and split), opening `/<id>?orchestrator=<role id, else agent id>`              |
+| Field                | Content                                                                                                                                                                                                                                                                      |
+| :------------------- | :--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| route                | `/<id>`; the shell keeps the module UI mounted and tells it whether the mode is visible                                                                                                                                                                                      |
+| `label`              | name in the title-bar toggles, the agents rail and the command palette (`Open <label>`)                                                                                                                                                                                      |
+| `icon`               | optional lucide icon name from the host allowlist (`Workflow`, `Puzzle`, `Boxes`, `Sparkles`, `Layers`); unknown or missing -> `Puzzle`                                                                                                                                      |
+| `keywords`           | optional palette search words                                                                                                                                                                                                                                                |
+| `scoped`             | optional; `true` adds `View <label>` to a repo group and `Show <label>` to an agent with board issues, opening `/<id>?repo=owner/name[&agent=<jobId>]`                                                                                                                       |
+| `orchestratorFilter` | optional; `true` adds `Show in <label>` to every orchestrator pane (tab and split): it toggles that pane between the agent and the mode's UI, mounted with `host.pane = { orchestrator }` and `search` `orchestrator=<role id, else agent id>`; same button or Esc goes back |
 
 Without the module there is no route, no toggle, no palette entry, no rail entry; `/<id>` redirects to `/dashboard` like any unknown path (`/` itself opens `/agents`).
 
@@ -140,17 +140,19 @@ export function mount(el, host) {
 
 `host` (a fresh object on every `update`):
 
-| Field                                                              | Content                                                                  |
-| :----------------------------------------------------------------- | :----------------------------------------------------------------------- |
-| `active`                                                           | the module's mode is visible (poll only while true); `true` for slot UIs |
-| `search`                                                           | query string of the current route, e.g. `?repo=owner/name`               |
-| `navigate(to)`, `setSearch(params)`                                | host router navigation; `setSearch({})` clears the query                 |
-| `apiBase`                                                          | API base URL (`/api` + backend prefix; absolute in Electron)             |
-| `toast.success(msg)`, `toast.error(msg)`                           | host toasts                                                              |
-| `urls.code(path)`, `urls.board(repo, agent?)`, `urls.agent(jobId)` | routes of the host modes                                                 |
-| `agentTarget`, `setAgentTarget(target)`                            | instance the AgentsView talks to, see Agent target                       |
-| `backend`                                                          | instance the whole UI talks to or `null`, see Backend target             |
-| `connectBackend(prefix, label)`, `disconnectBackend()`             | switch the whole UI to an instance and back; both reload                 |
+| Field                                                                                               | Content                                                                                                                                                                                      |
+| :-------------------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `active`                                                                                            | the module's mode is visible (poll only while true); `true` for slot UIs                                                                                                                     |
+| `search`                                                                                            | query string of the current route, e.g. `?repo=owner/name`                                                                                                                                   |
+| `navigate(to)`, `setSearch(params)`                                                                 | host router navigation; `setSearch({})` clears the query                                                                                                                                     |
+| `apiBase`                                                                                           | API base URL (`/api` + backend prefix; absolute in Electron)                                                                                                                                 |
+| `toast.success(msg)`, `toast.error(msg)`                                                            | host toasts                                                                                                                                                                                  |
+| `urls.code(path)`, `urls.board(repo, agent?)`, `urls.agent(jobId)`                                  | routes of the host modes                                                                                                                                                                     |
+| `agentTarget`, `setAgentTarget(target)`                                                             | instance the AgentsView talks to, see Agent target                                                                                                                                           |
+| `backend`                                                                                           | instance the whole UI talks to or `null`, see Backend target                                                                                                                                 |
+| `connectBackend(prefix, label)`, `disconnectBackend()`                                              | switch the whole UI to an instance and back; both reload                                                                                                                                     |
+| `pane`                                                                                              | `{ orchestrator }` when the UI is shown inside that orchestrator's agent pane (`orchestratorFilter`); `search` is then fixed, `setSearch` does nothing                                       |
+| `instruct({ orchestrator, orchestratorName?, entry? \| task: { project, task }, title, project? })` | Opens the Instruct dialog: one message about that report item to its orchestrator, with images and files; the server adds the context header (`POST /api/orchestrator/reports/:id/instruct`) |
 
 Modules with `ui` but without `mode` or `slot` render in the shell's module slot (`components/ModuleSlot.tsx`); modes render in their own pane, slot UIs at their slot.
 

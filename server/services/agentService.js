@@ -1083,7 +1083,7 @@ const transcriptText = (entries) =>
 /**
  * Last N user/assistant messages from a session transcript.
  */
-export async function getTranscriptTail(id, limit = 40) {
+export async function getTranscriptTail(id, limit = 40, options) {
   const state = (await readJobState(id)) || {};
   let file = state.linkScanPath;
   if (!file || !fs.existsSync(file)) {
@@ -1093,11 +1093,14 @@ export async function getTranscriptTail(id, limit = 40) {
     }
   }
   if (!file) return { entries: [] };
-  return readTranscriptTail(file, limit);
+  return readTranscriptTail(file, limit, options);
 }
 
-/** Last `limit` user/assistant messages of a Claude transcript file (also the orchestrator's `show`) */
-export async function readTranscriptTail(file, limit) {
+/**
+ * Last `limit` user/assistant messages of a Claude transcript file (also the orchestrator's `show`),
+ * each cut to `maxChars`
+ */
+export async function readTranscriptTail(file, limit, { maxChars = 4000 } = {}) {
   const stat = await fsp.stat(file);
   const readSize = Math.min(stat.size, 512 * 1024);
   const handle = await fsp.open(file, 'r');
@@ -1120,7 +1123,7 @@ export async function readTranscriptTail(file, limit) {
         if (!text) continue;
         entries.push({
           role: record.type,
-          text: text.slice(0, 4000),
+          text: text.slice(0, maxChars),
           timestamp: record.timestamp || null,
         });
       }
