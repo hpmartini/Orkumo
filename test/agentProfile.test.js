@@ -23,8 +23,15 @@ vi.mock('child_process', async (importOriginal) => {
   return { ...actual, default: { ...actual, execFile }, execFile };
 });
 
-const { dispatch, replySession, resumeProfileArgs } =
-  await import('../server/services/agentService.js');
+const {
+  dispatch,
+  replySession,
+  respawnSession,
+  resumeProfileArgs,
+  interactiveRemoteControlArgs,
+  REMOTE_CONTROL_SETTINGS,
+} = await import('../server/services/agentService.js');
+const { settingsService } = await import('../server/services/settingsService.js');
 const workerSettings = path.join(home, 'profiles', 'worker.json');
 const claudeCalls = () => calls.filter((a) => a[0] !== 'agents' && a[0] !== 'daemon');
 
@@ -93,5 +100,131 @@ describe('worker profile', () => {
   it('resume: a session without a profile resumes without extra flags', () => {
     expect(resumeProfileArgs(['--name', 'x', '--model', 'opus'])).toEqual([]);
     expect(resumeProfileArgs(undefined)).toEqual([]);
+  });
+});
+
+// Orchestrators stay reachable from the Claude app although ~/.claude/settings.json turns
+// Remote Control off for every other session
+describe('orchestrator profile (Remote Control)', () => {
+  const writeJob = (id, state) => {
+    fs.mkdirSync(path.join(home, 'jobs', id), { recursive: true });
+    fs.writeFileSync(path.join(home, 'jobs', id, 'state.json'), JSON.stringify(state));
+  };
+  const marked = (orchestrators, orchestratorRoles = {}) =>
+    vi.spyOn(settingsService, 'getAgentViewSettings').mockReturnValue({
+      ...settingsService.getAgentViewSettings(),
+      orchestrators,
+      orchestratorRoles,
+    });
+
+  it('start: a worker gets no Remote Control, an orchestrator does', async () => {
+    await dispatch(
+      { prompt: 'fix the login', cwd: project, profile: 'worker' },
+      { allowedDirs: [project], unsafeAllowed: false }
+    );
+    await dispatch(
+      { prompt: 'watch the board', cwd: project, profile: 'orchestrator', name: 'b-orchestrator' },
+      { allowedDirs: [project], unsafeAllowed: false }
+    );
+    const [worker, orch] = claudeCalls();
+    expect(worker.join(' ')).not.toContain('remoteControlAtStartup');
+    expect(REMOTE_CONTROL_SETTINGS).toBe('{"remoteControlAtStartup":true}');
+    expect(orch).toEqual([
+      '--bg',
+      '--name',
+      'b-orchestrator',
+      '--settings',
+      REMOTE_CONTROL_SETTINGS,
+      '--',
+      'watch the board',
+    ]);
+  });
+
+  it('start: a profile and client settings are not combined (two --settings)', async () => {
+    await expect(
+      dispatch(
+        { prompt: 'watch the board', cwd: project, profile: 'orchestrator', settings: '{}' },
+        { allowedDirs: [project], unsafeAllowed: true }
+      )
+    ).rejects.toThrow(/settings/);
+  });
+
+  it('resume: an orchestrator keeps Remote Control', async () => {
+    marked([]);
+    writeJob('job12345', {
+      sessionId: 'sess-1',
+      respawnFlags: ['--name', 'b-orchestrator', '--settings', REMOTE_CONTROL_SETTINGS],
+    });
+    await replySession('job12345', 'weiter', { mode: 'resume' });
+    expect(claudeCalls()[0]).toEqual([
+      '--resume',
+      'sess-1',
+      '--bg',
+      '--settings',
+      REMOTE_CONTROL_SETTINGS,
+      '--',
+      'weiter',
+    ]);
+  });
+
+  it('resume: a session marked as orchestrator but started without the flag gets it', async () => {
+    marked(['job12345']);
+    writeJob('job12345', { sessionId: 'sess-1', respawnFlags: ['--name', 'main-orchestrator'] });
+    await replySession('job12345', 'weiter', { mode: 'resume' });
+    expect(claudeCalls()[0]).toContain(REMOTE_CONTROL_SETTINGS);
+    marked([]);
+    calls.length = 0;
+    await replySession('job12345', 'weiter', { mode: 'resume' });
+    expect(claudeCalls()[0].join(' ')).not.toContain('remoteControlAtStartup');
+  });
+
+  it('respawn: a marked orchestrator gets the flag written into its respawn flags first', async () => {
+    marked(['job12345']);
+    writeJob('job12345', { sessionId: 'sess-1', respawnFlags: ['--name', 'main-orchestrator'] });
+    await respawnSession('job12345');
+    const state = JSON.parse(
+      fs.readFileSync(path.join(home, 'jobs', 'job12345', 'state.json'), 'utf8')
+    );
+    expect(state.respawnFlags).toEqual([
+      '--name',
+      'main-orchestrator',
+      '--settings',
+      REMOTE_CONTROL_SETTINGS,
+    ]);
+    expect(claudeCalls()[0]).toEqual(['respawn', 'job12345']);
+  });
+
+  it('respawn: a worker and a session with its own --settings stay as they are', async () => {
+    marked(['job12345']);
+    const flags = ['--settings', workerSettings];
+    writeJob('job12345', { sessionId: 'sess-1', respawnFlags: flags });
+    await respawnSession('job12345');
+    marked([]);
+    writeJob('job99999', { sessionId: 'sess-2', respawnFlags: ['--name', 'w'] });
+    await respawnSession('job99999');
+    const read = (id) =>
+      JSON.parse(fs.readFileSync(path.join(home, 'jobs', id, 'state.json'), 'utf8')).respawnFlags;
+    expect(read('job12345')).toEqual(flags);
+    expect(read('job99999')).toEqual(['--name', 'w']);
+  });
+
+  it('interactive resume of a marked orchestrator adds --remote-control with its role name', () => {
+    const settings = {
+      orchestrators: ['uuid-1', 'uuid-2'],
+      orchestratorRoles: { 'uuid-2': 'board-orchestrator' },
+    };
+    expect(interactiveRemoteControlArgs(['--resume', 'uuid-1'], settings)).toEqual([
+      '--remote-control',
+      'orchestrator',
+    ]);
+    expect(interactiveRemoteControlArgs(['--resume', 'uuid-2'], settings)).toEqual([
+      '--remote-control',
+      'board-orchestrator',
+    ]);
+    expect(interactiveRemoteControlArgs(['--resume', 'uuid-3'], settings)).toEqual([]);
+    expect(interactiveRemoteControlArgs(['--session-id', 'uuid-1'], settings)).toEqual([]);
+    expect(
+      interactiveRemoteControlArgs(['--resume', 'uuid-1', '--remote-control', 'x'], settings)
+    ).toEqual([]);
   });
 });

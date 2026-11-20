@@ -1442,7 +1442,7 @@ const agentDispatchSchema = z.object({
   mcpConfigs: z.array(z.string().max(10000)).max(20).optional(),
   strictMcpConfig: z.boolean().optional(),
   // a role profile known to the server (agentService.DISPATCH_PROFILES), not a client path
-  profile: z.enum(['worker']).optional(),
+  profile: z.enum(['worker', 'orchestrator']).optional(),
   idle: z.boolean().optional(),
 });
 const agentReplySchema = z.object({
@@ -3619,7 +3619,16 @@ wss.on('connection', (ws, req) => {
         }
       }
 
-      args = parsedArgs;
+      args =
+        command === 'claude'
+          ? [
+              ...parsedArgs,
+              ...agentService.interactiveRemoteControlArgs(
+                parsedArgs,
+                settingsService.getAgentViewSettings()
+              ),
+            ]
+          : parsedArgs;
     } catch (error) {
       console.error('[PTY] Failed to parse args:', error);
       ws.send(JSON.stringify({ type: 'error', message: 'Failed to parse args' }));

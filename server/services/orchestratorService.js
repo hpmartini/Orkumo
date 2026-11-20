@@ -433,6 +433,7 @@ export function startAgentPane(opts, deps) {
       model: opts.model ?? null,
       permissionMode: opts.permissionMode ?? null,
       paneId: `${opts.orchestrator ? 'orch' : 'work'}-${crypto.randomUUID()}`,
+      remoteControl: opts.orchestrator ? opts.name || 'orchestrator' : null,
       ...(opts.orchestrator
         ? {
             pathPrefix: [orchestratorBinDir(dir)],
