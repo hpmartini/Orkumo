@@ -44,7 +44,7 @@ arrives when the turn ends, no second job); agents running in an Orkumo pane get
 their terminal and submitted. Agents running outside Orkumo cannot be reached: start a
 new one instead.
 
-Every message starts with `[von Agent <id> „<name>“ via orkumo send]` (sender from
+Every message starts with `[from agent <id> "<name>" via orkumo send]` (sender from
 `ORKUMO_AGENT_ID`, else the calling Claude Code or omp session), so the receiver knows it is not
 from Hape. Don't write your own sender line.
 
