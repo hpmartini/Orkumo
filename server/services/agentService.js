@@ -34,7 +34,7 @@ import {
 import { getAllPtySessions, ptyEvents, PTY_ACTIVE_MS } from './ptyService.js';
 import { settingsService } from './settingsService.js';
 import { keepMainAgentAlive } from './mainAgent.js';
-import { orchestratorDir } from './orchestratorService.js';
+import { orchestratorDir, isOrchestratorSession } from './orchestratorService.js';
 import { chatsDir } from './orkumoChats.js';
 import { agentWatchSources, createRefreshScheduler, watchSources } from './agentRefresh.js';
 
@@ -202,7 +202,14 @@ const WORKER_MCP_CONFIG = JSON.stringify({
     playwright: { command: 'npx', args: ['@playwright/mcp@latest'] },
   },
 });
+/**
+ * `orchestrator` (New agent "Orchestrator", `orkumo start --orchestrator`): Remote Control on, so
+ * the session shows up in the Claude app although ~/.claude/settings.json turns it off for all
+ * others. The CLI stores the flag in the job's respawnFlags: respawn and resume keep it.
+ */
+export const REMOTE_CONTROL_SETTINGS = JSON.stringify({ remoteControlAtStartup: true });
 export const DISPATCH_PROFILES = {
+  orchestrator: () => ['--settings', REMOTE_CONTROL_SETTINGS],
   worker: () => [
     '--settings',
     path.join(CLAUDE_HOME, 'profiles', 'worker.json'),
@@ -224,6 +231,30 @@ export function resumeProfileArgs(respawnFlags = []) {
     }
   }
   return args;
+}
+
+/**
+ * Respawn flags of a session marked as orchestrator (`agentView.orchestrators`) that was started
+ * without Remote Control (e.g. before the global setting went off): the flag added, or null when
+ * nothing changes (not marked, or a `--settings` of its own, which a second one would clash with).
+ */
+function orchestratorRespawnFlags(session, respawnFlags = []) {
+  const { orchestrators } = settingsService.getAgentViewSettings();
+  if (!isOrchestratorSession(session, orchestrators) || respawnFlags.includes('--settings'))
+    return null;
+  return [...respawnFlags, '--settings', REMOTE_CONTROL_SETTINGS];
+}
+
+/**
+ * Extra PTY args for `claude --resume <id>` in a pane: a marked orchestrator gets
+ * `--remote-control <role|orchestrator>` again (interactive sessions keep no flags of their own).
+ */
+export function interactiveRemoteControlArgs(args, { orchestrators = [], orchestratorRoles = {} }) {
+  const at = args.indexOf('--resume');
+  const sessionId = at === -1 ? null : args[at + 1];
+  if (!sessionId || args.includes('--remote-control') || !orchestrators.includes(sessionId))
+    return [];
+  return ['--remote-control', orchestratorRoles[sessionId] || 'orchestrator'];
 }
 
 export function isUnsafeFlagsAllowed() {
@@ -354,6 +385,7 @@ export function buildDispatchArgs(opts = {}) {
   pushRepeat('--mcp-config', opts.mcpConfigs);
   if (opts.strictMcpConfig) args.push('--strict-mcp-config');
   if (opts.profile) {
+    if (opts.settings) throw new Error('A profile sets --settings itself: drop settings');
     const profile = DISPATCH_PROFILES[opts.profile];
     if (!profile) throw new Error(`Unknown profile: ${opts.profile}`);
     args.push(...profile());
@@ -1114,7 +1146,14 @@ export async function stopSession(id) {
 }
 
 export async function respawnSession(id) {
-  if (id !== '--all') jobDir(id);
+  if (id !== '--all') {
+    const file = path.join(jobDir(id), 'state.json');
+    const state = await readJson(file, null);
+    // `claude respawn` starts the job with its stored respawnFlags (tried on a real job)
+    const flags =
+      state && orchestratorRespawnFlags({ id, sessionId: state.sessionId }, state.respawnFlags);
+    if (flags) await writeJsonAtomic(file, { ...state, respawnFlags: flags });
+  }
   const args = id === '--all' ? ['respawn', '--all'] : ['respawn', id];
   const result = await runClaude(args, { timeout: 30000 });
   if (result.code !== 0)
@@ -1237,7 +1276,9 @@ export async function replySession(id, text, options = {}) {
     '--resume',
     session.sessionId,
     '--bg',
-    ...resumeProfileArgs(session.respawnFlags),
+    ...resumeProfileArgs(
+      orchestratorRespawnFlags(session, session.respawnFlags) ?? session.respawnFlags
+    ),
     '--',
     message,
   ];

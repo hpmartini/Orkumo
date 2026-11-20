@@ -376,7 +376,21 @@ describe('startAgentPane', () => {
       pathPrefix: ['/data/orchestrator-bin'],
       env: { ORKUMO_CLI: '/data/orchestrator-bin/orkumo', ORKUMO_WORKSPACE: '/data/orchestrator' },
     });
-    expect(options.args).toEqual(['--session-id', result.sessionId, '--', 'survey']);
+    // Remote Control: orchestrators stay reachable from the Claude app, workers do not
+    expect(options.args).toEqual([
+      '--session-id',
+      result.sessionId,
+      '--remote-control',
+      'orchestrator',
+      '--',
+      'survey',
+    ]);
+  });
+
+  it('starts a worker Claude pane without Remote Control', async () => {
+    const deps = paneDeps();
+    await startAgentPane({ harness: 'claude', cwd: '/p/app', prompt: 'fix it' }, deps);
+    expect(deps.openAgentPty.mock.calls[0][4].args).not.toContain('--remote-control');
   });
 
   it('starts a worker omp pane in a project without orchestrator tooling', async () => {
