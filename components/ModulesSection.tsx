@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { Puzzle, RefreshCw } from 'lucide-react';
-import { fetchModuleStatus, reloadModules, type ModuleStatus } from '../hooks/useModules';
+import {
+  fetchModuleStatus,
+  reloadModules,
+  useModulesGeneration,
+  type ModuleStatus,
+} from '../hooks/useModules';
 
 /**
  * Admin panel: loaded modules with version and load error, and "Module neu laden" without a restart
@@ -11,12 +16,14 @@ export function ModulesSection() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [reloaded, setReloaded] = useState(false);
+  // Also after a reload from the palette
+  const gen = useModulesGeneration();
 
   useEffect(() => {
     fetchModuleStatus()
       .then(setModules)
       .catch(() => setModules(null));
-  }, []);
+  }, [gen]);
 
   async function reload() {
     setBusy(true);

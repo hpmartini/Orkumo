@@ -37,6 +37,8 @@ export interface ModuleStatus {
 
 // Bumped after every module reload: lists refetch, module UIs import their ui.js anew
 let generation = 0;
+// Ids loaded by the last reload; null before the first one
+let reloadedIds: Set<string> | null = null;
 const listeners = new Set<() => void>();
 const subscribe = (listener: () => void) => {
   listeners.add(listener);
@@ -53,9 +55,13 @@ async function moduleAdmin(path: string, init?: RequestInit): Promise<ModuleStat
 
 export const fetchModuleStatus = () => moduleAdmin('_status');
 
+/** False for a module the last reload dropped: its UI is about to unmount, its ui.js is gone */
+export const isModuleLoaded = (id: string) => reloadedIds?.has(id) ?? true;
+
 /** Server unloads and loads every module again; then the shell refreshes lists and module UIs */
 export async function reloadModules(): Promise<ModuleStatus[]> {
   const results = await moduleAdmin('_reload', { method: 'POST' });
+  reloadedIds = new Set(results.flatMap((r) => (r.status === 'loaded' && r.id ? [r.id] : [])));
   generation += 1;
   listeners.forEach((listener) => listener());
   return results;

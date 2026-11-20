@@ -285,6 +285,8 @@ const moduleHost = createModuleHost({
   isAdmin: (req) =>
     remoteAccess.isLocalRequest(req) &&
     (remoteAccess.isLoopbackOrigin(req.headers.origin) || hasRendererSecret(req)),
+  // Cached board items carry the old provider's `workflow`
+  onReload: () => boardService.dropCachedBoard(),
 });
 app.use('/api/modules', moduleHost.router);
 

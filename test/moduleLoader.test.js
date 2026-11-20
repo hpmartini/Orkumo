@@ -263,6 +263,22 @@ describe('moduleLoader reload', () => {
     }
   });
 
+  it("prefers the module's own version and calls onReload after every reload", async () => {
+    const mods = path.join(tmp, 'mods');
+    writeModule(
+      mods,
+      'own',
+      "export default { id: 'own', name: 'Own', version: '0.3.0', register() {} };",
+      '0.1.0'
+    );
+    const onReload = vi.fn();
+    host = createModuleHost({ services: {}, logger, onReload });
+    await host.load(mods);
+    expect(onReload).not.toHaveBeenCalled();
+    expect((await host.reload())[0].version).toBe('0.3.0');
+    expect(onReload).toHaveBeenCalledTimes(1);
+  });
+
   it('serializes concurrent reloads', async () => {
     const mods = path.join(tmp, 'mods');
     writeModule(mods, 'ticker', tickerModule);

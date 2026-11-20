@@ -10,7 +10,7 @@ import {
   getBackend,
   type Backend,
 } from '../utils/backendTarget';
-import { useModulesGeneration } from '../hooks/useModules';
+import { isModuleLoaded, useModulesGeneration } from '../hooks/useModules';
 
 /** What the shell hands a module UI on mount and on every update (docs/MODULES.md, "Frontend") */
 export interface ModuleHost {
@@ -109,6 +109,8 @@ export function ModuleMount({
 
   useEffect(() => {
     let cancelled = false;
+    // The list refetch removes this mount right after; importing now would only 404
+    if (!isModuleLoaded(id)) return;
     const src = `${API_BASE_URL}/modules/${id}/ui.js`;
     import(/* @vite-ignore */ gen ? `${src}?v=${gen}` : src)
       .then((mod) => {

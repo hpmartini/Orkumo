@@ -90,7 +90,7 @@ function withTimeout(promise, ms, what) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-/** `version` of the module's package.json, or null */
+/** `version` of the module's package.json, or null (for a module without its own `version`) */
 function readVersion(moduleDir) {
   try {
     const { version } = JSON.parse(fs.readFileSync(path.join(moduleDir, 'package.json'), 'utf8'));
@@ -101,8 +101,9 @@ function readVersion(moduleDir) {
 }
 
 /**
- * @param {{ services: object, logger?: object, isAdmin?: (req) => boolean }} options services are
- *   handed to modules as ctx.services; isAdmin gates the status and reload routes (owner only)
+ * @param {{ services: object, logger?: object, isAdmin?: (req) => boolean, onReload?: () => void }}
+ *   options services are handed to modules as ctx.services; isAdmin gates the status and reload
+ *   routes (owner only); onReload runs after every reload (host caches built from module output)
  * @returns {{ router: import('express').Router, load: (dir: string) => Promise<object[]>,
  *   reload: () => Promise<object[]>, upgradeHandler: (id: string) => Function | undefined }}
  *   router is mounted once, synchronously; it dispatches to the routers of the current module
@@ -112,6 +113,7 @@ export function createModuleHost({
   services,
   logger = createLogger('[Modules]'),
   isAdmin = () => false,
+  onReload = () => {},
 }) {
   const router = express.Router();
   // Current generation: module records { id, name, ui, mode, slot, dispose }, their routers, upgrades
@@ -244,7 +246,8 @@ export function createModuleHost({
       if (mod.workflow !== undefined) setProvider(null);
       await runDisposers();
     };
-    loaded.push({ id: mod.id, name: mod.name, ui: uiFile, mode, slot, dispose });
+    const version = typeof mod.version === 'string' ? mod.version : undefined;
+    loaded.push({ id: mod.id, name: mod.name, version, ui: uiFile, mode, slot, dispose });
   }
 
   /** Ends the current generation: hooks off, routes gone, dispose callbacks run (last loaded first) */
@@ -281,6 +284,7 @@ export function createModuleHost({
     serialized(async () => {
       await unloadAll();
       if (dirsLoaded !== null) await loadDirs(dirsLoaded);
+      onReload();
       return results;
     });
 
@@ -300,8 +304,8 @@ export function createModuleHost({
       const version = readVersion(path.join(dir, entry));
       try {
         await loadOne(dir, entry);
-        const { id, name } = loaded[loaded.length - 1];
-        results.push({ entry, id, name, version, status: 'loaded' });
+        const { id, name, version: own } = loaded[loaded.length - 1];
+        results.push({ entry, id, name, version: own ?? version, status: 'loaded' });
         logger.info(`Loaded module "${id}" from ${entry}`);
       } catch (error) {
         results.push({ entry, version, status: 'error', error: String(error?.message ?? error) });

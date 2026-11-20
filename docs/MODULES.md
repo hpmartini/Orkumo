@@ -34,6 +34,7 @@ export default {
     orchestratorFilter: false,
   }, // optional, needs ui
   slot: 'agents-rail', // optional, needs ui, excludes mode: where the UI renders (see Slots)
+  version: '1.2.0', // optional, shown in the admin panel; else package.json `version`
   async register(ctx) {}, // may be async
 };
 ```
@@ -99,7 +100,7 @@ Modules must not import host packages (`express`, ...): the Electron bundle has 
 
 - `GET /api/modules` -> `[{ id, name, ui, mode?, slot? }]` (`ui`: boolean; `mode`: `{ label, icon?, keywords?, scoped?, orchestratorFilter? }`; `slot`: `'agents-rail'`). `[]` without modules.
 - `GET /api/modules/<id>/ui.js` is reserved for the module's UI bundle (only if `ui` is set).
-- `GET /api/modules/_status` -> one row per module directory of the last load: `{ entry, id?, name?, version, status: 'loaded'|'error', error? }` (`version`: the module's `package.json` `version`, else `null`). `POST /api/modules/_reload` reloads and answers the same rows. Both only for this machine's own UI (loopback request with a loopback or no `Origin`, or the Electron renderer), else `403`. `_` cannot start a module id, so they never shadow a module route.
+- `GET /api/modules/_status` -> one row per module directory of the last load: `{ entry, id?, name?, version, status: 'loaded'|'error', error? }` (`version`: the `version` string of the default export, else the module's `package.json` `version`, else `null`). `POST /api/modules/_reload` reloads and answers the same rows. Both only for this machine's own UI (loopback request with a loopback or no `Origin`, or the Electron renderer), else `403`. `_` cannot start a module id, so they never shadow a module route.
 
 ## Lifecycle
 
@@ -109,7 +110,7 @@ Load at server start, then again on every reload: Admin panel → Module → "Mo
 2. loads the module directories of the start again, like at start. `index.js` is imported under a new URL (`?v=<n>`), so Node evaluates it anew; relative imports of it stay cached, so a module that wants to be reloadable ships one bundled file;
 3. answers the per-module rows (above). The shell then refetches the module list, unmounts every module UI and imports its `ui.js` under a new URL, without a page reload. A module that is gone loses its mode and slot; a new one appears.
 
-Reloads (and the start load) run one after another. A module that fails on reload is gone until the next reload that succeeds; the others are unaffected. Old ES module instances stay in Node's module cache (a few KB each); what they keep running is the module's business, through `onDispose`.
+Reloads (and the start load) run one after another. A module that fails on reload is gone until the next reload that succeeds; the others are unaffected. Old instances are not freed: Node keeps every evaluated `index.js` in its module cache and the browser every imported `ui.js` (a bundle with its own copy of a library like Three.js warns about multiple instances). A restart clears both. What an old instance keeps running is the module's business, through `onDispose`.
 
 A module without `onDispose` that starts a timer (`setInterval`), a server or a listener on a host service keeps it running after a reload, next to the new instance. Register the cleanup right where the resource starts:
 
