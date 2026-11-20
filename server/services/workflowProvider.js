@@ -144,9 +144,9 @@ const notFound = (msg) => Object.assign(new Error(msg), { status: 404 });
 /** Starts or wakes the issue now through the provider; the URL comes from the client */
 export async function startIssue(url) {
   if (typeof url !== 'string' || !ISSUE_URL_RE.test(url)) {
-    throw Object.assign(new Error('Keine GitHub-Issue-URL'), { status: 400 });
+    throw Object.assign(new Error('Not a GitHub issue URL'), { status: 400 });
   }
-  if (!provider?.start) throw notFound('Kein Workflow-Provider mit Start geladen');
+  if (!provider?.start) throw notFound('No workflow provider with start loaded');
   return provider.start(url, hostFor(url));
 }
 
@@ -161,7 +161,7 @@ export async function applyGo(ctx, go, { updateIssue }) {
   if (!provider || !offered || offered.kind !== go?.kind) {
     return {
       status: 409,
-      body: { error: 'Dieses GO ist nicht (mehr) offen', state: ctx.item.workflow?.state ?? null },
+      body: { error: 'This GO is no longer open', state: ctx.item.workflow?.state ?? null },
     };
   }
   const start = () => startIssue(ctx.item.url);

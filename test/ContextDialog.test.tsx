@@ -62,29 +62,29 @@ describe('ContextDialog groups', () => {
 
   it('collapses and expands all directories at once', () => {
     renderDialog();
-    fireEvent.click(screen.getByRole('button', { name: 'Alle Verzeichnisse einklappen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all directories' }));
     expect(header('LAB')).toHaveAttribute('aria-expanded', 'false');
     expect(header('WORK')).toHaveAttribute('aria-expanded', 'false');
     expect(screen.queryAllByRole('checkbox', { name: /alpha|beta|gamma/ })).toHaveLength(0);
 
-    fireEvent.click(screen.getByRole('button', { name: 'Alle Verzeichnisse ausklappen' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all directories' }));
     expect(screen.queryAllByRole('checkbox', { name: /alpha|beta|gamma/ })).toHaveLength(3);
   });
 
   it('shows filter matches inside collapsed directories', async () => {
     renderDialog();
-    fireEvent.click(screen.getByRole('button', { name: 'Alle Verzeichnisse einklappen' }));
-    await userEvent.type(screen.getByLabelText('Projekte filtern'), 'gam');
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all directories' }));
+    await userEvent.type(screen.getByLabelText('Filter projects'), 'gam');
     expect(visible('gamma')).not.toBeNull();
     expect(header('WORK')).toHaveAttribute('aria-expanded', 'true');
-    expect(screen.getByRole('button', { name: 'Alle Verzeichnisse einklappen' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: 'Collapse all directories' })).toBeDisabled();
   });
 
   it('keeps selections of collapsed directories when saving', () => {
     const onSave = renderDialog();
     fireEvent.click(screen.getByRole('checkbox', { name: /gamma/ }));
-    fireEvent.click(screen.getByRole('button', { name: 'Alle Verzeichnisse einklappen' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Speichern' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all directories' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
     expect(onSave).toHaveBeenCalledWith(
       expect.objectContaining({ name: 'Websites', appIds: ['a', 'c'] })
     );

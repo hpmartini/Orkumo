@@ -19,7 +19,7 @@ export const sessionsByLinkId = (sessions: AgentSession[]) =>
 export async function startAgentOn(navigate: NavigateFunction, it: BoardItem) {
   // No local checkout found (or lookup failed): composer keeps its own directory
   const cwd = it.repo ? await fetchRepoPath(it.repo).catch(() => null) : null;
-  navigate('/agents', { state: { dispatch: `Bearbeite ${it.url} `, cwd } });
+  navigate('/agents', { state: { dispatch: `Work on ${it.url} `, cwd } });
 }
 
 /** Code mode in the folder of the first linked agent, else the repo's local checkout */
@@ -35,5 +35,5 @@ export async function openCodeFor(
     linkedAgentFolder(jobIds, sessionsById, contexts) ??
     (repo ? await fetchRepoPath(repo).catch(() => null) : null);
   if (folder) navigate(codeUrl(folder));
-  else toast.error(`Kein lokaler Checkout von ${repo ?? 'diesem Issue'} gefunden`);
+  else toast.error(`No local checkout found for ${repo ?? 'this issue'}`);
 }

@@ -230,8 +230,6 @@ describe('remote access (AC-5)', () => {
 
 describe('resolveOpenTarget', () => {
   it('expands ~ against the home directory', () => {
-    expect(() => resolveOpenTarget('~/definitely-missing-188.pdf', undefined)).toThrow(
-      /nicht gefunden/
-    );
+    expect(() => resolveOpenTarget('~/definitely-missing-188.pdf', undefined)).toThrow(/not found/);
   });
 });

@@ -8,7 +8,7 @@ export interface Box {
 export interface ToastBox {
   id: string;
   rect: Box;
-  /** Buttons inside the toast ("×", "Rückgängig" …) stay clickable, so the toast stays opaque there */
+  /** Buttons inside the toast ("×", "Undo" …) stay clickable, so the toast stays opaque there */
   buttons: Box[];
 }
 

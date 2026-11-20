@@ -17,7 +17,7 @@ const api = vi.hoisted(() => ({
 }));
 vi.mock('../services/boardApi', () => api);
 
-// Undo toasts are render functions; keep the last one so a test can click "Rückgängig"
+// Undo toasts are render functions; keep the last one so a test can click "Undo"
 const toasts = vi.hoisted(() => ({ last: null as null | ((t: { id: string }) => ReactElement) }));
 vi.mock('react-hot-toast', () => {
   const toast = Object.assign(
@@ -154,7 +154,7 @@ describe('useBoard status writes', () => {
     expect(toasts.last).not.toBeNull();
 
     render(toasts.last!({ id: 't' }));
-    act(() => screen.getByRole('button', { name: 'Rückgängig' }).click());
+    act(() => screen.getByRole('button', { name: 'Undo' }).click());
     expect(writes[1].optionId).toBe('A');
     expect(status(hook)).toBe('A');
 
@@ -174,7 +174,7 @@ describe('useBoard status writes', () => {
     act(() => void hook.result.current.moveItem(ITEM, 'B'));
     await act(async () => writes[0].resolve());
     render(toasts.last!({ id: 't' }));
-    act(() => screen.getByRole('button', { name: 'Rückgängig' }).click()); // B→A in flight
+    act(() => screen.getByRole('button', { name: 'Undo' }).click()); // B→A in flight
     act(() => void hook.result.current.moveItem(ITEM, 'C')); // A→C
 
     await act(async () => writes[1].reject(new Error('boom'))); // undo fails

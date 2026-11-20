@@ -14,7 +14,7 @@ export function BackendBar() {
       className="flex items-center gap-3 px-3 py-1 text-xs bg-blue-900/60 border-b border-blue-800 text-blue-100"
     >
       <span className="min-w-0 truncate">
-        Verbunden mit <span className="font-semibold">{backend.label}</span>
+        Connected to <span className="font-semibold">{backend.label}</span>
       </span>
       <button
         type="button"

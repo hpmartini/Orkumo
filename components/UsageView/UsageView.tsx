@@ -42,13 +42,13 @@ const SERIES_COLORS = [
 
 const SOURCE_LABEL: Record<UsageLimitSource, string> = {
   statusline: 'Statusline',
-  oauth: 'Claude-Abo live',
-  'claude-cache': 'Claude-Cache',
-  rollout: 'Codex-Rollout',
+  oauth: 'Claude subscription (live)',
+  'claude-cache': 'Claude cache',
+  rollout: 'Codex rollout',
 };
 
 const formatStand = (ms: number) =>
-  new Date(ms).toLocaleString('de-DE', {
+  new Date(ms).toLocaleString(undefined, {
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',
@@ -57,7 +57,7 @@ const formatStand = (ms: number) =>
 
 const formatDay = (date: string) => {
   const [, m, d] = date.split('-');
-  return `${d}.${m}.`;
+  return `${m}/${d}`;
 };
 
 const card = 'rounded-lg border border-gray-700 bg-gray-850';
@@ -68,25 +68,25 @@ const ProviderLimits: React.FC<{ provider: UsageProvider; compact?: boolean; now
   compact,
   now,
 }) => {
-  if (!provider.available) return <p className="text-xs text-gray-500">nicht verfügbar</p>;
+  if (!provider.available) return <p className="text-xs text-gray-500">not available</p>;
   const { limits } = provider;
   if (!limits)
-    return <p className="text-xs text-gray-500">Limit unbekannt – keine Quelle für Plan-Limits</p>;
+    return <p className="text-xs text-gray-500">Limit unknown – no source for plan limits</p>;
   const stale = staleAge(limits.asOf, now);
   return (
     <div className="space-y-3">
       <div className={`grid gap-4 ${compact ? 'grid-cols-1' : 'sm:grid-cols-2'}`}>
         {/* plans without a 5h window (source has none) get no empty bar (#184) */}
         {limits.fiveHour && (
-          <LimitBar label="5 Stunden" window={limits.fiveHour} compact={compact} now={now} />
+          <LimitBar label="5 hours" window={limits.fiveHour} compact={compact} now={now} />
         )}
-        <LimitBar label="Woche" window={limits.weekly} compact={compact} now={now} />
+        <LimitBar label="Week" window={limits.weekly} compact={compact} now={now} />
       </div>
       <p className="text-[11px] text-gray-500">
-        Quelle: {SOURCE_LABEL[limits.source] ?? limits.source} · Stand {formatStand(limits.asOf)}
+        Source: {SOURCE_LABEL[limits.source] ?? limits.source} · as of {formatStand(limits.asOf)}
         {limits.plan && ` · Plan ${limits.plan}`}
-        {!limits.fiveHour && ' · kein 5-h-Limit in der Quelle'}
-        {stale && <span className="text-yellow-400"> · veraltet ({stale})</span>}
+        {!limits.fiveHour && ' · no 5h limit in the source'}
+        {stale && <span className="text-yellow-400"> · stale ({stale})</span>}
       </p>
     </div>
   );
@@ -101,7 +101,7 @@ const Kpi: React.FC<{ label: string; value: string; hint?: string }> = ({ label,
 );
 
 const Skeleton: React.FC = () => (
-  <div className="space-y-4 animate-pulse" aria-busy="true" aria-label="Nutzung wird geladen">
+  <div className="space-y-4 animate-pulse" aria-busy="true" aria-label="Loading usage">
     <div className="h-24 rounded-lg bg-gray-800" />
     <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
       {Array.from({ length: 5 }, (_, i) => (
@@ -118,7 +118,7 @@ interface UsageViewProps {
   onBack?: () => void;
 }
 
-/** Full "Nutzung" page: plan limits, KPIs, daily chart and model table per provider */
+/** Full "Usage" page: plan limits, KPIs, daily chart and model table per provider */
 export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
   const [days, setDays] = useState<UsageDays>(7);
   const [selected, setSelected] = useState<string>(ALL_PROVIDERS_ID);
@@ -155,7 +155,7 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
       key={id}
       onClick={() => setSelected(id)}
       aria-pressed={selected === id}
-      aria-label={`Anbieter ${label} anzeigen`}
+      aria-label={`Show provider ${label}`}
       className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
         selected === id
           ? 'bg-gray-700 text-white'
@@ -173,15 +173,15 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
           {onBack && (
             <button
               onClick={onBack}
-              aria-label="Zurück"
-              title="Zurück"
+              aria-label="Back"
+              title="Back"
               className="flex items-center gap-1.5 px-2 py-1 -ml-2 rounded-md text-sm text-gray-300 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor"
             >
-              <ArrowLeft size={14} aria-hidden="true" /> Zurück
+              <ArrowLeft size={14} aria-hidden="true" /> Back
             </button>
           )}
           <BarChart3 size={20} className="text-blue-400" aria-hidden="true" />
-          <h1 className="text-lg font-semibold text-gray-100 mr-auto">Nutzung</h1>
+          <h1 className="text-lg font-semibold text-gray-100 mr-auto">Usage</h1>
           <div
             className="flex rounded-md border border-gray-700 bg-gray-850 p-0.5"
             role="group"
@@ -192,7 +192,7 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
                 key={d}
                 onClick={() => setDays(d)}
                 aria-pressed={days === d}
-                aria-label={`Letzte ${d} Tage`}
+                aria-label={`Last ${d} days`}
                 className={`px-2.5 py-1 rounded text-xs tabular-nums transition-colors ${
                   days === d ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-gray-200'
                 }`}
@@ -204,8 +204,8 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
           <button
             onClick={refresh}
             disabled={loading}
-            aria-label="Nutzung aktualisieren"
-            title="Aktualisieren"
+            aria-label="Refresh usage"
+            title="Refresh"
             className="p-2 rounded-md border border-gray-700 text-gray-400 hover:text-gray-200 hover:bg-gray-800 disabled:opacity-50"
           >
             <RefreshCw size={14} className={loading ? 'animate-spin' : ''} />
@@ -213,8 +213,11 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
         </header>
 
         {providers.length > 0 && (
-          <nav className="flex flex-wrap gap-1 border-b border-gray-700 pb-2" aria-label="Anbieter">
-            {tab(ALL_PROVIDERS_ID, 'Alle')}
+          <nav
+            className="flex flex-wrap gap-1 border-b border-gray-700 pb-2"
+            aria-label="Providers"
+          >
+            {tab(ALL_PROVIDERS_ID, 'All')}
             {providers.map((p) => tab(p.id, p.label))}
           </nav>
         )}
@@ -225,13 +228,13 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
             className="flex items-center gap-3 rounded-lg border border-red-500/40 bg-red-500/10 px-4 py-3 text-sm text-red-300"
           >
             <AlertTriangle size={16} aria-hidden="true" />
-            <span className="mr-auto">Nutzung konnte nicht geladen werden: {error}</span>
+            <span className="mr-auto">Could not load usage: {error}</span>
             <button
               onClick={refresh}
-              aria-label="Laden erneut versuchen"
+              aria-label="Retry loading"
               className="px-3 py-1 rounded-md bg-red-500/20 hover:bg-red-500/30 text-red-200"
             >
-              Erneut versuchen
+              Retry
             </button>
           </div>
         )}
@@ -240,13 +243,13 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
 
         {data && providers.length === 0 && (
           <div className={`${card} p-10 text-center text-sm text-gray-500`}>
-            Keine Anbieter mit Nutzungsdaten gefunden.
+            No providers with usage data found.
           </div>
         )}
 
         {data && providers.length > 0 && !current && (
           <div className={`${card} p-10 text-center text-sm text-gray-500`}>
-            Anbieter nicht mehr vorhanden.
+            Provider no longer available.
           </div>
         )}
 
@@ -254,14 +257,14 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
           <>
             {isAll ? (
               <section
-                aria-label="Anbieter im Vergleich"
+                aria-label="Provider comparison"
                 className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4"
               >
                 {providers.map((p) => (
                   <button
                     key={p.id}
                     onClick={() => setSelected(p.id)}
-                    aria-label={`Details zu ${p.label}`}
+                    aria-label={`Details for ${p.label}`}
                     className={`${card} p-4 text-left hover:border-gray-500 transition-colors`}
                   >
                     <div className="flex items-baseline justify-between gap-2 mb-3">
@@ -281,26 +284,24 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
               </section>
             )}
 
-            <section className="grid grid-cols-2 lg:grid-cols-5 gap-3" aria-label="Kennzahlen">
-              <Kpi label="Tokens gesamt" value={formatTokens(kpis.total)} hint={`${days} Tage`} />
-              <Kpi label="Ø pro Tag" value={formatTokens(kpis.dailyAverage)} />
+            <section className="grid grid-cols-2 lg:grid-cols-5 gap-3" aria-label="Key figures">
+              <Kpi label="Total tokens" value={formatTokens(kpis.total)} hint={`${days} days`} />
+              <Kpi label="Avg per day" value={formatTokens(kpis.dailyAverage)} />
               <Kpi
-                label="Spitzentag"
+                label="Peak day"
                 value={kpis.peak ? formatTokens(kpis.peak.total) : '–'}
                 hint={kpis.peak ? formatDay(kpis.peak.date) : undefined}
               />
-              <Kpi label="Aktive Tage" value={`${kpis.activeDays} / ${days}`} />
-              <Kpi label="Cache-Trefferquote" value={formatPercent(current.cacheHitRate)} />
+              <Kpi label="Active days" value={`${kpis.activeDays} / ${days}`} />
+              <Kpi label="Cache hit rate" value={formatPercent(current.cacheHitRate)} />
             </section>
 
-            <section className={`${card} p-4`} aria-label="Tokens pro Tag">
+            <section className={`${card} p-4`} aria-label="Tokens per day">
               <h2 className="text-sm font-medium text-gray-300 mb-3">
-                Tokens pro Tag {isAll ? 'nach Anbieter' : 'nach Modell'}
+                {isAll ? 'Tokens per day by provider' : 'Tokens per day by model'}
               </h2>
               {series.keys.length === 0 ? (
-                <p className="py-16 text-center text-sm text-gray-500">
-                  Keine Nutzung im Zeitraum.
-                </p>
+                <p className="py-16 text-center text-sm text-gray-500">No usage in this period.</p>
               ) : (
                 <div className="h-72">
                   <ResponsiveContainer width="100%" height="100%">
@@ -346,23 +347,23 @@ export const UsageView: React.FC<UsageViewProps> = ({ active, onBack }) => {
               )}
             </section>
 
-            <section className={`${card} overflow-x-auto`} aria-label="Nutzung nach Modell">
+            <section className={`${card} overflow-x-auto`} aria-label="Usage by model">
               <table className="w-full text-sm">
                 <thead className="text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-700">
                   <tr>
-                    <th className="text-left font-medium px-4 py-2">Modell</th>
+                    <th className="text-left font-medium px-4 py-2">Model</th>
                     <th className="text-right font-medium px-4 py-2">Input</th>
                     <th className="text-right font-medium px-4 py-2">Output</th>
                     <th className="text-right font-medium px-4 py-2">Cache Read</th>
                     <th className="text-right font-medium px-4 py-2">Cache Write</th>
-                    <th className="text-right font-medium px-4 py-2">Gesamt</th>
+                    <th className="text-right font-medium px-4 py-2">Total</th>
                   </tr>
                 </thead>
                 <tbody className="tabular-nums">
                   {rows.length === 0 && (
                     <tr>
                       <td colSpan={6} className="px-4 py-6 text-center text-gray-500">
-                        Keine Modelle im Zeitraum.
+                        No models in this period.
                       </td>
                     </tr>
                   )}

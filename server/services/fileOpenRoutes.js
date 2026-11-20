@@ -90,7 +90,7 @@ export function resolveOpenTarget(input, cwd, roots = defaultRoots()) {
   try {
     real = fs.realpathSync(target);
   } catch {
-    throw httpError(404, `Datei nicht gefunden: ${input}`);
+    throw httpError(404, `File not found: ${input}`);
   }
   if (!roots.some((root) => real === root || real.startsWith(root + path.sep))) {
     throw httpError(403, 'Only files under the home or temp directory can be opened');

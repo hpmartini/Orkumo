@@ -18,7 +18,7 @@ const UI_KEYS = [WORKSPACE_KEY, WORKSPACE_LEGACY_KEY, RAIL_KEY, ROUTE_KEY, SHELL
 const MARKER_KEY = 'devOrbitContextId';
 
 const FALLBACK: ContextList = {
-  contexts: [{ id: 'all', name: 'Alle', appIds: null, boardFilter: [] }],
+  contexts: [{ id: 'all', name: 'All', appIds: null, boardFilter: [] }],
   activeContextId: 'all',
 };
 
@@ -103,7 +103,7 @@ export function useProjectContexts(onSwitched: () => void) {
     (id: string) => {
       const from = listRef.current?.activeContextId;
       if (!from || from === id) return;
-      load(id, from).catch(errorToast('Kontext nicht gewechselt'));
+      load(id, from).catch(errorToast('Could not switch context'));
     },
     [load]
   );
@@ -116,7 +116,7 @@ export function useProjectContexts(onSwitched: () => void) {
         const from = listRef.current?.activeContextId;
         if (from) await load(context.id, from);
       } catch (err) {
-        errorToast('Kontext nicht angelegt')(err);
+        errorToast('Could not create context')(err);
       }
     },
     [load]
@@ -127,7 +127,7 @@ export function useProjectContexts(onSwitched: () => void) {
       const context = await api.updateContext(id, patch);
       setList((l) => l && { ...l, contexts: l.contexts.map((c) => (c.id === id ? context : c)) });
     } catch (err) {
-      errorToast('Kontext nicht gespeichert')(err);
+      errorToast('Could not save context')(err);
     }
   }, []);
 
@@ -139,7 +139,7 @@ export function useProjectContexts(onSwitched: () => void) {
         // The server activated a neighbour; the local entries were the deleted context's
         if (listRef.current?.activeContextId === id) await load(next.activeContextId, id);
       } catch (err) {
-        errorToast('Kontext nicht gelöscht')(err);
+        errorToast('Could not delete context')(err);
       }
     },
     [load]
@@ -154,7 +154,7 @@ export function useProjectContexts(onSwitched: () => void) {
       await api.reorderContexts(ids);
     } catch (err) {
       setList(previous);
-      errorToast('Reihenfolge nicht gespeichert')(err);
+      errorToast('Could not save order')(err);
     }
   }, []);
 

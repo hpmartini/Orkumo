@@ -48,7 +48,7 @@ export const useModulesGeneration = () => useSyncExternalStore(subscribe, () => 
 
 async function moduleAdmin(path: string, init?: RequestInit): Promise<ModuleStatus[]> {
   const res = await fetch(`${API_BASE_URL}/modules/${path}`, init);
-  if (res.status === 403) throw new Error('Nur auf diesem Rechner möglich');
+  if (res.status === 403) throw new Error('Only possible on this machine');
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   return res.json();
 }
@@ -72,14 +72,14 @@ export function reloadModulesWithToast(): void {
   reloadModules()
     .then((results) => {
       const failed = results.filter((r) => r.status === 'error');
-      const summary = `${results.length - failed.length} geladen`;
+      const summary = `${results.length - failed.length} loaded`;
       if (failed.length)
         toast.error(
-          `Module neu geladen: ${summary}, Fehler in ${failed.map((r) => r.entry).join(', ')}`
+          `Modules reloaded: ${summary}, failed: ${failed.map((r) => r.entry).join(', ')}`
         );
-      else toast.success(`Module neu geladen: ${summary}`);
+      else toast.success(`Modules reloaded: ${summary}`);
     })
-    .catch((error: Error) => toast.error(`Module neu laden fehlgeschlagen: ${error.message}`));
+    .catch((error: Error) => toast.error(`Reloading modules failed: ${error.message}`));
 }
 
 /**

@@ -126,7 +126,7 @@ describe('stacked series', () => {
     ]);
   });
 
-  it('stacks by provider label in "Alle" mode', () => {
+  it('stacks by provider label in "All" mode', () => {
     const s = seriesByProvider(
       [
         provider('a', [row('2026-10-29', 'opus', 3)]),

@@ -166,9 +166,9 @@ export function sliceGroups(
 ): SliceGroup[] {
   const q = query.trim().toLowerCase();
   return [
-    { label: 'Favoriten', entries: slices.favorites },
+    { label: 'Favorites', entries: slices.favorites },
     { label: othersLabel, entries: slices.others },
-    { label: 'Ausgeblendet', entries: slices.hidden },
+    { label: 'Hidden', entries: slices.hidden },
   ]
     .map((g) => ({ ...g, entries: g.entries.filter((e) => e.value.toLowerCase().includes(q)) }))
     .filter((g) => g.entries.length > 0);
@@ -295,12 +295,12 @@ export function buildLanes(
     if (mode === 'parent') {
       const p = item.parent;
       if (p) add(issueKey(p.repo, p.number), p.title, p, item);
-      else add(NO_PARENT_LANE, 'Ohne Parent', null, item);
+      else add(NO_PARENT_LANE, 'No parent', null, item);
     } else if (mode === 'repo') {
       if (item.repo) add(`repo:${item.repo}`, shortRepo(item.repo), null, item);
-      else add(NO_REPO_LANE, 'Ohne Repo', null, item);
+      else add(NO_REPO_LANE, 'No repo', null, item);
     } else {
-      add('all', 'Alle', null, item);
+      add('all', 'All', null, item);
     }
   }
 

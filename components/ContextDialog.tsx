@@ -135,12 +135,12 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
   };
   const bulkActions = [
     {
-      label: 'Alle Verzeichnisse einklappen',
+      label: 'Collapse all directories',
       Icon: ChevronsDownUp,
       run: () => updateCollapsed(new Set(groups.map((g) => g.root ?? OTHER_GROUP))),
     },
     {
-      label: 'Alle Verzeichnisse ausklappen',
+      label: 'Expand all directories',
       Icon: ChevronsUpDown,
       run: () => updateCollapsed(new Set()),
     },
@@ -166,7 +166,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
     onClose();
   };
 
-  const title = context ? 'Kontext bearbeiten' : 'Neuer Kontext';
+  const title = context ? 'Edit context' : 'New context';
   return (
     <div
       className="fixed inset-0 z-[90] bg-gray-950/70 flex items-start justify-center px-4 pt-[10vh]"
@@ -200,7 +200,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
               type="button"
               onClick={onClose}
               className="ml-auto p-1.5 rounded-md text-gray-200 hover:bg-gray-700 hover:text-white focus-visible:outline-2 focus-visible:outline-blue-400"
-              aria-label="Schließen"
+              aria-label="Close"
             >
               <X size={15} />
             </button>
@@ -218,14 +218,14 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                 onChange={(e) => setName(e.target.value)}
                 maxLength={60}
                 required
-                placeholder="z.B. Epic Zahlungen"
+                placeholder="e.g. Epic payments"
                 className={FIELD_INPUT}
               />
             </div>
 
             {/* min-w-0: a fieldset is min-content wide by default, long paths overflowed the dialog */}
             <fieldset className="min-w-0 flex flex-col flex-1 min-h-0">
-              <legend className="text-gray-400 mb-1">Projekte</legend>
+              <legend className="text-gray-400 mb-1">Projects</legend>
               <label className="flex items-center gap-2 text-gray-200 mb-1.5 cursor-pointer">
                 <input
                   type="checkbox"
@@ -233,7 +233,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                   onChange={(e) => setAllApps(e.target.checked)}
                   className="accent-blue-500"
                 />
-                Alle Projekte
+                All projects
               </label>
               {!allApps && (
                 <>
@@ -241,8 +241,8 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                     <input
                       value={query}
                       onChange={(e) => setQuery(e.target.value)}
-                      placeholder="Projekte filtern"
-                      aria-label="Projekte filtern"
+                      placeholder="Filter projects"
+                      aria-label="Filter projects"
                       className={FIELD_INPUT}
                     />
                     {bulkActions.map(({ label, Icon, run }) => (
@@ -252,7 +252,7 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                         onClick={run}
                         disabled={searching}
                         className="shrink-0 p-1.5 rounded text-gray-400 hover:text-white hover:bg-gray-700 focus-visible:outline-2 focus-visible:outline-blue-400 disabled:opacity-40 disabled:pointer-events-none"
-                        title={searching ? 'Beim Filtern sind alle Treffer sichtbar' : label}
+                        title={searching ? 'All matches are shown while filtering' : label}
                         aria-label={label}
                       >
                         <Icon size={13} />
@@ -290,11 +290,11 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                             <span className="min-w-0 flex-1 truncate">
                               {group.root
                                 ? shortenPath(shortPath(group.root, null), HEADER_PATH_CHARS)
-                                : 'Außerhalb der Projektverzeichnisse'}
+                                : 'Outside the project directories'}
                             </span>
                             <span
                               className="shrink-0 font-sans tabular-nums"
-                              title={`${picked} von ${group.items.length} ausgewählt`}
+                              title={`${picked} of ${group.items.length} selected`}
                             >
                               {picked}/{group.items.length}
                             </span>
@@ -326,18 +326,18 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
                       );
                     })}
                     {choices.length === 0 && (
-                      <li className="px-2 py-1.5 text-gray-400">Keine Projekte gefunden</li>
+                      <li className="px-2 py-1.5 text-gray-400">No projects found</li>
                     )}
                   </ul>
                   <div className="mt-1 flex items-center gap-2 text-gray-400">
                     {/* Stored ids of missing repos stay selected but are not counted */}
-                    <span>{apps.filter((a) => selected.has(a.id)).length} ausgewählt</span>
+                    <span>{apps.filter((a) => selected.has(a.id)).length} selected</span>
                     <button
                       type="button"
                       onClick={onOpenSettings}
                       className="ml-auto flex items-center gap-1 rounded px-1 text-blue-300 hover:text-blue-200 hover:underline focus-visible:outline-2 focus-visible:outline-blue-400"
                     >
-                      <Settings size={12} /> Projektverzeichnisse verwalten
+                      <Settings size={12} /> Manage project directories
                     </button>
                   </div>
                 </>
@@ -346,18 +346,18 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
 
             <div>
               <label htmlFor="context-board-filter" className="block text-gray-400 mb-1">
-                Board-Filter
+                Board filter
               </label>
               <input
                 id="context-board-filter"
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
-                placeholder="label:epic-zahlungen, milestone:v2, repo:owner/name"
+                placeholder="label:epic-payments, milestone:v2, repo:owner/name"
                 className={`${FIELD_INPUT} font-mono`}
               />
               <p className="mt-1 text-gray-400">
-                Kommagetrennt, Arten repo, label, milestone, assignee. Gleiche Art = oder,
-                verschiedene Arten = und. Leer zeigt das ganze Board.
+                Comma-separated, kinds repo, label, milestone, assignee. Same kind = or, different
+                kinds = and. Empty shows the whole board.
               </p>
             </div>
           </div>
@@ -367,14 +367,14 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  if (window.confirm(`Kontext „${context.name}" löschen?`)) {
+                  if (window.confirm(`Delete context "${context.name}"?`)) {
                     onDelete();
                     onClose();
                   }
                 }}
                 className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-md text-xs text-red-300 hover:bg-red-500/15"
               >
-                <Trash2 size={13} /> Löschen
+                <Trash2 size={13} /> Delete
               </button>
             )}
             <button
@@ -382,14 +382,14 @@ export const ContextDialog: React.FC<ContextDialogProps> = ({
               onClick={onClose}
               className="ml-auto px-3 py-1.5 rounded-md text-xs text-gray-200 hover:bg-gray-700"
             >
-              Abbrechen
+              Cancel
             </button>
             <button
               type="submit"
               disabled={!name.trim()}
               className="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-500 disabled:opacity-50"
             >
-              {context ? 'Speichern' : 'Anlegen'}
+              {context ? 'Save' : 'Create'}
             </button>
           </div>
         </form>

@@ -59,8 +59,8 @@ describe('rankSessions (#184 AC-4)', () => {
 describe('limit staleness (#184 AC-5)', () => {
   it('flags snapshots older than an hour with their age', () => {
     expect(staleAge(NOW - 10 * 60_000, NOW)).toBeNull();
-    expect(staleAge(NOW - 3 * H, NOW)).toBe('vor 3 h');
-    expect(staleAge(NOW - 26 * 24 * H, NOW)).toBe('vor 26 T');
+    expect(staleAge(NOW - 3 * H, NOW)).toBe('3 h ago');
+    expect(staleAge(NOW - 26 * 24 * H, NOW)).toBe('26 d ago');
     expect(staleAge(null, NOW)).toBeNull();
   });
   it('a reset window has no countdown', () => {
@@ -74,13 +74,13 @@ describe('SessionsCard (#184 AC-4)', () => {
   it('switches tabs and filters by context', async () => {
     const { rerender } = render(<SessionsCard active />);
     expect(await screen.findAllByRole('listitem')).toHaveLength(3);
-    await userEvent.click(screen.getByRole('tab', { name: 'Größte (Tokens)' }));
-    expect(screen.getByRole('tab', { name: 'Größte (Tokens)' })).toHaveAttribute(
+    await userEvent.click(screen.getByRole('tab', { name: 'Largest (tokens)' }));
+    expect(screen.getByRole('tab', { name: 'Largest (tokens)' })).toHaveAttribute(
       'aria-selected',
       'true'
     );
-    expect(within(first()).getByTitle('Tokens der Session')).toHaveTextContent('9');
-    await userEvent.click(screen.getByRole('tab', { name: 'Längste (Dauer)' }));
+    expect(within(first()).getByTitle('Session tokens')).toHaveTextContent('9');
+    await userEvent.click(screen.getByRole('tab', { name: 'Longest (duration)' }));
     expect(within(first()).getByTitle('/p/b')).toBeInTheDocument();
     rerender(<SessionsCard active projectPaths={['/p/b']} />);
     expect(screen.getAllByRole('listitem')).toHaveLength(1);
@@ -132,12 +132,12 @@ describe('UsageCard limits (#184 AC-5)', () => {
     render(<UsageCard onOpen={() => {}} />);
     const [claude, codex] = await screen.findAllByRole('listitem');
     vi.useRealTimers();
-    expect(within(claude).getByText('kein 5-h-Limit')).toBeInTheDocument();
-    expect(within(claude).getByText(/veraltet · vor 26 T/)).toBeInTheDocument();
+    expect(within(claude).getByText('no 5h limit')).toBeInTheDocument();
+    expect(within(claude).getByText(/stale · 26 d ago/)).toBeInTheDocument();
     expect(within(codex).getByRole('progressbar', { name: '5 h genutzt' })).toHaveAttribute(
       'aria-valuenow',
       '0'
     );
-    expect(within(codex).queryByText(/veraltet/)).toBeNull();
+    expect(within(codex).queryByText(/stale/)).toBeNull();
   });
 });

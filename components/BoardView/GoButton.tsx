@@ -5,7 +5,7 @@ import { startText } from '../../utils/issueControls';
 
 /** Toast text after a sent GO; `note`: what the provider did besides starting, `start`: the start */
 export const goDoneText = (key: string, start?: StartResult, note?: string) =>
-  `${key}: ${note ? `${note}, ` : ''}${start ? startText(start) : 'gesendet'}`;
+  `${key}: ${note ? `${note}, ` : ''}${start ? startText(start) : 'sent'}`;
 
 /** Two-step GO: the first click arms, the second sends; arming expires after 4 s */
 export const GoButton: React.FC<{ label: string; onGo: () => Promise<void> }> = ({
@@ -42,7 +42,7 @@ export const GoButton: React.FC<{ label: string; onGo: () => Promise<void> }> = 
       }`}
     >
       <Rocket size={13} />
-      {busy ? 'Sende…' : armed ? 'Wirklich? Nochmal klicken' : label}
+      {busy ? 'Sending…' : armed ? 'Sure? Click again' : label}
     </button>
   );
 };

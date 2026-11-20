@@ -16,7 +16,7 @@ export function useRepoOptions(repo: string | null) {
     let alive = true;
     fetchRepoOptions(repo)
       .then((o) => alive && setOptions(o))
-      .catch((e) => alive && setError(e instanceof Error ? e.message : 'Fehler'));
+      .catch((e) => alive && setError(e instanceof Error ? e.message : 'Error'));
     return () => {
       alive = false;
     };
@@ -45,7 +45,7 @@ const PickerList: React.FC<{
       aria-multiselectable={multi}
       className="absolute z-30 left-0 top-full mt-1 w-64 max-h-64 overflow-y-auto thin-scrollbar rounded-md border border-gray-600 bg-gray-800 shadow-xl py-1 focus:outline-none"
     >
-      {choices.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">Keine Einträge</p>}
+      {choices.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">No entries</p>}
       {choices.map((c) => {
         const on = selected.includes(c.value);
         return (
@@ -96,7 +96,7 @@ export const FieldPicker: React.FC<{
         type="button"
         data-popover-trigger
         aria-expanded={open}
-        aria-label={`${label} ändern`}
+        aria-label={`Change ${label}`}
         disabled={disabled || !choices}
         onClick={() => setOpen(!open)}
         className={
@@ -106,7 +106,7 @@ export const FieldPicker: React.FC<{
               }`
             : 'group w-full flex items-center gap-1 min-h-[24px] rounded px-1 -mx-1 text-left hover:bg-gray-800 disabled:hover:bg-transparent focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor'
         }
-        title={choices ? `${label} ändern` : 'Lade Auswahl …'}
+        title={choices ? `Change ${label}` : 'Loading options…'}
       >
         <span className={`min-w-0 flex flex-wrap gap-1 ${boxed ? '' : 'flex-1'}`}>{display}</span>
         {boxed ? (
