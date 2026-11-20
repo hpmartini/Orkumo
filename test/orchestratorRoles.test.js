@@ -93,6 +93,8 @@ describe('roles', () => {
       result.sessionId,
       '--name',
       'board-orchestrator',
+      '--remote-control',
+      'board-orchestrator',
       '--',
       'go',
     ]);

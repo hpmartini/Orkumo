@@ -419,6 +419,50 @@ describe('commands', () => {
     expect(out).toMatch(/^Started new1 \(login-fix\): background Claude Code session in \/p\/app/);
   });
 
+  it('start --orchestrator: the orchestrator profile (Remote Control) instead of the worker one', async () => {
+    const { code, calls } = await cli(
+      [
+        'start',
+        '--project',
+        'app',
+        '--orchestrator',
+        '--name',
+        'b-orchestrator',
+        'Watch',
+        'the',
+        'board',
+      ],
+      { 'POST /agents/dispatch': () => [201, { id: 'new1', name: 'b-orchestrator' }] }
+    );
+    expect(code).toBe(0);
+    expect(calls[1].body).toEqual({
+      prompt: 'Watch the board',
+      cwd: '/p/app',
+      name: 'b-orchestrator',
+      profile: 'orchestrator',
+    });
+    // the default harness (here omp) does not apply: --orchestrator means Claude Code
+    const byDefault = await cli(['start', '--project', 'app', '--orchestrator', 'do it now'], {
+      'GET /orchestrator/projects': () => [200, { projects: PROJECTS, defaultHarness: 'omp' }],
+      'POST /agents/dispatch': () => [201, { id: 'new2', name: null }],
+    });
+    expect(byDefault.calls[1]).toMatchObject({
+      route: '/agents/dispatch',
+      body: { profile: 'orchestrator' },
+    });
+    const omp = await cli([
+      'start',
+      '--project',
+      'app',
+      '--harness',
+      'omp',
+      '--orchestrator',
+      'do it',
+    ]);
+    expect(omp.code).toBe(2);
+    expect(omp.err).toMatch(/Remote Control/);
+  });
+
   it('start: omp goes to an agent pane in the project', async () => {
     const { code, out, err, calls } = await cli(
       ['start', '--project', '/p/api', '--harness', 'omp', '--name', 'x', 'Write', 'tests'],
