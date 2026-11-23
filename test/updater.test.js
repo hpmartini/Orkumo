@@ -205,6 +205,42 @@ describe('readAutoUpdateSetting', () => {
   });
 });
 
+/** fetch and run for a swap update to 1.0.0-rc.2; `onRun(file, args)` may answer or throw first */
+async function swapFeed(onRun = async () => undefined) {
+  const zip = Buffer.from('zip bytes');
+  const sha512 = (await import('crypto')).createHash('sha512').update(zip).digest('base64');
+  const routes = {
+    [`${RELEASES_URL}.atom`]: atom('v1.0.0-rc.2'),
+    [`${RELEASES_URL}/download/v1.0.0-rc.2/latest-mac.yml`]: `version: 1.0.0-rc.2\nfiles:\n  - url: Orkumo-1.0.0-rc.2-arm64-mac.zip\n    sha512: ${sha512}\n    size: ${zip.length}\n  - url: Orkumo-1.0.0-rc.2-mac.zip\n    sha512: ${sha512}\n    size: ${zip.length}\n`,
+  };
+  const fetch = vi.fn(async (url) => {
+    if (url.endsWith('.zip')) {
+      return {
+        ok: true,
+        status: 200,
+        headers: new globalThis.Headers(),
+        body: (async function* () {
+          yield zip;
+        })(),
+      };
+    }
+    return { ok: true, status: 200, text: async () => routes[url] };
+  });
+  const run = vi.fn(async (file, args) => {
+    const answer = await onRun(file, args);
+    if (answer) return answer;
+    if (file.endsWith('ditto'))
+      fs.mkdirSync(path.join(args[3], 'Orkumo.app', 'Contents'), { recursive: true });
+    if (file.endsWith('plutil')) {
+      return {
+        stdout: args[1] === 'CFBundleIdentifier' ? 'com.devorbit.dashboard\n' : '1.0.0-rc.2\n',
+      };
+    }
+    return { stdout: '' };
+  });
+  return { fetch, run };
+}
+
 describe('setupUpdater', () => {
   it('off mode: no listeners, checks are no-ops', async () => {
     const { autoUpdater, updater, statuses } = wire('off');
@@ -337,35 +373,7 @@ describe('setupUpdater', () => {
   });
 
   it('swap mode: ready → Restart starts the detached swap helper, then quits; once', async () => {
-    const zip = Buffer.from('zip bytes');
-    const sha512 = (await import('crypto')).createHash('sha512').update(zip).digest('base64');
-    const routes = {
-      [`${RELEASES_URL}.atom`]: atom('v1.0.0-rc.2'),
-      [`${RELEASES_URL}/download/v1.0.0-rc.2/latest-mac.yml`]: `version: 1.0.0-rc.2\nfiles:\n  - url: Orkumo-1.0.0-rc.2-arm64-mac.zip\n    sha512: ${sha512}\n    size: ${zip.length}\n  - url: Orkumo-1.0.0-rc.2-mac.zip\n    sha512: ${sha512}\n    size: ${zip.length}\n`,
-    };
-    const fetch = vi.fn(async (url) => {
-      if (url.endsWith('.zip')) {
-        return {
-          ok: true,
-          status: 200,
-          headers: new globalThis.Headers(),
-          body: (async function* () {
-            yield zip;
-          })(),
-        };
-      }
-      return { ok: true, status: 200, text: async () => routes[url] };
-    });
-    const run = vi.fn(async (file, args) => {
-      if (file.endsWith('ditto'))
-        fs.mkdirSync(path.join(args[3], 'Orkumo.app', 'Contents'), { recursive: true });
-      if (file.endsWith('plutil')) {
-        return {
-          stdout: args[1] === 'CFBundleIdentifier' ? 'com.devorbit.dashboard\n' : '1.0.0-rc.2\n',
-        };
-      }
-      return { stdout: '' };
-    });
+    const { fetch, run } = await swapFeed();
     const unref = vi.fn();
     const spawn = vi.fn(() => ({ unref }));
     const quit = vi.fn();
@@ -396,6 +404,7 @@ describe('setupUpdater', () => {
       'plutil',
       'xattr',
       'codesign',
+      'security',
     ]);
     expect(statuses.map((s) => s.state)).toEqual([
       'checking',
@@ -432,6 +441,93 @@ describe('setupUpdater', () => {
     const { updater } = wire('swap', { quit });
     expect(updater.install()).toEqual({ success: false, error: 'No downloaded update to install' });
     expect(quit).not.toHaveBeenCalled();
+  });
+});
+
+describe('swap mode: local re-signing (TCC grants survive the update)', () => {
+  const KEYCHAIN = `  1) E118CA8397287B36896B49F52774692C8F8E88D9 "BoxSync Local Signing"\n     1 valid identities found\n`;
+  const signCalls = (run) =>
+    run.mock.calls.filter(([file, args]) => file.endsWith('codesign') && args.includes('--sign'));
+
+  it('re-signs the staged bundle with "BoxSync Local Signing" and verifies it', async () => {
+    const { fetch, run } = await swapFeed(async (file) =>
+      file.endsWith('security') ? { stdout: KEYCHAIN } : undefined
+    );
+    const { updater } = wire('swap', { fetch, run, arch: 'arm64' });
+    const status = await updater.check();
+    expect(status, status.error).toMatchObject({ state: 'ready', version: '1.0.0-rc.2' });
+    const app = signCalls(run)[0]?.[1].at(-1);
+    expect(app).toMatch(/\/staging\/Orkumo\.app$/);
+    expect(run.mock.calls.slice(-3)).toEqual([
+      ['/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning']],
+      [
+        '/usr/bin/codesign',
+        [
+          '--force',
+          '--deep',
+          '--preserve-metadata=entitlements',
+          '--sign',
+          'BoxSync Local Signing',
+          app,
+        ],
+      ],
+      ['/usr/bin/codesign', ['--verify', '--deep', '--strict', app]],
+    ]);
+  });
+
+  it('ORKUMO_SIGN_IDENTITY names another identity; empty turns re-signing off', async () => {
+    const other = await swapFeed(async (file) =>
+      file.endsWith('security') ? { stdout: '  1) ABC "Other Cert"\n' } : undefined
+    );
+    await wire('swap', {
+      ...other,
+      arch: 'arm64',
+      env: { ORKUMO_SIGN_IDENTITY: 'Other Cert' },
+    }).updater.check();
+    expect(signCalls(other.run)[0][1]).toContain('Other Cert');
+
+    const off = await swapFeed();
+    const status = await wire('swap', {
+      ...off,
+      arch: 'arm64',
+      env: { ORKUMO_SIGN_IDENTITY: '' },
+    }).updater.check();
+    expect(status.state).toBe('ready');
+    expect(off.run.mock.calls.some(([file]) => file.endsWith('security'))).toBe(false);
+  });
+
+  it('identity not in the keychain: stays ad-hoc signed, with a log line', async () => {
+    const { fetch, run } = await swapFeed(async (file) =>
+      file.endsWith('security') ? { stdout: '     0 valid identities found\n' } : undefined
+    );
+    const log = { log: vi.fn(), error: vi.fn() };
+    const status = await wire('swap', { fetch, run, log, arch: 'arm64' }).updater.check();
+    expect(status.state).toBe('ready');
+    expect(signCalls(run)).toEqual([]);
+    expect(log.log).toHaveBeenCalledWith(
+      expect.stringContaining('"BoxSync Local Signing" not found')
+    );
+  });
+
+  it('a failing codesign never breaks the update: logged, the ad-hoc build is staged again', async () => {
+    const { fetch, run } = await swapFeed(async (file, args) => {
+      if (file.endsWith('security')) return { stdout: KEYCHAIN };
+      if (file.endsWith('codesign') && args.includes('--sign'))
+        throw new Error('errSecInternalComponent');
+    });
+    const log = { log: vi.fn(), error: vi.fn() };
+    const status = await wire('swap', { fetch, run, log, arch: 'arm64' }).updater.check();
+    expect(status, status.error).toMatchObject({ state: 'ready', version: '1.0.0-rc.2' });
+    expect(log.error).toHaveBeenCalledWith(
+      expect.stringContaining('re-signing'),
+      'errSecInternalComponent'
+    );
+    // unpacked again from the verified zip: no half re-signed bundle is swapped in
+    expect(run.mock.calls.filter(([file]) => file.endsWith('ditto'))).toHaveLength(2);
+    expect(run.mock.calls.at(-1)).toEqual([
+      '/usr/bin/codesign',
+      expect.arrayContaining(['--verify']),
+    ]);
   });
 });
 

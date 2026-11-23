@@ -18,7 +18,9 @@ import {
   findMacZip,
   findRelease,
   launchSwap,
+  LOCAL_SIGN_IDENTITY,
   removeTree,
+  resignBundle,
   runFile,
   stageBundle,
 } from './selfUpdate.js';
@@ -266,13 +268,20 @@ export function setupUpdater({
       fetch,
       onProgress: progress(version, manual),
     });
-    const app = await stageBundle({
-      zip: dest,
-      dir: path.join(updatesDir, 'staging'),
-      version,
-      bundleId,
-      run,
-    });
+    const stage = () =>
+      stageBundle({ zip: dest, dir: path.join(updatesDir, 'staging'), version, bundleId, run });
+    let app = await stage();
+    try {
+      await resignBundle({
+        app,
+        identity: env.ORKUMO_SIGN_IDENTITY ?? LOCAL_SIGN_IDENTITY,
+        run,
+        log,
+      });
+    } catch (error) {
+      log.error('[Updater] re-signing failed, installing the ad-hoc build:', firstLine(error));
+      app = await stage(); // codesign may have stopped half-way
+    }
     fs.rmSync(dest, { force: true });
     staged = { version, app };
     log.log(`[Updater] update-ready ${version}`);

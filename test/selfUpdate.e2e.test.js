@@ -143,7 +143,7 @@ describe.runIf(process.platform === 'darwin')('macOS self-update against a local
       mode: 'swap',
       currentVersion,
       arch,
-      env: { ORKUMO_UPDATE_FEED: feed },
+      env: { ORKUMO_UPDATE_FEED: feed, ORKUMO_SIGN_IDENTITY: '' }, // never sign for real in tests
       log: quiet,
       updatesDir: path.join(dir, 'updates'),
       bundlePath,

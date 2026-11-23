@@ -3,7 +3,7 @@
  * running app's designated requirement, which ad-hoc (CI) and self-signed (local) builds never satisfy across
  * builds. So the update is found on GitHub Releases, its zip is checked against the sha512 of the release's
  * *-mac.yml, unpacked to a staging dir, and swapped in by rename from a detached helper once the app has quit.
- * Nothing here depends on how either bundle is signed.
+ * Before the swap the staged bundle is re-signed with a local identity if the keychain has it (resignBundle).
  */
 import { execFile } from 'child_process';
 import crypto from 'crypto';
@@ -281,6 +281,39 @@ export async function stageBundle({ zip, dir, version, bundleId = BUNDLE_ID, run
   // Apple Silicon needs to launch it at all
   await run('/usr/bin/codesign', ['--verify', '--deep', app]);
   return app;
+}
+
+/** Local self-signed identity the staged update is re-signed with; ORKUMO_SIGN_IDENTITY overrides it, '' turns it off. */
+export const LOCAL_SIGN_IDENTITY = 'BoxSync Local Signing';
+
+/**
+ * Re-signs the staged bundle with a local code-signing identity. macOS privacy grants (TCC, e.g. screen recording)
+ * are bound to the designated requirement; an ad-hoc CI build changes it with every build (its cdhash), a
+ * certificate signature keeps it (`certificate leaf = H"…"`), so the grants survive the update.
+ * Skipped with a log line when the identity is not in the keychain; a failing codesign throws (the bundle may be
+ * half re-signed then, so the caller stages it again).
+ * @returns {Promise<boolean>} whether the bundle now carries `identity`
+ */
+export async function resignBundle({ app, identity, run = runFile, log = console }) {
+  if (!identity) return false;
+  const { stdout } = await run('/usr/bin/security', ['find-identity', '-v', '-p', 'codesigning']);
+  if (!String(stdout).includes(`"${identity}"`)) {
+    log.log(`[Updater] signing identity "${identity}" not found, the update stays ad-hoc signed`);
+    return false;
+  }
+  // same as the build: no hardened runtime (electron-builder.json), entitlements kept; --deep signs the helpers
+  // and frameworks too and --preserve-metadata keeps each one's own entitlements
+  await run('/usr/bin/codesign', [
+    '--force',
+    '--deep',
+    '--preserve-metadata=entitlements',
+    '--sign',
+    identity,
+    app,
+  ]);
+  await run('/usr/bin/codesign', ['--verify', '--deep', '--strict', app]);
+  log.log(`[Updater] update re-signed with "${identity}"`);
+  return true;
 }
 
 /** POSIX single-quoting: safe for any path, including spaces, quotes and `$`. */
