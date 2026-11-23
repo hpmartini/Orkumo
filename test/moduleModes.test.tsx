@@ -81,9 +81,9 @@ describe('module modes (#165)', () => {
     );
     await waitFor(() => expect(seen.host?.rail).toBe(outlet));
     seen.host!.showWorkspace(true);
-    seen.host!.openAgent('job-1', '/modules/mesh/peer/box');
+    seen.host!.openAgent('job-1', '/modules/relay-mod/peer/box');
     expect(shell.showWorkspace).toHaveBeenCalledWith(true);
-    expect(shell.openAgent).toHaveBeenCalledWith('job-1', '/modules/mesh/peer/box');
+    expect(shell.openAgent).toHaveBeenCalledWith('job-1', '/modules/relay-mod/peer/box');
 
     // hidden: no rail column, even though every route below the agents view sees the outlet
     view.rerender(
@@ -103,8 +103,8 @@ describe('module modes (#165)', () => {
     expect(seen.host?.workspace).toBe(false);
     act(() => seen.host!.openAgent('job-2', 'https://evil.example'));
     expect(getAgentTarget()).toBe('');
-    act(() => seen.host!.openAgent('job-2', '/modules/mesh/peer/box'));
-    expect(getAgentTarget()).toBe('/modules/mesh/peer/box');
+    act(() => seen.host!.openAgent('job-2', '/modules/relay-mod/peer/box'));
+    expect(getAgentTarget()).toBe('/modules/relay-mod/peer/box');
     resetAgentTarget();
   });
 });
