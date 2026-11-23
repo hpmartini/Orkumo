@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useContext, useEffect, useMemo, useRef } from 'react';
+import { RailOutletContext } from '@hpmartini/agents-ui/components/AgentsView/railOutlet';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import toast from 'react-hot-toast';
 import { API_BASE_URL } from '../utils/apiConfig';
 import { boardUrl, codeUrl } from '../utils/codeTarget';
-import { setAgentTarget, useAgentTarget } from '../utils/agentTarget';
+import { isAgentTarget, setAgentTarget, useAgentTarget } from '../utils/agentTarget';
 import { openInstruct, type InstructTarget } from './InstructDialog';
 import {
   connectBackend,
@@ -40,6 +41,24 @@ export interface ModuleHost {
   pane?: { orchestrator: string };
   /** Opens the Instruct dialog: one message about this item to its orchestrator (Status view) */
   instruct: (target: InstructTarget) => void;
+  /**
+   * Opens agent `jobId` of instance `target` ('' or a module prefix, like `setAgentTarget`) in a
+   * tab once it is listed: beside the rail in a `rail` mode, else in Agents
+   */
+  openAgent: (jobId: string, target?: string) => void;
+  /** Mode with `rail`: the rail column to render the mode's own items into while visible, else null */
+  rail: HTMLElement | null;
+  /** Mode with `rail`: the agents workspace (tabs) shows in place of the mode's main area */
+  workspace: boolean;
+  /** Mode with `rail`: workspace (true) or the mode's main area (false); does nothing elsewhere */
+  showWorkspace: (visible: boolean) => void;
+}
+
+/** What the shell gives a mode with `rail` (docs/MODULES.md, "Modes") */
+export interface ModeShell {
+  workspace: boolean;
+  showWorkspace: (visible: boolean) => void;
+  openAgent: (jobId: string, target?: string) => void;
 }
 
 interface MountHandle {
@@ -57,8 +76,15 @@ const hostToast: ModuleHost['toast'] = {
   error: (msg) => void toast.error(msg),
 };
 
-/** Host object for a module UI; a new one whenever `active`, the query string or the agent target changes */
-export function useModuleHost(active: boolean): ModuleHost {
+/**
+ * Host object for a module UI; a new one whenever `active`, the query string, the agent target or
+ * the mode shell (`rail` modes) changes
+ */
+export function useModuleHost(
+  active: boolean,
+  shell?: ModeShell,
+  rail: HTMLElement | null = null
+): ModuleHost {
   const navigate = useNavigate();
   const { search } = useLocation();
   const [, setSearchParams] = useSearchParams();
@@ -83,8 +109,18 @@ export function useModuleHost(active: boolean): ModuleHost {
       connectBackend,
       disconnectBackend,
       instruct: openInstruct,
+      openAgent:
+        shell?.openAgent ??
+        ((jobId, target = '') => {
+          if (!jobId || !isAgentTarget(target)) return;
+          setAgentTarget(target);
+          router.current.navigate(urls.agent(jobId));
+        }),
+      rail,
+      workspace: shell?.workspace ?? false,
+      showWorkspace: shell?.showWorkspace ?? (() => {}),
     }),
-    [active, search, agentTarget]
+    [active, search, agentTarget, shell, rail]
   );
 }
 
@@ -135,7 +171,20 @@ export function ModuleMount({
   return <div ref={ref} data-module={id} className={className} />;
 }
 
-/** A module's work mode at /<id>: kept mounted, told via `active` whether it is visible */
-export function ModuleMode({ id, active }: { id: string; active: boolean }) {
-  return <ModuleMount id={id} host={useModuleHost(active)} className="flex-1 min-h-0" />;
+/**
+ * A module's work mode at /<id>: kept mounted, told via `active` whether it is visible. A `rail`
+ * mode gets `shell` and, while visible, the rail column (every route below AgentsView sees it).
+ */
+export function ModuleMode({
+  id,
+  active,
+  shell,
+}: {
+  id: string;
+  active: boolean;
+  shell?: ModeShell;
+}) {
+  const outlet = useContext(RailOutletContext);
+  const host = useModuleHost(active, shell, shell && active ? outlet : null);
+  return <ModuleMount id={id} host={host} className="flex-1 min-h-0" />;
 }
