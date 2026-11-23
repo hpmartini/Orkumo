@@ -3,6 +3,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawn } from 'child_process';
 import fs from 'fs';
+import http from 'http';
 import net from 'net';
 import os from 'os';
 import path from 'path';
@@ -33,6 +34,7 @@ describe('web build served by the API server', { timeout: 60_000 }, () => {
   let child;
   let port;
   const token = 'web-test-token';
+  const secret = 'serve-path-secret';
   const get = (url, headers = {}) =>
     fetch(`http://127.0.0.1:${port}${url}`, { headers: { ...REMOTE, ...headers } });
 
@@ -44,6 +46,7 @@ describe('web build served by the API server', { timeout: 60_000 }, () => {
     fs.mkdirSync(path.join(web, 'assets'), { recursive: true });
     fs.writeFileSync(path.join(dataDir, 'config.json'), JSON.stringify({ directories: [] }));
     fs.writeFileSync(path.join(dataDir, 'remote-token'), token, { mode: 0o600 });
+    fs.writeFileSync(path.join(dataDir, 'serve-secret'), secret, { mode: 0o600 });
     fs.writeFileSync(
       path.join(web, 'index.html'),
       '<html><head><script src="./assets/app.js"></script></head><body>orkumo-web</body></html>'
@@ -107,6 +110,40 @@ describe('web build served by the API server', { timeout: 60_000 }, () => {
     const unknown = await get('/api/nope', { 'x-devorbit-token': token, accept: 'text/html' });
     expect(unknown.status).toBe(404);
     expect(await unknown.json()).toEqual({ error: 'Not found' });
+  });
+
+  it('serves the page under the tailscale serve path secret', async () => {
+    const res = await get(`/${secret}/agents`, { accept: 'text/html' });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain('orkumo-web');
+  });
+
+  // Safari through `tailscale serve`: tailnet Origin and Host, serve prefix, token as query param
+  const upgrade = (query) =>
+    new Promise((resolve) => {
+      const req = http.request({
+        host: '127.0.0.1',
+        port,
+        path: `/${secret}/api/pty${query}`,
+        headers: {
+          host: 'mac.tail1.ts.net:3443',
+          origin: 'https://mac.tail1.ts.net:3443',
+          ...REMOTE,
+          connection: 'Upgrade',
+          upgrade: 'websocket',
+          'sec-websocket-version': '13',
+          'sec-websocket-key': 'dGhlIHNhbXBsZSBub25jZQ==',
+        },
+      });
+      req.on('upgrade', (res, socket) => (socket.destroy(), resolve(res.statusCode)));
+      req.on('response', (res) => resolve(res.statusCode));
+      req.on('error', () => resolve(0));
+      req.end();
+    });
+
+  it('opens the PTY WebSocket from the tailnet origin only with the token', async () => {
+    expect(await upgrade('')).toBe(401);
+    expect(await upgrade(`?token=${token}`)).toBe(101);
   });
 
   it('serves the page only for GET, not for writes', async () => {
