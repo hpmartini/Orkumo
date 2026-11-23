@@ -36,7 +36,8 @@ import { OrkumoAgentsProvider } from './components/AgentsHost';
 import { InstructDialog } from './components/InstructDialog';
 import { usePaneModes } from './components/PaneModeActions';
 import { BackendBar } from './components/BackendBar';
-import { ModuleMode } from './components/ModuleMount';
+import { ModuleMode, type ModeShell } from './components/ModuleMount';
+import { isAgentTarget, setAgentTarget } from './utils/agentTarget';
 import {
   modeCommands,
   reloadModulesWithToast,
@@ -224,6 +225,23 @@ function AppContent() {
   }, [attachParam, navigate]);
   // Taken over: the same link may open it again later
   const clearAttach = useCallback(() => setAttachId(null), []);
+  // A mode with `rail` lists its items in the rail column; agent tabs it opens show beside them
+  const railModeActive = modes.some((m) => m.rail && m.id === activeTab);
+  const [modeWorkspace, setModeWorkspace] = useState(false);
+  const openAgentInMode = useCallback((jobId: string, target = '') => {
+    if (!jobId || !isAgentTarget(target)) return;
+    setAgentTarget(target);
+    setAttachId(jobId);
+    setModeWorkspace(true);
+  }, []);
+  const modeShell = useMemo<ModeShell>(
+    () => ({
+      workspace: modeWorkspace,
+      showWorkspace: setModeWorkspace,
+      openAgent: openAgentInMode,
+    }),
+    [modeWorkspace, openAgentInMode]
+  );
   // Board "Agent starten" / chat history "Continue" and "New chat" (#280, #19): composer prefill
   // via router state, which external links cannot set
   const prefill = activeTab === 'agents' ? (location.state as AgentsPrefill | null) : null;
@@ -406,12 +424,12 @@ function AppContent() {
                 <AgentsView
                   contextId={contexts.active?.id}
                   contextAppIds={contextAppIds}
-                  active={activeTab === 'agents'}
+                  active={activeTab === 'agents' || (railModeActive && modeWorkspace)}
                   apps={apps}
                   onExit={handleSelectDashboard}
                   onOpenView={openAgentsView}
-                  // Chats mode lists its conversations in the rail column (#280)
-                  railOutlet={activeTab === 'chats'}
+                  // Chats mode lists its conversations in the rail column (#280), `rail` modes their items
+                  railOutlet={activeTab === 'chats' || railModeActive}
                   nav={{
                     onOpenDashboard: handleSelectDashboard,
                     onOpenContextDashboard: handleSelectContextDashboard,
@@ -516,7 +534,11 @@ function AppContent() {
                       }
                       aria-hidden={activeTab !== m.id}
                     >
-                      <ModuleMode id={m.id} active={activeTab === m.id} />
+                      <ModuleMode
+                        id={m.id}
+                        active={activeTab === m.id}
+                        shell={m.rail ? modeShell : undefined}
+                      />
                     </div>
                   ))}
 

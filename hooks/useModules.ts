@@ -11,6 +11,8 @@ export interface ModuleModeInfo {
   scoped?: boolean;
   /** Orchestrator panes get `Show in <label>`, opening `/<id>?orchestrator=<role or agent id>` */
   orchestratorFilter?: boolean;
+  /** Lists its own items in the agents rail column; agent tabs can show beside them (`host.rail`) */
+  rail?: boolean;
 }
 
 /** A mode as the shell passes it down: the module id is its route segment */

@@ -121,6 +121,26 @@ describe('moduleLoader', () => {
   });
 });
 
+describe('mode.rail', () => {
+  it('passes `rail: true` through and skips a module whose rail is no boolean', async () => {
+    tmp = fs.mkdtempSync(path.join(FIXTURES, 'tmp-rail-'));
+    const mods = path.join(tmp, 'mods');
+    const mode = (rail) =>
+      `export default { id: '${rail === true ? 'railed' : 'bad-rail'}', name: 'R', ui: './ui.js',` +
+      ` mode: { label: 'R', rail: ${JSON.stringify(rail)} }, register() {} };`;
+    writeModule(mods, 'railed', mode(true));
+    writeModule(mods, 'bad-rail', mode('yes'));
+    for (const entry of ['railed', 'bad-rail'])
+      fs.writeFileSync(path.join(mods, entry, 'ui.js'), 'export function mount() {}');
+    const { loaded, get } = await start(mods);
+    expect(loaded.map((m) => m.id)).toEqual(['railed']);
+    expect((await (await get('/')).json())[0].mode).toEqual({ label: 'R', rail: true });
+    expect(logger.error.mock.calls.map((c) => String(c[1]))).toEqual(
+      expect.arrayContaining([expect.stringContaining('mode.rail must be a boolean')])
+    );
+  });
+});
+
 /** Writes module `entry` with index.js `source` and package.json `version` into `dir` */
 function writeModule(dir, entry, source, version = '1.0.0') {
   fs.mkdirSync(path.join(dir, entry), { recursive: true });
