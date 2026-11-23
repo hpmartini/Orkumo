@@ -14,7 +14,7 @@ if (!rootElement) {
   throw new Error('Could not find root element to mount to');
 }
 
-// Electron paired with another machine's server (ORKUMO_REMOTE): every request carries its token.
+// Paired (Electron via ORKUMO_REMOTE, browser via the `#pair=` link): every request carries the token.
 if (pairing) {
   installRemoteAuth(pairing, () => console.error('[Remote] Pairing token rejected by the server'));
 }

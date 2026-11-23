@@ -4,7 +4,7 @@
  */
 
 import { PORTS } from '../config/defaults';
-import { parsePairingLink, readPairing, type Pairing } from './remoteClient';
+import { browserPairing, parsePairingLink, readPairing, type Pairing } from './remoteClient';
 import { getBackend } from './backendTarget';
 
 // Detect if running in Electron
@@ -28,11 +28,14 @@ export const isNativeApp =
   typeof window !== 'undefined' && isBundledOrigin(window.location.protocol);
 // Electron as client of another machine's server (ORKUMO_REMOTE): pairing comes from the main process.
 const remoteLink = typeof window !== 'undefined' ? window.electronAPI?.remoteLink : null;
+// Browser served by this server (Safari through `tailscale serve`): paired by the `#pair=` link.
 export const pairing = isNativeApp
   ? readPairing()
   : remoteLink
     ? parsePairingLink(remoteLink)
-    : null;
+    : typeof window !== 'undefined' && !isElectron
+      ? browserPairing()
+      : null;
 
 /** Server origin when the API is not same-origin (Electron, iOS app); '' otherwise. */
 export const serverOrigin = (native: boolean, paired: Pairing | null, electron: boolean): string =>

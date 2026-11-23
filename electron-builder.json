@@ -67,6 +67,7 @@
     "node_modules/**/*.node",
     "node_modules/node-pty/**/*",
     "node_modules/pidusage/**/*",
-    "dist-server/**/*"
+    "dist-server/**/*",
+    "dist/**/*"
   ]
 }

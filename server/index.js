@@ -7,8 +7,9 @@ import { agentViewSettingsSchema, optionalShortString } from './schemas/agentVie
 import http, { createServer } from 'http';
 import { WebSocketServer } from 'ws';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import os from 'os';
-// NOTE: This is an API-only server. Static files are served by Nginx in the frontend container.
+// Static files: Nginx in the frontend container (Docker); webApp below for direct browser access.
 import {
   getConfig,
   updateConfig,
@@ -54,7 +55,8 @@ import { listHarnessModels } from './services/harnessModels.js';
 import * as chatService from './services/chatService.js';
 import * as chatStatus from './services/chatStatus.js';
 import { ompSkillsArgs } from './services/ompSkills.js';
-import { getSelfDnsName } from './services/tailscale.js';
+import { getSelfDnsName, getServeUrl } from './services/tailscale.js';
+import { webApp } from './services/webApp.js';
 import * as remoteAccess from './services/remoteAccess.js';
 import {
   codeServerArgs,
@@ -230,6 +232,12 @@ app.use((req, res, next) =>
   isOpaqueRequest(req) && !isTrustedOpaque(req)
     ? res.status(403).json({ error: 'Cross-origin request refused' })
     : next()
+);
+// Web build (page and assets, never /api) before the gate: a browser loads it without token, then pairs.
+// Packaged, dist sits next to dist-server in app.asar.unpacked (electron-builder.json asarUnpack);
+// DEVORBIT_WEB_DIST points elsewhere (tests).
+app.use(
+  webApp(process.env.DEVORBIT_WEB_DIST || fileURLToPath(new URL('../dist', import.meta.url)))
 );
 // Before every route so nothing is reachable without the token.
 app.use(remoteAccess.requireRemoteToken);
@@ -1827,13 +1835,18 @@ app.get('/api/remote/pairing', async (req, res) => {
   };
   if (!remoteAccess.isRemoteEnabled()) return res.json({ enabled: false, ...state });
   const dnsName = await getSelfDnsName();
-  const url = process.env.DEVORBIT_REMOTE_URL || (dnsName ? `https://${dnsName}` : null);
+  const url =
+    process.env.DEVORBIT_REMOTE_URL ||
+    (await getServeUrl(PORT)) ||
+    (dnsName ? `https://${dnsName}` : null);
   res.json({
     ...state,
     enabled: true,
     url,
     token: remoteAccess.getToken(),
     link: url ? remoteAccess.pairingLink(url) : null,
+    // Browser link: the hash never reaches a server or its logs
+    webLink: url ? `${url}/#pair=${remoteAccess.getToken()}` : null,
   });
 });
 
@@ -3291,7 +3304,7 @@ app.put('/api/settings/agent-view', validate(agentViewSettingsSchema), (req, res
 // ============================================
 
 app.use((req, res) => {
-  // API-only server - return 404 for unknown routes
+  // Unknown API routes, and the web build's paths when dist is missing
   res.status(404).json({ error: 'Not found' });
 });
 

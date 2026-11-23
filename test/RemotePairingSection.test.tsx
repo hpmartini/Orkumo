@@ -21,6 +21,26 @@ describe('RemotePairingSection', () => {
     expect(screen.getByText(LINK)).toBeTruthy();
   });
 
+  it('shows the browser link with its own QR code', async () => {
+    const web = 'https://mac.tail1.ts.net/#pair=abc';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({
+          enabled: true,
+          url: 'https://mac.tail1.ts.net',
+          token: 'abc',
+          link: LINK,
+          webLink: web,
+        })
+      )
+    );
+    render(<RemotePairingSection />);
+    const qr = await screen.findByAltText('Pairing QR code for the browser');
+    expect(qr.getAttribute('src')).toMatch(/^data:image\/png;base64,/);
+    expect(screen.getByText(web)).toBeTruthy();
+  });
+
   it('explains how to switch remote access on when it is off', async () => {
     vi.stubGlobal(
       'fetch',
