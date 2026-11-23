@@ -78,46 +78,49 @@ describe('gitRootInfo', () => {
 });
 
 describe('scanner: only git main checkouts are projects', () => {
-  it('lists a Git repo without package.json, not runnable', () => {
+  it('lists a Git repo without package.json, not runnable', async () => {
     const dir = mkdir('py-tool');
     mkdir('py-tool', '.git');
-    const [project] = scanDirectory(root);
+    const [project] = await scanDirectory(root);
     expect(project).toMatchObject({ id: id(dir), path: dir, detectedFramework: 'Git' });
     expect(project.startCommand).toBeUndefined();
   });
 
-  it('skips package.json-only folders; package.json only describes a repo', () => {
+  it('skips package.json-only folders; package.json only describes a repo', async () => {
     writeJson(path.join(mkdir('no-git'), 'package.json'), { name: 'no-git' });
     const web = mkdir('web');
     mkdir('web', '.git');
     writeJson(path.join(web, 'package.json'), { name: 'web-app', dependencies: { vite: '1' } });
-    expect(scanDirectory(root)).toEqual([
+    expect(await scanDirectory(root)).toEqual([
       expect.objectContaining({ path: web, name: 'web-app', detectedFramework: 'Vite' }),
     ]);
   });
 
-  it('keeps finding nested repos inside a repo, not its package folders', () => {
+  it('keeps finding nested repos inside a repo, not its package folders', async () => {
     mkdir('mono', '.git');
     writeJson(path.join(mkdir('mono', 'packages', 'ui'), 'package.json'), { name: 'ui' });
     const nested = mkdir('mono', 'tools', 'cli');
     mkdir('mono', 'tools', 'cli', '.git');
-    expect(scanDirectory(root).map((p) => p.path)).toEqual([path.join(root, 'mono'), nested]);
+    expect((await scanDirectory(root)).map((p) => p.path)).toEqual([
+      path.join(root, 'mono'),
+      nested,
+    ]);
   });
 
-  it('folds sibling worktrees into their main repo instead of listing them', () => {
+  it('folds sibling worktrees into their main repo instead of listing them', async () => {
     const main = repo('app');
     const sibling = path.join(root, 'app-wt', 'bun');
     git(main, 'worktree', 'add', '-q', sibling);
     writeJson(path.join(sibling, 'package.json'), { name: 'app' });
-    const projects = scanDirectory(root);
+    const projects = await scanDirectory(root);
     expect(projects.map((p) => p.path)).toEqual([main]);
     expect(projects[0].worktrees).toEqual([sibling]);
   });
 
-  it('does not treat a stray worktree checkout (.git file) as a project', () => {
+  it('does not treat a stray worktree checkout (.git file) as a project', async () => {
     const wt = mkdir('other', 'checkout');
     fs.writeFileSync(path.join(wt, '.git'), 'gitdir: /somewhere/.git/worktrees/x');
-    expect(scanDirectory(root)).toEqual([]);
+    expect(await scanDirectory(root)).toEqual([]);
   });
 
   it('reads main repos from job state and merges uncovered ones by path', () => {

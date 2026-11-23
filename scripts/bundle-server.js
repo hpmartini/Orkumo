@@ -23,6 +23,8 @@ async function bundle() {
       entryPoints: {
         index: 'server/index.js',
         ptyHolder: 'server/services/ptyHolder.js',
+        // the project scan runs per root in this child (server/services/scannerService.js runScanJob)
+        scanWorker: 'server/services/scanWorker.js',
       },
       bundle: true,
       platform: 'node',

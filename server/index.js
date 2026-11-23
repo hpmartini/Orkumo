@@ -16,6 +16,7 @@ import {
   removeDirectory,
 } from './services/configService.js';
 import {
+  scanAll,
   scanAllDirectories,
   scanDirectory,
   applyProjectOverrides,
@@ -703,8 +704,8 @@ app.delete('/api/ides/custom/:id', validateParams(ideIdSchema), (req, res) => {
 // ============================================
 
 /** Projects the app works with: the scan under the user's overrides (disabled, merged, renamed, custom) */
-const activeProjects = () =>
-  applyProjectOverrides(scanAllDirectories(), settingsService.getSettings());
+const activeProjects = async () =>
+  applyProjectOverrides(await scanAllDirectories(), settingsService.getSettings());
 
 /**
  * GET /api/apps
@@ -712,10 +713,10 @@ const activeProjects = () =>
  * ones; disabled projects left out, merged ones folded into their target (`paths`, `mergedIds`).
  * `missingWorktrees`: listed worktrees whose folder is gone (git keeps them until pruned)
  */
-app.get('/api/apps', (req, res) => {
+app.get('/api/apps', async (req, res) => {
   try {
     res.json(
-      activeProjects().map((p) => ({
+      (await activeProjects()).map((p) => ({
         ...p,
         missingWorktrees: (p.worktrees || []).filter((w) => !fs.existsSync(w)),
       }))
@@ -728,14 +729,15 @@ app.get('/api/apps', (req, res) => {
 // ---- Project configuration (settings: archived, customNames, projectMerges, customProjects) ----
 
 /** Every project with its state for the settings list; sessionCount from the last agent contexts */
-const projectList = () => projectCatalog(scanAllDirectories(), settingsService.getSettings());
+const projectList = async () =>
+  projectCatalog(await scanAllDirectories(), settingsService.getSettings());
 
 /**
  * Canonical git roots for a custom project; 400 when one is no git root, 409 when a project
  * already holds it (the message names where to undo that)
  */
-function customProjectPaths(paths, exceptId) {
-  const catalog = projectList();
+async function customProjectPaths(paths, exceptId) {
+  const catalog = await projectList();
   const roots = [];
   for (const input of paths) {
     let dir;
@@ -773,11 +775,11 @@ const sendProjectError = (res, error) =>
  * Every detected and custom project with state ('active' | 'disabled' | 'merged'), mergedInto,
  * source ('detected' | 'custom'), worktrees and sessionCount (null before agent contexts exist)
  */
-app.get('/api/projects', (req, res) => {
+app.get('/api/projects', async (req, res) => {
   try {
     const counts = cachedProjectSessionCounts();
     res.json({
-      projects: projectList().map((p) => ({
+      projects: (await projectList()).map((p) => ({
         ...p,
         sessionCount: counts ? counts[p.id] || 0 : null,
       })),
@@ -795,11 +797,11 @@ app.put(
   '/api/settings/project-merge/:id',
   validateParams(idSchema),
   validate(z.object({ into: idSchema.nullable() }).strict()),
-  (req, res) => {
+  async (req, res) => {
     try {
       const { id } = req.params;
       const { into } = req.body;
-      const catalog = projectList();
+      const catalog = await projectList();
       const source = catalog.find((p) => p.id === id);
       if (!source) return res.status(404).json({ error: 'Unknown project' });
       if (into) {
@@ -826,9 +828,9 @@ const customProjectSchema = z
  * POST /api/settings/projects/custom { name?, paths }
  * Add an own project: each path must be a git root no other project holds
  */
-app.post('/api/settings/projects/custom', validate(customProjectSchema), (req, res) => {
+app.post('/api/settings/projects/custom', validate(customProjectSchema), async (req, res) => {
   try {
-    const paths = customProjectPaths(req.body.paths);
+    const paths = await customProjectPaths(req.body.paths);
     const name = req.body.name || path.basename(paths[0]);
     res.json({ project: settingsService.addCustomProject({ name, paths }) });
   } catch (error) {
@@ -843,10 +845,10 @@ app.put(
   '/api/settings/projects/custom/:id',
   validateParams(idSchema),
   validate(customProjectSchema.partial()),
-  (req, res) => {
+  async (req, res) => {
     try {
       const { id } = req.params;
-      const paths = req.body.paths && customProjectPaths(req.body.paths, id);
+      const paths = req.body.paths && (await customProjectPaths(req.body.paths, id));
       const project = settingsService.updateCustomProject(id, { name: req.body.name, paths });
       if (!project) return res.status(404).json({ error: 'Unknown custom project' });
       res.json({ project });
@@ -878,7 +880,7 @@ app.delete('/api/settings/projects/custom/:id', validateParams(idSchema), (req, 
  */
 app.get('/api/github/repos', async (req, res) => {
   try {
-    const catalog = projectList();
+    const catalog = await projectList();
     const [repos, slugs] = await Promise.all([
       listGithubRepos(),
       Promise.all(catalog.map((p) => boardService.originSlug(p.path))),
@@ -908,7 +910,11 @@ app.post(
     try {
       const target = cloneTarget(req.body.slug, req.body.dir, getConfig().directories);
       await cloneRepo(req.body.slug, target);
-      const project = projectList().find((p) => p.paths.includes(target));
+      // A fresh scan: one already running would not know the clone yet
+      const { projects } = await scanAll({ directories: getConfig().directories });
+      const project = projectCatalog(projects, settingsService.getSettings()).find((p) =>
+        p.paths.includes(target)
+      );
       // A context with an explicit member list would not show the clone; it joins the active one
       const { contexts, activeContextId } = settingsService.getContexts();
       const active = contexts.find((c) => c.id === activeContextId);
@@ -926,9 +932,10 @@ app.post(
  * an unmounted volume) are only logged, once at startup: every reader ignores unknown ids, and the
  * stored member comes back into its context when the repo reappears
  */
-function logUnknownContextApps() {
+async function logUnknownContextApps() {
+  const projects = await scanAllDirectories();
   const settings = settingsService.getSettings();
-  const known = new Set(projectCatalog(scanAllDirectories(), settings).map((p) => p.id));
+  const known = new Set(projectCatalog(projects, settings).map((p) => p.id));
   for (const c of settingsService.getContexts().contexts) {
     const unknown = (c.appIds || []).filter((id) => !known.has(id));
     if (unknown.length)
@@ -940,13 +947,13 @@ function logUnknownContextApps() {
  * POST /api/scan
  * Scan a specific directory
  */
-app.post('/api/scan', (req, res) => {
+app.post('/api/scan', async (req, res) => {
   try {
     const { path } = req.body;
     if (!path) {
       return res.status(400).json({ error: 'Path is required' });
     }
-    const apps = scanDirectory(path);
+    const apps = await scanDirectory(path);
     res.json(apps);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -1019,7 +1026,7 @@ app.get('/api/claude-cli/status', async (req, res) => {
  */
 app.get('/api/system/versions', async (req, res) => {
   try {
-    res.json(await getToolVersions(activeProjects()));
+    res.json(await getToolVersions(await activeProjects()));
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
@@ -2225,7 +2232,7 @@ app.get('/api/orchestrator/projects', async (req, res) => {
   try {
     const sessions = await agentService.currentSessions().catch(() => []);
     res.json({
-      projects: orchestrator.projectList(scanAllDirectories(), sessions),
+      projects: orchestrator.projectList(await scanAllDirectories(), sessions),
       defaultHarness: settingsService.getAgentViewSettings().dispatch.harness,
     });
   } catch (error) {
@@ -2664,7 +2671,7 @@ async function knownDirs() {
   const sessions = await agentService.listSessions({ all: true }).catch(() => []);
   const repos = await agentService.listRepos(process.env.HOME, sessions).catch(() => []);
   return {
-    roots: [...scanAllDirectories().map((a) => a.path), ...(getConfig().directories || [])],
+    roots: [...(await scanAllDirectories()).map((a) => a.path), ...(getConfig().directories || [])],
     exact: [...repos.map((r) => r.path), ...sessions.map((s) => s.cwd)],
   };
 }
@@ -2716,7 +2723,7 @@ app.get('/api/issues', agentLimiter, async (req, res) => {
     const context = contexts.find((c) => c.id === (query.data.context ?? activeContextId));
     if (!context) return res.status(404).json({ error: 'Unknown context' });
     // Active projects only: a disabled project's repo leaves the Issues list too
-    const repos = await issueListService.contextRepos(context, activeProjects());
+    const repos = await issueListService.contextRepos(context, await activeProjects());
     const { source } = settingsService.getBoardSettings();
     res.json(
       await issueListService.listIssues(repos, {
@@ -2737,7 +2744,7 @@ app.get('/api/issues', agentLimiter, async (req, res) => {
 async function findRepoInKnownDirs(slug) {
   // Configured directories first: listing agent sessions in knownDirs() takes seconds
   const configured = [
-    ...scanAllDirectories().map((a) => a.path),
+    ...(await scanAllDirectories()).map((a) => a.path),
     ...(getConfig().directories || []),
   ];
   const fast = await boardService.findRepoPath(slug, configured);
@@ -3768,16 +3775,16 @@ ptyEvents.on('exit', ({ sessionId, exitCode, signal }) => {
 
 // Initialize database before starting server
 async function startServer() {
+  // Scans only when a directory needs renaming; a hung root costs at most the scan timeout then
   try {
-    migrateDirectorySpelling();
+    await migrateDirectorySpelling();
   } catch (error) {
     console.error('[Config] Directory spelling migration failed:', error);
   }
-  try {
-    logUnknownContextApps();
-  } catch (error) {
-    console.error('[Projects] Checking context members failed:', error);
-  }
+  // Not awaited: the server listens while the project scan runs
+  logUnknownContextApps().catch((error) =>
+    console.error('[Projects] Checking context members failed:', error)
+  );
   // Try to connect to database (non-blocking)
   const dbConnected = await initializeDatabase();
   const modules = await moduleHost.load(getModulesDir());

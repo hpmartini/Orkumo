@@ -1,7 +1,7 @@
 import fs from 'fs';
 import { getConfig, updateConfig, canonicalDir } from './configService.js';
 import { getDataFilePath } from './dataPath.js';
-import { scanAllDirectories, generateProjectId } from './scannerService.js';
+import { scanAll, generateProjectId } from './scannerService.js';
 
 const escapeRegExp = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -36,13 +36,24 @@ export function rewriteSettingsText(text, renames, idPairs) {
  * One-time heal of project directories stored in a non-canonical spelling (e.g. `/Users/x/projects`
  * for `/Users/x/PROJECTS`). Project IDs are sha256(path), so settings referencing the old IDs
  * (contexts, favorites, archive, custom ports...) are remapped. Backs up both files first.
+ * Skipped for this start when a root does not scan: the remap would miss its projects for good.
  */
-export function migrateDirectorySpelling() {
+export async function migrateDirectorySpelling({ scan = scanAll } = {}) {
   const config = getConfig();
   const renames = (config.directories || [])
     .map((dir) => [dir, canonicalDir(dir)])
     .filter(([stored, canonical]) => stored !== canonical);
   if (renames.length === 0) return { migrated: false };
+
+  const canonicalOf = new Map(renames);
+  const directories = [...new Set(config.directories.map((d) => canonicalOf.get(d) ?? d))];
+  const { projects, skipped } = await scan({ directories });
+  if (skipped.length) {
+    console.warn(
+      `[Config] Directory spelling migration postponed, not scanned: ${skipped.join(', ')}`
+    );
+    return { migrated: false, skipped };
+  }
 
   const configFile = getDataFilePath('config.json');
   const settingsFile = getDataFilePath('settings.json');
@@ -51,13 +62,10 @@ export function migrateDirectorySpelling() {
     if (fs.existsSync(file)) fs.copyFileSync(file, `${file}.bak-${stamp}`);
   }
 
-  const canonicalOf = new Map(renames);
-  updateConfig({
-    directories: [...new Set(config.directories.map((d) => canonicalOf.get(d) ?? d))],
-  });
+  updateConfig({ directories });
 
   const idPairs = buildIdRemap(
-    scanAllDirectories().map((a) => a.path),
+    projects.map((a) => a.path),
     renames
   );
   if (fs.existsSync(settingsFile)) {
