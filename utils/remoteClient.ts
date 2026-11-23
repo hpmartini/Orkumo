@@ -95,9 +95,30 @@ export function lastServerUrl(): string {
   }
 }
 
+/**
+ * Browser pairing link `https://<server>/#pair=<token>` (Admin panel): stores the token for this
+ * origin and drops it from the address. Returns this origin's pairing, or null.
+ */
+export function browserPairing(): Pairing | null {
+  const token = new URLSearchParams(window.location.hash.slice(1)).get('pair');
+  if (token) {
+    savePairing({ url: window.location.origin, token });
+    window.history.replaceState(
+      window.history.state,
+      '',
+      window.location.pathname + window.location.search
+    );
+  }
+  const saved = readPairing();
+  return saved?.url === window.location.origin ? saved : null;
+}
+
+// Relative targets (`/api/...` in a same-origin web app) resolve against the page
+const absolute = (target: string) => new URL(target, window.location.href);
+
 const sameServer = (target: string, server: string) => {
   try {
-    const t = new URL(target);
+    const t = absolute(target);
     const s = new URL(server);
     return t.host === s.host && t.protocol.replace('ws', 'http') === s.protocol;
   } catch {
@@ -108,7 +129,7 @@ const sameServer = (target: string, server: string) => {
 /** Adds the token as query param when the URL points at the paired server. */
 export function withToken(target: string, pairing: Pairing): string {
   if (!sameServer(target, pairing.url)) return target;
-  const url = new URL(target);
+  const url = absolute(target);
   url.searchParams.set('token', pairing.token);
   return url.toString();
 }

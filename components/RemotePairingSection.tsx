@@ -13,6 +13,8 @@ interface PairingInfo {
   url?: string | null;
   token?: string;
   link?: string | null;
+  /** `https://…/#pair=<token>`: opens the web app in a browser and pairs it */
+  webLink?: string | null;
 }
 
 /**
@@ -22,6 +24,7 @@ interface PairingInfo {
 export function RemotePairingSection() {
   const [info, setInfo] = useState<PairingInfo | null>(null);
   const [qr, setQr] = useState('');
+  const [webQr, setWebQr] = useState('');
   const [saveError, setSaveError] = useState('');
   // Cluster mode comes from the Pro modules (DevHub-pro); without it the switch only serves the iOS app
   const hasCluster = useModules().some((m) => m.id === 'cluster');
@@ -57,6 +60,13 @@ export function RemotePairingSection() {
       .then(setQr)
       .catch(() => setQr(''));
   }, [info?.link]);
+
+  useEffect(() => {
+    if (!info?.webLink) return;
+    QRCode.toDataURL(info.webLink, { margin: 1, width: 200 })
+      .then(setWebQr)
+      .catch(() => setWebQr(''));
+  }, [info?.webLink]);
 
   if (!info) return null;
 
@@ -138,6 +148,20 @@ export function RemotePairingSection() {
               Scan the QR code with the iPhone/iPad camera, open the link (AirDrop, note) or enter
               the address and token in the app.
             </p>
+            {info.webLink && row('Browser', info.webLink)}
+            {webQr && (
+              <img
+                src={webQr}
+                alt="Pairing QR code for the browser"
+                className="mx-auto h-40 w-40 rounded bg-white p-1"
+              />
+            )}
+            {info.webLink && (
+              <p className="text-xs text-gray-500">
+                Opens Orkumo in Safari or any browser in your tailnet and pairs it. The token stays
+                in that browser; treat the link like a password.
+              </p>
+            )}
           </>
         ) : pending ? null : (
           <p className="text-xs text-gray-400">
