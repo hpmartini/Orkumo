@@ -64,7 +64,7 @@ describe('limit staleness (#184 AC-5)', () => {
     expect(staleAge(null, NOW)).toBeNull();
   });
   it('a reset window has no countdown', () => {
-    expect(formatResetIn(null, NOW)).toBe('erfolgt');
+    expect(formatResetIn(null, NOW)).toBe('done');
   });
 });
 
@@ -134,7 +134,7 @@ describe('UsageCard limits (#184 AC-5)', () => {
     vi.useRealTimers();
     expect(within(claude).getByText('no 5h limit')).toBeInTheDocument();
     expect(within(claude).getByText(/stale · 26 d ago/)).toBeInTheDocument();
-    expect(within(codex).getByRole('progressbar', { name: '5 h genutzt' })).toHaveAttribute(
+    expect(within(codex).getByRole('progressbar', { name: '5 h used' })).toHaveAttribute(
       'aria-valuenow',
       '0'
     );
