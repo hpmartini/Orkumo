@@ -143,7 +143,7 @@ describe.runIf(process.platform === 'darwin')('macOS self-update against a local
       mode: 'swap',
       currentVersion,
       arch,
-      env: { ORKUMO_UPDATE_FEED: feed },
+      env: { ORKUMO_UPDATE_FEED: feed, ORKUMO_SIGN_IDENTITY: '' }, // never sign for real in tests
       log: quiet,
       updatesDir: path.join(dir, 'updates'),
       bundlePath,
@@ -196,7 +196,7 @@ describe.runIf(process.platform === 'darwin')('macOS self-update against a local
         `import { setupUpdater } from ${JSON.stringify(pathToFileURL(path.resolve('electron/updater.js')).href)};
 import { stageBundle } from ${JSON.stringify(pathToFileURL(path.resolve('electron/selfUpdate.js')).href)};
 const opts = { mode: 'swap', currentVersion: '1.0.0-rc.7', arch: ${JSON.stringify(arch)},
-  env: { ORKUMO_UPDATE_FEED: ${JSON.stringify(feed)} }, log: { log() {}, error() {} },
+  env: { ORKUMO_UPDATE_FEED: ${JSON.stringify(feed)}, ORKUMO_SIGN_IDENTITY: '' }, log: { log() {}, error() {} },
   updatesDir: ${JSON.stringify(updatesDir)}, bundlePath: ${JSON.stringify(bundlePath)} };
 const states = [];
 const step = async (name, fn) => {
