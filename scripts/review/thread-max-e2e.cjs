@@ -74,7 +74,8 @@ const paneState = (page, i) =>
       sectionHeight: Math.round(aside?.querySelector('section')?.clientHeight ?? 0),
       // pane title keeps a readable width; nothing sticks out of the pane or the panel
       nameWidth: Math.round(
-        pane.querySelector('.h-8 > span.font-medium')?.getBoundingClientRect().width ?? 0
+        pane.querySelector(':scope > div:first-child > span.font-medium')?.getBoundingClientRect()
+          .width ?? 0
       ),
       clipped: [...pane.querySelectorAll('button, span, textarea, [role=meter]')]
         .filter((e) => !e.closest('pre, code'))
@@ -82,14 +83,24 @@ const paneState = (page, i) =>
           const b = e.getBoundingClientRect();
           if (!b.width || !b.height) return false;
           // what an overflow-hidden ancestor cuts with an ellipsis is truncation, not clipping
-          let [left, right] = [b.left, b.right];
+          let [left, right, top, bottom] = [b.left, b.right, b.top, b.bottom];
           for (let a = e.parentElement; a && a !== pane; a = a.parentElement) {
-            if (a.ownerDocument.defaultView.getComputedStyle(a).overflowX === 'visible') continue;
+            const st = a.ownerDocument.defaultView.getComputedStyle(a);
             const r = a.getBoundingClientRect();
-            [left, right] = [Math.max(left, r.left), Math.min(right, r.right)];
+            if (st.overflowX !== 'visible')
+              [left, right] = [Math.max(left, r.left), Math.min(right, r.right)];
+            // a scrolling log may hold more than it shows; that is not clipping
+            if (st.overflowY !== 'visible')
+              [top, bottom] = [Math.max(top, r.top), Math.min(bottom, r.bottom)];
           }
+          if (right <= left || bottom <= top) return false;
           const box = (aside && aside.contains(e) ? aside : pane).getBoundingClientRect();
-          return right > box.right + 1 || left < box.left - 1;
+          return (
+            right > box.right + 1 ||
+            left < box.left - 1 ||
+            bottom > box.bottom + 1 ||
+            top < box.top - 1
+          );
         })
         .map((e) =>
           (e.getAttribute('aria-label') || e.textContent || e.tagName).trim().slice(0, 30)
@@ -264,7 +275,7 @@ const paneDivider = (page) =>
 function clipCheck(name, s) {
   check(
     `${name}: nothing clipped, title readable, footers on one line`,
-    s.clipped.length === 0 && s.nameWidth >= 40 && s.wrapped === 0,
+    s.clipped.length === 0 && s.nameWidth >= 120 && s.wrapped === 0,
     JSON.stringify({ clipped: s.clipped, name: s.nameWidth, wrapped: s.wrapped })
   );
 }
@@ -551,7 +562,7 @@ async function composerChecks(page, i, name) {
       await shot(page, 'split-divider-extreme');
       check(
         'split divider: the squeezed pane keeps its minimum',
-        vertical ? p1.paneHeight >= 196 : p1.pane >= 416,
+        vertical ? p1.paneHeight >= 356 : p1.pane >= 416,
         JSON.stringify({ w: p1.pane, h: p1.paneHeight })
       );
       clipCheck('split-1 squeezed', p1);
