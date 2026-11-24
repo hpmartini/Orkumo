@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- UI view: a slash command called with text (`/some-skill:retro Dann …`) shows as your message, the command as a chip and its text after it (agents-ui v0.4.9). Before, Claude transcripts log it as `<command-name>` + `<command-args>` and the view dropped the whole prompt. Commands without text (`/compact`, `/clear`) stay out, the skill's own text (isMeta) too; omp's `/skill:…` lines get the same chip
 - Question card in UI view (agents-ui v0.4.2), with several questions:
   - Claude's question tabs are buttons now (and ←/→ on the card): back to an answered question shows its pick, a new pick replaces it, and only Submit on the review sends the answers.
   - A multi select before the last question has a Next button. Before, the card showed "Typed: Next" and could not move on.
