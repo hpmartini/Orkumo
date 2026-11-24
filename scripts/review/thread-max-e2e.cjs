@@ -125,6 +125,28 @@ async function maximiseChecks(page, i, name) {
       s3.mainDraft === 'draft kept',
     JSON.stringify({ before: s0.aside, after: s3.aside, draft: s3.mainDraft })
   );
+  // from the main input: it hides, focus falls to <body>; the keys still reach this pane
+  await main.click();
+  await page.keyboard.press(`${MOD}+Shift+KeyM`);
+  await page.waitForTimeout(400);
+  const f1 = await paneState(page, i);
+  await page.keyboard.press(`${MOD}+Shift+KeyM`);
+  await page.waitForTimeout(400);
+  const f2 = await paneState(page, i);
+  check(
+    `${name}: shortcut from the main input maximises, again restores`,
+    f1.maximized && !f2.maximized && f2.mainVisible,
+    JSON.stringify({ first: f1.maximized, second: f2.maximized })
+  );
+  await page.keyboard.press(`${MOD}+Shift+KeyM`);
+  await page.waitForTimeout(300);
+  // a click on text in the panel leaves focus on <body>
+  const hb = await pane.locator('[data-testid="threads-header"]').boundingBox();
+  await page.mouse.click(hb.x + 40, hb.y + hb.height / 2);
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  const f3 = await paneState(page, i);
+  check(`${name}: Esc after a click on panel text restores`, !f3.maximized && f3.mainVisible);
   // shortcut twice, from the thread input
   await pane.locator('textarea[aria-label="Reply in thread"]').click();
   await page.keyboard.press(`${MOD}+Shift+KeyM`);
