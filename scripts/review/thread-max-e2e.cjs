@@ -1,12 +1,14 @@
 /* global document, localStorage */
 // e2e for the threads panel: maximise (button, Mod+Shift+M, Esc), sidebar list, thread composer
-// send key, height grip and `@` files, with a real mouse and keyboard in a tab and in a split.
+// send key, height grip (at most 40 % of the pane) and `@` files, with a real mouse and keyboard in
+// a tab and in splits (side by side, stacked). Narrow panes: the main chat keeps its minimum width
+// beside the panel, else the panel is a drawer over it (dimmed, Esc / x / a click outside put it away).
 // Needs a running Orkumo with two orchestrators whose chat UI view shows threads. Sends one short
 // message per run into a thread of the first orchestrator (it reaches its PTY). `@` lists files
 // only in a git work tree: the orchestrator directory must be one.
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/thread-max-e2e.cjs <baseUrl> <outDir> [width]
 // (CHROME=<path> to use a given Chromium; SUBMIT=enter if the chat setting is "Enter sends";
-// VIDEO=<dir> records the run)
+// SPLIT=down for stacked panes; VIDEO=<dir> records the run)
 const pw = (() => {
   try {
     return require('playwright');
@@ -21,8 +23,9 @@ fs.mkdirSync(OUT, { recursive: true });
 const exe = process.env.CHROME || undefined;
 const W = Number(width || 1440);
 const ENTER_SENDS = process.env.SUBMIT === 'enter';
+const SPLIT = process.env.SPLIT === 'down' ? 'down' : 'right';
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
-const tag = `w${W}${ENTER_SENDS ? '-enter' : ''}`;
+const tag = `w${W}${ENTER_SENDS ? '-enter' : ''}${SPLIT === 'down' ? '-down' : ''}`;
 let fails = 0;
 const check = (name, ok, detail = '') => {
   if (!ok) fails++;
@@ -64,6 +67,22 @@ const paneState = (page, i) =>
       mainHeight: main ? Math.round(main.getBoundingClientRect().height) : 0,
       focusInThread: !!thread && document.activeElement === thread,
       handle: !!pane.querySelector('[role=separator][aria-label="Resize threads panel"]'),
+      mode: pane.querySelector('[data-threads-mode]')?.getAttribute('data-threads-mode') ?? null,
+      scrim: !!pane.querySelector('[data-threads-scrim]'),
+      mainCol: Math.round(log?.parentElement?.getBoundingClientRect().width ?? 0),
+      paneHeight: Math.round(pane.getBoundingClientRect().height),
+      // thread input and its Attach row end inside the panel (nothing cut off at the bottom)
+      threadInside:
+        !thread ||
+        !aside ||
+        [
+          thread,
+          ...[...aside.querySelectorAll('section *')].filter(
+            (e) => /^\s*Attach\s*$/.test(e.textContent || '') && !e.children.length
+          ),
+        ].every(
+          (e) => e.getBoundingClientRect().bottom <= aside.getBoundingClientRect().bottom + 1
+        ),
     };
   }, i);
 
@@ -82,13 +101,30 @@ async function ensureThread(page, i) {
   await page.waitForTimeout(600);
 }
 
+// The main input, also under a drawer: put the drawer away first (x in the panel header)
+async function clickMain(page, i) {
+  const pane = inPane(page, i);
+  if ((await paneState(page, i)).mode === 'overlay')
+    await pane.getByRole('button', { name: 'Hide threads panel' }).click();
+  await pane.locator('textarea[aria-label="Message"]').click();
+}
+async function showPanel(page, i) {
+  const pane = inPane(page, i);
+  if (!(await paneState(page, i)).mode) {
+    await pane.locator('button[aria-label="Threads"][aria-pressed="false"]').click();
+    await page.waitForTimeout(300);
+  }
+  await ensureThread(page, i);
+}
+
 async function maximiseChecks(page, i, name) {
   const pane = inPane(page, i);
   await ensureThread(page, i);
   // a draft in the main input must survive the maximised panel
   const main = pane.locator('textarea[aria-label="Message"]');
-  await main.click();
+  await clickMain(page, i);
   await page.keyboard.type('draft kept');
+  await showPanel(page, i);
   const s0 = await paneState(page, i);
   await pane.getByRole('button', { name: 'Maximize threads' }).click();
   await page.waitForTimeout(400);
@@ -126,7 +162,7 @@ async function maximiseChecks(page, i, name) {
     JSON.stringify({ before: s0.aside, after: s3.aside, draft: s3.mainDraft })
   );
   // from the main input: it hides, focus falls to <body>; the keys still reach this pane
-  await main.click();
+  await clickMain(page, i);
   await page.keyboard.press(`${MOD}+Shift+KeyM`);
   await page.waitForTimeout(400);
   const f1 = await paneState(page, i);
@@ -175,7 +211,123 @@ async function maximiseChecks(page, i, name) {
   await page.waitForTimeout(400);
   const s6 = await paneState(page, i);
   check(`${name}: ${MOD}+Shift+M restores`, !s6.maximized && s6.mainVisible);
+  await clickMain(page, i);
   await main.fill('');
+  await showPanel(page, i);
+}
+
+// Beside: the main chat keeps 460 px; too narrow for both: drawer over a dimmed chat
+async function narrowChecks(page, i, name) {
+  const pane = inPane(page, i);
+  await showPanel(page, i);
+  const s = await paneState(page, i);
+  await shot(page, `${name}-narrow`);
+  check(`${name}: thread input and buttons inside the panel`, s.threadInside);
+  if (await pane.locator('[data-threads-short]').count()) {
+    // short pane: the open thread fills the panel, "Back to the list" brings the list back
+    const rowsOpen = await pane.locator('[data-thread-row]').count();
+    await pane.getByRole('button', { name: 'Back to the list (thread stays open)' }).click();
+    await page.waitForTimeout(300);
+    const rowsBack = await pane.locator('[data-thread-row]').count();
+    await shot(page, `${name}-short-list`);
+    check(
+      `${name}: short pane shows thread or list`,
+      rowsOpen === 0 && rowsBack > 0,
+      `${rowsOpen} -> ${rowsBack}`
+    );
+    await ensureThread(page, i);
+  }
+  if (s.mode === 'side') {
+    check(`${name}: beside, main chat >= 460 px`, s.mainCol >= 460, JSON.stringify(s));
+    // drag the handle far left: the panel stops where the main chat keeps its minimum
+    const h = await pane
+      .locator('[role=separator][aria-label="Resize threads panel"]')
+      .boundingBox();
+    await page.mouse.move(h.x + 4, h.y + h.height / 2, { steps: 3 });
+    await page.mouse.down();
+    await page.mouse.move(h.x - 900, h.y + h.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    const s2 = await paneState(page, i);
+    await shot(page, `${name}-narrow-widest`);
+    check(
+      `${name}: widest panel still leaves the main chat >= 460 px`,
+      s2.mainCol >= 460 && s2.mode === 'side',
+      `${s.aside}/${s.mainCol} -> ${s2.aside}/${s2.mainCol}`
+    );
+    // back to a default width for the next checks
+    const h2 = await pane
+      .locator('[role=separator][aria-label="Resize threads panel"]')
+      .boundingBox();
+    await page.mouse.dblclick(h2.x + 4, h2.y + h2.height / 2);
+    await page.waitForTimeout(300);
+    return;
+  }
+  check(
+    `${name}: pane too narrow for both -> drawer, dimmed chat`,
+    s.mode === 'overlay' && s.scrim,
+    JSON.stringify(s)
+  );
+  // the drawer widens up to the pane
+  const h = await pane.locator('[role=separator][aria-label="Resize threads panel"]').boundingBox();
+  await page.mouse.move(h.x + 4, h.y + h.height / 2, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.move(h.x - 900, h.y + h.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const s2 = await paneState(page, i);
+  await shot(page, `${name}-drawer-widest`);
+  check(
+    `${name}: drawer drags up to the pane width`,
+    s2.aside >= s2.pane - 12,
+    `${s.aside} -> ${s2.aside} of ${s2.pane}`
+  );
+  const h2 = await pane
+    .locator('[role=separator][aria-label="Resize threads panel"]')
+    .boundingBox();
+  await page.mouse.dblclick(h2.x + 4, h2.y + h2.height / 2);
+  await page.waitForTimeout(300);
+  // Esc in the drawer, a click on the dimmed chat, x: each puts it away
+  await pane.locator('textarea[aria-label="Reply in thread"]').click();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(300);
+  check(`${name}: Esc in the drawer puts it away`, !(await paneState(page, i)).mode);
+  await showPanel(page, i);
+  const box = await pane.locator('[data-threads-scrim]').boundingBox();
+  await page.mouse.click(box.x + 10, box.y + box.height / 2);
+  await page.waitForTimeout(300);
+  check(`${name}: a click on the dimmed chat puts it away`, !(await paneState(page, i)).mode);
+  await showPanel(page, i);
+  await pane.getByRole('button', { name: 'Hide threads panel' }).click();
+  await page.waitForTimeout(300);
+  check(`${name}: x in the panel header puts it away`, !(await paneState(page, i)).mode);
+  await showPanel(page, i);
+}
+
+// The dragged thread input stops at 40 % of the pane height
+async function heightCapCheck(page, i, name) {
+  const pane = inPane(page, i);
+  const g = await pane.locator('aside [role=separator][aria-label^="Resize input"]').boundingBox();
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2, { steps: 3 });
+  await page.mouse.down();
+  for (let k = 1; k <= 20; k++) {
+    await page.mouse.move(g.x + g.width / 2, Math.max(2, g.y - 40 * k));
+    await page.waitForTimeout(20);
+  }
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const s = await paneState(page, i);
+  await shot(page, `${name}-input-tallest`);
+  check(
+    `${name}: thread input at most 40 % of the pane height`,
+    s.threadHeight <= Math.ceil(s.paneHeight * 0.4) + 1 && s.threadHeight > 60,
+    `${s.threadHeight} of ${s.paneHeight}`
+  );
+  check(`${name}: tallest thread input still inside the panel`, s.threadInside);
+  // back to auto height
+  const g2 = await pane.locator('aside [role=separator][aria-label^="Resize input"]').boundingBox();
+  await page.mouse.dblclick(g2.x + g2.width / 2, g2.y + g2.height / 2);
+  await page.waitForTimeout(200);
 }
 
 async function composerChecks(page, i, name) {
@@ -254,6 +406,7 @@ async function composerChecks(page, i, name) {
   await openAgent(page, 0);
   await shot(page, 'tab');
 
+  await narrowChecks(page, 0, 'tab');
   await composerChecks(page, 0, 'tab');
   const height = (await paneState(page, 0)).threadHeight;
   await maximiseChecks(page, 0, 'tab');
@@ -267,7 +420,7 @@ async function composerChecks(page, i, name) {
   const h2 = (await paneState(page, 0)).threadHeight;
   check('reload: thread input height remembered', Math.abs(h2 - height) <= 2, `${height} -> ${h2}`);
 
-  const split = page.locator('button[aria-label^="Split "][aria-label$=" right"]').first();
+  const split = page.locator(`button[aria-label^="Split "][aria-label$=" ${SPLIT}"]`).first();
   if (await split.count()) {
     await split
       .locator('xpath=ancestor::*[contains(concat(" ", @class, " "), " group ")][1]')
@@ -289,8 +442,11 @@ async function composerChecks(page, i, name) {
     );
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
+    for (const i of [0, 1]) await narrowChecks(page, i, `split-${i}`);
     for (const i of [0, 1]) await maximiseChecks(page, i, `split-${i}`);
+    await heightCapCheck(page, 0, 'split-0');
   } else check('split button', false);
+  await heightCapCheck(page, 0, 'tab');
 
   console.log('console errors', JSON.stringify(errors));
   await ctx.close();
