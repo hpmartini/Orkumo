@@ -71,6 +71,33 @@ const paneState = (page, i) =>
       scrim: !!pane.querySelector('[data-threads-scrim]'),
       mainCol: Math.round(log?.parentElement?.getBoundingClientRect().width ?? 0),
       paneHeight: Math.round(pane.getBoundingClientRect().height),
+      sectionHeight: Math.round(aside?.querySelector('section')?.clientHeight ?? 0),
+      // pane title keeps a readable width; nothing sticks out of the pane or the panel
+      nameWidth: Math.round(
+        pane.querySelector('.h-8 > span.font-medium')?.getBoundingClientRect().width ?? 0
+      ),
+      clipped: [...pane.querySelectorAll('button, span, textarea, [role=meter]')]
+        .filter((e) => !e.closest('pre, code'))
+        .filter((e) => {
+          const b = e.getBoundingClientRect();
+          if (!b.width || !b.height) return false;
+          // what an overflow-hidden ancestor cuts with an ellipsis is truncation, not clipping
+          let [left, right] = [b.left, b.right];
+          for (let a = e.parentElement; a && a !== pane; a = a.parentElement) {
+            if (a.ownerDocument.defaultView.getComputedStyle(a).overflowX === 'visible') continue;
+            const r = a.getBoundingClientRect();
+            [left, right] = [Math.max(left, r.left), Math.min(right, r.right)];
+          }
+          const box = (aside && aside.contains(e) ? aside : pane).getBoundingClientRect();
+          return right > box.right + 1 || left < box.left - 1;
+        })
+        .map((e) =>
+          (e.getAttribute('aria-label') || e.textContent || e.tagName).trim().slice(0, 30)
+        ),
+      // answer footers on one line ("Done · 1.3 s", "Copy answer" do not wrap)
+      wrapped: [...pane.querySelectorAll('button')]
+        .filter((e) => /^\s*Copy answer\s*$/.test(e.textContent || ''))
+        .filter((e) => e.getBoundingClientRect().height > 26).length,
       // thread input and its Attach row end inside the panel (nothing cut off at the bottom)
       threadInside:
         !thread ||
@@ -217,6 +244,31 @@ async function maximiseChecks(page, i, name) {
 }
 
 // Beside: the main chat keeps 460 px; too narrow for both: drawer over a dimmed chat
+// the split divider between the two chat panes (other resizable groups on the page don't count)
+const paneDivider = (page) =>
+  page.evaluate(() => {
+    const [a, b] = [...document.querySelectorAll('[data-chat-pane]')]
+      .filter((p) => p.getBoundingClientRect().width > 0)
+      .map((p) => p.getBoundingClientRect());
+    if (!a || !b) return null;
+    const hit = [...document.querySelectorAll('[data-separator]')]
+      .map((e) => e.getBoundingClientRect())
+      .find((r) =>
+        r.width > r.height
+          ? r.top >= a.bottom - 2 && r.bottom <= b.top + 2
+          : r.left >= a.right - 2 && r.right <= b.left + 2
+      );
+    return hit ? { x: hit.x, y: hit.y, width: hit.width, height: hit.height } : null;
+  });
+
+function clipCheck(name, s) {
+  check(
+    `${name}: nothing clipped, title readable, footers on one line`,
+    s.clipped.length === 0 && s.nameWidth >= 40 && s.wrapped === 0,
+    JSON.stringify({ clipped: s.clipped, name: s.nameWidth, wrapped: s.wrapped })
+  );
+}
+
 async function narrowChecks(page, i, name) {
   const pane = inPane(page, i);
   await showPanel(page, i);
@@ -237,6 +289,7 @@ async function narrowChecks(page, i, name) {
     );
     await ensureThread(page, i);
   }
+  clipCheck(name, s);
   if (s.mode === 'side') {
     check(`${name}: beside, main chat >= 460 px`, s.mainCol >= 460, JSON.stringify(s));
     // drag the handle far left: the panel stops where the main chat keeps its minimum
@@ -255,6 +308,19 @@ async function narrowChecks(page, i, name) {
       s2.mainCol >= 460 && s2.mode === 'side',
       `${s.aside}/${s.mainCol} -> ${s2.aside}/${s2.mainCol}`
     );
+    clipCheck(`${name} widest`, s2);
+    // and far right: the narrowest panel still shows its header and footers uncut
+    const hn = await pane
+      .locator('[role=separator][aria-label="Resize threads panel"]')
+      .boundingBox();
+    await page.mouse.move(hn.x + 4, hn.y + hn.height / 2, { steps: 3 });
+    await page.mouse.down();
+    await page.mouse.move(hn.x + 900, hn.y + hn.height / 2, { steps: 12 });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    const s3 = await paneState(page, i);
+    await shot(page, `${name}-narrowest`);
+    clipCheck(`${name} narrowest`, s3);
     // back to a default width for the next checks
     const h2 = await pane
       .locator('[role=separator][aria-label="Resize threads panel"]')
@@ -279,8 +345,24 @@ async function narrowChecks(page, i, name) {
   await shot(page, `${name}-drawer-widest`);
   check(
     `${name}: drawer drags up to the pane width`,
-    s2.aside >= s2.pane - 12,
+    s2.aside >= s2.pane - 30 && s2.pane - s2.aside >= 20,
     `${s.aside} -> ${s2.aside} of ${s2.pane}`
+  );
+  clipCheck(`${name} drawer widest`, s2);
+  // dragging the widest drawer's handle back narrows the drawer, the split stays
+  const hb = await pane
+    .locator('[role=separator][aria-label="Resize threads panel"]')
+    .boundingBox();
+  await page.mouse.move(hb.x + 4, hb.y + hb.height / 2, { steps: 3 });
+  await page.mouse.down();
+  await page.mouse.move(hb.x + 204, hb.y + hb.height / 2, { steps: 12 });
+  await page.mouse.up();
+  await page.waitForTimeout(300);
+  const s4 = await paneState(page, i);
+  check(
+    `${name}: dragging the widest drawer back narrows it, the pane keeps its width`,
+    Math.abs(s4.pane - s2.pane) <= 1 && s4.aside < s2.aside - 50,
+    `pane ${s2.pane} -> ${s4.pane}, drawer ${s2.aside} -> ${s4.aside}`
   );
   const h2 = await pane
     .locator('[role=separator][aria-label="Resize threads panel"]')
@@ -322,6 +404,11 @@ async function heightCapCheck(page, i, name) {
     `${name}: thread input at most 40 % of the pane height`,
     s.threadHeight <= Math.ceil(s.paneHeight * 0.4) + 1 && s.threadHeight > 60,
     `${s.threadHeight} of ${s.paneHeight}`
+  );
+  check(
+    `${name}: thread input reaches ~40 % of the pane where the thread view has room`,
+    s.threadHeight >= Math.min(s.paneHeight * 0.4, s.sectionHeight - 180) - 10,
+    `${s.threadHeight} of ${s.paneHeight}, section ${s.sectionHeight}`
   );
   check(`${name}: tallest thread input still inside the panel`, s.threadInside);
   // back to auto height
@@ -443,6 +530,43 @@ async function composerChecks(page, i, name) {
     await page.keyboard.press('Escape');
     await page.waitForTimeout(300);
     for (const i of [0, 1]) await narrowChecks(page, i, `split-${i}`);
+    // panel hidden: the bare pane is uncut too
+    for (const i of [0, 1]) {
+      await inPane(page, i).getByRole('button', { name: 'Hide threads panel' }).click();
+      await page.waitForTimeout(300);
+      clipCheck(`split-${i} no panel`, await paneState(page, i));
+    }
+    await shot(page, 'split-no-panel');
+    // the split divider stops before a pane gets too small to show header and composer
+    const div = await paneDivider(page);
+    if (div) {
+      const vertical = SPLIT === 'down';
+      const [cx, cy] = [div.x + div.width / 2, div.y + div.height / 2];
+      await page.mouse.move(cx, cy, { steps: 3 });
+      await page.mouse.down();
+      await page.mouse.move(vertical ? cx : cx + 2000, vertical ? cy + 2000 : cy, { steps: 15 });
+      await page.mouse.up();
+      await page.waitForTimeout(400);
+      const p1 = await paneState(page, 1);
+      await shot(page, 'split-divider-extreme');
+      check(
+        'split divider: the squeezed pane keeps its minimum',
+        vertical ? p1.paneHeight >= 196 : p1.pane >= 416,
+        JSON.stringify({ w: p1.pane, h: p1.paneHeight })
+      );
+      clipCheck('split-1 squeezed', p1);
+      await page.mouse.dblclick(cx, cy);
+      await page.waitForTimeout(300);
+      const after = await paneDivider(page);
+      if (after && Math.abs(after.x - div.x) + Math.abs(after.y - div.y) > 4) {
+        await page.mouse.move(after.x + after.width / 2, after.y + after.height / 2, { steps: 3 });
+        await page.mouse.down();
+        await page.mouse.move(cx, cy, { steps: 15 });
+        await page.mouse.up();
+        await page.waitForTimeout(300);
+      }
+    } else check('split divider found', false);
+    for (const i of [0, 1]) await showPanel(page, i);
     for (const i of [0, 1]) await maximiseChecks(page, i, `split-${i}`);
     await heightCapCheck(page, 0, 'split-0');
   } else check('split button', false);
