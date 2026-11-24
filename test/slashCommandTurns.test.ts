@@ -21,6 +21,7 @@ describe('slash commands in a Claude transcript', () => {
         type: 'devorbit_user',
         text: '/demo-skills:retro Dann musst du das prüfen!!!! Und messen, ob die Hebel wirken.\n\nUnd du hast schon wieder vergessen, dass du delegierst!!!',
         history: true,
+        ts: expect.any(Number),
       },
     ]);
   });

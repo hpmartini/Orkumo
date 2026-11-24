@@ -628,3 +628,53 @@ describe('images by URL', () => {
     expect(tool.result).toBe('shot\n[image]\n[image]');
   });
 });
+
+describe('message times (reply quotes, thread order)', () => {
+  const at = '2026-11-24T09:32:00.000Z';
+  const ms = Date.parse(at);
+
+  it('Claude: prompts and answers carry the record time', async () => {
+    const { dir } = claudeProjects([
+      { ...claudeUser('first'), timestamp: at },
+      {
+        type: 'assistant',
+        timestamp: at,
+        message: { id: 'm1', content: [{ type: 'text', text: 'on it' }] },
+      },
+    ]);
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir }
+    );
+    const { seen } = collect(s.id);
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'assistant')).toBe(true));
+    expect(seen.find((e) => e.type === 'devorbit_user')).toMatchObject({ ts: ms });
+    expect(seen.find((e) => e.type === 'assistant')).toMatchObject({ ts: ms });
+    const state = seen.reduce(reduceChat, initialChatState);
+    expect(state.messages.map((m) => m.ts)).toEqual([ms, ms]);
+  });
+
+  it('omp: answers carry the record time', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-omp-ts-'));
+    fs.mkdirSync(path.join(dir, '-w-app'));
+    fs.writeFileSync(
+      path.join(dir, '-w-app', `2026-11-24T09-30-00-000Z_${OMP_ID}.jsonl`),
+      jsonl([
+        { type: 'session', version: 3, id: OMP_ID, cwd: project },
+        {
+          type: 'message',
+          id: 'a1',
+          timestamp: at,
+          message: { role: 'assistant', content: [{ type: 'text', text: 'done' }] },
+        },
+      ])
+    );
+    const s = viewSession(
+      { harness: 'omp', sessionId: OMP_ID, cwd: project },
+      { ...ctx, transcriptDir: dir }
+    );
+    const { seen } = collect(s.id);
+    await vi.waitFor(() => expect(seen.some((e) => e.type === 'assistant')).toBe(true));
+    expect(seen.find((e) => e.type === 'assistant')).toMatchObject({ ts: ms });
+  });
+});

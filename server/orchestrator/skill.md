@@ -75,6 +75,11 @@ AGENTS.md under "Status report". Schema and example: `report.schema.json` and
 error; nothing is stored. Answers come back as messages starting with `[Status answer]`,
 instructions as messages starting with `[Status]`.
 
+A message whose first line is a thread tag (`[Thread: <Project> · <Task>]`) belongs to a
+thread of the owner's chat: start your answer to it with the same tag, verbatim, as its first
+line. Without the tag your answer stays in the main chat; never tag an answer about something
+else. `Re your reply from 09:32: "…"` quotes your earlier answer of that time.
+
 Titles short; `detail`/`note` one line; `description` (Markdown) as detailed as your chat answer:
 starting point, what was done, what is open, options with consequences, recommendation with
 reason. Every point for the owner in the chat is exactly one inbox entry with the same wording

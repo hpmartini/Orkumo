@@ -2,7 +2,13 @@
  * API client for orchestrators (`/api/orchestrator/*`, server/services/orchestratorService.js).
  */
 import { API_BASE_URL } from '../utils/apiConfig';
-import type { OrchestratorRole, OrchestratorWorkspace, QuickAgent } from '@hpmartini/agents-ui';
+import type {
+  ChatThread,
+  ChatThreadList,
+  OrchestratorRole,
+  OrchestratorWorkspace,
+  QuickAgent,
+} from '@hpmartini/agents-ui';
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -45,3 +51,32 @@ export const instructOrchestrator = (
     method: 'POST',
     body: JSON.stringify(body),
   });
+
+/** Threads of an orchestrator chat (`session`: the pane's listed session) */
+export const fetchThreads = (session: string): Promise<ChatThreadList> =>
+  request(`/orchestrator/threads?session=${encodeURIComponent(session)}`);
+
+export const createThread = async (
+  session: string,
+  body:
+    | { task: { project: string; task: string } }
+    | { name: { project: string; task: string }; parentKey?: string }
+): Promise<ChatThread> =>
+  (
+    await request<{ thread: ChatThread }>('/orchestrator/threads', {
+      method: 'POST',
+      body: JSON.stringify({ session, ...body }),
+    })
+  ).thread;
+
+export const updateThread = async (
+  session: string,
+  id: string,
+  patch: { closed?: boolean; readAt?: number }
+): Promise<ChatThread> =>
+  (
+    await request<{ thread: ChatThread }>(`/orchestrator/threads/${encodeURIComponent(id)}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ session, ...patch }),
+    })
+  ).thread;

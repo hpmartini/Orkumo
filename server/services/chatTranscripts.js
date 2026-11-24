@@ -43,6 +43,12 @@ export function parseLine(line) {
 // Claude Code transcripts: already stream-json shaped
 // ---------------------------------------------------------------------------
 
+/** `{ ts }` (ms) of a record that carries its time, else nothing */
+const stamp = (rec) => {
+  const ts = Date.parse(str(rec.timestamp));
+  return Number.isFinite(ts) ? { ts } : {};
+};
+
 /** Pasted text arrives wrapped in `<pasted_content id="…">…</pasted_content id="…">`: show it bare */
 export function unwrapPasted(text) {
   return text.replace(/<\/?pasted_content(?:\s+id="[^"]*")?>\n?/g, '');
@@ -103,7 +109,12 @@ function claudeHistoryEvents(lines) {
       const human = !queued.origin || queued.origin.kind === 'human';
       const text = str(queued.prompt);
       if (queued.commandMode === 'prompt' && human && text.trim() && !isPeerMessage(text))
-        events.push({ type: 'devorbit_user', text: unwrapPasted(text), history: true });
+        events.push({
+          type: 'devorbit_user',
+          text: unwrapPasted(text),
+          history: true,
+          ...stamp(rec),
+        });
       continue;
     }
     if (!rec.message) continue;
@@ -114,6 +125,7 @@ function claudeHistoryEvents(lines) {
         message: rec.message,
         parent_tool_use_id: null,
         history: true,
+        ...stamp(rec),
         ...(typeof rec.effort === 'string' ? { effort: rec.effort } : {}),
       });
     } else if (rec.type === 'user') {
@@ -137,9 +149,10 @@ function claudeHistoryEvents(lines) {
       // A command with text is the user's turn; `<command-name>` without it,
       // `<local-command-stdout>` and similar CLI wrappers are not
       const command = commandPrompt(text);
-      if (command) events.push({ type: 'devorbit_user', text: command, history: true });
+      if (command)
+        events.push({ type: 'devorbit_user', text: command, history: true, ...stamp(rec) });
       else if (text.trim() && !text.trimStart().startsWith('<')) {
-        events.push({ type: 'devorbit_user', text, history: true });
+        events.push({ type: 'devorbit_user', text, history: true, ...stamp(rec) });
       }
       if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) {
         events.push({ type: 'user', message: rec.message, parent_tool_use_id: null });
@@ -275,12 +288,6 @@ const TURN_END = {
 const modelOf = (rec) =>
   str(rec.model) || (str(rec.modelId) && [rec.provider, rec.modelId].filter(str).join('/'));
 
-/** `{ ts }` (ms) of a record that carries its time, else nothing */
-const stamp = (rec) => {
-  const ts = Date.parse(str(rec.timestamp));
-  return Number.isFinite(ts) ? { ts } : {};
-};
-
 /**
  * Session JSONL lines → view events. Shown: user text, assistant text/thinking/tool calls, tool
  * results, model changes and turn ends. Skipped: system/developer prompts, custom and internal
@@ -319,6 +326,7 @@ function sessionHistoryEvents(lines) {
           message: { id: str(rec.id), model: str(msg.model) || undefined, content },
           parent_tool_use_id: null,
           history: true,
+          ...stamp(rec),
         });
       const subtype = TURN_END[msg.stopReason];
       // `ts` on both ends lets the client time the turn (omp records no duration)

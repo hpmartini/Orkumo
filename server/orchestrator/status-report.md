@@ -44,3 +44,7 @@ never a delta: an inbox entry missing from it counts as closed.
 5. **Answer** after the report: your full chat answer, ending with the CLI's result line
    (`Report stored for <id>: …`). The view shows that answer next to each new or changed item.
    Instructions from the view arrive as messages starting with `[Status]`.
+   A message whose first line is a thread tag (`[Thread: <Project> · <Task>]`) belongs to a
+   thread of the owner's chat: start your answer to it with the same tag, verbatim, as its first
+   line. Without the tag your answer stays in the main chat; never tag an answer about something
+   else. `Re your reply from 09:32: "…"` quotes your earlier answer of that time.
