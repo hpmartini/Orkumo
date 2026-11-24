@@ -79,6 +79,7 @@ Hape reagiert in der UI-Ansicht gezielt auf eine einzelne Modell-Antwort, ohne K
 | AC-13 | Belege: Screenshots + kurzes GIF des Ablaufs im PR (`## Screenshots`) | PR-Body |
 | AC-14 | Woodpecker grün in Orkumo, agents-ui-Tests grün; PRs in agents-ui (neuer Tag) und Orkumo (Pin, Server, Vorlagen); nicht gemergt | CI-Status, PR-Links |
 | AC-15 | Keine echten Namen in Code, Tests, Screenshots (öffentliche Repos) | grep-Prüfung vor PR |
+| AC-16 | Thread-Panel in der Breite verstellbar: Ziehgriff an der linken Kante, Min/Max, Doppelklick = Standardbreite, Pfeiltasten auf dem Griff; Breite gespeichert (ein globaler Wert, siehe Annahmen) und übersteht Neuladen | agents-ui-Test (Klemmen, Tastatur, Doppelklick) + Browser-Screenshot vor/nach Ziehen und nach Neuladen |
 
 ### Ambition
 - Altitude: Threads als echte Unterhaltungsfäden im Transkript selbst (Harness-Unterstützung) würden die Kennungs-Konvention überflüssig machen; nicht Scope.
@@ -89,8 +90,9 @@ Hape reagiert in der UI-Ansicht gezielt auf eine einzelne Modell-Antwort, ohne K
 langlebig · unabhängig · agents-ui wird von Orkumo und später MAGOS genutzt, Server speichert dauerhaft Zustand.
 
 ### Annahmen
-- Gesendete Präfixe englisch wie die übrige Orkumo-UI seit #338: `Re your reply from 14:32: "…"` statt „Zu deiner Antwort von 14:32: »…«“ (vorgeschlagen; Hape kann deutsch verlangen)
+- Gesendete Präfixe englisch wie die übrige Orkumo-UI seit #338: `Re your reply from 14:32: "…"` statt „Zu deiner Antwort von 14:32: »…«“ (entschieden, Hape 2026-11-24)
 - Kennung bleibt wörtlich `[Thread: <Projekt> · <Aufgabe>]` (vorgeschlagen)
 - Threads gibt es nur in Orchestrator-Sessions; der Reply-Knopf in allen Sessions (vorgeschlagen)
-- „Open thread“ an einer Antwort ohne Status-Bindung: Kurzname aus den ersten Wörtern der Antwort (vorgeschlagen)
+- „Open thread“ an einer Antwort ohne Status-Bindung: sofort „Answer 09:03 · <erste Worte>“ (entschieden, Hape 2026-11-24)
 - Worker-Verknüpfung über Agent-IDs der Aufgabe (`refs.agents`) und Repo des Projekts gegen den Worker-Arbeitsordner (vorgeschlagen)
+- Panel-Breite: ein globaler Wert in localStorage, je Pane auf deren Breite geklemmt. Grund: Pane-IDs sind kurzlebig (Split-Remounts, neue Sessions), ein Wert je Pane ginge ständig verloren; so halten es auch VS Code (Seitenleiste) und Slack (Thread-Spalte) (entschieden)
