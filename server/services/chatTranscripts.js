@@ -51,6 +51,17 @@ export function unwrapPasted(text) {
 /** Hand-backs of subagents and other sessions (`<agent-message …>`) are no prompts of the user */
 const isPeerMessage = (text) => /^\s*<(agent-message|task-notification)\b/.test(text);
 
+/**
+ * A slash command called with text (`/retro Dann …`), which Claude Code logs as
+ * `<command-name>/retro</command-name>` + `<command-args>Dann …</command-args>`: `/retro Dann …`.
+ * null without text (`/compact`, `/clear`): those stay control lines, not user turns.
+ */
+export function commandPrompt(text) {
+  const name = text.match(/<command-name>(\/[^<\s]+)<\/command-name>/)?.[1];
+  const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1]?.trim();
+  return name && args ? `${name} ${args}` : null;
+}
+
 /** Claude transcript JSONL lines → view events (user turns, assistant messages, tool results) */
 function claudeHistoryEvents(lines) {
   const events = [];
@@ -123,8 +134,11 @@ function claudeHistoryEvents(lines) {
         /<task-notification>[\s\S]*?<task-id>([\w-]+)<\/task-id>[\s\S]*?<status>(?:completed|failed|killed|stopped)<\/status>/
       );
       if (ended) events.push({ type: 'devorbit_task_ended', id: ended[1] });
-      // `<command-name>`, `<local-command-stdout>` and similar CLI wrappers are not user turns
-      if (text.trim() && !text.trimStart().startsWith('<')) {
+      // A command with text is the user's turn; `<command-name>` without it,
+      // `<local-command-stdout>` and similar CLI wrappers are not
+      const command = commandPrompt(text);
+      if (command) events.push({ type: 'devorbit_user', text: command, history: true });
+      else if (text.trim() && !text.trimStart().startsWith('<')) {
         events.push({ type: 'devorbit_user', text, history: true });
       }
       if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) {
