@@ -116,6 +116,20 @@ describe('ensureOrchestratorWorkspace', () => {
     }
   });
 
+  it('guide, skill and /status-report tell to answer a thread message with its tag', () => {
+    const { dir } = bootstrap();
+    for (const file of [
+      'AGENTS.md',
+      path.join('.claude/skills', SKILL_NAME, 'SKILL.md'),
+      '.omp/skills/status-report/SKILL.md',
+    ]) {
+      const flat = fs.readFileSync(path.join(dir, file), 'utf8').replace(/\s+/g, ' ');
+      expect(flat, file).toContain('`[Thread: <Project> · <Task>]`');
+      expect(flat, file).toMatch(/start your answer to it with the same tag, verbatim/);
+      expect(flat, file).toMatch(/Without the tag your answer stays in the main chat/);
+    }
+  });
+
   it("is idempotent and keeps the orchestrators' NOTES.md", () => {
     const { dir } = bootstrap();
     fs.writeFileSync(path.join(dir, 'NOTES.md'), 'my notes');

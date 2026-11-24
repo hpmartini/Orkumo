@@ -42,6 +42,7 @@ import { listOmpSessions } from './services/ompSessions.js';
 import * as orchestrator from './services/orchestratorService.js';
 import * as orchestratorReports from './services/orchestratorReports.js';
 import { parseReport } from './services/orchestratorReport.js';
+import * as orchestratorThreads from './services/orchestratorThreads.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
@@ -2258,6 +2259,9 @@ app.get('/api/orchestrator/projects', async (req, res) => {
 const reportStore = orchestratorReports.createReportStore(
   path.join(path.dirname(orchestrator.orchestratorDir()), 'orchestrator-reports')
 );
+const threadStore = orchestratorThreads.createThreadStore(
+  path.join(path.dirname(orchestrator.orchestratorDir()), 'orchestrator-reports')
+);
 
 /** Agents with display state, activity and PRs: what the stale check and the sender check read */
 async function reportAgents() {
@@ -2481,16 +2485,166 @@ app.post(
     const state = reportStore.get(req.params.id);
     const text =
       state && orchestratorReports.instructText(state.report, req.body, req.body.text, attachments);
-    if (!text)
+    const bound = text && orchestratorThreads.taskThread(state.report, req.body);
+    if (!text || !bound)
       return res
         .status(404)
         .json({ error: req.body.entry ? 'No open entry with this id' : 'No task with this id' });
     try {
-      // the header (title, refs), 8000 characters of text and ten attachment lines
-      const refused = await deliverToOrchestrator(req.params.id, state, text, 100000);
+      // The instruction opens (or continues) the task's thread in the orchestrator's chat
+      const thread = threadStore.create(req.params.id, bound);
+      // the tag, the header (title, refs), 8000 characters of text and ten attachment lines
+      const refused = await deliverToOrchestrator(
+        req.params.id,
+        state,
+        orchestratorThreads.threadText(thread, text),
+        100000
+      );
       if (refused) return res.status(refused.status).json({ error: refused.error });
-      res.status(201).json({ delivered: true });
+      res.status(201).json({ delivered: true, thread: thread.id });
     } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/**
+ * The orchestrator a chat pane shows (its role, else its session id: the report store's key);
+ * null for any other session
+ */
+async function chatOrchestrator(ref) {
+  const sessions = await agentService.currentSessions();
+  const session = orchestrator.findSessionByRef(sessions, ref);
+  const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
+  if (!session || !orchestrator.isOrchestratorSession(session, orchestrators)) return null;
+  return {
+    id: orchestrator.sessionRole(session, orchestratorRoles) ?? session.id,
+    session,
+    sessions,
+  };
+}
+
+/** Threads with what the list shows; workers now in a bound task's repo join its links */
+async function threadList(owner) {
+  const report = reportStore.get(owner.id)?.report ?? null;
+  const contexts = await getAgentContexts().catch(() => ({}));
+  return threadStore.list(owner.id).map((thread) => {
+    const linked = thread.binding?.project
+      ? orchestratorThreads.repoAgents(
+          report,
+          thread.binding.project,
+          owner.sessions,
+          contexts,
+          owner.session.id
+        )
+      : [];
+    const fresh = linked.filter((id) => !thread.agents.includes(id));
+    const current = fresh.length
+      ? threadStore.update(owner.id, thread.id, { agents: fresh })
+      : thread;
+    return orchestratorThreads.threadView(current, report);
+  });
+}
+
+/** Tasks of the orchestrator's latest report: what "New thread" offers */
+const reportTasks = (report) =>
+  (report?.projects ?? []).flatMap((p) =>
+    p.tasks.map((t) => ({
+      project: p.id,
+      projectName: p.name,
+      task: t.id,
+      title: t.title,
+      state: t.state,
+      repo: p.repo ?? null,
+    }))
+  );
+
+const threadOwnerSchema = z.object({ session: orchestratorRefSchema }).strict();
+
+/** Threads of the orchestrator chat a pane shows (`orchestrator: null`: not an orchestrator) */
+app.get('/api/orchestrator/threads', async (req, res) => {
+  const query = threadOwnerSchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Invalid session' });
+  try {
+    const owner = await chatOrchestrator(query.data.session);
+    if (!owner) return res.json({ orchestrator: null, threads: [], tasks: [] });
+    res.json({
+      orchestrator: owner.id,
+      threads: await threadList(owner),
+      tasks: reportTasks(reportStore.get(owner.id)?.report),
+    });
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+const threadNameSchema = z
+  .object({ project: z.string().trim().min(1).max(200), task: z.string().trim().min(1).max(200) })
+  .strict();
+
+/** A thread on a status task (reused when it exists) or on an answer (named by the client) */
+app.post(
+  '/api/orchestrator/threads',
+  agentLimiter,
+  sameSiteOnly,
+  validate(
+    z
+      .object({
+        session: orchestratorRefSchema,
+        task: z
+          .object({ project: orchestratorRefSchema, task: orchestratorRefSchema })
+          .strict()
+          .optional(),
+        name: threadNameSchema.optional(),
+        parentKey: z.string().max(200).optional(),
+      })
+      .strict()
+      .refine((b) => !b.task !== !b.name, 'Name exactly one of task or name')
+  ),
+  async (req, res) => {
+    try {
+      const owner = await chatOrchestrator(req.body.session);
+      if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
+      const report = reportStore.get(owner.id)?.report;
+      const init = req.body.task
+        ? report && orchestratorThreads.taskThread(report, { task: req.body.task })
+        : { name: req.body.name, parentKey: req.body.parentKey ?? null };
+      if (!init) return res.status(404).json({ error: 'No task with this id' });
+      const thread = threadStore.create(owner.id, init);
+      const listed = await threadList(owner);
+      res.status(201).json({ thread: listed.find((t) => t.id === thread.id) });
+    } catch (error) {
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/** Close or reopen a thread, or mark it read up to a time */
+app.patch(
+  '/api/orchestrator/threads/:thread',
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(z.string().uuid()),
+  validate(
+    z
+      .object({
+        session: orchestratorRefSchema,
+        closed: z.boolean().optional(),
+        readAt: z.number().int().nonnegative().optional(),
+      })
+      .strict()
+  ),
+  async (req, res) => {
+    try {
+      const owner = await chatOrchestrator(req.body.session);
+      if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
+      const { closed, readAt } = req.body;
+      const thread = threadStore.update(owner.id, req.params.thread, { closed, readAt });
+      res.json({
+        thread: orchestratorThreads.threadView(thread, reportStore.get(owner.id)?.report),
+      });
+    } catch (error) {
+      if (error.status === 404) return res.status(404).json({ error: error.message });
       sendAgentError(res, error);
     }
   }

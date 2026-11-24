@@ -94,13 +94,13 @@ function diff(prev, next) {
   };
 }
 
-function writeAtomic(file, data) {
+export function writeAtomic(file, data) {
   const tmp = `${file}.${process.pid}.tmp`;
   fs.writeFileSync(tmp, JSON.stringify(data, null, 2));
   fs.renameSync(tmp, file);
 }
 
-const httpError = (status, message) => Object.assign(new Error(message), { status });
+export const httpError = (status, message) => Object.assign(new Error(message), { status });
 
 /** Chat context key → what counts as a change of that item (inbox entries and tasks) */
 const contextItems = (report) =>

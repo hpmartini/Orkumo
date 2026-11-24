@@ -79,6 +79,10 @@ inbox entry missing from the next report counts as closed. Schema and a complete
 - Send the report first, then write your full answer in the chat: the view shows your last
   answer after the report next to each new or changed item. Instructions from the view arrive as
   messages starting with `[Status]`.
+- A message whose first line is a thread tag (`[Thread: <Project> · <Task>]`) belongs to a
+  thread of the owner's chat: start your answer to it with the same tag, verbatim, as its first
+  line. Without the tag your answer stays in the main chat; never tag an answer about something
+  else. `Re your reply from 09:32: "…"` quotes your earlier answer of that time.
 
 ## Reporting to Hape
 
