@@ -16,9 +16,12 @@ import {
 import type { AgentSession } from '@hpmartini/agents-ui/types';
 import * as api from './agentsApi';
 import {
+  createThread,
   fetchOrchestratorRoles,
   fetchOrchestratorWorkspace,
+  fetchThreads,
   startOrchestrator,
+  updateThread,
 } from './orchestratorApi';
 
 /**
@@ -126,6 +129,7 @@ export const orkumoTransport: AgentsTransport = {
     fetchServerStats: api.fetchServerStats,
   },
   orchestrator: { fetchOrchestratorRoles, fetchOrchestratorWorkspace, startOrchestrator },
+  threads: { fetchThreads, createThread, updateThread },
   files: {
     // VS Code via /files/open-in-editor, the default app or Finder via /files/open (#188)
     openFile: async (path: string, cwd: string, options: OpenFileOptions = {}) => {
