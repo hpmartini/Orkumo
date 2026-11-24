@@ -5,7 +5,7 @@
     "": {
       "name": "orkumo",
       "dependencies": {
-        "@hpmartini/agents-ui": "github:hpmartini/agents-ui#v0.4.12",
+        "@hpmartini/agents-ui": "github:hpmartini/agents-ui#v0.4.14",
         "@tanstack/react-virtual": "^3.13.15",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/addon-image": "0.9.0",
@@ -270,7 +270,7 @@
 
     "@hapi/topo": ["@hapi/topo@6.0.2", "", { "dependencies": { "@hapi/hoek": "^11.0.2" } }, "sha512-KR3rD5inZbGMrHmgPxsJ9dbi6zEK+C3ZwUwTa+eMwWLz7oijWUTWD2pMSNNYJAU6Qq+65NkxXjqHr/7LM2Xkqg=="],
 
-    "@hpmartini/agents-ui": ["@hpmartini/agents-ui@github:hpmartini/agents-ui#85223db", { "dependencies": { "@xterm/addon-fit": "^0.11.0", "@xterm/addon-image": "0.9.0", "@xterm/addon-web-links": "^0.12.0", "@xterm/xterm": "^6.0.0", "lucide-react": "^0.562.0", "react-markdown": "^10.1.0", "react-resizable-panels": "^4.3.3", "remark-gfm": "^4.0.1" }, "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" } }, "hpmartini-agents-ui-85223db", "sha512-3WEdbBNMHH2THXGdxKdhHrUScpYN+niKXRUtLyEJMg2uWRSu7+h3auIUVLfr8weSIV3X4KqAOG1yHCv7Q3yKaA=="],
+    "@hpmartini/agents-ui": ["@hpmartini/agents-ui@github:hpmartini/agents-ui#8ff4c95", { "dependencies": { "@xterm/addon-fit": "^0.11.0", "@xterm/addon-image": "0.9.0", "@xterm/addon-web-links": "^0.12.0", "@xterm/xterm": "^6.0.0", "lucide-react": "^0.562.0", "react-markdown": "^10.1.0", "react-resizable-panels": "^4.3.3", "remark-gfm": "^4.0.1" }, "peerDependencies": { "react": "^19.0.0", "react-dom": "^19.0.0" } }, "hpmartini-agents-ui-8ff4c95", "sha512-fka1J6VZ6Z0804r3c+jqO3jJDxyxBH1+cDOpLEvJKNAVNZ7j592ODZ8SEIofACrJywgk22hX2OlY1BVdh79Vow=="],
 
     "@humanfs/core": ["@humanfs/core@0.19.1", "", {}, "sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA=="],
 
