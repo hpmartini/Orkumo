@@ -1,4 +1,4 @@
-/* global document, getComputedStyle, localStorage */
+/* global document, localStorage */
 // e2e for the threads panel: maximise (button, Mod+Shift+M, Esc), sidebar list, thread composer
 // send key, height grip and `@` files, with a real mouse and keyboard in a tab and in a split.
 // Needs a running Orkumo with two orchestrators whose chat UI view shows threads. Sends one short
