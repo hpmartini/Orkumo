@@ -2,7 +2,8 @@ import fs from 'fs';
 import path from 'path';
 import crypto from 'crypto';
 import os from 'os';
-import { execFileSync } from 'child_process';
+import { execFileSync, spawn } from 'child_process';
+import { fileURLToPath } from 'url';
 import yaml from 'js-yaml';
 import { getConfig, canonicalDir, validatePath } from './configService.js';
 import { FRAMEWORK_PORTS } from '../../config/defaults.js';
@@ -32,13 +33,14 @@ function isDockerAvailable() {
 
   try {
     // Try 'docker compose' (new syntax) first
-    execFileSync('docker', ['compose', 'version'], { stdio: 'ignore' });
+    // timeout: the first scan runs this in the server process
+    execFileSync('docker', ['compose', 'version'], { stdio: 'ignore', timeout: 5000 });
     dockerAvailable = 'docker compose';
     return dockerAvailable;
   } catch {
     try {
       // Fallback to 'docker-compose' (old syntax)
-      execFileSync('docker-compose', ['--version'], { stdio: 'ignore' });
+      execFileSync('docker-compose', ['--version'], { stdio: 'ignore', timeout: 5000 });
       dockerAvailable = 'docker-compose';
       return dockerAvailable;
     } catch {
@@ -396,42 +398,161 @@ export function mergeAgentRepos(projects, repoPaths) {
 }
 
 /**
- * Scan all configured directories for projects: git main checkouts, each with its worktrees.
- * Ids are the hash of the main checkout's path, so contexts, favorites and overrides keep matching.
+ * Projects below one root, run inside the scan child (`scanWorker.js`): the main checkouts found and
+ * the main checkouts of linked worktrees found. `exists: false` when the root is missing.
  */
-export function scanAllDirectories() {
-  const config = getConfig();
+export function scanRoot(root, maxDepth, excludePatterns) {
+  if (!fs.existsSync(root)) return { exists: false, repos: [], mains: [] };
   const found = { repos: [], worktrees: [] };
-  for (const dir of config.directories) {
-    if (fs.existsSync(dir))
-      scanDirectoryRecursive(dir, 0, config.scanDepth, config.excludePatterns, found);
-  }
+  scanDirectoryRecursive(root, 0, maxDepth, excludePatterns, found);
+  return {
+    exists: true,
+    repos: found.repos.map(repoProject),
+    mains: found.worktrees.map((w) => w.worktreeOf),
+  };
+}
+
+/** Projects for agent repos and worktree mains outside `knownPaths`, run inside the scan child */
+export function scanAgentRepos(knownPaths, mains) {
+  const known = knownPaths.map((p) => ({ path: p }));
+  return mergeAgentRepos(known, [...mains, ...agentRepoPaths()]).slice(known.length);
+}
+
+// Bundled (Electron), this module lives in dist-server/index.js next to dist-server/scanWorker.js.
+// No `new URL()`: under jsdom tests the global URL is jsdom's, which fileURLToPath rejects
+const scanWorkerScript = () =>
+  path.join(path.dirname(fileURLToPath(import.meta.url)), 'scanWorker.js');
+
+/** A root that does not answer within this (a hung network or File Provider mount) is skipped */
+export const SCAN_TIMEOUT_MS = 10000;
+/** ...and not tried again for this long, so requests do not each wait out the timeout */
+const HUNG_COOLDOWN_MS = 60000;
+const hungUntil = new Map(); // root or 'agent repos' -> ms
+
+/**
+ * Runs one scan job in a child process; resolves its result, or null on timeout or failure.
+ * A readdir or stat on a hung mount blocks in the kernel. No in-process timeout can end it (an async
+ * readdir would hold a libuv pool thread for good), so the child is killed with SIGKILL.
+ */
+export function runScanJob(
+  job,
+  { timeoutMs = SCAN_TIMEOUT_MS, script = scanWorkerScript(), label = job.root ?? job.job } = {}
+) {
+  return new Promise((resolve) => {
+    let settled = false;
+    const done = (result, message) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (message) console.error(`[Scanner] ${label}: ${message}`);
+      resolve(result);
+    };
+    // process.execPath: node, or Electron's binary run as node
+    const child = spawn(process.execPath, [script, JSON.stringify(job)], {
+      env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    });
+    const timer = setTimeout(() => {
+      child.kill('SIGKILL');
+      child.stdout.destroy();
+      child.unref();
+      done(null, `no answer within ${timeoutMs} ms, skipped`);
+    }, timeoutMs);
+    let out = '';
+    child.stdout.setEncoding('utf-8');
+    child.stdout.on('data', (chunk) => (out += chunk));
+    child.on('error', (error) => done(null, `scan failed: ${error.message}`));
+    child.on('close', (code) => {
+      if (code !== 0) return done(null, `scan failed (exit ${code})`);
+      try {
+        done(JSON.parse(out));
+      } catch (error) {
+        done(null, `unreadable scan result: ${error.message}`);
+      }
+    });
+  });
+}
+
+/** runScanJob, skipped while `key` is cooling down after a hang or failure */
+async function guardedJob(key, job) {
+  if (hungUntil.get(key) > Date.now()) return null;
+  const result = await runScanJob(job);
+  if (result) hungUntil.delete(key);
+  else hungUntil.set(key, Date.now() + HUNG_COOLDOWN_MS);
+  return result;
+}
+
+async function runScan(directories) {
+  const { scanDepth, excludePatterns } = getConfig();
+  const docker = isDockerAvailable();
+  const results = await Promise.all(
+    directories.map((root) =>
+      guardedJob(root, { job: 'root', root, maxDepth: scanDepth, excludePatterns, docker })
+    )
+  );
+  const skipped = directories.filter((_, i) => !results[i]);
+  const done = results.filter(Boolean);
   // Overlapping scan directories find a repo twice
   const seen = new Set();
-  const repos = found.repos.filter((p) => !seen.has(p.toLowerCase()) && seen.add(p.toLowerCase()));
-  const mains = found.worktrees.map((w) => w.worktreeOf);
+  const repos = done
+    .flatMap((r) => r.repos)
+    .filter((p) => !seen.has(p.path.toLowerCase()) && seen.add(p.path.toLowerCase()));
+  const agentRepos = await guardedJob('agent repos', {
+    job: 'agents',
+    known: repos.map((p) => p.path),
+    mains: done.flatMap((r) => r.mains),
+    docker,
+  });
+  if (!agentRepos) skipped.push('agent repos');
+  const projects = [...repos, ...(agentRepos ?? [])].map((project) => ({
+    ...project,
+    addresses: project.port ? [`http://localhost:${project.port}`] : [],
+  }));
+  return { projects, skipped };
+}
 
-  return mergeAgentRepos(repos.map(repoProject), [...mains, ...agentRepoPaths()]).map(
-    (project) => ({
-      ...project,
-      addresses: project.port ? [`http://localhost:${project.port}`] : [],
-    })
-  );
+let pending = null;
+
+/**
+ * Scan the configured directories (or `directories`) for projects: git main checkouts, each with its
+ * worktrees. Ids are the hash of the main checkout's path, so contexts, favorites and overrides keep
+ * matching. Every root scans in its own child process; `skipped` names roots (and 'agent repos')
+ * that hung or failed, their projects are missing. Concurrent callers share one scan.
+ * @returns {Promise<{projects: object[], skipped: string[]}>}
+ */
+export function scanAll({ directories } = {}) {
+  if (directories) return runScan(directories);
+  pending ??= runScan(getConfig().directories).finally(() => {
+    pending = null;
+  });
+  return pending;
+}
+
+/** Projects of the configured directories; hung roots are left out (see scanAll) */
+export async function scanAllDirectories() {
+  return (await scanAll()).projects;
 }
 
 /**
  * Scan a specific directory
  */
-export function scanDirectory(dirPath) {
-  const config = getConfig();
+export async function scanDirectory(dirPath) {
+  const { scanDepth, excludePatterns } = getConfig();
+  const result = await runScanJob({
+    job: 'root',
+    root: dirPath,
+    maxDepth: scanDepth,
+    excludePatterns,
+    docker: isDockerAvailable(),
+  });
+  if (!result) throw new Error(`Scanning ${dirPath} failed or timed out`);
+  if (!result.exists) throw new Error(`Directory does not exist: ${dirPath}`);
+  return result.repos;
+}
 
-  if (!fs.existsSync(dirPath)) {
-    throw new Error(`Directory does not exist: ${dirPath}`);
-  }
-
-  const found = { repos: [], worktrees: [] };
-  scanDirectoryRecursive(dirPath, 0, config.scanDepth, config.excludePatterns, found);
-  return found.repos.map(repoProject);
+/** Scan child: preset the parent's docker check so each child does not spawn docker again */
+export function presetDockerAvailable(value) {
+  if (value !== undefined) dockerAvailable = value;
 }
 
 // ---------------------------------------------------------------------

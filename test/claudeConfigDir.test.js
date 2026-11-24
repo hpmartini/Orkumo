@@ -201,7 +201,7 @@ describe('scan of the Claude config dir (#190)', () => {
     try {
       vi.resetModules();
       const scanner = await import('../server/services/scannerService.js');
-      const paths = scanner.scanAllDirectories().map((p) => p.path);
+      const paths = (await scanner.scanAllDirectories()).map((p) => p.path);
       expect(paths).toContain(claude);
       expect(paths.some((p) => p.includes('marketplaces'))).toBe(false);
     } finally {

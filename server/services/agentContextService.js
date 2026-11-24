@@ -695,7 +695,7 @@ function cachedGitInfo(dir, key) {
   return { promise: entry.promise, changed: true };
 }
 
-// The project scan is synchronous (~0.3s warm): reused across context computes for this long
+// The project scan takes ~0.3s warm: reused across context computes for this long
 const PROJECTS_TTL_MS = 30_000;
 let projectsCache = null; // { at, list }
 
@@ -704,11 +704,11 @@ let projectsCache = null; // { at, list }
  * the base project it runs in; the client maps merges and hides disabled ones (GET /api/apps),
  * so an override applies without waiting for the next compute.
  */
-function baseProjects() {
+async function baseProjects() {
   if (!projectsCache || Date.now() - projectsCache.at > PROJECTS_TTL_MS) {
     let list = [];
     try {
-      list = projectCatalog(scanAllDirectories(), settingsService.getSettings());
+      list = projectCatalog(await scanAllDirectories(), settingsService.getSettings());
     } catch (error) {
       console.warn('[Agents] Project scan for contexts failed:', error.message);
     }
@@ -765,7 +765,7 @@ async function computeAgentContexts() {
   );
 
   const { resolved, owner, orphans } = await scanOwnership(listed);
-  const projects = sessions.length ? baseProjects() : [];
+  const projects = sessions.length ? await baseProjects() : [];
   // eslint-disable-next-line no-unused-vars -- cwd is stripped from the response
   const publicServer = ({ cwd, ...server }) => server;
   const contexts = {};
