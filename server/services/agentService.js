@@ -1473,16 +1473,26 @@ async function readMeta(file) {
   return parseFrontmatter(await fsp.readFile(file, 'utf-8').catch(() => ''));
 }
 
-/** `<dir>/<skill>/SKILL.md` entries (symlinked folders included) as `<prefix><name>` */
-async function readSkillsDir(dir, prefix, source, out) {
+/** `file` resolved (symlinks followed) lies inside the real directory `root`; no root = any */
+async function within(file, root) {
+  if (!root) return true;
+  const real = await fsp.realpath(file).catch(() => null);
+  return Boolean(real && (real === root || real.startsWith(root + path.sep)));
+}
+
+/**
+ * `<dir>/<skill>/SKILL.md` entries (symlinked folders included) as `<prefix><name>`; with `root`,
+ * only files whose real path lies inside it
+ */
+async function readSkillsDir(dir, prefix, source, out, root = null) {
   const names = await fsp.readdir(dir).catch(() => []);
-  for (const entry of names) await readSkill(path.join(dir, entry), prefix, source, out);
+  for (const entry of names) await readSkill(path.join(dir, entry), prefix, source, out, root);
 }
 
 /** One `<dir>/SKILL.md` skill; `disable-model-invocation` keeps it in the `/` menu */
-async function readSkill(dir, prefix, source, out) {
+async function readSkill(dir, prefix, source, out, root = null) {
   const skillFile = path.join(dir, 'SKILL.md');
-  if (!(await statFollow(skillFile))?.isFile()) return;
+  if (!(await statFollow(skillFile))?.isFile() || !(await within(skillFile, root))) return;
   const meta = await readMeta(skillFile);
   if (meta['user-invocable'] === 'false') return;
   out.push({
@@ -1534,19 +1544,20 @@ async function readPlugin(dir, prefix, out, { commands = true } = {}) {
   } else if (commands) {
     for (const full of declared == null ? [path.join(root, 'commands')] : await paths(declared)) {
       const st = await statFollow(full);
-      if (st?.isDirectory()) await readCommandsDir(full, prefix, 'plugin', out);
+      if (st?.isDirectory()) await readCommandsDir(full, prefix, 'plugin', out, root);
       else if (st?.isFile() && full.endsWith('.md'))
-        await readCommandFile(full, prefix, 'plugin', out);
+        await readCommandFile(full, prefix, 'plugin', out, root);
     }
   }
   for (const skillDir of [path.join(root, 'skills'), ...(await paths(manifest.skills))]) {
     if ((await statFollow(path.join(skillDir, 'SKILL.md')))?.isFile())
-      await readSkill(skillDir, prefix, 'plugin', out);
-    else await readSkillsDir(skillDir, prefix, 'plugin', out);
+      await readSkill(skillDir, prefix, 'plugin', out, root);
+    else await readSkillsDir(skillDir, prefix, 'plugin', out, root);
   }
 }
 
-async function readCommandFile(file, prefix, source, out) {
+async function readCommandFile(file, prefix, source, out, root = null) {
+  if (!(await within(file, root))) return;
   const meta = await readMeta(file);
   if (meta['user-invocable'] === 'false') return;
   out.push({
@@ -1557,7 +1568,7 @@ async function readCommandFile(file, prefix, source, out) {
 }
 
 /** `<dir>/**.md` commands; a file in a subfolder is `<folder>:<name>` */
-async function readCommandsDir(dir, prefix, source, out, depth = 0) {
+async function readCommandsDir(dir, prefix, source, out, root = null, depth = 0) {
   if (depth > 4) return;
   const names = await fsp.readdir(dir).catch(() => []);
   for (const entry of names) {
@@ -1565,9 +1576,9 @@ async function readCommandsDir(dir, prefix, source, out, depth = 0) {
     const st = await statFollow(full);
     if (!st) continue;
     if (st.isDirectory()) {
-      await readCommandsDir(full, `${prefix}${entry}:`, source, out, depth + 1);
+      await readCommandsDir(full, `${prefix}${entry}:`, source, out, root, depth + 1);
     } else if (st.isFile() && entry.endsWith('.md')) {
-      await readCommandFile(full, prefix, source, out);
+      await readCommandFile(full, prefix, source, out, root);
     }
   }
 }

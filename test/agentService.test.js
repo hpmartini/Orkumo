@@ -475,16 +475,29 @@ describe('agentService - listSlashCommands', () => {
     const ep = path.join(tmp, 'plugins', 'ep');
     const outside = path.join(tmp, 'outside');
     skill(path.join(outside, 'skills'), 'stolen');
-    write(path.join(outside, 'outside.md'), 'x\n');
+    write(path.join(outside, 'stolen.md'), 'x\n');
+    // `../outside.md` from the plugin root: exists, so only the traversal check can reject it
+    write(path.join(tmp, 'plugins', 'outside.md'), 'x\n');
     fs.mkdirSync(ep, { recursive: true });
     // lexically inside, really outside
     fs.symlinkSync(path.join(outside, 'skills'), path.join(ep, 'linked'));
+    // contained dirs whose files link outside
+    fs.mkdirSync(path.join(ep, 'extra'), { recursive: true });
+    fs.symlinkSync(
+      path.join(outside, 'skills', 'stolen', 'SKILL.md'),
+      path.join(ep, 'extra', 'SKILL.md')
+    );
+    const ep2 = path.join(tmp, 'plugins', 'ep2');
+    fs.mkdirSync(path.join(ep2, 'cmd'), { recursive: true });
+    fs.symlinkSync(path.join(outside, 'stolen.md'), path.join(ep2, 'cmd', 'stolen.md'));
+    write(path.join(ep2, 'cmd', 'own.md'), 'own\n');
+    write(path.join(ep2, '.claude-plugin', 'plugin.json'), JSON.stringify({ commands: ['./cmd'] }));
     write(path.join(ep, 'hidden.md'), '---\nuser-invocable: false\n---\n');
     write(path.join(ep, 'real.md'), '---\ndescription: From file\n---\n');
     write(
       path.join(ep, '.claude-plugin', 'plugin.json'),
       JSON.stringify({
-        skills: ['./linked'],
+        skills: ['./linked', './extra'],
         commands: {
           ghost: { source: './missing.md' },
           escape: { source: '../outside.md' },
@@ -497,12 +510,19 @@ describe('agentService - listSlashCommands', () => {
     );
     write(
       path.join(eHome, 'plugins', 'installed_plugins.json'),
-      JSON.stringify({ plugins: { 'ep@m': [{ installPath: ep }] } })
+      JSON.stringify({
+        plugins: { 'ep@m': [{ installPath: ep }], 'ep2@m': [{ installPath: ep2 }] },
+      })
     );
-    write(path.join(eHome, 'settings.json'), JSON.stringify({ enabledPlugins: { 'ep@m': true } }));
+    write(
+      path.join(eHome, 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'ep@m': true, 'ep2@m': true } })
+    );
     const list = await mod.listSlashCommands(null, { claudeHome: eHome });
     const names = list.filter((c) => c.source === 'plugin').map((c) => c.name);
-    expect(names.sort()).toEqual(['ep:inline', 'ep:real']);
+    expect(names.sort()).toEqual(['ep2:own', 'ep:inline', 'ep:real']);
+    const omp = (await mod.listClaudeSkills(null, { claudeHome: eHome })).map((c) => c.name);
+    expect(omp).not.toContain('stolen');
     expect(list.find((c) => c.name === 'ep:real').description).toBe('From file');
   });
 
