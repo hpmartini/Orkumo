@@ -94,7 +94,7 @@ function taskEndedEvents(text) {
   );
 }
 
-function claudeHistoryEvents(lines) {
+function claudeHistoryEvents(lines, cap = MAX_HISTORY_EVENTS) {
   const events = [];
   for (const line of lines) {
     const rec = parseLine(line);
@@ -195,7 +195,7 @@ function claudeHistoryEvents(lines) {
       }
     }
   }
-  return events.slice(-MAX_HISTORY_EVENTS);
+  return events.slice(-cap);
 }
 
 /** Transcript of a Claude session: the cwd's project folder, else any (worktree sessions) */
@@ -329,7 +329,7 @@ const modelOf = (rec) =>
  * results, model changes and turn ends. Skipped: system/developer prompts, custom and internal
  * entries (custom_message, mode_change, compaction, title, ...).
  */
-function sessionHistoryEvents(lines) {
+function sessionHistoryEvents(lines, cap = MAX_HISTORY_EVENTS) {
   const events = [];
   for (const line of lines) {
     const rec = parseLine(line);
@@ -348,7 +348,13 @@ function sessionHistoryEvents(lines) {
     if (rec.type === 'custom_message' && rec.customType === 'skill-prompt') {
       const typed = str(rec.details?.prompt);
       if (typed.trim())
-        events.push({ type: 'devorbit_user', text: typed, history: true, ...stamp(rec) });
+        events.push({
+          type: 'devorbit_user',
+          text: typed,
+          history: true,
+          ...keyOf(rec.id),
+          ...stamp(rec),
+        });
       continue;
     }
     const msg = rec.type === 'message' && isObj(rec.message) ? rec.message : null;
@@ -400,14 +406,15 @@ function sessionHistoryEvents(lines) {
       });
     }
   }
-  return events.slice(-MAX_HISTORY_EVENTS);
+  return events.slice(-cap);
 }
 
 export const piSessionsDir = (home = os.homedir()) => path.join(home, '.pi', 'agent', 'sessions');
 
 /**
  * harness → reader. `findTranscript(sessionId, cwd, dir?)` resolves to the session file or null
- * (`dir` overrides the harness's base folder, for tests); `historyEvents(lines)` translates.
+ * (`dir` overrides the harness's base folder, for tests); `historyEvents(lines, cap?)` translates
+ * (the last `cap` events, the view's replay cap by default).
  */
 export const TRANSCRIPT_READERS = Object.freeze({
   claude: {

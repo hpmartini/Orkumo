@@ -577,7 +577,8 @@ export function createEntryScanner() {
         const end = pending.lastIndexOf(10);
         if (end === -1) continue;
         const lines = pending.subarray(0, end).toString('utf8').split('\n');
-        for (const event of reader.historyEvents(lines)) fold(state, event);
+        // every entry: the CLI lists and moves old ones too (the view's replay cap is no limit here)
+        for (const event of reader.historyEvents(lines, Infinity)) fold(state, event);
         pending = pending.subarray(end + 1);
         state.offset = pos - pending.length;
       }
@@ -769,19 +770,25 @@ async function needlesIn(files, needles) {
   return found;
 }
 
+/** Entry keys a transcript holds verbatim (uuid, record or message id); `u3`-like positions never */
+const PROVABLE_KEY = 8;
+
 /**
  * Threads kept under a role (before threads were keyed by session, every orchestrator of a role
  * shared them) moved to the holder whose transcript proves them: the answered message's record
  * id, else the tag (only when every holder's transcript was found), in exactly one holder's
- * transcript. Unproven ones stay. Moves only,
- * nothing rewritten or dropped; a second run changes nothing.
+ * transcript. Unproven ones stay. The role's tidy-up layer goes along, as only the session's is
+ * read: an entry with the thread it names (wherever an earlier run put it), a `main` entry to the
+ * one holder whose transcript has its key, a merge link with its source's (else target's) thread;
+ * the session's own entries win. Role undo states that name a moved thread go (they could never
+ * be taken back correctly); the holder's undo states keep the carried layer. Nothing else is
+ * rewritten or dropped; a second run changes nothing.
  * @param {string} dir orchestrator-reports dir of the store
  * @param {{ key: string, transcripts: string[] }[]} holders current sessions of the role
  * @returns {Promise<number>} threads moved
  */
 export async function returnMisplacedThreads(dir, role, holders) {
   const fileOf = (id) => path.join(dir, 'threads', `${id}.json`);
-  // the whole file: its tidy-up layer and undo stack stay where they are
   const load = (id) => {
     try {
       return JSON.parse(fs.readFileSync(fileOf(id), 'utf8')) ?? {};
@@ -789,13 +796,22 @@ export async function returnMisplacedThreads(dir, role, holders) {
       return {};
     }
   };
-  const read = (id) => load(id).threads ?? [];
   // exact JSON forms: a bare 8-hex id would match by chance in a large transcript
   const keyNeedle = (t) => t.parentKey && `"id":${JSON.stringify(t.parentKey)}`;
   const tagNeedle = (t) => JSON.stringify(t.tag).slice(1, -1);
-  const legacy = read(role);
-  if (!legacy.length || !holders.length) return 0;
-  const needles = legacy.flatMap((t) => [keyNeedle(t), tagNeedle(t)]).filter(Boolean);
+  const entryNeedle = (key) => key.length >= PROVABLE_KEY && JSON.stringify(key);
+  const first = load(role);
+  const legacy = first.threads ?? [];
+  const mainKeys = Object.entries(first.overrides?.entries ?? {})
+    .filter(([, to]) => to === 'main')
+    .map(([key]) => key);
+  const layer = Object.keys(first.overrides?.entries ?? {}).length;
+  const links = Object.keys(first.overrides?.merged ?? {}).length;
+  if ((!legacy.length && !layer && !links) || !holders.length) return 0;
+  const needles = [
+    ...legacy.flatMap((t) => [keyNeedle(t), tagNeedle(t)]),
+    ...mainKeys.map(entryNeedle),
+  ].filter(Boolean);
   const found = await Promise.all(holders.map((h) => needlesIn(h.transcripts, needles)));
   const allRead = holders.every((h) => h.transcripts.length);
   const only = (needle) => {
@@ -808,19 +824,61 @@ export async function returnMisplacedThreads(dir, role, holders) {
     const to = only(keyNeedle(t)) ?? (allRead ? only(tagNeedle(t)) : null);
     if (to) moved.set(t.id, to);
   }
-  if (!moved.size) return 0;
   // read again after the scan: a PATCH meanwhile is kept, a moved thread goes as it is now
   const roleDoc = load(role);
   const fresh = roleDoc.threads ?? [];
-  for (const key of new Set(moved.values())) {
-    const doc = load(key);
+  const docs = new Map(holders.map((h) => [h.key, load(h.key)]));
+  // holder a thread lives with after this run (moved now or by an earlier run)
+  const holderOf = (id) =>
+    moved.get(id) ??
+    holders.find((h) => (docs.get(h.key).threads ?? []).some((t) => t.id === id))?.key;
+  const roleEntries = { ...roleDoc.overrides?.entries };
+  const roleMerged = { ...roleDoc.overrides?.merged };
+  const carry = new Map(holders.map((h) => [h.key, { entries: {}, merged: {} }]));
+  for (const [key, to] of Object.entries(roleEntries)) {
+    const at = to === 'main' ? only(entryNeedle(key)) : holderOf(to);
+    if (!at) continue;
+    carry.get(at).entries[key] = to;
+    delete roleEntries[key];
+  }
+  for (const [from, to] of Object.entries(roleMerged)) {
+    const at = holderOf(from) ?? holderOf(to);
+    if (!at) continue;
+    carry.get(at).merged[from] = to;
+    delete roleMerged[from];
+  }
+  const changed = (before, after) => JSON.stringify(before) !== JSON.stringify(after);
+  // carried first, the session's own over them
+  const withLayer = (overrides, add) => ({
+    entries: { ...add.entries, ...overrides?.entries },
+    merged: { ...add.merged, ...overrides?.merged },
+  });
+  for (const { key } of holders) {
+    const doc = docs.get(key);
     const own = doc.threads ?? [];
     const have = new Set(own.map((t) => t.id));
-    const threads = fresh.filter((t) => moved.get(t.id) === key && !have.has(t.id));
-    if (threads.length) writeAtomic(fileOf(key), { ...doc, threads: [...own, ...threads] });
+    const add = carry.get(key);
+    const next = {
+      ...doc,
+      threads: [...own, ...fresh.filter((t) => moved.get(t.id) === key && !have.has(t.id))],
+      overrides: withLayer(doc.overrides, add),
+      // an undo goes back to a state the carried layer was already in
+      undo: (doc.undo ?? []).map((u) => ({ ...u, overrides: withLayer(u.overrides, add) })),
+    };
+    if (!doc.overrides && !Object.keys(add.entries).length && !Object.keys(add.merged).length)
+      delete next.overrides;
+    if (!doc.undo) delete next.undo;
+    if (changed(doc, next)) writeAtomic(fileOf(key), next);
   }
   // the role file shrinks last: a run cut short leaves copies the next run does not add again
   const stay = fresh.filter((t) => !moved.has(t.id));
-  writeAtomic(fileOf(role), { ...roleDoc, threads: stay });
+  const names = (u) => (u.threads ?? []).some((t) => moved.has(t.id));
+  const nextRole = {
+    ...roleDoc,
+    threads: stay,
+    ...(roleDoc.overrides ? { overrides: { entries: roleEntries, merged: roleMerged } } : {}),
+    ...(roleDoc.undo ? { undo: roleDoc.undo.filter((u) => !names(u)) } : {}),
+  };
+  if (changed(roleDoc, nextRole)) writeAtomic(fileOf(role), nextRole);
   return fresh.length - stay.length;
 }

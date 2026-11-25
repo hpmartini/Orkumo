@@ -15,6 +15,7 @@ import {
   routeEntries,
   threadOwnerKey,
   createSenderScanner,
+  createEntryScanner,
   threadName,
   isAutoNamed,
 } from '../server/services/orchestratorThreads.js';
@@ -248,6 +249,91 @@ describe('threads misplaced under a role', () => {
   });
 });
 
+describe('a repair carries the tidy-up layer of the threads it moves (F2)', () => {
+  const thread = (id, tag, parentKey = null) => ({ id, tag, parentKey, agents: [], closed: false });
+  const K = thread('k', '[Thread: Shop · keyed]', 'msg_x');
+  const K2 = thread('k2', '[Thread: Shop · second]', 'msg_y');
+  const T = thread('t', '[Thread: Shop · tagged]');
+  const MAIN_KEY = '7c1e0d2a-0000-4000-8000-00000000000a';
+  const LOST_KEY = '7c1e0d2a-0000-4000-8000-00000000000b';
+  const setup = (role, session) => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'threads'));
+    const write = (k, doc) =>
+      fs.writeFileSync(path.join(dir, 'threads', `${k}.json`), JSON.stringify(doc));
+    write('main', role);
+    write('a', session);
+    const transcript = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(
+      transcript,
+      `{"message":{"id":"msg_x"}}\n{"message":{"id":"msg_y"}}\n{"uuid":"${MAIN_KEY}"}\n`
+    );
+    // b has a transcript too: a tag alone could prove, but T's tag is in neither
+    const other = path.join(dir, 'b.jsonl');
+    fs.writeFileSync(other, '{"message":{"id":"msg_z"}}\n');
+    const holders = [
+      { key: 'a', transcripts: [transcript] },
+      { key: 'b', transcripts: [other] },
+    ];
+    const raw = (k) => fs.readFileSync(path.join(dir, 'threads', `${k}.json`), 'utf8');
+    return { dir, holders, raw, store: createThreadStore(dir) };
+  };
+
+  it('entries and merge links go with their thread; the session decides first; undo stays true', async () => {
+    const { dir, holders, raw, store } = setup(
+      {
+        threads: [K, K2, T],
+        overrides: {
+          entries: { ek: 'k', ek2: 'k2', et: 't', [MAIN_KEY]: 'main', [LOST_KEY]: 'main' },
+          merged: { k2: 'k', t: 'k' },
+        },
+        undo: [
+          { label: 'old merge', threads: [K, K2, T], overrides: { entries: {}, merged: {} } },
+          { label: 'unrelated', threads: [T], overrides: { entries: {}, merged: {} } },
+        ],
+      },
+      {
+        threads: [],
+        overrides: { entries: { ek: 'main' }, merged: {} },
+        undo: [
+          { label: 'own close', threads: [], overrides: { entries: { ek: 'main' }, merged: {} } },
+        ],
+      }
+    );
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(2);
+    const a = store.state('a');
+    expect(a.threads.map((t) => t.id)).toEqual(['k', 'k2']);
+    // the session's own move of ek wins; ek2 and the proven main entry come along
+    expect(a.overrides.entries).toEqual({ ek: 'main', ek2: 'k2', [MAIN_KEY]: 'main' });
+    expect(a.overrides.merged).toEqual({ k2: 'k', t: 'k' });
+    expect(a.canUndo).toBe(true);
+    // unproven ones stay under the role, nothing dropped
+    const role = store.state('main');
+    expect(role.threads.map((t) => t.id)).toEqual(['t']);
+    expect(role.overrides).toEqual({ entries: { et: 't', [LOST_KEY]: 'main' }, merged: {} });
+    // a role snapshot of the moved threads can never be taken back correctly: it goes
+    expect(JSON.parse(raw('main')).undo.map((u) => u.label)).toEqual(['unrelated']);
+    // the session's own undo keeps the carried layer
+    store.undo('a');
+    expect(store.state('a').overrides.entries).toMatchObject({ ek2: 'k2', [MAIN_KEY]: 'main' });
+    expect(store.state('a').overrides.merged).toEqual({ k2: 'k', t: 'k' });
+    // a second run changes nothing
+    const before = [raw('main'), raw('a')];
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
+    expect([raw('main'), raw('a')]).toEqual(before);
+  });
+
+  it('threads moved by an earlier repair: their stranded entries follow', async () => {
+    const { dir, holders, store } = setup(
+      { threads: [T], overrides: { entries: { ek: 'k', et: 't' }, merged: { k2: 'k' } }, undo: [] },
+      { threads: [K, K2], overrides: { entries: {}, merged: {} }, undo: [] }
+    );
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
+    expect(store.state('a').overrides).toEqual({ entries: { ek: 'k' }, merged: { k2: 'k' } });
+    expect(store.state('main').overrides).toEqual({ entries: { et: 't' }, merged: {} });
+  });
+});
+
 describe('sender scanner', () => {
   const line = (id, at) =>
     `${JSON.stringify({
@@ -271,6 +357,28 @@ describe('sender scanner', () => {
     expect(senders.get('omp-aaaaaaaa').ts).toBe(T0);
     fs.writeFileSync(file, line('omp-cccccccc', T0 + 20));
     expect([...(await scan(file)).keys()]).toEqual(['omp-cccccccc']);
+  });
+});
+
+describe('entry scanner (CLI thread messages/move)', () => {
+  it('F3: lists every entry of a long transcript, not only the last 5000', async () => {
+    const { TRANSCRIPT_READERS } = await import('../server/services/chatTranscripts.js');
+    const dir = tmp();
+    const file = path.join(dir, 'long.jsonl');
+    const lines = Array.from({ length: 5001 }, (_, i) =>
+      JSON.stringify({
+        type: 'user',
+        uuid: `user-${i}`,
+        timestamp: new Date(T0 + i).toISOString(),
+        message: { role: 'user', content: `message ${i}` },
+      })
+    );
+    fs.writeFileSync(file, `${lines.join('\n')}\n`);
+    const items = await createEntryScanner()(file, TRANSCRIPT_READERS.claude);
+    expect(items).toHaveLength(5001);
+    expect(items[0].key).toBe('user-0');
+    // the chat view keeps its replay cap
+    expect(TRANSCRIPT_READERS.claude.historyEvents(lines)).toHaveLength(5000);
   });
 });
 

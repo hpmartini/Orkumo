@@ -91,6 +91,8 @@ describe('a skill without text', () => {
         text: '/skill:ping now',
         history: true,
         ts: Date.parse('2026-11-25T11:43:18.790Z'),
+        // F4: the record id, as every other omp user turn: the tidy-up layer keys the entry by it
+        key: 'c1',
       },
     ]);
   });
