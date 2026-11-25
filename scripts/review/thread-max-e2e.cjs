@@ -64,6 +64,16 @@ const paneState = (page, i) =>
       mainDraft: main ? main.value : null,
       threadValue: thread ? thread.value : null,
       threadHeight: thread ? Math.round(thread.getBoundingClientRect().height) : 0,
+      // the package's cap for the thread input (agents-ui threadInputMax): 40 % of the pane,
+      // and room for the thread view in its section
+      threadCap: thread
+        ? Math.round(
+            Math.min(
+              pane.clientHeight * 0.4,
+              (thread.closest('section')?.clientHeight ?? 0) - 230
+            )
+          )
+        : 0,
       mainHeight: main ? Math.round(main.getBoundingClientRect().height) : 0,
       focusInThread: !!thread && document.activeElement === thread,
       handle: !!pane.querySelector('[role=separator][aria-label="Resize threads panel"]'),
@@ -547,8 +557,9 @@ async function composerChecks(page, i, name) {
     await shot(page, `${name}-taller`);
     check(
       `${name}: drag up 80 px makes the thread input taller`,
-      s1.threadHeight >= s0.threadHeight + 70,
-      `${s0.threadHeight} -> ${s1.threadHeight}`
+      // short panes: the input stops at its cap (AC-4), short of the full 80 px
+      s1.threadHeight >= Math.min(s0.threadHeight + 70, s0.threadCap - 2),
+      `${s0.threadHeight} -> ${s1.threadHeight}, cap ${s0.threadCap}`
     );
     check(`${name}: main input height untouched`, s1.mainHeight === s0.mainHeight);
   }
