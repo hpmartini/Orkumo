@@ -68,7 +68,7 @@ const STATUS_MUTATION = `mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optio
 }`;
 
 let cache = null; // { key, at, loadedAt, stamp, data }; at: last load or unchanged probe
-let inflight = null; // { key, promise }
+let inflight = null; // { key, promise, probe }; probe: may answer from an unchanged stamp
 // Items this server wrote (status, create, edit), newest per item: { key, at, item, created }.
 // A fetch that started before a write must not undo it in the cache.
 const recentWrites = new Map();
@@ -315,10 +315,12 @@ export async function getBoard(source, { refresh = false } = {}) {
     const fresh = Date.now() - current.at < CACHE_TTL_MS;
     if (limitedUntil('graphql') || (!refresh && (fresh || !githubPolling()))) return current.data;
   }
-  if (inflight?.key === key) return inflight.promise;
+  // The user's reload must not end in a probe that keeps the cache
+  if (inflight?.key === key && !(refresh && inflight.probe)) return inflight.promise;
   const startedAt = Date.now();
+  const probe = Boolean(current && !refresh && startedAt - current.loadedAt < BOARD_MAX_AGE_MS);
   const promise = (async () => {
-    if (current && !refresh && startedAt - current.loadedAt < BOARD_MAX_AGE_MS) {
+    if (probe) {
       const stamp = await projectStamp(source);
       if (stamp && stamp === current.stamp && cache === current) {
         current.at = Date.now();
@@ -340,7 +342,7 @@ export async function getBoard(source, { refresh = false } = {}) {
     .finally(() => {
       if (inflight?.promise === promise) inflight = null;
     });
-  inflight = { key, promise };
+  inflight = { key, promise, probe };
   return promise;
 }
 

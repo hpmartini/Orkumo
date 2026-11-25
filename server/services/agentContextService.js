@@ -436,7 +436,15 @@ export function restPullFields(pull, { detail, reviews, statuses, checkRuns } = 
     number: pull.number,
     title: pull.title,
     url: pull.html_url,
-    author: pull.user ? { login: pull.user.login } : null,
+    // gh named bots `app/<name>` (the PR view's author filter shows that), REST `<name>[bot]`
+    author: pull.user
+      ? {
+          login:
+            pull.user.type === 'Bot'
+              ? `app/${pull.user.login.replace(/\[bot\]$/, '')}`
+              : pull.user.login,
+        }
+      : null,
     isDraft: Boolean(pull.draft),
     headRefName: pull.head?.ref,
     baseRefName: pull.base?.ref,
@@ -451,6 +459,8 @@ export function restPullFields(pull, { detail, reviews, statuses, checkRuns } = 
         status: upper(c.status),
         conclusion: upper(c.conclusion),
       })),
+      // CI never read (failed without an earlier answer): unknown is pending, never "no CI"
+      ...(statuses && checkRuns ? [] : [{ state: 'PENDING' }]),
     ],
   };
 }
@@ -467,7 +477,7 @@ const pickPull = (p) => ({
   number: p.number,
   title: p.title,
   html_url: p.html_url,
-  user: p.user ? { login: p.user.login } : null,
+  user: p.user ? { login: p.user.login, type: p.user.type } : null,
   draft: p.draft,
   head: { ref: p.head?.ref, sha: p.head?.sha },
   base: { ref: p.base?.ref },
@@ -504,14 +514,12 @@ async function pullState(slug, pull, now) {
         }),
         state.detail
       ),
-      changed
-        ? orKeep(
-            restGet(`${pr}/reviews?per_page=100`, {
-              map: (list) => list.map((r) => ({ user: { login: r.user?.login }, state: r.state })),
-            }),
-            state.reviews
-          )
-        : state.reviews,
+      orKeep(
+        restGet(`${pr}/reviews?per_page=100`, {
+          map: (list) => list.map((r) => ({ user: { login: r.user?.login }, state: r.state })),
+        }),
+        state.reviews
+      ),
     ]);
     state.detailAt = now;
   }
@@ -522,7 +530,7 @@ async function pullState(slug, pull, now) {
     const commit = `repos/${slug}/commits/${sha}`;
     [state.statuses, state.checkRuns] = await Promise.all([
       orKeep(
-        restGet(`${commit}/status`, {
+        restGet(`${commit}/status?per_page=100`, {
           map: (s) => (s.statuses || []).map((x) => ({ state: x.state })),
         }),
         state.statuses

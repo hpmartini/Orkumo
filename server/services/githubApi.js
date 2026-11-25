@@ -32,9 +32,9 @@ export function noteRateLimit(bucket, { now = Date.now(), retryAfterMs = 0 } = {
   return state.until;
 }
 
-/** A successful call ends the escalation */
-export function noteSuccess(bucket) {
-  limits[bucket].strikes = 0;
+/** A successful call after the pause ends the escalation (one in flight during it does not) */
+export function noteSuccess(bucket, now = Date.now()) {
+  if (limits[bucket].until <= now) limits[bucket].strikes = 0;
 }
 
 /** End of the current pause of `bucket`, 0 when calls may run */

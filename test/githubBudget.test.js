@@ -90,6 +90,12 @@ describe('githubApi - rate-limit backoff', () => {
     expect(noteRateLimit('graphql', { now: 1_000 })).toBe(until);
     expect(noteRateLimit('graphql', { now: until + 1 }) - (until + 1)).toBe(2 * MIN_BACKOFF_MS);
   });
+
+  it('a success in flight during the pause keeps the escalation', () => {
+    const until = noteRateLimit('graphql', { now: Date.now() });
+    noteSuccess('graphql');
+    expect(noteRateLimit('graphql', { now: until + 1 }) - (until + 1)).toBe(2 * MIN_BACKOFF_MS);
+  });
 });
 
 describe('githubApi - polling switch', () => {
@@ -142,18 +148,23 @@ describe('agentContextService - PRs and issues over REST with ETags', () => {
       return { status: 200, etag: `"l${state.list}"`, body: state.pulls };
     if (path.includes('/issues?'))
       return { status: 200, etag: '"i"', body: [{ number: 9 }, { number: 3, pull_request: {} }] };
-    if (/\/pulls\/\d+\/reviews/.test(path))
-      return { status: 200, etag: '"rv"', body: state.reviews };
+    if (/\/pulls\/\d+\/reviews/.test(path)) {
+      if (state.reviewsFail) return { status: 500, body: { message: 'boom' } };
+      return { status: 200, etag: `"rv${state.reviews.length}"`, body: state.reviews };
+    }
     if (/\/pulls\/\d+$/.test(path))
       return { status: 200, etag: '"d"', body: { mergeable: true, mergeable_state: 'clean' } };
-    if (path.endsWith('/status'))
+    if (path.includes('/status?')) {
+      if (state.ciFail) return { status: 502, body: { message: 'Bad gateway' } };
       return { status: 200, etag: `"s${state.ci}"`, body: { statuses: [{ state: state.ci }] } };
+    }
     if (path.includes('/check-runs')) return { status: 200, etag: '"c"', body: { check_runs: [] } };
     throw new Error(`unexpected ${path}`);
   };
 
   it('maps REST pulls to AgentPullRequest and counts issues without PRs', async () => {
-    const state = { list: 1, pulls: [pull(1)], reviews: [], ci: 'success' };
+    const bot = pull(2, { user: { login: 'dependabot[bot]', type: 'Bot' } });
+    const state = { list: 1, pulls: [pull(1), bot], reviews: [], ci: 'success' };
     ghApi(routes(state));
     const info = await ghInfo('o/rest-map');
     expect(info.issues).toEqual({ open: 1, url: 'https://github.com/o/rest-map/issues' });
@@ -170,6 +181,8 @@ describe('agentContextService - PRs and issues over REST with ETags', () => {
       mergeReady: true,
       repoSlug: 'o/rest-map',
     });
+    // as gh named them: the PR view's author filter keeps working
+    expect(info.pulls.items[1].author).toBe('app/dependabot');
   });
 
   it('derives the review decision from the latest review per reviewer: changes requested wins', async () => {
@@ -216,7 +229,7 @@ describe('agentContextService - PRs and issues over REST with ETags', () => {
     calls.length = 0;
     vi.setSystemTime(2_000_000 + 61_000);
     expect((await ghInfo('o/rest-ci')).pulls.items[0].ci).toBe('failure');
-    expect(calls.some((c) => c.path.endsWith('/commits/sha1/status'))).toBe(true);
+    expect(calls.some((c) => c.path.includes('/commits/sha1/status?'))).toBe(true);
 
     state.list = 2;
     state.pulls = [
@@ -227,7 +240,10 @@ describe('agentContextService - PRs and issues over REST with ETags', () => {
     vi.setSystemTime(2_000_000 + 122_000);
     expect((await ghInfo('o/rest-ci')).pulls.items[0].ci).toBe('success');
     expect(calls.map((c) => c.path)).toEqual(
-      expect.arrayContaining(['repos/o/rest-ci/pulls/1', 'repos/o/rest-ci/commits/sha1b/status'])
+      expect.arrayContaining([
+        'repos/o/rest-ci/pulls/1',
+        'repos/o/rest-ci/commits/sha1b/status?per_page=100',
+      ])
     );
   });
 
@@ -265,5 +281,32 @@ describe('agentContextService - PRs and issues over REST with ETags', () => {
     const calls = ghApi(() => ({ status: 200, body: [] }));
     expect(await ghInfo('o/rest-off')).toEqual({ issues: null, pulls: null });
     expect(calls).toHaveLength(0);
+  });
+
+  it('CI that could not be read counts as pending, never as "no CI" (not merge-ready)', async () => {
+    const state = { list: 1, pulls: [pull(1)], reviews: [], ci: 'success', ciFail: true };
+    ghApi(routes(state));
+    expect((await ghInfo('o/rest-ci-fail')).pulls.items[0]).toMatchObject({
+      ci: 'pending',
+      mergeReady: false,
+    });
+  });
+
+  it('a failed review read is retried with the next detail refresh', async () => {
+    vi.useFakeTimers({ now: 4_000_000 });
+    const state = {
+      list: 1,
+      pulls: [pull(1)],
+      reviews: [{ user: { login: 'a' }, state: 'CHANGES_REQUESTED' }],
+      ci: 'success',
+      reviewsFail: true,
+    };
+    ghApi(routes(state));
+    expect((await ghInfo('o/rest-review-retry')).pulls.items[0].reviewDecision).toBe(null);
+    state.reviewsFail = false;
+    vi.setSystemTime(4_000_000 + 5 * 60_000 + 1);
+    expect((await ghInfo('o/rest-review-retry')).pulls.items[0].reviewDecision).toBe(
+      'CHANGES_REQUESTED'
+    );
   });
 });
