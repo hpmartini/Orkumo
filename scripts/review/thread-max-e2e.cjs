@@ -440,6 +440,17 @@ async function tallInputChecks(page, i, name) {
     check(`${name} typed ${label}, window 560 high: thread input inside the panel`, low.threadInside);
     await page.setViewportSize(vp);
     await page.waitForTimeout(400);
+    // and back to full height: refit again, nothing past the pane, still at most 40 %
+    const back = await paneState(page, i);
+    await shot(page, `${name}-typed-${label === 'Message' ? 'main' : 'thread'}-restored`);
+    clipCheck(`${name} typed ${label}, window restored`, back);
+    check(`${name} typed ${label}, window restored: thread input inside the panel`, back.threadInside);
+    const hb = Math.round((await field.boundingBox()).height);
+    check(
+      `${name} typed ${label}, window restored: input at most 40 % of the pane`,
+      hb <= Math.ceil(back.paneHeight * 0.4) + 1,
+      `${hb} of ${back.paneHeight}`
+    );
     await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+a`);
     await page.keyboard.press('Backspace');
     await page.waitForTimeout(200);
