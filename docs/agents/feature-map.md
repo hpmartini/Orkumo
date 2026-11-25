@@ -28,6 +28,8 @@ Chats as a desktop chat app (DevHub-pro#19): "New chat" (rail header of /chats, 
 
 Issues mode (`/issues`, `components/IssuesView/`, `server/services/issueListService.js`, route `GET /api/issues?context=&state=open|closed&refresh=1`): issues of the active context's repos (origin remotes of its apps, `appIds: null` = all, plus `repo:` board slices), read per repo via `gh api graphql`, so issues off the board are listed too (`onBoard` flag). Filters, grouping and sorting in the URL (`utils/issueQuery.ts`); a row opens the issue modal.
 
+GitHub budget (`server/services/githubApi.js`): agent contexts read open PRs and issues over REST with ETags (`restGet`, 304 = no rate limit; mergeability, reviews, commit status and check runs only for a changed PR, CI again while pending or none shortly after a push, all again after 5 min); the board probes `projectV2.updatedAt` (1 point) after its 60 s cache and reloads items only when it moved, at the latest after 30 min (`refresh=1` always). A rate limit (GraphQL or REST, primary or secondary) pauses that budget's reads 120 s, doubling to 30 min; meanwhile the last data is served. `ORKUMO_GITHUB_POLL=1/0` switches background GitHub reads; unset, only `NODE_ENV=production` (desktop app, Docker) polls, so dev servers serve cached board/issue data and no PRs.
+
 The dashboard (`/dashboard`, context variant filtered to the active context's project paths via `utils/projectScope.ts`) shows:
 
 - Agent table (`components/AgentOverview.tsx`, `utils/agentTable.ts`, buckets from `utils/agentOverview.ts`): stat filters (running / needs input / working / done / cache expires < 10 min / compaction needed), search, grouping, actions jump / stop / restart / rename / delete with an in-app confirm dialog

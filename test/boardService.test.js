@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { execFile } from 'child_process';
 
 vi.mock('child_process', () => {
@@ -233,6 +233,169 @@ describe('boardService - status write during in-flight fetch', () => {
 
     expect((await refreshing).items[0].statusOptionId).toBe('done');
     expect((await getBoard(source)).items[0].statusOptionId).toBe('done');
+  });
+});
+
+describe('boardService - GitHub budget: stamp probe, rate limit, polling switch', () => {
+  const source = { owner: 'hpmartini', number: 4 };
+  const itemsPage = (title, stamp) =>
+    JSON.stringify({
+      data: {
+        rateLimit: { cost: 4, remaining: 4000 },
+        repositoryOwner: {
+          projectV2: {
+            id: 'PVT_1',
+            title: 'MACC',
+            updatedAt: stamp,
+            field: { id: 'PVTSSF_1', options: [{ id: 'todo' }] },
+            items: {
+              nodes: [
+                {
+                  id: 'PVTI_a',
+                  fieldValueByName: { optionId: 'todo' },
+                  content: { __typename: 'DraftIssue', title },
+                },
+              ],
+              pageInfo: { hasNextPage: false, endCursor: null },
+            },
+          },
+        },
+      },
+    });
+  const stampAnswer = (stamp) =>
+    JSON.stringify({ data: { repositoryOwner: { projectV2: { updatedAt: stamp } } } });
+  const limitAnswer = JSON.stringify({
+    errors: [{ type: 'RATE_LIMITED', message: 'API rate limit already exceeded for user ID 1.' }],
+  });
+
+  /** gh stand-in: `answer(kind)` per call, kind 'items' | 'stamp' */
+  function gh(answer) {
+    const calls = [];
+    vi.mocked(execFile).mockImplementation((_cmd, args, _opts, cb) => {
+      const query = String(args.find((a) => String(a).startsWith('query=')) || '');
+      const kind = query.includes('items(first') ? 'items' : 'stamp';
+      calls.push(kind);
+      const out = answer(kind);
+      cb(out === limitAnswer ? Object.assign(new Error('exit 1'), { code: 1 }) : null, out, '');
+    });
+    return calls;
+  }
+
+  let resetRateLimits;
+  beforeEach(async () => {
+    ({ resetRateLimits } = await import('../server/services/githubApi.js'));
+    resetRateLimits();
+    clearCache();
+    process.env.ORKUMO_GITHUB_POLL = '1';
+    vi.useFakeTimers({ now: 10_000_000 });
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    delete process.env.ORKUMO_GITHUB_POLL;
+  });
+
+  it('after the cache TTL only the 1-point updatedAt probe runs while the project is unchanged', async () => {
+    let stamp = '2026-11-25T10:00:00Z';
+    let title = 'v1';
+    const calls = gh((kind) => (kind === 'items' ? itemsPage(title, stamp) : stampAnswer(stamp)));
+    await getBoard(source);
+    vi.setSystemTime(Date.now() + 61_000);
+    title = 'v2';
+    expect((await getBoard(source)).items[0].title).toBe('v1');
+    expect(calls).toEqual(['items', 'stamp']);
+
+    stamp = '2026-11-25T10:05:00Z';
+    vi.setSystemTime(Date.now() + 61_000);
+    expect((await getBoard(source)).items[0].title).toBe('v2');
+    expect(calls).toEqual(['items', 'stamp', 'stamp', 'items']);
+  });
+
+  it('a refresh from the user loads the items without a probe', async () => {
+    const calls = gh((kind) => (kind === 'items' ? itemsPage('x', 's') : stampAnswer('s')));
+    await getBoard(source);
+    await getBoard(source, { refresh: true });
+    expect(calls).toEqual(['items', 'items']);
+  });
+
+  it('a refresh while a stamp probe is in flight still reloads the items', async () => {
+    let title = 'v1';
+    let releaseProbe = null;
+    const calls = [];
+    vi.mocked(execFile).mockImplementation((_cmd, args, _opts, cb) => {
+      const query = String(args.find((a) => String(a).startsWith('query=')) || '');
+      const kind = query.includes('items(first') ? 'items' : 'stamp';
+      calls.push(kind);
+      if (kind === 'items') cb(null, itemsPage(title, 's'), '');
+      else releaseProbe = () => cb(null, stampAnswer('s'), '');
+    });
+    await getBoard(source);
+    vi.setSystemTime(Date.now() + 61_000);
+    title = 'v2';
+    const polled = getBoard(source); // probe pending
+    const refreshed = getBoard(source, { refresh: true });
+    releaseProbe();
+    expect((await refreshed).items[0].title).toBe('v2');
+    await polled;
+    expect(calls).toEqual(['items', 'stamp', 'items']);
+  });
+
+  it("a poll's older item load finishing last does not overwrite the user's refresh", async () => {
+    let stamp = 's1';
+    let title = 'v1';
+    const held = [];
+    vi.mocked(execFile).mockImplementation((_cmd, args, _opts, cb) => {
+      const query = String(args.find((a) => String(a).startsWith('query=')) || '');
+      if (!query.includes('items(first')) return cb(null, stampAnswer(stamp), '');
+      const page = itemsPage(title, stamp);
+      if (held.length === 0 && title === 'old') held.push(() => cb(null, page, ''));
+      else cb(null, page, '');
+    });
+    await getBoard(source);
+    vi.setSystemTime(Date.now() + 61_000);
+    stamp = 's2';
+    title = 'old';
+    const polled = getBoard(source); // stamp moved: loads, held back
+    await vi.waitFor(() => expect(held).toHaveLength(1));
+    title = 'new';
+    expect((await getBoard(source, { refresh: true })).items[0].title).toBe('new');
+    held[0]();
+    await polled;
+    expect((await getBoard(source)).items[0].title).toBe('new');
+  });
+
+  it('rate limited: serves the cached board, no smaller-page retry, no call during the backoff', async () => {
+    let limited = false;
+    const calls = gh((kind) =>
+      limited ? limitAnswer : kind === 'items' ? itemsPage('x', 's1') : stampAnswer('s1')
+    );
+    await getBoard(source);
+    limited = true;
+    await expect(getBoard(source, { refresh: true })).resolves.toMatchObject({
+      items: [{ title: 'x' }],
+    });
+    expect(calls).toEqual(['items', 'items']);
+    for (const step of [10_000, 61_000, 40_000]) {
+      vi.setSystemTime(Date.now() + step);
+      await getBoard(source);
+      await getBoard(source, { refresh: true });
+    }
+    expect(calls).toEqual(['items', 'items']);
+  });
+
+  it('rate limited without a cached board: a 429 error', async () => {
+    gh(() => limitAnswer);
+    await expect(getBoard(source)).rejects.toMatchObject({ status: 429 });
+  });
+
+  it('with polling off, the cached board is served until a refresh', async () => {
+    process.env.ORKUMO_GITHUB_POLL = '0';
+    const calls = gh((kind) => (kind === 'items' ? itemsPage('x', 's') : stampAnswer('s')));
+    await getBoard(source);
+    vi.setSystemTime(Date.now() + 60 * 60_000);
+    await getBoard(source);
+    expect(calls).toEqual(['items']);
+    await getBoard(source, { refresh: true });
+    expect(calls).toEqual(['items', 'items']);
   });
 });
 

@@ -2,6 +2,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ModeEntry } from '../hooks/useModules';
 import { moduleIcon } from './moduleIcon';
 import { ModuleMount, useModuleHost } from './ModuleMount';
+import { openInstruct, type InstructTarget } from './InstructDialog';
+import { API_BASE_URL } from '../utils/apiConfig';
+import { targetOf } from '../utils/agentTarget';
+import { fetchThreads } from '../services/orchestratorApi';
+
+const RETRY_MS = 30_000;
 
 /** What agents-ui hands `renderPaneActions`/`renderPaneView` (the parts used here) */
 interface PaneArg {
@@ -21,11 +27,14 @@ interface PaneArg {
 function PaneModeView({
   modeId,
   orchestrator,
+  session,
   task,
   onClose,
 }: {
   modeId: string;
   orchestrator: string;
+  /** The pane's session: its reports live on its instance (a peer's in Cluster mode) */
+  session: string;
   task?: { project: string; task: string };
   onClose: () => void;
 }) {
@@ -33,11 +42,13 @@ function PaneModeView({
   const host = useMemo(
     () => ({
       ...base,
+      apiBase: `${API_BASE_URL}${targetOf(session)}`,
+      instruct: (target: InstructTarget) => openInstruct({ ...target, session }),
       search: `orchestrator=${encodeURIComponent(orchestrator)}`,
       setSearch: () => {},
       pane: task ? { orchestrator, task } : { orchestrator },
     }),
-    [base, orchestrator, task]
+    [base, orchestrator, session, task]
   );
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => ref.current?.focus(), []);
@@ -69,13 +80,30 @@ export function usePaneModes(modes: ModeEntry[]) {
   // paneId -> mode shown in place of the agent; not persisted, a reload shows the agents again
   const [open, setOpen] = useState<Record<string, string>>({});
   const filters = useMemo(() => modes.filter((m) => m.orchestratorFilter), [modes]);
+  // Cluster: agents-ui flags orchestrators from this machine's settings; a peer pane's own instance
+  // names the key its reports are under (role, else session; null: no orchestrator there)
+  const [peerKeys, setPeerKeys] = useState<Record<string, string | null>>({});
+  const asked = useRef(new Set<string>());
   return useMemo(() => {
+    const keyOf = (p: PaneArg): string | null => {
+      const target = targetOf(p.session.id);
+      if (!target) return p.orchestrator ? (p.role ?? p.session.id) : null;
+      const k = `${target} ${p.session.id}`;
+      if (!asked.current.has(k) && filters.length > 0) {
+        asked.current.add(k);
+        fetchThreads(p.session.id)
+          .then((r) => setPeerKeys((prev) => ({ ...prev, [k]: r.orchestrator ?? null })))
+          // peer offline: no button; asked again on a render after RETRY_MS, not on every one
+          .catch(() => setTimeout(() => asked.current.delete(k), RETRY_MS));
+      }
+      return peerKeys[k] ?? null;
+    };
     const set = (paneId: string, modeId: string | null) =>
       setOpen((prev) => {
         const { [paneId]: _closed, ...rest } = prev;
         return modeId ? { ...rest, [paneId]: modeId } : rest;
       });
-    const usable = (p: PaneArg) => p.orchestrator && filters.length > 0;
+    const usable = (p: PaneArg) => filters.length > 0 && keyOf(p) !== null;
     return {
       renderPaneActions: (p: PaneArg) =>
         usable(p)
@@ -110,7 +138,8 @@ export function usePaneModes(modes: ModeEntry[]) {
             <PaneModeView
               key={`${mode.id} ${p.statusTask.project} ${p.statusTask.task}`}
               modeId={mode.id}
-              orchestrator={p.role ?? p.session.id}
+              orchestrator={keyOf(p)!}
+              session={p.session.id}
               task={p.statusTask}
               onClose={p.onClose}
             />
@@ -121,11 +150,12 @@ export function usePaneModes(modes: ModeEntry[]) {
           <PaneModeView
             key={mode.id}
             modeId={mode.id}
-            orchestrator={p.role ?? p.session.id}
+            orchestrator={keyOf(p)!}
+            session={p.session.id}
             onClose={() => set(p.paneId, null)}
           />
         ) : null;
       },
     };
-  }, [filters, open]);
+  }, [filters, open, peerKeys]);
 }

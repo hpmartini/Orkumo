@@ -110,7 +110,7 @@ function claudeHistoryEvents(lines, cap = MAX_HISTORY_EVENTS) {
       continue;
     }
     if (rec.type === 'system' && rec.subtype === 'compact_boundary') {
-      events.push({ type: 'system', subtype: 'compact_boundary' });
+      events.push({ type: 'system', subtype: 'compact_boundary', ...stamp(rec) });
       continue;
     }
     if (rec.type === 'system' && rec.subtype === 'away_summary' && rec.content) {
@@ -168,7 +168,7 @@ function claudeHistoryEvents(lines, cap = MAX_HISTORY_EVENTS) {
             : '';
       const text = unwrapPasted(raw);
       if (text.includes('<command-name>/clear</command-name>'))
-        events.push({ type: 'system', subtype: 'clear' });
+        events.push({ type: 'system', subtype: 'clear', ...stamp(rec) });
       events.push(...taskEndedEvents(text));
       // A command with text is the user's turn; `<command-name>` without it,
       // `<local-command-stdout>` and similar CLI wrappers are not
@@ -335,7 +335,7 @@ function sessionHistoryEvents(lines, cap = MAX_HISTORY_EVENTS) {
     const rec = parseLine(line);
     if (!rec) continue;
     if (rec.type === 'compaction') {
-      events.push({ type: 'system', subtype: 'compact_boundary' });
+      events.push({ type: 'system', subtype: 'compact_boundary', ...stamp(rec) });
       continue;
     }
     if (rec.type === 'model_change') {
@@ -411,21 +411,89 @@ function sessionHistoryEvents(lines, cap = MAX_HISTORY_EVENTS) {
 
 export const piSessionsDir = (home = os.homedir()) => path.join(home, '.pi', 'agent', 'sessions');
 
+// Synchronous: `current()` also answers a view open (viewSession) before the view's next tick
+const readText = (file) => {
+  try {
+    return fs.readFileSync(file, 'utf8');
+  } catch {
+    return null;
+  }
+};
+const readEntries = (dir) => {
+  try {
+    return fs.readdirSync(dir);
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * Claude Code's registry entry of the process that runs `sessionId` (`~/.claude/sessions/<pid>.json`);
+ * its `sessionId` moves on with /clear and /resume. Returns `current()` → the id it runs now,
+ * null once the process is gone (a reused pid is another process: its `procStart` differs),
+ * undefined while unreadable.
+ */
+function locateClaudeProcess(sessionId, dir = path.join(agentPaths.CLAUDE_HOME, 'sessions')) {
+  const entryOf = (file) => {
+    try {
+      return JSON.parse(readText(file));
+    } catch {
+      return null;
+    }
+  };
+  for (const name of readEntries(dir)) {
+    if (!/^\d+\.json$/.test(name)) continue;
+    const file = path.join(dir, name);
+    const entry = entryOf(file);
+    if (entry?.sessionId !== sessionId) continue;
+    return () => {
+      const now = entryOf(file);
+      if (!now) return fs.existsSync(file) ? undefined : null; // read mid-write: ask again
+      return now.procStart === entry.procStart && SESSION_ID_RE.test(str(now.sessionId))
+        ? now.sessionId
+        : null;
+    };
+  }
+  return null;
+}
+
+/**
+ * omp's `~/.omp/agent/terminal-sessions/<tty>` of the terminal that runs `sessionId`: cwd, then the
+ * session file; /new writes the next file there. Same contract as `locateClaudeProcess`.
+ */
+function locateOmpTerminal(
+  sessionId,
+  dir = path.join(path.dirname(ompSessionsDir()), 'terminal-sessions')
+) {
+  const idOf = (file) =>
+    /_([0-9a-f-]{36})\.jsonl$/i.exec(readText(file)?.split('\n')[1] ?? '')?.[1] ?? null;
+  for (const name of readEntries(dir)) {
+    const file = path.join(dir, name);
+    if (idOf(file) !== sessionId) continue;
+    return () => idOf(file);
+  }
+  return null;
+}
+
 /**
  * harness → reader. `findTranscript(sessionId, cwd, dir?)` resolves to the session file or null
  * (`dir` overrides the harness's base folder, for tests); `historyEvents(lines, cap?)` translates
  * (the last `cap` events, the view's replay cap by default).
+ * `locate(sessionId, context)` finds the running agent of a session (null: none) and returns
+ * `current()` → the session id it writes now (synchronous), so a view follows /clear, /resume and omp /new.
  */
 export const TRANSCRIPT_READERS = Object.freeze({
   claude: {
     idRe: SESSION_ID_RE,
     findTranscript: async (sessionId, cwd, dir) => findClaudeTranscript(sessionId, cwd, dir),
     historyEvents: claudeHistoryEvents,
+    locate: (sessionId, context) => locateClaudeProcess(sessionId, context.claudeSessionsDir),
   },
   omp: {
     idRe: HARNESS_RESUME.omp.id,
     findTranscript: (sessionId, _cwd, dir = ompSessionsDir()) => findOmpSessionFile(sessionId, dir),
     historyEvents: sessionHistoryEvents,
+    locate: (sessionId, context) => locateOmpTerminal(sessionId, context.ompTerminalsDir),
   },
   pi: {
     idRe: HARNESS_RESUME.pi.id,

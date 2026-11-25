@@ -8,4 +8,5 @@ Orkumo ist Hapes komplette Arbeitsumgebung für agentische Entwicklung (ADE). Ke
 - Orkumo no longer starts, stops or analyzes apps (#143); project dirs are a registry only.
 - UI (chat) view = second rendering of the agent's terminal pane: `chatService.js` tails the transcript (one reader per harness in `chatTranscripts.js`, Claude Code stream-json shapes) and never runs a process of its own; messages are typed into the pane's PTY.
 - Agent PTYs run in detached holder processes (`ptyHolder.js` / `heldPty.js`) and outlive pane, page, server and Electron; closing only detaches.
+- Dev servers and test instances (`node server/index.js` in a worktree) start with `ORKUMO_GITHUB_POLL=0`: every Orkumo instance polling GitHub drains the shared GraphQL budget that `gh pr`, releases and all agents need. Set `=1` only while checking PR or board freshness, and stop that instance afterwards.
 - Pane xterm + PTY socket live in the `paneTerminals` registry in `AgentTerminal.tsx`, not in the component: split/unsplit remounts must reclaim them, else a new PTY ends omp and shell panes.
