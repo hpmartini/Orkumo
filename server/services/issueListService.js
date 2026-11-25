@@ -3,6 +3,7 @@
  * repos via `gh api graphql`, so issues that are not on the board's ProjectV2 are listed too.
  */
 import { ghGraphql, originSlug } from './boardService.js';
+import { githubPolling, limitedUntil } from './githubApi.js';
 
 const CACHE_TTL_MS = 60_000;
 const SLUG_TTL_MS = 5 * 60_000;
@@ -90,16 +91,28 @@ async function fetchIssueNodes(slug, state) {
   return nodes;
 }
 
-/** Raw issue nodes of one repo; cached CACHE_TTL_MS, `refresh` bypasses, concurrent calls share one fetch */
+/**
+ * Raw issue nodes of one repo; cached CACHE_TTL_MS, `refresh` bypasses, concurrent calls share
+ * one fetch. In a rate limit and with polling off (ORKUMO_GITHUB_POLL) a cached list is served.
+ */
 function repoIssueNodes(slug, state, refresh) {
   const key = `${slug.toLowerCase()}#${state}`;
   const hit = issueCache.get(key);
-  if (!refresh && hit && Date.now() - hit.at < CACHE_TTL_MS) return Promise.resolve(hit.nodes);
+  if (hit) {
+    const fresh = Date.now() - hit.at < CACHE_TTL_MS;
+    if (limitedUntil('graphql') || (!refresh && (fresh || !githubPolling()))) {
+      return Promise.resolve(hit.nodes);
+    }
+  }
   if (inflight.has(key)) return inflight.get(key);
   const promise = fetchIssueNodes(slug, state)
     .then((nodes) => {
       issueCache.set(key, { at: Date.now(), nodes });
       return nodes;
+    })
+    .catch((error) => {
+      if (error?.rateLimited && issueCache.has(key)) return issueCache.get(key).nodes;
+      throw error;
     })
     .finally(() => {
       if (inflight.get(key) === promise) inflight.delete(key);

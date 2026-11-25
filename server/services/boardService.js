@@ -6,8 +6,19 @@ import { execFile } from 'child_process';
 import { parseGithubSlug } from './agentContextService.js';
 import { keepWrite, mergeRecentWrites } from '../../utils/boardWrites.js';
 import { annotateItem } from './workflowProvider.js';
+import {
+  githubPolling,
+  isRateLimitMessage,
+  limitedUntil,
+  noteRateLimit,
+  noteSuccess,
+  rateLimitError,
+} from './githubApi.js';
 
 const CACHE_TTL_MS = 60_000;
+// projectV2.updatedAt moves with item changes (status, add, remove), not with issue content
+// (comments, CI of linked PRs): those reach the board at the latest after this long
+const BOARD_MAX_AGE_MS = 30 * 60_000;
 const PAGE_SIZE = 100; // measured on MACC: cost 4 per page with comments(last:20)
 const MIN_PAGE_SIZE = 25;
 
@@ -35,7 +46,7 @@ const ITEMS_QUERY = `query($owner:String!,$number:Int!,$first:Int!,$after:String
   }
 }
 fragment P on ProjectV2{
-  id title
+  id title updatedAt
   field(name:"Status"){... on ProjectV2SingleSelectField{id options{id name color}}}
   items(first:$first,after:$after){
     pageInfo{hasNextPage endCursor}
@@ -43,14 +54,23 @@ fragment P on ProjectV2{
   }
 }`;
 const ITEM_QUERY = `query($id:ID!){node(id:$id){... on ProjectV2Item{${ITEM_FIELDS}}}}`;
+// 1 point: tells whether a board reload is due
+const PROJECT_STAMP_QUERY = `query($owner:String!,$number:Int!){
+  repositoryOwner(login:$owner){
+    ... on User{projectV2(number:$number){updatedAt}}
+    ... on Organization{projectV2(number:$number){updatedAt}}
+  }
+}`;
 const STATUS_MUTATION = `mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optionId:String!){
   updateProjectV2ItemFieldValue(input:{projectId:$projectId,itemId:$itemId,fieldId:$fieldId,value:{singleSelectOptionId:$optionId}}){
     projectV2Item{id}
   }
 }`;
 
-let cache = null; // { key, at, data }
-let inflight = null; // { key, promise }
+let cache = null; // { key, at, loadedAt, stamp, data }; at: last load or unchanged probe
+let inflight = null; // { key, promise, probe }; probe: may answer from an unchanged stamp
+let loadGeneration = 0; // getBoard calls that may load, in start order
+let cacheGeneration = 0; // the one whose load is in `cache`
 // Items this server wrote (status, create, edit), newest per item: { key, at, item, created }.
 // A fetch that started before a write must not undo it in the cache.
 const recentWrites = new Map();
@@ -64,8 +84,13 @@ function httpError(message, status) {
  * Array string vars become `-f k[]=v` per element (`-F k[]` = empty list).
  * `typedVars` is only for numbers and `null`: `-F k=@path` makes gh read a local file, so a
  * user-supplied string must never go there (splitVars keeps every string in `stringVars`).
+ * A rate-limit answer pauses GraphQL reads (githubApi); queries during the pause reject with
+ * 429 without calling GitHub, mutations (user actions) still go out.
  */
 export function ghGraphql(query, stringVars = {}, typedVars = {}) {
+  if (!/^\s*mutation\b/.test(query) && limitedUntil('graphql')) {
+    return Promise.reject(rateLimitError('graphql'));
+  }
   const args = ['api', 'graphql', '-f', `query=${query}`];
   for (const [k, v] of Object.entries(stringVars)) {
     if (!Array.isArray(v)) args.push('-f', `${k}=${v}`);
@@ -85,10 +110,20 @@ export function ghGraphql(query, stringVars = {}, typedVars = {}) {
         } catch {
           /* non-JSON output, handled below */
         }
+        const failure = payload?.errors?.length
+          ? payload.errors.map((e) => e.message).join('; ')
+          : error || !payload
+            ? String(stderr || error?.message || 'no output').trim()
+            : null;
+        if (
+          failure &&
+          (payload?.errors?.some((e) => e.type === 'RATE_LIMITED') || isRateLimitMessage(failure))
+        ) {
+          noteRateLimit('graphql');
+          return reject(Object.assign(httpError(`GitHub: ${failure}`, 429), { rateLimited: true }));
+        }
         if (payload?.errors?.length) {
-          return reject(
-            httpError(`GitHub: ${payload.errors.map((e) => e.message).join('; ')}`, 502)
-          );
+          return reject(httpError(`GitHub: ${failure}`, 502));
         }
         // ENOENT reads like a wrong directory (#106); it means `gh` is not on the server's PATH
         if (error?.code === 'ENOENT') {
@@ -104,6 +139,7 @@ export function ghGraphql(query, stringVars = {}, typedVars = {}) {
             httpError(`gh failed: ${String(stderr || error?.message || 'no output').trim()}`, 502)
           );
         }
+        noteSuccess('graphql');
         resolve(payload.data);
       }
     );
@@ -201,17 +237,23 @@ async function fetchPage(source, after, first) {
       typed
     );
   } catch (error) {
-    // Node-limit / cost errors: retry the same page smaller.
-    if (first > MIN_PAGE_SIZE && /node|cost|limit|exceed/i.test(error.message)) {
+    // Node-limit / cost errors: retry the same page smaller. A rate limit is no page-size problem.
+    if (
+      !error.rateLimited &&
+      first > MIN_PAGE_SIZE &&
+      /node|cost|limit|exceed/i.test(error.message)
+    ) {
       return fetchPage(source, after, Math.floor(first / 2));
     }
     throw error;
   }
 }
 
+/** All items of the board; `stamp`: projectV2.updatedAt as the first page read it */
 async function loadBoard(source) {
   const items = [];
   let project = null;
+  let stamp = null;
   let after = null;
   let cost = 0;
   let remaining = null;
@@ -221,6 +263,7 @@ async function loadBoard(source) {
     if (!project) {
       throw httpError(`Project ${source.owner}/${source.number} not found or not accessible`, 404);
     }
+    stamp ??= project.updatedAt ?? null;
     cost += data.rateLimit?.cost ?? 0;
     remaining = data.rateLimit?.remaining ?? remaining;
     items.push(...project.items.nodes.filter(Boolean).map((n) => mapItem(n, [source.owner])));
@@ -237,36 +280,75 @@ async function loadBoard(source) {
     `[board] fetched ${items.length} items, GraphQL cost ${cost}, remaining ${remaining}`
   );
   return {
-    source: { owner: source.owner, number: source.number },
-    projectId: project.id,
-    title: project.title,
-    statusField: { id: project.field.id, options: project.field.options },
-    items: items.map((item) => withWorkflow(item, options)),
-    fetchedAt: Date.now(),
+    stamp,
+    data: {
+      source: { owner: source.owner, number: source.number },
+      projectId: project.id,
+      title: project.title,
+      statusField: { id: project.field.id, options: project.field.options },
+      items: items.map((item) => withWorkflow(item, options)),
+      fetchedAt: Date.now(),
+    },
   };
 }
 
 const cacheKey = (source) => `${source.owner}/${source.number}`;
 
-/** BoardData for the source; cached CACHE_TTL_MS, `refresh` bypasses. Concurrent calls share one fetch. */
+/** projectV2.updatedAt of the board (1 point) */
+async function projectStamp(source) {
+  const data = await ghGraphql(
+    PROJECT_STAMP_QUERY,
+    { owner: source.owner },
+    { number: source.number }
+  );
+  return data?.repositoryOwner?.projectV2?.updatedAt ?? null;
+}
+
+/**
+ * BoardData for the source, cached CACHE_TTL_MS. After that a 1-point probe of
+ * projectV2.updatedAt decides: unchanged keeps the cache (up to BOARD_MAX_AGE_MS since the last
+ * load), changed reloads all items. `refresh` (the user's reload) skips the probe. In a rate limit
+ * and with polling off (ORKUMO_GITHUB_POLL) the cached board is served. Concurrent calls share one fetch.
+ */
 export async function getBoard(source, { refresh = false } = {}) {
   const key = cacheKey(source);
-  if (!refresh && cache?.key === key && Date.now() - cache.at < CACHE_TTL_MS) return cache.data;
-  if (inflight?.key === key) return inflight.promise;
+  const current = cache?.key === key ? cache : null;
+  if (current) {
+    const fresh = Date.now() - current.at < CACHE_TTL_MS;
+    if (limitedUntil('graphql') || (!refresh && (fresh || !githubPolling()))) return current.data;
+  }
+  // The user's reload must not end in a probe that keeps the cache
+  if (inflight?.key === key && !(refresh && inflight.probe)) return inflight.promise;
   const startedAt = Date.now();
-  const promise = loadBoard(source)
-    .then((data) => {
-      const now = Date.now();
-      const writes = [...recentWrites.values()].filter((w) => w.key === key);
-      data.items = mergeRecentWrites(data.items, writes, startedAt, now);
-      for (const w of writes) if (!keepWrite(w, startedAt, now)) recentWrites.delete(w.item.itemId);
-      cache = { key, at: now, data };
-      return data;
+  const probe = Boolean(current && !refresh && startedAt - current.loadedAt < BOARD_MAX_AGE_MS);
+  const generation = ++loadGeneration;
+  const promise = (async () => {
+    if (probe) {
+      const stamp = await projectStamp(source);
+      if (stamp && stamp === current.stamp && cache === current) {
+        current.at = Date.now();
+        return current.data;
+      }
+    }
+    const { data, stamp } = await loadBoard(source);
+    const now = Date.now();
+    const writes = [...recentWrites.values()].filter((w) => w.key === key);
+    data.items = mergeRecentWrites(data.items, writes, startedAt, now);
+    for (const w of writes) if (!keepWrite(w, startedAt, now)) recentWrites.delete(w.item.itemId);
+    // A refresh can run beside a poll's load: the one started last wins the cache
+    if (generation < cacheGeneration && cache?.key === key) return cache.data;
+    cache = { key, at: now, loadedAt: now, stamp, data };
+    cacheGeneration = generation;
+    return data;
+  })()
+    .catch((error) => {
+      if (error?.rateLimited && cache?.key === key) return cache.data;
+      throw error;
     })
     .finally(() => {
       if (inflight?.promise === promise) inflight = null;
     });
-  inflight = { key, promise };
+  inflight = { key, promise, probe };
   return promise;
 }
 

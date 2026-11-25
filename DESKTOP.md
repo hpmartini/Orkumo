@@ -305,6 +305,7 @@ None - the app works out of the box!
 - `DATABASE_URL`: PostgreSQL connection string (optional, uses file storage by default)
 - `SERVER_PORT`: Backend server port (default: 3001)
 - `NODE_ENV`: Set to `development` for development mode
+- `ORKUMO_GITHUB_POLL`: `1` / `0` switches background GitHub reads (agent PRs and issues, board and Issues refreshes); unset, only production servers poll (dev servers do not)
 
 ## Differences from Web Version
 
