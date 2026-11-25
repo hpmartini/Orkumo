@@ -41,6 +41,8 @@ const MAX_EVENTS = 5000;
 const ORPHAN_TIMEOUT_MS = Number(process.env.DEVORBIT_CHAT_ORPHAN_MS) || 10 * 60 * 1000;
 /** How often a view looks for new transcript lines */
 const VIEW_POLL_MS = 1000;
+/** How often a view looks again for the running agent of its session (none yet, or ended) */
+const LOCATE_MS = 5000;
 
 function badRequest(message) {
   const error = new Error(message);
@@ -243,7 +245,8 @@ function defaultOmpLister(cwd, onSnapshot) {
 /**
  * Open the UI view of an agent session: tails its transcript, never touches the agent process.
  * The same harness + session already in view returns that view.
- * Context (tests): `allowedDirs`, `transcriptDir`, `pollMs`, `listCommands`, `listAgents`,
+ * Context (tests): `allowedDirs`, `transcriptDir`, `claudeSessionsDir`, `ompTerminalsDir`, `pollMs`,
+ * `listCommands`, `listAgents`,
  * `listOmpCommands(cwd, onSnapshot) → Promise<commands>`.
  * @param {{ harness: 'claude'|'omp'|'pi', sessionId: string, cwd: string, name?: string }} opts
  * @returns {object} view summary
@@ -254,7 +257,7 @@ export function viewSession(opts, context = {}) {
     if (
       existing.running &&
       existing.harness === safe.harness &&
-      existing.sessionId === safe.sessionId
+      (existing.sessionIds.includes(safe.sessionId) || existing.nextSession() === safe.sessionId)
     )
       return summary(existing);
   const reader = TRANSCRIPT_READERS[safe.harness];
@@ -264,6 +267,10 @@ export function viewSession(opts, context = {}) {
     cwd: safe.cwd,
     name: safe.name || safe.cwd.split('/').pop() || 'agent',
     sessionId: safe.sessionId,
+    /** Every session the view has shown: the agent moves on with /clear, /resume, omp /new */
+    sessionIds: [safe.sessionId],
+    /** The session its agent runs now (reader.locate); set once the view found it */
+    nextSession: () => null,
     model: null,
     running: true,
     startedAt: Date.now(),
@@ -289,6 +296,33 @@ export function viewSession(opts, context = {}) {
   // a chunk may end inside a multi-byte character
   let decoder = new StringDecoder('utf8');
   let ticking = false;
+  /** `current()` of the agent running this session (reader.locate), and when it was looked for */
+  let current = null;
+  let locatedAt = -Infinity;
+  /** Set when the view moved on to the next session, until that file's first events */
+  let switchedAt = null;
+  const follow = async () => {
+    if (!current && Date.now() - locatedAt >= LOCATE_MS) {
+      locatedAt = Date.now();
+      current = reader.locate?.(s.sessionId, context) ?? null;
+      s.nextSession = () => current?.() ?? null;
+    }
+    const next = current?.();
+    if (next === null) current = null;
+    if (!next || next === s.sessionId || !s.running) return false;
+    const nextFile = await reader.findTranscript(next, s.cwd, context.transcriptDir);
+    if (!nextFile || !s.running) return false; // not written yet: the next tick
+    if (file) read(); // the old file's last lines first
+    s.sessionId = next;
+    if (!s.sessionIds.includes(next)) s.sessionIds.push(next);
+    file = nextFile;
+    offset = 0;
+    rest = '';
+    decoder = new StringDecoder('utf8');
+    switchedAt = Date.now();
+    chatEvents.emit('change', listChats());
+    return true;
+  };
   const read = () => {
     let size;
     try {
@@ -313,7 +347,14 @@ export function viewSession(opts, context = {}) {
         offset += n;
         const lines = (rest + decoder.write(buffer.subarray(0, n))).split('\n');
         rest = lines.pop() ?? '';
-        for (const event of reader.historyEvents(lines)) record(s, event);
+        const events = reader.historyEvents(lines);
+        // The divider of a session switch: Claude's /clear record is one, else a switch mark
+        if (switchedAt && events.length) {
+          if (!events.some((e) => e.type === 'system' && e.subtype === 'clear'))
+            record(s, { type: 'system', subtype: 'session_switch', ts: switchedAt });
+          switchedAt = null;
+        }
+        for (const event of events) record(s, event);
       }
     } finally {
       fs.closeSync(fd);
@@ -326,6 +367,10 @@ export function viewSession(opts, context = {}) {
       file ??= await reader.findTranscript(s.sessionId, s.cwd, context.transcriptDir);
       s.transcript = file;
       if (file && s.running) read();
+      if (file && (await follow())) {
+        s.transcript = file;
+        read();
+      }
     } catch {
       // unreadable now; the next tick retries
     } finally {

@@ -34,7 +34,15 @@ const noPicker = {
   listAgents: async () => [],
   listOmpCommands: () => new Promise(() => {}),
 };
-const ctx = { allowedDirs: [root], pollMs: 20, ...noPicker };
+// no running agents: the real ~/.claude/sessions and omp terminals stay out of the tests
+const noAgents = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-no-agents-'));
+const ctx = {
+  allowedDirs: [root],
+  pollMs: 20,
+  claudeSessionsDir: noAgents,
+  ompTerminalsDir: noAgents,
+  ...noPicker,
+};
 
 const jsonl = (records) => records.map((r) => `${JSON.stringify(r)}\n`).join('');
 const claudeUser = (text) => ({ type: 'user', message: { role: 'user', content: text } });
@@ -697,5 +705,154 @@ describe('message times (reply quotes, thread order)', () => {
     const { seen } = collect(s.id);
     await vi.waitFor(() => expect(seen.some((e) => e.type === 'assistant')).toBe(true));
     expect(seen.find((e) => e.type === 'assistant')).toMatchObject({ ts: ms });
+  });
+});
+
+describe('the view follows the pane to its next session (/clear, /resume, omp /new)', () => {
+  const NEXT_ID = '33333333-3333-4333-8333-333333333333';
+  const OMP_NEXT = '01a214aa-4138-73a8-b65c-91e5332b0635';
+  const at = (iso) => ({ timestamp: iso });
+  const users = (seen) => seen.filter((e) => e.type === 'devorbit_user').map((e) => e.text);
+
+  it('Claude /clear: same view, old turns kept, the new transcript tails live, a timed clear mark', async () => {
+    const { dir } = claudeProjects([
+      { ...claudeUser('before clear'), ...at('2026-11-25T21:00:00Z') },
+    ]);
+    // Claude Code's registry of a running process: `sessionId` changes on /clear and /resume
+    const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-sessions-'));
+    const pidFile = path.join(sessionsDir, '4242.json');
+    const registry = (sessionId) =>
+      fs.writeFileSync(
+        pidFile,
+        JSON.stringify({
+          pid: 4242,
+          sessionId,
+          cwd: project,
+          procStart: 'Wed Nov 25 21:41:12 2026',
+        })
+      );
+    registry(CLAUDE_ID);
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir, claudeSessionsDir: sessionsDir }
+    );
+    const { seen } = collect(s.id);
+    await vi.waitFor(() => expect(users(seen)).toEqual(['before clear']));
+
+    // what Claude Code 2.1.332 writes on /clear: a new file that opens with the command record
+    const next = path.join(dir, '-elsewhere', `${NEXT_ID}.jsonl`);
+    fs.writeFileSync(
+      next,
+      jsonl([
+        {
+          type: 'user',
+          isMeta: true,
+          message: { role: 'user', content: '<local-command-caveat>x</local-command-caveat>' },
+        },
+        {
+          type: 'user',
+          message: {
+            role: 'user',
+            content:
+              '<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>',
+          },
+          ...at('2026-11-25T21:29:17.830Z'),
+        },
+      ])
+    );
+    registry(NEXT_ID);
+    // the agent list may report the new id before the view's next tick: still the same view
+    expect(viewSession({ harness: 'claude', sessionId: NEXT_ID, cwd: project }, ctx).id).toBe(s.id);
+    fs.appendFileSync(
+      next,
+      jsonl([{ ...claudeUser('after clear'), ...at('2026-11-25T21:30:00Z') }])
+    );
+    await vi.waitFor(() => expect(users(seen)).toEqual(['before clear', 'after clear']));
+    const clear = seen.find((e) => e.type === 'system' && e.subtype === 'clear');
+    expect(clear).toMatchObject({ ts: Date.parse('2026-11-25T21:29:17.830Z') });
+    // the clear mark is the divider; no second one for the switch itself
+    expect(seen.filter((e) => e.type === 'system' && e.subtype !== 'init')).toHaveLength(1);
+    expect(listChats()).toEqual([expect.objectContaining({ id: s.id, sessionId: NEXT_ID })]);
+    // the pane re-opens with either id: the same view, no twin stuck on the old file
+    expect(viewSession({ harness: 'claude', sessionId: NEXT_ID, cwd: project }, ctx).id).toBe(s.id);
+    expect(viewSession({ harness: 'claude', sessionId: CLAUDE_ID, cwd: project }, ctx).id).toBe(
+      s.id
+    );
+
+    fs.appendFileSync(next, jsonl([claudeUser('live')]));
+    await vi.waitFor(() => expect(users(seen)).toEqual(['before clear', 'after clear', 'live']));
+  });
+
+  it('Claude /resume of another session: a session mark (no clear), then that history', async () => {
+    const { dir } = claudeProjects([claudeUser('mine')]);
+    fs.writeFileSync(
+      path.join(dir, '-elsewhere', `${NEXT_ID}.jsonl`),
+      jsonl([claudeUser('resumed')])
+    );
+    const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-sessions-'));
+    const pidFile = path.join(sessionsDir, '4243.json');
+    fs.writeFileSync(pidFile, JSON.stringify({ pid: 4243, sessionId: CLAUDE_ID, procStart: 'a' }));
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir, claudeSessionsDir: sessionsDir }
+    );
+    const { seen } = collect(s.id);
+    await vi.waitFor(() => expect(users(seen)).toEqual(['mine']));
+    fs.writeFileSync(pidFile, JSON.stringify({ pid: 4243, sessionId: NEXT_ID, procStart: 'a' }));
+    await vi.waitFor(() => expect(users(seen)).toEqual(['mine', 'resumed']));
+    const marks = seen.filter((e) => e.type === 'system' && e.subtype !== 'init');
+    expect(marks).toEqual([{ type: 'system', subtype: 'session_switch', ts: expect.any(Number) }]);
+  });
+
+  it('a reused pid (other process start) is not followed', async () => {
+    const { dir } = claudeProjects([claudeUser('mine')]);
+    fs.writeFileSync(
+      path.join(dir, '-elsewhere', `${NEXT_ID}.jsonl`),
+      jsonl([claudeUser('stranger')])
+    );
+    const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-sessions-'));
+    const pidFile = path.join(sessionsDir, '4244.json');
+    fs.writeFileSync(pidFile, JSON.stringify({ pid: 4244, sessionId: CLAUDE_ID, procStart: 'a' }));
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir, claudeSessionsDir: sessionsDir }
+    );
+    const { seen } = collect(s.id);
+    await vi.waitFor(() => expect(users(seen)).toEqual(['mine']));
+    fs.writeFileSync(pidFile, JSON.stringify({ pid: 4244, sessionId: NEXT_ID, procStart: 'b' }));
+    await sleep(120);
+    expect(users(seen)).toEqual(['mine']);
+  });
+
+  it('omp /new: follows the terminal to its new session file, with a session mark', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-omp-'));
+    fs.mkdirSync(path.join(dir, '-w-app'));
+    const ompUser = (text) => ({
+      type: 'message',
+      message: { role: 'user', content: [{ type: 'text', text }] },
+    });
+    const first = path.join(dir, '-w-app', `2026-11-25T21-43-21-995Z_${OMP_ID}.jsonl`);
+    const second = path.join(dir, '-w-app', `2026-11-25T21-43-51-864Z_${OMP_NEXT}.jsonl`);
+    fs.writeFileSync(first, jsonl([{ type: 'session', version: 3, id: OMP_ID }, ompUser('one')]));
+    // omp's ~/.omp/agent/terminal-sessions/<tty>: cwd, then the session file the terminal runs
+    const terminals = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-ttys-'));
+    const tty = path.join(terminals, 'ttys064');
+    fs.writeFileSync(tty, `/w/app\n${first}\ncwdstat 1 2\n`);
+    const s = viewSession(
+      { harness: 'omp', sessionId: OMP_ID, cwd: project },
+      { ...ctx, transcriptDir: dir, ompTerminalsDir: terminals }
+    );
+    const { seen } = collect(s.id);
+    await vi.waitFor(() => expect(users(seen)).toEqual(['one']));
+    fs.writeFileSync(
+      second,
+      jsonl([{ type: 'session', version: 3, id: OMP_NEXT }, ompUser('two')])
+    );
+    fs.writeFileSync(tty, `/w/app\n${second}\ncwdstat 1 2\n`);
+    await vi.waitFor(() => expect(users(seen)).toEqual(['one', 'two']));
+    expect(seen.filter((e) => e.type === 'system')).toEqual([
+      { type: 'system', subtype: 'session_switch', ts: expect.any(Number) },
+    ]);
+    expect(listChats()[0].sessionId).toBe(OMP_NEXT);
   });
 });
