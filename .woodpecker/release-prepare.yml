@@ -19,4 +19,4 @@ steps:
       - apt-get update -qq && apt-get install -y -qq --no-install-recommends gh
       - TAG=$$(scripts/release/release-tag.sh "$CI_COMMIT_SHA" --next)
       - echo "Release $$TAG für $CI_COMMIT_SHA"
-      - gh release view "$$TAG" >/dev/null 2>&1 || gh release create "$$TAG" --draft --prerelease --target "$CI_COMMIT_SHA" --title "$$TAG" --generate-notes
+      - scripts/release/release-id.sh "$$TAG" >/dev/null 2>&1 || gh release create "$$TAG" --draft --prerelease --target "$CI_COMMIT_SHA" --title "$$TAG" --generate-notes

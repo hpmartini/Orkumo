@@ -21,4 +21,5 @@ steps:
     commands:
       - apt-get update -qq && apt-get install -y -qq --no-install-recommends gh
       - TAG=$$(scripts/release/release-tag.sh "$CI_COMMIT_SHA")
-      - gh release edit "$$TAG" --draft=false --prerelease
+      # by id over REST: `gh release edit <tag>` finds a draft only via GraphQL and hides that lookup's errors
+      - gh api -X PATCH "repos/$$GH_REPO/releases/$$(scripts/release/release-id.sh "$$TAG")" -F draft=false -F prerelease=true
