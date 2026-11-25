@@ -105,6 +105,14 @@ const paneState = (page, i) =>
         .map((e) =>
           (e.getAttribute('aria-label') || e.textContent || e.tagName).trim().slice(0, 30)
         ),
+      // header path / model either readable or not shown
+      stubs: [...(pane.firstElementChild?.querySelectorAll('span.truncate') ?? [])]
+        .filter((e) => !e.classList.contains('font-medium'))
+        .filter((e) => {
+          const w = e.getBoundingClientRect().width;
+          return w > 0 && w < 100 && e.scrollWidth > e.clientWidth;
+        })
+        .map((e) => `${e.textContent.slice(0, 20)} ${Math.round(e.getBoundingClientRect().width)}px`),
       // answer footers on one line ("Done · 1.3 s", "Copy answer" do not wrap)
       wrapped: [...pane.querySelectorAll('button')]
         .filter((e) => /^\s*Copy answer\s*$/.test(e.textContent || ''))
@@ -275,8 +283,8 @@ const paneDivider = (page) =>
 function clipCheck(name, s) {
   check(
     `${name}: nothing clipped, title readable, footers on one line`,
-    s.clipped.length === 0 && s.nameWidth >= 120 && s.wrapped === 0,
-    JSON.stringify({ clipped: s.clipped, name: s.nameWidth, wrapped: s.wrapped })
+    s.clipped.length === 0 && s.nameWidth >= 120 && s.wrapped === 0 && s.stubs.length === 0,
+    JSON.stringify({ clipped: s.clipped, name: s.nameWidth, wrapped: s.wrapped, stubs: s.stubs })
   );
 }
 
@@ -395,6 +403,70 @@ async function narrowChecks(page, i, name) {
   await page.waitForTimeout(300);
   check(`${name}: x in the panel header puts it away`, !(await paneState(page, i)).mode);
   await showPanel(page, i);
+}
+
+// 20 typed lines and the main grip dragged to the top: inputs stop at 40 %, nothing leaves the pane
+async function tallInputChecks(page, i, name) {
+  const pane = inPane(page, i);
+  for (const label of ['Reply in thread', 'Message']) {
+    const field = pane.locator(`textarea[aria-label="${label}"]`);
+    if (!(await field.count())) continue;
+    // focus, not click: in a drawer a click on the main input lands on the backdrop
+    await field.focus();
+    for (let k = 0; k < 20; k++) {
+      await page.keyboard.type(`line ${k}`);
+      await page.keyboard.press('Shift+Enter');
+    }
+    await page.waitForTimeout(300);
+    const s = await paneState(page, i);
+    await shot(page, `${name}-typed-${label === 'Message' ? 'main' : 'thread'}`);
+    const h = Math.round((await field.boundingBox()).height);
+    check(
+      `${name}: 20 typed lines in "${label}" stay within 40 % of the pane`,
+      h <= Math.ceil(s.paneHeight * 0.4) + 1,
+      `${h} of ${s.paneHeight}`
+    );
+    clipCheck(`${name} typed ${label}`, s);
+    const log = Math.round((await pane.locator('[role="log"]').first().boundingBox()).height);
+    check(`${name} typed ${label}: chat log keeps >= 90 px`, log >= 90, `${log}`);
+    check(`${name} typed ${label}: thread input and buttons inside the panel`, s.threadInside);
+    await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+a`);
+    await page.keyboard.press('Backspace');
+    await page.waitForTimeout(200);
+  }
+  // the main input's grip dragged to the top; a drawer covers it, so put the drawer away first
+  const drawer = (await paneState(page, i)).mode === 'overlay';
+  if (drawer) await pane.getByRole('button', { name: 'Hide threads panel' }).click();
+  const g = await pane
+    .locator('[role=separator][aria-label^="Resize input"]')
+    .filter({ hasNot: page.locator('xpath=ancestor::aside') })
+    .first()
+    .boundingBox();
+  if (g) {
+    await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2, { steps: 3 });
+    await page.mouse.down();
+    await page.mouse.move(g.x + g.width / 2, 2, { steps: 15 });
+    await page.mouse.up();
+    await page.waitForTimeout(300);
+    const s = await paneState(page, i);
+    await shot(page, `${name}-main-dragged`);
+    check(
+      `${name}: dragged main input at most 40 % of the pane`,
+      s.mainHeight <= Math.ceil(s.paneHeight * 0.4) + 1,
+      `${s.mainHeight} of ${s.paneHeight}`
+    );
+    clipCheck(`${name} main dragged`, s);
+    const log = Math.round((await pane.locator('[role="log"]').first().boundingBox()).height);
+    check(`${name} main dragged: chat log keeps >= 90 px`, log >= 90, `${log}`);
+    const g2 = await pane
+      .locator('[role=separator][aria-label^="Resize input"]')
+      .filter({ hasNot: page.locator('xpath=ancestor::aside') })
+      .first()
+      .boundingBox();
+    await page.mouse.dblclick(g2.x + g2.width / 2, g2.y + g2.height / 2);
+    await page.waitForTimeout(200);
+  }
+  if (drawer) await showPanel(page, i);
 }
 
 // The dragged thread input stops at 40 % of the pane height
@@ -580,8 +652,10 @@ async function composerChecks(page, i, name) {
     for (const i of [0, 1]) await showPanel(page, i);
     for (const i of [0, 1]) await maximiseChecks(page, i, `split-${i}`);
     await heightCapCheck(page, 0, 'split-0');
+    for (const i of [0, 1]) await tallInputChecks(page, i, `split-${i}`);
   } else check('split button', false);
   await heightCapCheck(page, 0, 'tab');
+  await tallInputChecks(page, 0, 'tab');
 
   console.log('console errors', JSON.stringify(errors));
   await ctx.close();
