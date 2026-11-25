@@ -88,6 +88,30 @@ describe('Status view in a pane', () => {
     render(<Actions p={peer(false)} />);
     expect(await screen.findByRole('button', { name: 'Show in Status' })).toBeInTheDocument();
     expect(fetchThreads).toHaveBeenCalledWith('peer-job');
+    expect(fetchThreads).toHaveBeenCalledTimes(1);
+  });
+
+  it('peer orchestrator: the view is filtered on the key its instance names', async () => {
+    pinTarget('peer-job', PEER);
+    fetchThreads.mockResolvedValue({ orchestrator: 'release', threads: [], tasks: [] });
+    const h = await view('peer-job');
+    expect(h).toMatchObject({
+      search: 'orchestrator=release',
+      pane: { orchestrator: 'release', task },
+    });
+  });
+
+  it('peer offline: one request, not one per render', async () => {
+    pinTarget('peer-job', PEER);
+    fetchThreads.mockRejectedValue(new Error('offline'));
+    const { rerender } = render(<Actions p={peer(true)} />);
+    await waitFor(() => expect(fetchThreads).toHaveBeenCalled());
+    for (let i = 0; i < 20; i++) {
+      await act(async () => {});
+      rerender(<Actions p={{ ...peer(true) }} />);
+    }
+    expect(fetchThreads).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('button', { name: 'Show in Status' })).toBeNull();
   });
 
   it('peer agent that is no orchestrator there: no button', async () => {

@@ -7,6 +7,8 @@ import { API_BASE_URL } from '../utils/apiConfig';
 import { targetOf } from '../utils/agentTarget';
 import { fetchThreads } from '../services/orchestratorApi';
 
+const RETRY_MS = 30_000;
+
 /** What agents-ui hands `renderPaneActions`/`renderPaneView` (the parts used here) */
 interface PaneArg {
   paneId: string;
@@ -91,7 +93,8 @@ export function usePaneModes(modes: ModeEntry[]) {
         asked.current.add(k);
         fetchThreads(p.session.id)
           .then((r) => setPeerKeys((prev) => ({ ...prev, [k]: r.orchestrator ?? null })))
-          .catch(() => asked.current.delete(k));
+          // peer offline: no button; asked again on a render after RETRY_MS, not on every one
+          .catch(() => setTimeout(() => asked.current.delete(k), RETRY_MS));
       }
       return peerKeys[k] ?? null;
     };
