@@ -134,8 +134,9 @@ async function openAgent(page, n) {
     const n = (await measureAll(page)).length;
     console.log('handles in split', n);
     for (let i = 0; i < n; i++) {
-      await drag(page, i, 60, `split-${i}-narrower`);
+      // a narrow split pane starts at the panel minimum: widen first
       await drag(page, i, -120, `split-${i}-wider`);
+      await drag(page, i, 60, `split-${i}-narrower`);
     }
   } else check('split button', false);
 
