@@ -2495,7 +2495,8 @@ app.post(
         await agentService.currentSessions(),
         settingsService.getAgentViewSettings()
       );
-      const thread = threadStore.create(session?.id ?? req.params.id, bound);
+      if (!session) return res.status(409).json({ error: 'The orchestrator is not running' });
+      const thread = threadStore.create(orchestratorThreads.threadOwnerKey(session), bound);
       // the tag, the header (title, refs), 8000 characters of text and ten attachment lines
       const refused = await deliverToOrchestrator(
         req.params.id,
@@ -2521,7 +2522,7 @@ async function chatOrchestrator(ref) {
   const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
   if (!session || !orchestrator.isOrchestratorSession(session, orchestrators)) return null;
   return {
-    id: session.id,
+    id: orchestratorThreads.threadOwnerKey(session),
     report: orchestrator.sessionRole(session, orchestratorRoles) ?? session.id,
     session,
     sessions,
@@ -2533,30 +2534,31 @@ async function chatOrchestrator(ref) {
  * transcript); once per process and set of role holders
  */
 const threadRepairs = new Map();
-function returnMisplacedThreads(owner) {
-  if (owner.report === owner.id) return null;
+async function returnMisplacedThreads(owner) {
+  if (owner.report === owner.id) return;
   const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
-  const holders = owner.sessions.filter(
-    (s) =>
-      orchestrator.isOrchestratorSession(s, orchestrators) &&
-      orchestrator.sessionRole(s, orchestratorRoles) === owner.report
+  const holders = await Promise.all(
+    owner.sessions
+      .filter(
+        (s) =>
+          orchestrator.isOrchestratorSession(s, orchestrators) &&
+          orchestrator.sessionRole(s, orchestratorRoles) === owner.report
+      )
+      .map(async (s) => ({
+        key: orchestratorThreads.threadOwnerKey(s),
+        transcripts: await orchestrator.sessionTranscriptFiles(s, orchestratorTranscriptDeps),
+      }))
   );
-  const key = `${owner.report}:${holders.map((s) => s.id).join(',')}`;
+  // again when a holder or a transcript joins (a new session writes its file later)
+  const key = `${owner.report}:${holders.map((h) => `${h.key}/${h.transcripts.length}`)}`;
   if (!threadRepairs.has(key))
     threadRepairs.set(
       key,
-      Promise.all(
-        holders.map(async (s) => ({
-          key: s.id,
-          transcript: await orchestrator.sessionTranscriptFile(s, orchestratorTranscriptDeps),
-        }))
-      )
-        .then((found) =>
-          orchestratorThreads.returnMisplacedThreads(reportsDir, owner.report, found)
-        )
+      orchestratorThreads
+        .returnMisplacedThreads(reportsDir, owner.report, holders)
         .catch((error) => console.warn('[threads] repair:', error.message))
     );
-  return threadRepairs.get(key);
+  await threadRepairs.get(key);
 }
 
 /** The session's threads, then those its role still keeps (unproven, see above) */

@@ -108,6 +108,13 @@ export function repoAgents(report, projectId, sessions, contexts, orchestratorSe
     .map((s) => s.id);
 }
 
+/**
+ * Key of an orchestrator's threads: its session id; a Claude terminal's row id is its pid (new on
+ * every restart), so its transcript uuid
+ */
+export const threadOwnerKey = (session) =>
+  (session.id.startsWith('interactive-') && session.sessionId) || session.id;
+
 export function createThreadStore(dir) {
   const threadsDir = path.join(dir, 'threads');
   const fileOf = (id) => path.join(threadsDir, `${id}.json`);
@@ -174,29 +181,31 @@ export function createThreadStore(dir) {
   };
 }
 
-/** Which of `needles` occur in a file, read line by line (transcripts run to hundreds of MB) */
-async function needlesIn(file, needles) {
+/** Which of `needles` occur in the files, read line by line (transcripts run to hundreds of MB) */
+async function needlesIn(files, needles) {
   const found = new Set();
-  try {
-    const lines = readline.createInterface({
-      input: fs.createReadStream(file),
-      crlfDelay: Infinity,
-    });
-    for await (const line of lines)
-      for (const n of needles) if (!found.has(n) && line.includes(n)) found.add(n);
-  } catch {
-    // unreadable transcript: no evidence
-  }
+  for (const file of files)
+    try {
+      const lines = readline.createInterface({
+        input: fs.createReadStream(file),
+        crlfDelay: Infinity,
+      });
+      for await (const line of lines)
+        for (const n of needles) if (!found.has(n) && line.includes(n)) found.add(n);
+    } catch {
+      // unreadable transcript: no evidence
+    }
   return found;
 }
 
 /**
  * Threads kept under a role (before threads were keyed by session, every orchestrator of a role
  * shared them) moved to the holder whose transcript proves them: the answered message's record
- * id, else the tag, found in exactly one holder's transcript. Unproven ones stay. Moves only,
+ * id, else the tag (only when every holder's transcript was found), in exactly one holder's
+ * transcript. Unproven ones stay. Moves only,
  * nothing rewritten or dropped; a second run changes nothing.
  * @param {string} dir orchestrator-reports dir of the store
- * @param {{ key: string, transcript: string | null }[]} holders current sessions of the role
+ * @param {{ key: string, transcripts: string[] }[]} holders current sessions of the role
  * @returns {Promise<number>} threads moved
  */
 export async function returnMisplacedThreads(dir, role, holders) {
@@ -214,9 +223,8 @@ export async function returnMisplacedThreads(dir, role, holders) {
   const legacy = read(role);
   if (!legacy.length || !holders.length) return 0;
   const needles = legacy.flatMap((t) => [keyNeedle(t), tagNeedle(t)]).filter(Boolean);
-  const found = await Promise.all(
-    holders.map((h) => (h.transcript ? needlesIn(h.transcript, needles) : new Set()))
-  );
+  const found = await Promise.all(holders.map((h) => needlesIn(h.transcripts, needles)));
+  const allRead = holders.every((h) => h.transcripts.length);
   const only = (needle) => {
     const at = holders.filter((_, i) => needle && found[i].has(needle));
     return at.length === 1 ? at[0].key : null;
@@ -224,7 +232,8 @@ export async function returnMisplacedThreads(dir, role, holders) {
   const moved = new Map();
   const stay = [];
   for (const t of legacy) {
-    const to = only(keyNeedle(t)) ?? only(tagNeedle(t));
+    // a holder without transcript could hold the tag too: a tag alone proves nothing then
+    const to = only(keyNeedle(t)) ?? (allRead ? only(tagNeedle(t)) : null);
     if (to) moved.set(to, [...(moved.get(to) ?? []), t]);
     else stay.push(t);
   }

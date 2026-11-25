@@ -11,6 +11,8 @@ import {
   threadView,
   repoAgents,
   threadText,
+  returnMisplacedThreads,
+  threadOwnerKey,
 } from '../server/services/orchestratorThreads.js';
 import example from '../server/orchestrator/report.example.json';
 
@@ -138,5 +140,41 @@ describe('typed text', () => {
     expect(threadText({ tag: '[Thread: A · B]' }, '[Status] A · B\n\nhi')).toBe(
       '[Thread: A · B]\n[Status] A · B\n\nhi'
     );
+  });
+});
+
+describe('threads misplaced under a role', () => {
+  const thread = (id, tag, parentKey = null) => ({ id, tag, parentKey, agents: [], closed: false });
+  const KEYED = thread('k', '[Thread: Answer 09:00 · keyed]', 'msg_x');
+  const TAGGED = thread('t', '[Thread: Thread 09:05 · tagged]');
+
+  it('without every transcript only the answered message proves; a rerun changes nothing', async () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'threads'));
+    fs.writeFileSync(
+      path.join(dir, 'threads', 'main.json'),
+      JSON.stringify({ threads: [KEYED, TAGGED] })
+    );
+    const transcript = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(transcript, `{"message":{"id":"msg_x"}}\n{"text":"${TAGGED.tag} hi"}\n`);
+    const holders = [
+      { key: 'a', transcripts: [transcript] },
+      { key: 'b', transcripts: [] },
+    ];
+    const read = (k) => JSON.parse(fs.readFileSync(path.join(dir, 'threads', `${k}.json`), 'utf8'));
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(1);
+    expect(read('a').threads).toEqual([KEYED]);
+    expect(read('main').threads).toEqual([TAGGED]);
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
+    // with b's transcript read, the tag proves a
+    holders[1].transcripts = [path.join(dir, 'missing.jsonl')];
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(1);
+    expect(read('a').threads).toEqual([KEYED, TAGGED]);
+  });
+
+  it('a Claude terminal keys its threads by its transcript uuid, not its pid row', () => {
+    expect(threadOwnerKey({ id: 'interactive-42', sessionId: 'uuid-1' })).toBe('uuid-1');
+    expect(threadOwnerKey({ id: 'omp-1', sessionId: '1' })).toBe('omp-1');
+    expect(threadOwnerKey({ id: '13c54a91', sessionId: 'uuid-2' })).toBe('13c54a91');
   });
 });

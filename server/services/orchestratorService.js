@@ -397,19 +397,19 @@ export async function readSessionTranscript(session, last, deps, options) {
   return (await deps.readTranscriptTail(file, last, ...extra)).entries || [];
 }
 
-/** Transcript file of a session (omp store, else a Claude projects file); null when none */
-export async function sessionTranscriptFile(session, deps) {
-  if (session.id.startsWith('omp-'))
-    return session.sessionId
-      ? (deps.findOmpSessionFile ?? findOmpSessionFile)(session.sessionId)
-      : null;
-  if (!session.sessionId || !session.cwd) return null;
-  const file = path.join(
-    deps.projectsDir,
-    deps.projectSlug(session.cwd),
-    `${session.sessionId}.jsonl`
-  );
-  return fs.existsSync(file) ? file : null;
+/** Transcript files of a session (omp store, else Claude projects files: a job has one per resume) */
+export async function sessionTranscriptFiles(session, deps) {
+  if (session.id.startsWith('omp-')) {
+    const file =
+      session.sessionId &&
+      (await (deps.findOmpSessionFile ?? findOmpSessionFile)(session.sessionId));
+    return file ? [file] : [];
+  }
+  if (!session.cwd) return [];
+  return [...new Set([session.sessionId, ...(session.sessionIds ?? [])])]
+    .filter(Boolean)
+    .map((id) => path.join(deps.projectsDir, deps.projectSlug(session.cwd), `${id}.jsonl`))
+    .filter((file) => fs.existsSync(file));
 }
 
 /** The session an id names (row id, transcript uuid or pane id); null when none */

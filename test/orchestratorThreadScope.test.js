@@ -180,8 +180,8 @@ describe('threads of an orchestrator chat', () => {
         .sort()
     ).toEqual(LEFTOVERS);
     // moved as they were: nothing rewritten
-    expect(stored('interactive-4242')).toEqual([LEGACY[0]]);
-    expect(stored('interactive-4343')).toEqual([LEGACY[1]]);
+    expect(stored('sess-a')).toEqual([LEGACY[0]]);
+    expect(stored('sess-b')).toEqual([LEGACY[1]]);
   });
 
   it('two orchestrators of one role, one new thread each: each lists only its own', async () => {
@@ -207,12 +207,12 @@ describe('threads of an orchestrator chat', () => {
 
   it('after a server restart (reload) the same split; the repair changes nothing more', async () => {
     const before = { a: await ids('sess-a'), b: await ids('sess-b') };
-    const files = ['main', 'interactive-4242', 'interactive-4343'].map(stored);
+    const files = ['main', 'sess-a', 'sess-b'].map(stored);
     await stopServer();
     await startServer();
     expect(await ids('sess-a')).toEqual(before.a);
     expect(await ids('sess-b')).toEqual(before.b);
-    expect(['main', 'interactive-4242', 'interactive-4343'].map(stored)).toEqual(files);
+    expect(['main', 'sess-a', 'sess-b'].map(stored)).toEqual(files);
     // no thread lost: every legacy thread is in exactly one file
     const all = files.flat().map((t) => t.id);
     for (const t of LEGACY) expect(all.filter((id) => id === t.id)).toHaveLength(1);
