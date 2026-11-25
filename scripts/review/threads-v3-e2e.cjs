@@ -39,6 +39,8 @@
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/threads-v3-e2e.cjs <baseUrl> <outDir> [width]
 // env: ORCH=<orchestrator session id, omp-…> (required), ORCH2=<second orchestrator> (splits),
 //      SPLIT=tab|right|down (default tab), ONLY=ac7,ac5,… (default all), CHROME=<chromium>,
+//      FAULT=n4 (footer 12 px short: every AC-2 cell must FAIL), FAULT=n6 (AC-14 check on a
+//      synthetic shifted command, must FAIL, then exit),
 //      ORKUMO=<orkumo CLI>, API=<api url>, DATA=<data dir>, PROJECT=<project dir for ac5>,
 //      SUBMIT=enter if the chat setting is "Enter sends"
 //      CORCH=<Claude Code session uuid of an orchestrator pane> and CORCH_SOCK=<its held PTY
@@ -835,6 +837,21 @@ async function ac10(page) {
   check('ac10: UI shows the start state again without a reload', !!rowsBack);
 }
 
+/** AC-14: message and command delivered where they waited, rows before them untouched */
+function ac14Place(before, after, msg) {
+  const [iMsg, jMsg] = [before, after].map((l) => l.findIndex((t) => t.includes(msg)));
+  const [iCmd, jCmd] = [before, after].map((l) => l.findIndex((t) => t.includes('/status-report')));
+  check(
+    'ac14: delivered thread message and command at the same place in the thread',
+    iMsg >= 0 &&
+      jMsg === iMsg &&
+      iCmd >= 0 &&
+      jCmd === iCmd &&
+      JSON.stringify(after.slice(0, Math.min(iMsg, iCmd))) === JSON.stringify(before.slice(0, Math.min(iMsg, iCmd))),
+    `msg ${iMsg} -> ${jMsg}, cmd ${iCmd} -> ${jCmd}`
+  );
+}
+
 // ---- AC-11 scroll: a real wheel up during a real streaming answer keeps the reader's place -------
 const logSel = (where) =>
   where === 'thread'
@@ -1222,8 +1239,6 @@ async function ac14(page) {
     check('f9: thread bubbles still in the thread', (await bubbles()).filter((b) => b.inThread).length === 2);
   }
   const before = await logTexts(page, 'thread');
-  const iMsg = before.findIndex((t) => t.includes(msg));
-  const iCmd = before.findIndex((t) => t.includes('/status-report'));
   // delivery: the sleep ends, then the queued prompts run
   const done = await waitFor(async () => {
     if (await paneOf(page).locator('[data-queued]').count()) return false;
@@ -1233,14 +1248,7 @@ async function ac14(page) {
   await page.waitForTimeout(3000);
   await shot(page, 'ac14-delivered');
   check('ac14: all delivered', !!done, `${await paneOf(page).locator('[data-queued]').count()} left`);
-  const after = await logTexts(page, 'thread');
-  const jMsg = after.findIndex((t) => t.includes(msg));
-  const jCmd = after.findIndex((t) => t.includes('/status-report'));
-  check(
-    'ac14: delivered thread message and command at the same place in the thread',
-    iMsg >= 0 && jMsg === iMsg && JSON.stringify(after.slice(0, iMsg)) === JSON.stringify(before.slice(0, iMsg)) && jCmd > jMsg,
-    `msg ${iMsg} -> ${jMsg}, cmd ${iCmd} -> ${jCmd}`
-  );
+  ac14Place(before, await logTexts(page, 'thread'), msg);
   const main = await logTexts(page, 'main');
   // only this run's: earlier runs left theirs in the log
   const mainCmds = (await cmdRows()) - mainCmds0;
@@ -1294,15 +1302,40 @@ async function f6(page) {
   );
   // a reconnect (the API server restarted, the socket reopens and replays the history): same place
   if (process.env.RESTART_SERVER) {
+    // N3: the open thread's log scrolled up too
+    const tg = await logGeo(page, 'thread');
+    if (tg && tg.height > tg.client + 120) {
+      await page.mouse.move(tg.box.x + tg.box.w / 2, tg.box.y + tg.box.h / 2);
+      for (let i = 0; i < 3; i++) {
+        await page.mouse.wheel(0, -150);
+        await page.waitForTimeout(60);
+      }
+      await page.waitForTimeout(800);
+    }
+    const tBefore = await logGeo(page, 'thread');
+    check('f6/N3: thread log scrolled up (precondition)', !!tBefore && tBefore.fromBottom > 40, JSON.stringify(tBefore && { fromBottom: tBefore.fromBottom, height: tBefore.height }));
     const before = await logGeo(page, 'main');
     const n = errors.length;
+    const since = Date.now();
     execFileSync('bash', [process.env.RESTART_SERVER], { stdio: 'ignore', timeout: 120000 });
     await page.waitForTimeout(20000);
     // while the server restarts and the page reconnects, requests and sockets fail by design (proxy
-    // 500/502, 404 for the old chat id, ws handshake): kept apart from the 0-errors check, in a file
+    // 500/502, ws handshake): kept apart from the 0-errors check, in a file
     const restart = errors.splice(n);
     fs.writeFileSync(`${OUT}/${tag}-f6-restart-errors.json`, JSON.stringify(restart, null, 1));
     console.log(`  f6 reconnect: ${restart.length} console errors during the restart window (20 s), kept apart`);
+    const old404 = restart.filter((e) => /404/.test(e) && /\/api\/agents\/chat\/[\w-]+\/status/.test(e));
+    check('f6/item 8: no status poll of a gone chat id (404) in the restart window', old404.length === 0, JSON.stringify(old404.slice(0, 3)));
+    const tAgain = await logGeo(page, 'thread');
+    check(
+      'f6/N3: after the restart the thread log keeps its place (±4 px), still scrolled up',
+      !!tBefore && !!tAgain && Math.abs(tAgain.top - tBefore.top) <= 4 && tAgain.fromBottom > 40,
+      JSON.stringify({ before: tBefore?.top, after: tAgain?.top, fromBottom: tAgain?.fromBottom })
+    );
+    // a status poll runs every 15 s: one more round after the window, it asks the reopened view
+    await page.waitForTimeout(20000);
+    const polled = statusOk.filter((s) => s.at > since);
+    check('f6/item 8: the status line polls the reopened view (200) after the restart', polled.length > 0, JSON.stringify(polled.slice(-2)));
     const again = await logGeo(page, 'main');
     await shot(page, 'f6-reconnect-scrolled-up');
     check(
@@ -1366,12 +1399,30 @@ async function f10(page) {
   check('f10: menu rename saves, still closed', t?.name.task === `Closed menu ${RUN}` && t.closed, JSON.stringify(t?.name));
 }
 
+const statusOk = [];
 (async () => {
+  if (process.env.FAULT === 'n6') {
+    // the waiting command one row further down after delivery: must FAIL
+    ac14Place(['a', 'thread msg', '/status-report'], ['a', 'thread msg', 'x', '/status-report'], 'thread msg');
+    console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
+    process.exit(fails ? 1 : 0);
+  }
   const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, headless: true });
   const ctx = await browser.newContext({ viewport: { width: W, height: 900 } });
   const page = await ctx.newPage();
   page.on('console', (m) => m.type() === 'error' && errors.push(`${m.text()} ${m.location()?.url ?? ''}`.trim()));
   page.on('pageerror', (e) => errors.push(e.message));
+  page.on('response', (r) => {
+    if (r.status() === 200 && /\/api\/agents\/chat\/[\w-]+\/status/.test(r.url())) statusOk.push({ at: Date.now(), url: r.url().replace(/^.*\/chat\//, '') });
+  });
+  if (process.env.FAULT === 'n4')
+    await ctx.addInitScript(() =>
+      document.addEventListener('DOMContentLoaded', () => {
+        const s = document.createElement('style');
+        s.textContent = '[data-chat-footer]{margin-right:12px!important}';
+        document.head.append(s);
+      })
+    );
   try {
     if (on('ac7')) await ac7();
     await openLayout(page);
@@ -1409,12 +1460,7 @@ async function f10(page) {
   } finally {
     if (worker) console.log(`  stop ${worker}: ${cli(ORCH, 'stop', worker).out}`);
   }
-  // after a server restart (f6 reconnect) a pane's status line keeps polling its old chat id (404):
-  // a separate open point, counted here but not this check's
-  const stale = (e) => process.env.RESTART_SERVER && /status of 404 .*\/api\/agents\/chat\/[\w-]+\/status/.test(e);
-  if (errors.some(stale)) console.log(`  after the restart: ${errors.filter(stale).length} status polls of an old chat id (404)`);
-  const real = errors.filter((e) => !stale(e));
-  check('0 console errors', real.length === 0, JSON.stringify(real.slice(0, 5)));
+  check('0 console errors', errors.length === 0, JSON.stringify(errors.slice(0, 5)));
   await ctx.close();
   await browser.close();
   console.log(fails ? `FAILED ${fails}` : 'ALL PASS');

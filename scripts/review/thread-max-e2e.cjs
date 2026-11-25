@@ -8,7 +8,8 @@
 // only in a git work tree: the orchestrator directory must be one.
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/thread-max-e2e.cjs <baseUrl> <outDir> [width]
 // (CHROME=<path> to use a given Chromium; SUBMIT=enter if the chat setting is "Enter sends";
-// SPLIT=down for stacked panes; VIDEO=<dir> records the run)
+// SPLIT=down for stacked panes; VIDEO=<dir> records the run; FAULT=n5 raises a synthetic console
+// error and page error: the run must FAIL)
 const pw = (() => {
   try {
     return require('playwright');
@@ -601,8 +602,16 @@ async function composerChecks(page, i, name) {
   const page = await ctx.newPage();
   const errors = [];
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${BASE}/agents`);
   await page.waitForTimeout(5000);
+  if (process.env.FAULT === 'n5')
+    await page.evaluate(() => {
+      console.error('synthetic n5 console error');
+      setTimeout(() => {
+        throw new Error('synthetic n5 page error');
+      });
+    });
   await page.evaluate(() => {
     localStorage.removeItem('devOrbitChatThreadComposerHeight');
     localStorage.removeItem('agents-ui:threads-sidebar');
@@ -695,7 +704,7 @@ async function composerChecks(page, i, name) {
   await heightCapCheck(page, 0, 'tab');
   await tallInputChecks(page, 0, 'tab');
 
-  console.log('console errors', JSON.stringify(errors));
+  check('0 console errors', errors.length === 0, JSON.stringify(errors.slice(0, 5)));
   await ctx.close();
   await browser.close();
   console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
