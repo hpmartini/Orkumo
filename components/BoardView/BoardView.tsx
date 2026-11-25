@@ -236,22 +236,19 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
     <div className="relative flex flex-1 h-full min-h-0 bg-gray-900">
       <main className="flex-1 min-w-0 flex flex-col">
         <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-1.5 min-h-12 border-b border-gray-700 bg-gray-900 shrink-0">
-          {/* Choice shrinks to its container by default: header controls keep their width */}
-          <div className="flex items-center gap-3 shrink-0">
-            <Choice
-              value={sliceKind}
-              onChange={(v) => selectSlice({ sliceKind: v, selected: null })}
-              options={SLICE_KINDS.map((k) => ({ value: k, label: SLICE_KIND_LABELS[k] }))}
-              label="Slice by"
-            />
-            <SlicePicker
-              slices={slices}
-              kindLabel={SLICE_KIND_LABELS[sliceKind]}
-              selected={selected}
-              allCount={allCount}
-              onSelect={(value) => selectSlice({ sliceKind, selected: value })}
-            />
-          </div>
+          <Choice
+            value={sliceKind}
+            onChange={(v) => selectSlice({ sliceKind: v, selected: null })}
+            options={SLICE_KINDS.map((k) => ({ value: k, label: SLICE_KIND_LABELS[k] }))}
+            label="Slice by"
+          />
+          <SlicePicker
+            slices={slices}
+            kindLabel={SLICE_KIND_LABELS[sliceKind]}
+            selected={selected}
+            allCount={allCount}
+            onSelect={(value) => selectSlice({ sliceKind, selected: value })}
+          />
           {selectedEntry &&
             (selectedEntry.hidden ? (
               <button
@@ -283,15 +280,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
                 </button>
               </>
             ))}
-          <div className="shrink-0">
-            <Choice
-              value={agentFilter ?? ''}
-              onChange={(v) => setParam('agent', v || null)}
-              options={agentOptions}
-              label="Filter by agent"
-              className={choiceMode(agentOptions.length) === 'pills' ? 'flex-nowrap' : 'max-w-48'}
-            />
-          </div>
+          <Choice
+            value={agentFilter ?? ''}
+            onChange={(v) => setParam('agent', v || null)}
+            options={agentOptions}
+            label="Filter by agent"
+            // the pill row, unlike the menu root, shrinks by default
+            className={
+              choiceMode(agentOptions.length) === 'pills' ? 'flex-nowrap shrink-0' : 'max-w-48'
+            }
+          />
           <span className="text-xs text-gray-400 shrink-0">
             {`${shownItems(visible, options, now).length} items`}
           </span>
