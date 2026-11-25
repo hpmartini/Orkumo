@@ -6,8 +6,10 @@
  */
 import crypto from 'crypto';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import path from 'path';
 import readline from 'readline';
+import { unwrapPasted } from './chatTranscripts.js';
 import { httpError, writeAtomic } from './orchestratorReports.js';
 
 const NAME_MAX = 60;
@@ -17,7 +19,10 @@ export function cleanName(text, max = NAME_MAX) {
   const line = String(text ?? '')
     // eslint-disable-next-line no-control-regex
     .replace(/[\x00-\x1f\x7f[\]"“”„`]/g, ' ')
+    .replace(/\*\*/g, '')
     .replace(/\s+/g, ' ')
+    // Markdown of an answer's first line: list marker or heading hashes
+    .replace(/^\s*(?:[-*]\s+|#+\s*)+/, '')
     .trim();
   return line.length > max ? `${line.slice(0, max - 1).trimEnd()}…` : line;
 }
@@ -118,83 +123,631 @@ const MAX_COMMANDS = 100;
 export const threadOwnerKey = (session) =>
   (session.id.startsWith('interactive-') && session.sessionId) || session.id;
 
+/** Tidy-up actions an orchestrator can take back (`orkumo thread undo`, "Undo tidy-up") */
+const UNDO_MAX = 20;
+const MIN_REF = 4;
+const clone = (v) => JSON.parse(JSON.stringify(v));
+
+/** The thread `ref` names: its id or a unique id prefix (as `orkumo thread list` prints them) */
+export function findThread(threads, ref) {
+  const exact = threads.find((t) => t.id === ref);
+  if (exact) return exact;
+  const hits = ref.length >= MIN_REF ? threads.filter((t) => t.id.startsWith(ref)) : [];
+  if (hits.length === 1) return hits[0];
+  throw httpError(
+    404,
+    hits.length ? `"${ref}" matches ${hits.length} threads` : `No thread "${ref}"`
+  );
+}
+
+/** Final thread of `id` along the merge chain; a cycle stops where it closes (as agents-ui) */
+export function mergeTarget(id, merged) {
+  const seen = new Set();
+  let to = id;
+  while (merged[to] && !seen.has(to)) {
+    seen.add(to);
+    to = merged[to];
+  }
+  return to;
+}
+
+/** "Project · Topic" → name; one part alone names both (the UI shows a doubled part once) */
+export function parseTitle(title) {
+  const at = title.indexOf(' · ');
+  const project = cleanName(at === -1 ? title : title.slice(0, at));
+  const task = cleanName(at === -1 ? title : title.slice(at + 3)) || project;
+  if (!project) throw httpError(400, 'A thread name needs a project');
+  return { project, task };
+}
+
+/**
+ * Thread file of an orchestrator: its threads, the tidy-up layer over the transcript
+ * (`overrides.entries`: entry key → thread id or 'main'; `overrides.merged`: source → target) and
+ * the undo stack of earlier states of both. The transcript itself is never written
+ */
 export function createThreadStore(dir) {
   const threadsDir = path.join(dir, 'threads');
   const fileOf = (id) => path.join(threadsDir, `${id}.json`);
-  const read = (id) => {
+  const load = (id) => {
+    let doc = {};
     try {
-      return JSON.parse(fs.readFileSync(fileOf(id), 'utf8')).threads ?? [];
+      doc = JSON.parse(fs.readFileSync(fileOf(id), 'utf8')) ?? {};
     } catch {
-      return [];
+      doc = {};
     }
+    return {
+      threads: doc.threads ?? [],
+      overrides: { entries: { ...doc.overrides?.entries }, merged: { ...doc.overrides?.merged } },
+      undo: doc.undo ?? [],
+    };
   };
-  const save = (id, threads) => {
+  const store = (id, doc) => {
     fs.mkdirSync(threadsDir, { recursive: true });
-    writeAtomic(fileOf(id), { threads });
+    writeAtomic(fileOf(id), doc);
+  };
+  /** Reads, changes and writes without a pause, so two requests never interleave */
+  const change = (id, fn) => {
+    const doc = load(id);
+    const before = JSON.stringify(doc);
+    const result = fn(doc);
+    // polls change nothing most of the time: the file is only written when it changes
+    if (JSON.stringify(doc) !== before) store(id, doc);
+    return result;
+  };
+
+  const newThread = (threads, { name, binding, parentKey, agents, now, readAt, autoName }) => {
+    const clean = { project: cleanName(name.project), task: cleanName(name.task) || 'Thread' };
+    const taken = new Set(threads.flatMap((t) => [t.tag, tagOf(t.name)]));
+    let unique = clean;
+    for (let i = 2; taken.has(tagOf(unique)); i++)
+      unique = { ...clean, task: `${clean.task} ${i}` };
+    return {
+      id: crypto.randomUUID(),
+      tag: tagOf(unique),
+      name: unique,
+      binding,
+      parentKey,
+      agents: [...new Set(agents)],
+      createdAt: now,
+      readAt,
+      closed: false,
+      commands: [],
+      ...(autoName ? { autoName: true } : {}),
+    };
   };
 
   return {
-    list: read,
+    list: (id) => load(id).threads,
+    /** Threads, overrides and whether a tidy-up action can be taken back */
+    state(id) {
+      const { threads, overrides, undo } = load(id);
+      return { threads, overrides, canUndo: undo.length > 0 };
+    },
     /**
-     * A thread for `binding` (the existing one, opened again, its links grown) or a new one; an
-     * unbound name taken already gets a number
+     * A thread for `binding` (the existing one, opened again, its links grown) or a new one; a
+     * name taken already gets a number. `autoName`: named by the server, renamed on later loads
      */
     create(
       orchestratorId,
-      { name, binding = null, parentKey = null, agents = [], now = Date.now() }
-    ) {
-      const threads = read(orchestratorId);
-      const existing = binding && threads.find((t) => sameBinding(t.binding, binding));
-      if (existing) {
-        existing.closed = false;
-        existing.agents = [...new Set([...existing.agents, ...agents])];
-        save(orchestratorId, threads);
-        return existing;
+      {
+        name,
+        binding = null,
+        parentKey = null,
+        agents = [],
+        now = Date.now(),
+        readAt = now,
+        autoName = false,
       }
-      const clean = { project: cleanName(name.project), task: cleanName(name.task) || 'Thread' };
-      const taken = new Set(threads.map((t) => t.tag));
-      let unique = clean;
-      for (let i = 2; taken.has(tagOf(unique)); i++)
-        unique = { ...clean, task: `${clean.task} ${i}` };
-      const thread = {
-        id: crypto.randomUUID(),
-        tag: tagOf(unique),
-        name: unique,
-        binding,
-        parentKey,
-        agents: [...new Set(agents)],
-        createdAt: now,
-        readAt: now,
-        closed: false,
-        commands: [],
-      };
-      save(orchestratorId, [...threads, thread]);
-      return thread;
+    ) {
+      return change(orchestratorId, (doc) => {
+        const existing = binding && doc.threads.find((t) => sameBinding(t.binding, binding));
+        if (existing) {
+          existing.closed = false;
+          existing.agents = [...new Set([...existing.agents, ...agents])];
+          return existing;
+        }
+        const thread = newThread(doc.threads, {
+          name,
+          binding,
+          parentKey,
+          agents,
+          now,
+          readAt,
+          autoName,
+        });
+        doc.threads.push(thread);
+        return thread;
+      });
     },
     /**
-     * Close or open, mark read (forward only), link more workers. `command` (`/name`): sent from
-     * the thread without its tag (the CLI runs it only as the first word); marked with the server
-     * time, its first turn after it belongs to the thread. `cancelCommand`: drop the latest mark
-     * (the send failed)
+     * Close or open, mark read (forward only), link more workers, rename. A rename is the user's
+     * (UI): it changes the shown name only (the tag stays) and is never overwritten again.
+     * `command` (`/name`): sent from the thread without its tag (the CLI runs it only as the first
+     * word); marked with the server time, its first turn after it belongs to the thread.
+     * `cancelCommand`: drop the latest mark (the send failed)
      */
     update(
       orchestratorId,
       threadId,
-      { closed, readAt, agents, command, cancelCommand, now = Date.now() }
+      { closed, readAt, agents, name, command, cancelCommand, now = Date.now() }
     ) {
-      const threads = read(orchestratorId);
-      const thread = threads.find((t) => t.id === threadId);
-      if (!thread) throw httpError(404, 'No thread with this id');
-      if (typeof closed === 'boolean') thread.closed = closed;
-      if (typeof readAt === 'number') thread.readAt = Math.max(thread.readAt, readAt);
-      if (agents?.length) thread.agents = [...new Set([...thread.agents, ...agents])];
-      if (command)
-        thread.commands = [...(thread.commands ?? []), { at: now, command }].slice(-MAX_COMMANDS);
-      if (cancelCommand) thread.commands = (thread.commands ?? []).slice(0, -1);
-      save(orchestratorId, threads);
-      return thread;
+      return change(orchestratorId, (doc) => {
+        const thread = doc.threads.find((t) => t.id === threadId);
+        if (!thread) throw httpError(404, 'No thread with this id');
+        if (name) {
+          const clean = { project: cleanName(name.project), task: cleanName(name.task) };
+          if (!clean.task) throw httpError(400, 'A thread name needs a task');
+          thread.name = clean;
+          thread.renamed = true;
+          delete thread.autoName;
+        }
+        if (typeof closed === 'boolean') thread.closed = closed;
+        if (typeof readAt === 'number') thread.readAt = Math.max(thread.readAt, readAt);
+        if (agents?.length) thread.agents = [...new Set([...thread.agents, ...agents])];
+        if (command)
+          thread.commands = [...(thread.commands ?? []), { at: now, command }].slice(-MAX_COMMANDS);
+        if (cancelCommand) thread.commands = (thread.commands ?? []).slice(0, -1);
+        return thread;
+      });
+    },
+    /** Server-made names (`autoName`), by thread id; never a thread the user renamed */
+    autoRename(orchestratorId, names) {
+      return change(orchestratorId, (doc) => {
+        for (const thread of doc.threads) {
+          const name = names.get(thread.id);
+          if (!name || thread.renamed) continue;
+          thread.name = name;
+          thread.autoName = true;
+        }
+        return doc.threads;
+      });
+    },
+    /**
+     * One unbound thread per agent no thread links yet (closed ones count): what `orkumo start`
+     * and the transcript backfill open. `start`: only an unbound thread counts, and bound threads
+     * a poll linked the new agent to meanwhile let go of it (its own thread wins)
+     * @param {{ agents: string[], name: { project: string, task: string }, now: number, readAt?: number }[]} wanted
+     */
+    addAgentThreads(orchestratorId, wanted, { start = false } = {}) {
+      return change(orchestratorId, (doc) => {
+        const added = [];
+        for (const init of wanted) {
+          const linking = doc.threads.filter((t) =>
+            t.agents.some((a) => linksAgent(a, init.agents))
+          );
+          if (linking.some((t) => !start || !t.binding)) continue;
+          for (const t of linking) t.agents = t.agents.filter((a) => !linksAgent(a, init.agents));
+          const thread = newThread(doc.threads, {
+            ...init,
+            binding: null,
+            parentKey: null,
+            readAt: init.readAt ?? init.now,
+            // follows the agent's name: an omp session is named after its prompt until it titles itself
+            autoName: true,
+          });
+          doc.threads.push(thread);
+          added.push(thread);
+        }
+        return added;
+      });
+    },
+    /**
+     * A tidy-up action of the orchestrator: `fn(doc)` changes threads and overrides (throws to
+     * refuse, nothing stored); the state before goes on the undo stack under `label`
+     */
+    tidy(orchestratorId, label, fn) {
+      return change(orchestratorId, (doc) => {
+        const before = { label, threads: clone(doc.threads), overrides: clone(doc.overrides) };
+        fn(doc);
+        doc.undo = [...doc.undo, before].slice(-UNDO_MAX);
+        return doc;
+      });
+    },
+    /**
+     * Takes back the last tidy-up action: threads and overrides as they were, except what the user
+     * did since (a manual rename, read marks) and threads opened since. Its label
+     */
+    undo(orchestratorId) {
+      return change(orchestratorId, (doc) => {
+        const last = doc.undo.pop();
+        if (!last) throw httpError(409, 'Nothing to undo');
+        const current = new Map(doc.threads.map((t) => [t.id, t]));
+        const restored = last.threads.map((t) => {
+          const now = current.get(t.id);
+          if (!now) return t;
+          if (now.readAt > t.readAt) t.readAt = now.readAt;
+          if (now.renamed) {
+            t.name = now.name;
+            t.renamed = true;
+            delete t.autoName;
+          }
+          return t;
+        });
+        const known = new Set(restored.map((t) => t.id));
+        doc.threads = [...restored, ...doc.threads.filter((t) => !known.has(t.id))];
+        doc.overrides = last.overrides;
+        return last.label;
+      });
     },
   };
+}
+
+/** Tidy-up actions on a thread file (`createThreadStore().tidy`); each throws to refuse */
+export const tidyActions = {
+  merge(doc, targetRef, sourceRefs) {
+    const target = findThread(doc.threads, targetRef);
+    const final = mergeTarget(target.id, doc.overrides.merged);
+    for (const ref of sourceRefs) {
+      const source = findThread(doc.threads, ref);
+      if (mergeTarget(source.id, doc.overrides.merged) === final)
+        throw httpError(400, `Thread ${source.id} is the target or already merged into it`);
+      doc.overrides.merged[source.id] = final;
+    }
+  },
+  /** `keys`: entry keys the transcript holds (the route checks); `to`: thread ref or 'main' */
+  move(doc, keys, to) {
+    const target =
+      to === 'main' ? 'main' : mergeTarget(findThread(doc.threads, to).id, doc.overrides.merged);
+    for (const key of keys) doc.overrides.entries[key] = target;
+  },
+  rename(doc, ref, title) {
+    const thread = findThread(doc.threads, ref);
+    if (thread.renamed)
+      throw httpError(409, `Thread ${thread.id} was renamed by the user: its name stays`);
+    thread.name = parseTitle(title);
+    thread.autoName = false;
+  },
+  /** Links `agents` here only (other threads let go of them), or binds a status task */
+  bind(doc, ref, { agents, binding }) {
+    const thread = findThread(doc.threads, ref);
+    if (agents) {
+      for (const t of doc.threads)
+        if (t !== thread) t.agents = t.agents.filter((a) => !linksAgent(a, agents));
+      thread.agents = [...new Set([...thread.agents, ...agents])];
+    }
+    if (binding) thread.binding = binding;
+  },
+  close(doc, ref) {
+    findThread(doc.threads, ref).closed = true;
+  },
+};
+
+/** A sender id of a message header (often shortened) names this linked agent; as the UI routes */
+const MIN_ID = 8;
+const linksAgent = (linked, ids) =>
+  ids.some((id) => linked === id || (id.length >= MIN_ID && linked.startsWith(id)));
+
+/** First line `orkumo send` puts before a message; the German form of older transcripts too */
+const SENDER_RE = /^\[(?:from agent|von Agent) (\S+)(?: "([^"]*)"| „([^“]*)“)? via orkumo send\]/;
+
+/** Text the user side typed (Claude `user` record, omp/pi `message` of role user), not tool output */
+function typedText(rec) {
+  const msg = rec?.message;
+  const typed = (rec?.type === 'user' || rec?.type === 'message') && msg?.role === 'user';
+  if (!typed) return '';
+  if (typeof msg.content === 'string') return msg.content;
+  return Array.isArray(msg.content)
+    ? msg.content.map((b) => (b?.type === 'text' ? b.text || '' : '')).join('\n')
+    : '';
+}
+
+/** Sender of one transcript line typed by `orkumo send`, null for anything else */
+export function senderOfLine(line) {
+  if (!line.includes('via orkumo send')) return null;
+  let rec;
+  try {
+    rec = JSON.parse(line);
+  } catch {
+    return null;
+  }
+  const m = SENDER_RE.exec(unwrapPasted(typedText(rec)).trimStart());
+  const ts = Date.parse(rec.timestamp);
+  return m && Number.isFinite(ts) ? { id: m[1], name: m[2] ?? m[3] ?? null, ts } : null;
+}
+
+const SCAN_CHUNK = 4 * 1024 * 1024;
+
+/**
+ * Senders of `orkumo send` messages in transcripts, by id with name and first time. Remembers
+ * the offset per file and reads only what was appended since (the thread list is polled)
+ */
+export function createSenderScanner() {
+  const files = new Map();
+  return async function senders(file) {
+    const { size } = await fsp.stat(file);
+    let state = files.get(file);
+    // a shorter file was rewritten: start over
+    if (!state || size < state.offset) state = { offset: 0, senders: new Map() };
+    files.set(file, state);
+    if (size === state.offset) return state.senders;
+    const handle = await fsp.open(file, 'r');
+    try {
+      let pos = state.offset;
+      let pending = Buffer.alloc(0);
+      while (pos < size) {
+        const chunk = Buffer.alloc(Math.min(SCAN_CHUNK, size - pos));
+        const { bytesRead } = await handle.read(chunk, 0, chunk.length, pos);
+        if (!bytesRead) break;
+        pos += bytesRead;
+        pending = Buffer.concat([pending, chunk.subarray(0, bytesRead)]);
+        // whole lines only: a line still being written is read again next time
+        const end = pending.lastIndexOf(10);
+        if (end === -1) continue;
+        for (const line of pending.subarray(0, end).toString('utf8').split('\n')) {
+          const sender = senderOfLine(line);
+          if (sender && !state.senders.has(sender.id)) state.senders.set(sender.id, sender);
+        }
+        pending = pending.subarray(end + 1);
+        state.offset = pos - pending.length;
+      }
+    } finally {
+      await handle.close();
+    }
+    return state.senders;
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// Entries of the orchestrator chat, routed as agents-ui routes them (utils/chatThreads.ts
+// `routeThreads`, utils/chatEvents.ts `reduceChat` + `groupAnswers`); `orkumo thread list/messages`
+// count and print them, the tidy-up layer addresses them by key.
+// ---------------------------------------------------------------------------------------------
+
+const TEXT_MAX = 4000;
+const TAG_START = '[Thread: ';
+/** `orkumo send` header as agents-ui reads it (chatEvents.ts AGENT_MESSAGE_RE) */
+const AGENT_MESSAGE_RE =
+  /^\[(?:(?:from agent|von Agent) (\S+)(?: "([^"]*)"| „([^“]*)“)? via orkumo send|via orkumo send, (?:sender unknown|Absender unbekannt))\]\n*/;
+
+/**
+ * Chat items of a transcript, read incrementally (the file only grows; a shorter one starts
+ * over). Entry key = the key the chat view routes by: a user message's transcript key
+ * (`devorbit_user.key`: Claude `uuid`, omp/pi record `id`), an answer's first assistant message id
+ * (Claude `message.id`, omp/pi record `id`). Recaps and stray results are items too (they end a
+ * turn) but no entries: their keys are positions in the client's state
+ */
+export function createEntryScanner() {
+  const files = new Map();
+  const fold = (state, event) => {
+    if (event.type === 'devorbit_user') {
+      state.items.push({
+        kind: 'user',
+        key: event.key || `u${state.count}`,
+        text: String(event.text ?? '').slice(0, TEXT_MAX),
+        ts: event.ts,
+      });
+      state.count++;
+      state.last = 'user';
+    } else if (event.type === 'assistant' && !event.parent_tool_use_id) {
+      const content = Array.isArray(event.message?.content) ? event.message.content : null;
+      if (!content) return;
+      const id = event.message.id || `a${state.count}`;
+      const text = content
+        .filter((b) => b?.type === 'text' && typeof b.text === 'string')
+        .map((b) => b.text);
+      // the same message id again (one event per content block) joins its message
+      let item = state.byMessage.get(id);
+      if (!item) {
+        state.count++;
+        if (state.last === 'assistant' && state.open) item = state.open;
+        else {
+          item = { kind: 'answer', key: id, text: '', first: '', ts: event.ts };
+          state.items.push(item);
+          state.open = item;
+        }
+        state.byMessage.set(id, item);
+        state.last = 'assistant';
+      }
+      for (const t of text) {
+        if (!item.first && t.trim()) item.first = t.trimStart().slice(0, TEXT_MAX);
+        if (item.text.length < TEXT_MAX)
+          item.text = (item.text ? `${item.text}\n\n${t}` : t).slice(0, TEXT_MAX);
+      }
+    } else if (event.type === 'result') {
+      if (state.last !== 'assistant') state.items.push({ kind: 'result', key: `r${state.count}` });
+      state.count++;
+      state.last = 'result';
+      state.open = null;
+    } else if (event.type === 'system' && event.subtype === 'away_summary' && event.content) {
+      state.items.push({ kind: 'recap', key: `c${state.count}` });
+      state.count++;
+      state.last = 'recap';
+      state.open = null;
+    }
+  };
+  return async function entries(file, reader) {
+    const { size } = await fsp.stat(file);
+    let state = files.get(file);
+    if (!state || size < state.offset)
+      state = { offset: 0, items: [], byMessage: new Map(), open: null, last: null, count: 0 };
+    files.set(file, state);
+    if (size === state.offset) return state.items;
+    const handle = await fsp.open(file, 'r');
+    try {
+      let pos = state.offset;
+      let pending = Buffer.alloc(0);
+      while (pos < size) {
+        const chunk = Buffer.alloc(Math.min(SCAN_CHUNK, size - pos));
+        const { bytesRead } = await handle.read(chunk, 0, chunk.length, pos);
+        if (!bytesRead) break;
+        pos += bytesRead;
+        pending = Buffer.concat([pending, chunk.subarray(0, bytesRead)]);
+        const end = pending.lastIndexOf(10);
+        if (end === -1) continue;
+        const lines = pending.subarray(0, end).toString('utf8').split('\n');
+        for (const event of reader.historyEvents(lines)) fold(state, event);
+        pending = pending.subarray(end + 1);
+        state.offset = pos - pending.length;
+      }
+    } finally {
+      await handle.close();
+    }
+    return state.items;
+  };
+}
+
+/** Routing key of a chat item key: without the history page prefixes `h<before>:` */
+export const entryKey = (key) => String(key ?? '').replace(/^(?:h\d+:)+/, '');
+
+const sameAgent = (linked, sender) =>
+  sender.length >= MIN_ID && (linked === sender || linked.startsWith(sender));
+
+/** Thread of one item by tag or linked agent, null for the main chat (agents-ui `threadOf`) */
+function threadOf(item, threads) {
+  const byTag = (text) => {
+    const hits = threads.filter((t) => text.startsWith(t.tag));
+    return hits.length === 1 ? hits[0].id : null;
+  };
+  if (item.kind === 'answer') return byTag(item.first);
+  if (item.kind !== 'user') return null;
+  const sent = AGENT_MESSAGE_RE.exec(item.text);
+  if (!sent) return byTag(item.text.trimStart());
+  const tagged = byTag(item.text.slice(sent[0].length).trimStart());
+  if (tagged) return tagged;
+  const sender = sent[1];
+  if (!sender) return null;
+  const linked = threads.filter(
+    (t) =>
+      !t.closed &&
+      (item.ts === undefined || item.ts >= t.createdAt) &&
+      t.agents.some((a) => sameAgent(a, sender))
+  );
+  return linked.length === 1 ? linked[0].id : null;
+}
+
+/** A logged command is the marked one, with or without the plugin prefix (agents-ui `sameCommand`) */
+const sameCommand = (logged, marked) => logged === marked || logged.endsWith(`:${marked.slice(1)}`);
+
+/**
+ * Command prompts the threads' marks claim, as agents-ui `commandTurns` on the whole history: each
+ * mark takes the first prompt at or after it that is its command; a tidy-up move of that prompt
+ * still uses the mark up (the move decides where it goes)
+ */
+function commandTurns(items, threads) {
+  const claimed = new Map();
+  const marks = threads
+    .flatMap((t) => (t.commands ?? []).map((m) => ({ ...m, id: t.id })))
+    .sort((a, b) => a.at - b.at);
+  for (const mark of marks) {
+    const own = items.find(
+      (i) =>
+        i.kind === 'user' &&
+        i.ts !== undefined &&
+        i.ts >= mark.at &&
+        !claimed.has(i) &&
+        !AGENT_MESSAGE_RE.test(i.text) &&
+        sameCommand(/^\/\w[\w:.-]*(?=\s|$)/.exec(i.text.trim())?.[0] ?? '', mark.command) &&
+        !threadOf(i, threads)
+    );
+    if (own) claimed.set(own, mark.id);
+  }
+  return claimed;
+}
+
+/**
+ * Thread id (null: main chat) of every item, as agents-ui `routeThreads(items, threads, true,
+ * undefined, overrides)`: an override wins (one to an unknown thread falls back to the rules),
+ * then command marks, tag, linked agent and turn; merged threads resolve to their final target
+ */
+export function routeEntries(items, threads, overrides) {
+  const known = new Set(threads.map((t) => t.id));
+  const merged = overrides?.merged ?? {};
+  const target = (id) => {
+    if (!id) return null;
+    const to = mergeTarget(id, merged);
+    return to !== id && known.has(to) ? to : id;
+  };
+  const commands = commandTurns(items, threads);
+  let prev = null;
+  return items.map((item) => {
+    const untagged = item.kind === 'answer' && !item.first.startsWith(TAG_START);
+    const moved = overrides?.entries?.[entryKey(item.key)];
+    const id =
+      moved === 'main'
+        ? null
+        : moved && known.has(moved)
+          ? target(moved)
+          : !threads.length
+            ? null
+            : commands.has(item)
+              ? target(commands.get(item))
+              : untagged
+                ? (target(threadOf(item, threads)) ?? prev)
+                : target(threadOf(item, threads));
+    prev = id;
+    return id;
+  });
+}
+
+/** Entries (user messages and answers) with their thread: what the tidy-up CLI reads */
+export const routedEntries = (items, threads, overrides) => {
+  const routed = routeEntries(items, threads, overrides);
+  return items.flatMap((item, i) =>
+    item.kind === 'user' || item.kind === 'answer'
+      ? [
+          {
+            key: item.key,
+            kind: item.kind,
+            text: item.text,
+            ts: item.ts ?? null,
+            thread: routed[i],
+          },
+        ]
+      : []
+  );
+};
+
+// ---------------------------------------------------------------------------------------------
+// Names (AC-9): after the project, never "Answer HH:MM · <first words>"
+// ---------------------------------------------------------------------------------------------
+
+/** Old client-made names ("Answer 18:39 · …"): renamed like server-made ones */
+const LEGACY_NAME_RE = /^Answer \d{1,2}:\d{2}$/;
+export const isAutoNamed = (thread) =>
+  !thread.renamed && (thread.autoName === true || LEGACY_NAME_RE.test(thread.name.project));
+
+const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+/**
+ * Display name of the first known project `text` mentions (earliest position, then the longest
+ * alias), case-insensitive on word boundaries (letters, digits, `_` and `-` count as word)
+ * @param {{ name: string, aliases: string[] }[]} projects
+ */
+export function mentionedProject(text, projects) {
+  let best = null;
+  for (const project of projects)
+    for (const alias of project.aliases) {
+      if (alias.length < 3) continue;
+      const re = new RegExp(`(?<![\\p{L}\\p{N}_-])${escapeRe(alias)}(?![\\p{L}\\p{N}_-])`, 'iu');
+      const m = re.exec(text);
+      if (m && (!best || m.index < best.at || (m.index === best.at && alias.length > best.len)))
+        best = { at: m.index, len: alias.length, name: project.name };
+    }
+  return best?.name ?? null;
+}
+
+/**
+ * Name of a server-named thread, in this order: the agent it links (its project and name), its
+ * status task, the first project `text` names, else the provisional `fallback`
+ * @param {{ agentName: (id: string) => ({ project: string, task: string } | null),
+ *   report: object|null, projects: { name: string, aliases: string[] }[], text: string,
+ *   fallback: { project: string, task: string } }} ctx
+ */
+export function threadName(thread, { agentName, report, projects, text, fallback }) {
+  for (const id of thread.agents ?? []) {
+    const name = agentName(id);
+    if (name) return name;
+  }
+  const b = thread.binding;
+  const project = b && report?.projects.find((p) => p.id === b.project);
+  const task = b?.task && project?.tasks.find((t) => t.id === b.task);
+  if (task) return { project: cleanName(project.name), task: cleanName(task.title) };
+  const mentioned = text && mentionedProject(text, projects);
+  if (mentioned) {
+    const name = cleanName(mentioned);
+    return { project: name, task: name };
+  }
+  return fallback;
 }
 
 /** Which of `needles` occur in the files, read line by line (transcripts run to hundreds of MB) */
@@ -226,13 +779,15 @@ async function needlesIn(files, needles) {
  */
 export async function returnMisplacedThreads(dir, role, holders) {
   const fileOf = (id) => path.join(dir, 'threads', `${id}.json`);
-  const read = (id) => {
+  // the whole file: its tidy-up layer and undo stack stay where they are
+  const load = (id) => {
     try {
-      return JSON.parse(fs.readFileSync(fileOf(id), 'utf8')).threads ?? [];
+      return JSON.parse(fs.readFileSync(fileOf(id), 'utf8')) ?? {};
     } catch {
-      return [];
+      return {};
     }
   };
+  const read = (id) => load(id).threads ?? [];
   // exact JSON forms: a bare 8-hex id would match by chance in a large transcript
   const keyNeedle = (t) => t.parentKey && `"id":${JSON.stringify(t.parentKey)}`;
   const tagNeedle = (t) => JSON.stringify(t.tag).slice(1, -1);
@@ -253,15 +808,17 @@ export async function returnMisplacedThreads(dir, role, holders) {
   }
   if (!moved.size) return 0;
   // read again after the scan: a PATCH meanwhile is kept, a moved thread goes as it is now
-  const fresh = read(role);
+  const roleDoc = load(role);
+  const fresh = roleDoc.threads ?? [];
   for (const key of new Set(moved.values())) {
-    const own = read(key);
+    const doc = load(key);
+    const own = doc.threads ?? [];
     const have = new Set(own.map((t) => t.id));
     const threads = fresh.filter((t) => moved.get(t.id) === key && !have.has(t.id));
-    if (threads.length) writeAtomic(fileOf(key), { threads: [...own, ...threads] });
+    if (threads.length) writeAtomic(fileOf(key), { ...doc, threads: [...own, ...threads] });
   }
   // the role file shrinks last: a run cut short leaves copies the next run does not add again
   const stay = fresh.filter((t) => !moved.has(t.id));
-  writeAtomic(fileOf(role), { threads: stay });
+  writeAtomic(fileOf(role), { ...roleDoc, threads: stay });
   return fresh.length - stay.length;
 }

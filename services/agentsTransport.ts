@@ -21,6 +21,7 @@ import {
   fetchOrchestratorWorkspace,
   fetchThreads,
   startOrchestrator,
+  undoTidy,
   updateThread,
 } from './orchestratorApi';
 
@@ -129,7 +130,7 @@ export const orkumoTransport: AgentsTransport = {
     fetchServerStats: api.fetchServerStats,
   },
   orchestrator: { fetchOrchestratorRoles, fetchOrchestratorWorkspace, startOrchestrator },
-  threads: { fetchThreads, createThread, updateThread },
+  threads: { fetchThreads, createThread, updateThread, undoTidy },
   files: {
     // VS Code via /files/open-in-editor, the default app or Finder via /files/open (#188)
     openFile: async (path: string, cwd: string, options: OpenFileOptions = {}) => {

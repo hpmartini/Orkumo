@@ -311,7 +311,13 @@ describe('viewSession - omp / pi session file', () => {
       'result',
     ]);
     expect(chatSummary(s.id).model).toBe('anthropic/claude-opus-5-5');
-    expect(seen[1]).toEqual({ type: 'devorbit_user', text: 'list files', history: true });
+    // the record id is the message's key (thread tidy-up routes by it)
+    expect(seen[1]).toEqual({
+      type: 'devorbit_user',
+      text: 'list files',
+      history: true,
+      key: 'u1',
+    });
     expect(seen[2].message).toMatchObject({
       id: 'a1',
       content: [

@@ -130,6 +130,16 @@ describe('ensureOrchestratorWorkspace', () => {
     }
   });
 
+  it('guide and skill tell to open a thread for a new topic (AC-6)', () => {
+    const { dir } = bootstrap();
+    for (const file of ['AGENTS.md', path.join('.claude/skills', SKILL_NAME, 'SKILL.md')]) {
+      const flat = fs.readFileSync(path.join(dir, file), 'utf8').replace(/\s+/g, ' ');
+      expect(flat, file).toContain(
+        'New topic without an agent → `orkumo thread open "<title>"` and start your answers on it with its tag; agents you start get their own thread automatically'
+      );
+    }
+  });
+
   it("is idempotent and keeps the orchestrators' NOTES.md", () => {
     const { dir } = bootstrap();
     fs.writeFileSync(path.join(dir, 'NOTES.md'), 'my notes');

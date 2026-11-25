@@ -12,7 +12,11 @@ import {
   repoAgents,
   threadText,
   returnMisplacedThreads,
+  routeEntries,
   threadOwnerKey,
+  createSenderScanner,
+  threadName,
+  isAutoNamed,
 } from '../server/services/orchestratorThreads.js';
 import example from '../server/orchestrator/report.example.json';
 
@@ -220,5 +224,163 @@ describe('threads misplaced under a role', () => {
     expect(threadOwnerKey({ id: 'interactive-42', sessionId: 'uuid-1' })).toBe('uuid-1');
     expect(threadOwnerKey({ id: 'omp-1', sessionId: '1' })).toBe('omp-1');
     expect(threadOwnerKey({ id: '13c54a91', sessionId: 'uuid-2' })).toBe('13c54a91');
+  });
+
+  it('a repair keeps the tidy-up layer and undo stack of both files', async () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'threads'));
+    const layer = { entries: { e1: 'main' }, merged: {} };
+    const write = (k, doc) =>
+      fs.writeFileSync(path.join(dir, 'threads', `${k}.json`), JSON.stringify(doc));
+    write('main', { threads: [KEYED], overrides: layer, undo: [{ label: 'x' }] });
+    write('a', { threads: [], overrides: { entries: { e2: 'k' }, merged: {} }, undo: [] });
+    const transcript = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(transcript, `{"message":{"id":"msg_x"}}\n`);
+    expect(
+      await returnMisplacedThreads(dir, 'main', [{ key: 'a', transcripts: [transcript] }])
+    ).toBe(1);
+    const store = createThreadStore(dir);
+    expect(store.state('a')).toMatchObject({
+      threads: [KEYED],
+      overrides: { entries: { e2: 'k' } },
+    });
+    expect(store.state('main')).toMatchObject({ threads: [], overrides: layer, canUndo: true });
+  });
+});
+
+describe('sender scanner', () => {
+  const line = (id, at) =>
+    `${JSON.stringify({
+      type: 'message',
+      timestamp: new Date(at).toISOString(),
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: `[from agent ${id} via orkumo send]\n\nhi` }],
+      },
+    })}\n`;
+
+  it('reads only appended whole lines; a half-written line waits; a rewritten file starts over', async () => {
+    const file = path.join(tmp(), 'orch.jsonl');
+    const scan = createSenderScanner();
+    const second = line('omp-bbbbbbbb', T0 + 2);
+    fs.writeFileSync(file, line('omp-aaaaaaaa', T0) + second.slice(0, 20));
+    expect([...(await scan(file)).keys()]).toEqual(['omp-aaaaaaaa']);
+    fs.appendFileSync(file, second.slice(20) + line('omp-aaaaaaaa', T0 + 9));
+    const senders = await scan(file);
+    expect([...senders.keys()]).toEqual(['omp-aaaaaaaa', 'omp-bbbbbbbb']);
+    expect(senders.get('omp-aaaaaaaa').ts).toBe(T0);
+    fs.writeFileSync(file, line('omp-cccccccc', T0 + 20));
+    expect([...(await scan(file)).keys()]).toEqual(['omp-cccccccc']);
+  });
+});
+
+describe('server-made names (AC-9)', () => {
+  const projects = [
+    { name: 'Demo Shop', aliases: ['Demo Shop', 'demo-shop'] },
+    { name: 'Beispiel-Shop', aliases: ['Beispiel-Shop', 'beispiel-shop'] },
+  ];
+  const ctx = {
+    agentName: (id) => (id === 'w1' ? { project: 'Demo Shop', task: 'checkout-fix' } : null),
+    report,
+    projects,
+    text: 'Beispiel-Shop first, then **demo-shop**',
+    fallback: { project: 'Lead', task: 'New topic' },
+  };
+  const bound = { project: 'beispiel-shop', task: 'rabatt-codes' };
+  it('agent before status task before project mention before the provisional name', () => {
+    expect(threadName({ agents: ['x', 'w1'], binding: bound }, ctx)).toEqual({
+      project: 'Demo Shop',
+      task: 'checkout-fix',
+    });
+    expect(threadName({ agents: ['x'], binding: bound }, ctx)).toEqual({
+      project: 'Beispiel-Shop',
+      task: 'Rabattcodes pro Kunde begrenzen',
+    });
+    expect(threadName({ agents: [], binding: null }, ctx)).toEqual({
+      project: 'Beispiel-Shop',
+      task: 'Beispiel-Shop',
+    });
+    expect(threadName({ agents: [], binding: null }, { ...ctx, text: 'nothing' })).toBe(
+      ctx.fallback
+    );
+  });
+});
+
+describe('orkumo start against a poll that linked the agent first', () => {
+  it('the start thread is opened anyway and the bound thread lets go of the agent', () => {
+    const store = createThreadStore(tmp());
+    const task = store.create('lead', {
+      name: { project: 'Shop', task: 'Checkout' },
+      binding: { project: 'shop', task: 'checkout' },
+      agents: ['job1', 'other'],
+      now: T0,
+    });
+    // a backfill (no start) leaves it linked where it is
+    expect(
+      store.addAgentThreads('lead', [
+        { agents: ['job1'], name: { project: 'Shop', task: 'x' }, now: T0 },
+      ])
+    ).toEqual([]);
+    const [own] = store.addAgentThreads(
+      'lead',
+      [{ agents: ['job1'], name: { project: 'Shop', task: 'fix' }, now: T0 }],
+      { start: true }
+    );
+    expect(own).toMatchObject({ agents: ['job1'], binding: null });
+    // named by the server: it follows the agent's later name (omp titles a session after its
+    // first turn; until then its name is the prompt), never past a rename by the user
+    expect(isAutoNamed(own)).toBe(true);
+    expect(store.list('lead').find((t) => t.id === task.id).agents).toEqual(['other']);
+    // started again: its own thread exists, nothing new
+    expect(
+      store.addAgentThreads(
+        'lead',
+        [{ agents: ['job1'], name: { project: 'Shop', task: 'fix' }, now: T0 }],
+        { start: true }
+      )
+    ).toEqual([]);
+  });
+
+  it('a poll keeps the tidy-up layer and undo stack of the file', () => {
+    const store = createThreadStore(tmp());
+    const a = store.create('lead', { name: { project: 'A', task: 'a' }, now: T0 });
+    const b = store.create('lead', { name: { project: 'B', task: 'b' }, now: T0 });
+    store.tidy('lead', 'merge', (doc) => {
+      doc.overrides.merged[b.id] = a.id;
+    });
+    store.update('lead', a.id, { readAt: T0 + 5, agents: ['w9'] });
+    store.addAgentThreads('lead', [{ agents: ['w8'], name: { project: 'C', task: 'c' }, now: T0 }]);
+    expect(store.state('lead')).toMatchObject({
+      overrides: { merged: { [b.id]: a.id } },
+      canUndo: true,
+    });
+  });
+});
+
+describe('entries routed as the UI routes them (CLI thread list/messages)', () => {
+  const thread = (id, commands = []) => ({
+    id,
+    tag: `[Thread: Demo · ${id}]`,
+    agents: [],
+    closed: false,
+    createdAt: 0,
+    commands,
+  });
+  const items = [
+    { kind: 'user', key: 'u1', text: '/status-report', ts: 10 },
+    { kind: 'answer', key: 'm1', text: 'Report sent.', first: 'Report sent.', ts: 11 },
+    { kind: 'user', key: 'u2', text: '/status-report', ts: 20 },
+  ];
+  const marked = thread('t1', [{ at: 5, command: '/status-report' }]);
+
+  it('a command mark claims its one turn; the next same command stays in the main chat', () => {
+    expect(routeEntries(items, [marked, thread('t2')])).toEqual(['t1', 't1', null]);
+  });
+
+  it('a tidy-up move beats the mark; a merge carries the marked turn to its target', () => {
+    const moved = { entries: { u1: 'main' }, merged: {} };
+    expect(routeEntries(items, [marked, thread('t2')], moved)).toEqual([null, null, null]);
+    const merged = { entries: {}, merged: { t1: 't2' } };
+    expect(routeEntries(items, [marked, thread('t2')], merged)).toEqual(['t2', 't2', null]);
   });
 });

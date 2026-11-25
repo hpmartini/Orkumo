@@ -61,6 +61,8 @@ export const createThread = async (
   body:
     | { task: { project: string; task: string } }
     | { name: { project: string; task: string }; parentKey?: string }
+    // the server names it after the project the answer names (AC-9)
+    | { answerText: string; parentKey: string }
 ): Promise<ChatThread> =>
   (
     await request<{ thread: ChatThread }>('/orchestrator/threads', {
@@ -80,3 +82,7 @@ export const updateThread = async (
       body: JSON.stringify({ session, ...patch }),
     })
   ).thread;
+
+/** Takes back the orchestrator's last tidy-up action (the panel's "Undo tidy-up") */
+export const undoTidy = (session: string): Promise<ChatThreadList> =>
+  request('/orchestrator/threads/undo', { method: 'POST', body: JSON.stringify({ session }) });

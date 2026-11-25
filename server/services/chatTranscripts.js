@@ -49,6 +49,12 @@ const stamp = (rec) => {
   return Number.isFinite(ts) ? { ts } : {};
 };
 
+/**
+ * `{ key }` of a typed user message: its transcript record's own id (Claude `uuid`, omp/pi `id`).
+ * The chat view keys the message by it, and the orchestrator's tidy-up layer routes by that key
+ */
+const keyOf = (id) => (typeof id === 'string' && id ? { key: id } : {});
+
 /** Pasted text arrives wrapped in `<pasted_content id="…">…</pasted_content id="…">`: show it bare */
 export function unwrapPasted(text) {
   return text.replace(/<\/?pasted_content(?:\s+id="[^"]*")?>\n?/g, '');
@@ -117,6 +123,7 @@ function claudeHistoryEvents(lines) {
           type: 'devorbit_user',
           text: unwrapPasted(text),
           history: true,
+          ...keyOf(rec.uuid),
           ...stamp(rec),
         });
       continue;
@@ -154,9 +161,21 @@ function claudeHistoryEvents(lines) {
       // `<local-command-stdout>` and similar CLI wrappers are not
       const command = commandPrompt(text);
       if (command)
-        events.push({ type: 'devorbit_user', text: command, history: true, ...stamp(rec) });
+        events.push({
+          type: 'devorbit_user',
+          text: command,
+          history: true,
+          ...keyOf(rec.uuid),
+          ...stamp(rec),
+        });
       else if (text.trim() && !text.trimStart().startsWith('<')) {
-        events.push({ type: 'devorbit_user', text, history: true, ...stamp(rec) });
+        events.push({
+          type: 'devorbit_user',
+          text,
+          history: true,
+          ...keyOf(rec.uuid),
+          ...stamp(rec),
+        });
       }
       if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) {
         events.push({ type: 'user', message: rec.message, parent_tool_use_id: null });
@@ -327,7 +346,13 @@ function sessionHistoryEvents(lines) {
       );
       // omp records its injected `<system-reminder …>` notes as user messages too: not prompts
       if (text.trim() && !text.trimStart().startsWith('<system-reminder'))
-        events.push({ type: 'devorbit_user', text, history: true, ...stamp(rec) });
+        events.push({
+          type: 'devorbit_user',
+          text,
+          history: true,
+          ...keyOf(rec.id),
+          ...stamp(rec),
+        });
     } else if (msg.role === 'assistant') {
       const content = assistantBlocks(msg.content);
       if (msg.stopReason === 'error' && str(msg.errorMessage))

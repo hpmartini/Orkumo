@@ -43,6 +43,7 @@ import * as orchestrator from './services/orchestratorService.js';
 import * as orchestratorReports from './services/orchestratorReports.js';
 import { parseReport } from './services/orchestratorReport.js';
 import * as orchestratorThreads from './services/orchestratorThreads.js';
+import { TRANSCRIPT_READERS } from './services/chatTranscripts.js';
 import { exec } from 'child_process';
 import fs from 'fs';
 import WebSocket from 'ws';
@@ -1457,6 +1458,11 @@ const agentDispatchSchema = z.object({
   // a role profile known to the server (agentService.DISPATCH_PROFILES), not a client path
   profile: z.enum(['worker', 'orchestrator']).optional(),
   idle: z.boolean().optional(),
+  // `orkumo start`: the calling session; an orchestrator gets a thread for the new agent
+  orchestrator: z
+    .string()
+    .regex(/^[\w.:-]{1,200}$/)
+    .optional(),
 });
 const agentReplySchema = z.object({
   text: z.string().min(1).max(20000),
@@ -1593,8 +1599,16 @@ app.get('/api/agents/stream', (req, res) => {
  * POST /api/agents/dispatch - start a background session (`claude --bg`)
  */
 app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), async (req, res) => {
+  const now = Date.now();
+  const { orchestrator: sender, ...opts } = req.body;
   try {
-    const result = await agentService.dispatch(req.body);
+    const result = await agentService.dispatch(opts);
+    await openAgentThread(sender, {
+      agents: [result.id],
+      cwd: opts.cwd,
+      name: result.name || opts.name || result.id,
+      now,
+    });
     res.status(201).json(result);
   } catch (error) {
     sendAgentError(res, error);
@@ -2572,12 +2586,174 @@ const ownerThreads = (owner) => {
 const threadKey = (owner, id) =>
   threadStore.list(owner.id).some((t) => t.id === id) ? owner.id : owner.report;
 
-/** Threads with what the list shows; workers now in a bound task's repo join its links */
+/** Registered projects (name, folders) for thread names; scanned at most once a minute */
+let registryMemo = null;
+async function registeredProjects() {
+  if (registryMemo && Date.now() - registryMemo.at < 60_000) return registryMemo.list;
+  const list = (await activeProjects()).map((p) => ({
+    name: p.name,
+    paths: [p.path, ...(p.paths ?? [])].filter(Boolean),
+  }));
+  registryMemo = { at: Date.now(), list };
+  return list;
+}
+
+/** Project name of a working directory: the registered project's, else its folder's */
+const projectNameIn = (registry, cwd) => {
+  const main = orchestrator.mainRepoPath(cwd);
+  return registry.find((p) => p.paths.includes(main))?.name ?? path.basename(main);
+};
+
+/** Projects an answer can name: registered ones (name, folders) and the report's (name, repo) */
+const mentionNames = (registry, report) => [
+  ...registry.map((p) => ({
+    name: p.name,
+    aliases: [p.name, ...p.paths.map((d) => path.basename(d))],
+  })),
+  ...(report?.projects ?? []).map((p) => ({
+    name: p.name,
+    aliases: [p.name, ...(p.repo ? [p.repo, p.repo.split('/').pop()] : [])],
+  })),
+];
+
+/**
+ * `orkumo start` from an orchestrator chat: a thread for the new agent, named after it and its
+ * project, opened at `now` (taken before the start, so before the agent can answer). Never fails
+ * the start: the agent runs already
+ */
+async function openAgentThread(sender, { agents, cwd, name, now }) {
+  if (!sender) return;
+  try {
+    const owner = await chatOrchestrator(sender);
+    if (!owner) return;
+    const project = projectNameIn(await registeredProjects().catch(() => []), cwd);
+    threadStore.addAgentThreads(owner.id, [{ agents, name: { project, task: name }, now }], {
+      start: true,
+    });
+  } catch (error) {
+    console.warn('[orchestrator] thread for a started agent:', error.message);
+  }
+}
+
+const transcriptSenders = orchestratorThreads.createSenderScanner();
+const transcriptEntries = orchestratorThreads.createEntryScanner();
+
+/** The orchestrator's transcript file and its reader; null while it has none */
+async function ownTranscript(owner) {
+  const own = owner.session;
+  const reader = TRANSCRIPT_READERS[own.id.startsWith('omp-') ? 'omp' : 'claude'];
+  if (!own.sessionId || !reader.idRe.test(own.sessionId)) return null;
+  const file = await reader.findTranscript(own.sessionId, own.cwd);
+  return file ? { file, reader } : null;
+}
+
+/** Chat items of the orchestrator's transcript (orchestratorThreads.createEntryScanner) */
+async function ownEntries(owner) {
+  const found = await ownTranscript(owner);
+  return found ? transcriptEntries(found.file, found.reader) : [];
+}
+
+/**
+ * Agents that messaged the orchestrator (`[from agent …]` in its transcript) without a thread
+ * linking them get one each, opened just before their first message; existing threads stay as
+ * they are. The scanner reads only what the transcript gained since the last poll
+ */
+async function backfillAgentThreads(owner, registry) {
+  const found = await ownTranscript(owner);
+  if (!found) return;
+  const wanted = [];
+  for (const { id, name, ts } of (await transcriptSenders(found.file)).values()) {
+    const session = orchestrator.findSessionByRef(owner.sessions, id);
+    if (session?.id === owner.session.id) continue;
+    wanted.push({
+      agents: [...new Set([id, session?.id, session?.sessionId].filter(Boolean))],
+      name: {
+        project: session?.cwd ? projectNameIn(registry, session.cwd) : 'Agent',
+        task: session?.name || name || id,
+      },
+      now: ts - 1,
+      // what was in the main chat until now counts as read
+      readAt: Date.now(),
+    });
+  }
+  threadStore.addAgentThreads(owner.id, wanted);
+}
+
+/**
+ * Server-named threads (old "Answer HH:MM" ones too, never a user-renamed one) take the name the
+ * AC-9 order gives now: linked agent → status task → first project the answer it was opened on
+ * (else its first message) names → provisional. A provisional name already given stays put
+ */
+async function nameThreads(owner, threads, report, registry) {
+  const auto = threads.filter(orchestratorThreads.isAutoNamed);
+  if (!auto.length) return threads;
+  const items = await ownEntries(owner).catch(() => []);
+  const projects = mentionNames(registry, report);
+  const agentName = (id) => {
+    const session = orchestrator.findSessionByRef(owner.sessions, id);
+    if (!session || session.id === owner.session.id) return null;
+    return {
+      project: orchestratorThreads.cleanName(projectNameIn(registry, session.cwd || '')),
+      task: orchestratorThreads.cleanName(session.name || id) || 'Agent',
+    };
+  };
+  const fallback = provisionalName(owner);
+  const names = new Map();
+  for (const thread of auto) {
+    const parent = orchestratorThreads.entryKey(thread.parentKey);
+    const source =
+      (parent && items.find((i) => i.key === parent)) ||
+      items.find((i) => (i.kind === 'answer' ? i.first : (i.text ?? '')).startsWith(thread.tag));
+    const name = orchestratorThreads.threadName(thread, {
+      agentName,
+      report,
+      projects,
+      text: source?.text ?? '',
+      fallback,
+    });
+    if (name === fallback && thread.autoName) continue;
+    if (name.project !== thread.name.project || name.task !== thread.name.task)
+      names.set(thread.id, name);
+  }
+  if (!names.size) return threads;
+  // only the session's own file: a thread its role still keeps may be another session's
+  threadStore.autoRename(owner.id, names);
+  return ownerThreads(owner);
+}
+
+/** Name of a thread nothing names yet; the orchestrator renames it (`orkumo thread rename`) */
+const provisionalName = (owner) => ({
+  project: orchestratorThreads.cleanName(owner.session.name || owner.id) || 'Orchestrator',
+  task: 'New topic',
+});
+
+/**
+ * Threads with what the list shows. A started agent's thread links its session uuid once the
+ * session shows it (its `[from agent <uuid>]` headers route there); workers now in a bound task's
+ * repo join its links; server-made names follow the project
+ */
 async function threadList(owner) {
   await returnMisplacedThreads(owner);
   const report = reportStore.get(owner.report)?.report ?? null;
   const contexts = await getAgentContexts().catch(() => ({}));
-  return ownerThreads(owner).map((thread) => {
+  const registry = await registeredProjects().catch(() => []);
+  await backfillAgentThreads(owner, registry).catch((error) =>
+    console.warn('[orchestrator] thread backfill:', error.message)
+  );
+  let threads = ownerThreads(owner).map((thread) => {
+    if (thread.binding) return thread;
+    const ids = thread.agents.flatMap((id) => {
+      const s = orchestrator.findSessionByRef(owner.sessions, id);
+      return s && s.id !== owner.session.id ? [s.id, s.sessionId].filter(Boolean) : [];
+    });
+    const fresh = [...new Set(ids)].filter((id) => !thread.agents.includes(id));
+    return fresh.length
+      ? threadStore.update(threadKey(owner, thread.id), thread.id, { agents: fresh })
+      : thread;
+  });
+  // an agent with a thread of its own stays there: two links would route its messages nowhere
+  const ownThread = new Set(threads.filter((t) => !t.binding).flatMap((t) => t.agents));
+  threads = threads.map((thread) => {
     const linked = thread.binding?.project
       ? orchestratorThreads.repoAgents(
           report,
@@ -2587,12 +2763,16 @@ async function threadList(owner) {
           owner.session.id
         )
       : [];
-    const fresh = linked.filter((id) => !thread.agents.includes(id));
-    const current = fresh.length
+    const fresh = linked.filter((id) => !thread.agents.includes(id) && !ownThread.has(id));
+    return fresh.length
       ? threadStore.update(threadKey(owner, thread.id), thread.id, { agents: fresh })
       : thread;
-    return orchestratorThreads.threadView(current, report);
   });
+  threads = await nameThreads(owner, threads, report, registry).catch((error) => {
+    console.warn('[orchestrator] thread names:', error.message);
+    return threads;
+  });
+  return threads.map((thread) => orchestratorThreads.threadView(thread, report));
 }
 
 /** Tasks of the orchestrator's latest report: what "New thread" offers */
@@ -2608,6 +2788,20 @@ const reportTasks = (report) =>
     }))
   );
 
+/** GET body of the thread list: threads, report tasks, the tidy-up layer and its undo flag */
+async function threadListBody(owner) {
+  const threads = await threadList(owner);
+  // the tidy-up layer and its undo stack are the session's own, never its role's
+  const { overrides, canUndo } = threadStore.state(owner.id);
+  return {
+    orchestrator: owner.report,
+    threads,
+    tasks: reportTasks(reportStore.get(owner.report)?.report),
+    overrides,
+    canUndo,
+  };
+}
+
 const threadOwnerSchema = z.object({ session: orchestratorRefSchema }).strict();
 
 /** Threads of the orchestrator chat a pane shows (`orchestrator: null`: not an orchestrator) */
@@ -2617,11 +2811,35 @@ app.get('/api/orchestrator/threads', async (req, res) => {
   try {
     const owner = await chatOrchestrator(query.data.session);
     if (!owner) return res.json({ orchestrator: null, threads: [], tasks: [] });
-    res.json({
-      orchestrator: owner.report,
-      threads: await threadList(owner),
-      tasks: reportTasks(reportStore.get(owner.report)?.report),
+    res.json(await threadListBody(owner));
+  } catch (error) {
+    sendAgentError(res, error);
+  }
+});
+
+/**
+ * Entries of the orchestrator chat with the thread each lands in (`orkumo thread list/messages`):
+ * keys as the chat view routes them, threads with the one they were merged into
+ */
+app.get('/api/orchestrator/threads/entries', async (req, res) => {
+  const query = threadOwnerSchema.safeParse(req.query);
+  if (!query.success) return res.status(400).json({ error: 'Invalid session' });
+  try {
+    const owner = await chatOrchestrator(query.data.session);
+    if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
+    const body = await threadListBody(owner);
+    const merged = body.overrides.merged;
+    const known = new Set(body.threads.map((t) => t.id));
+    const threads = body.threads.map((t) => {
+      const to = orchestratorThreads.mergeTarget(t.id, merged);
+      return { ...t, mergedInto: to !== t.id && known.has(to) ? to : null };
     });
+    const entries = orchestratorThreads.routedEntries(
+      await ownEntries(owner),
+      body.threads,
+      body.overrides
+    );
+    res.json({ ...body, threads, entries });
   } catch (error) {
     sendAgentError(res, error);
   }
@@ -2631,7 +2849,11 @@ const threadNameSchema = z
   .object({ project: z.string().trim().min(1).max(200), task: z.string().trim().min(1).max(200) })
   .strict();
 
-/** A thread on a status task (reused when it exists) or on an answer (named by the client) */
+/**
+ * A thread on a status task (reused when it exists), on an answer (`answerText`: the server names
+ * it after the project the answer names, else provisionally), or with a name. "Thread · Thread"
+ * (the UI's thread without a task) counts as provisional
+ */
 app.post(
   '/api/orchestrator/threads',
   agentLimiter,
@@ -2645,19 +2867,43 @@ app.post(
           .strict()
           .optional(),
         name: threadNameSchema.optional(),
+        answerText: z.string().max(100000).optional(),
         parentKey: z.string().max(200).optional(),
       })
       .strict()
-      .refine((b) => !b.task !== !b.name, 'Name exactly one of task or name')
+      .refine(
+        (b) => [b.task, b.name, b.answerText].filter((v) => v !== undefined).length === 1,
+        'Name exactly one of task, name or answerText'
+      )
   ),
   async (req, res) => {
     try {
       const owner = await chatOrchestrator(req.body.session);
       if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
-      const report = reportStore.get(owner.report)?.report;
-      const init = req.body.task
-        ? report && orchestratorThreads.taskThread(report, { task: req.body.task })
-        : { name: req.body.name, parentKey: req.body.parentKey ?? null };
+      const report = reportStore.get(owner.report)?.report ?? null;
+      const { task, name, answerText, parentKey = null } = req.body;
+      let init;
+      if (task) init = report && orchestratorThreads.taskThread(report, { task });
+      else if (name)
+        init = { name, parentKey, autoName: name.project === 'Thread' && name.task === 'Thread' };
+      else {
+        const registry = await registeredProjects().catch(() => []);
+        const projects = mentionNames(registry, report);
+        init = {
+          name: orchestratorThreads.threadName(
+            { agents: [], binding: null },
+            {
+              agentName: () => null,
+              report,
+              projects,
+              text: answerText,
+              fallback: provisionalName(owner),
+            }
+          ),
+          parentKey,
+          autoName: true,
+        };
+      }
       if (!init) return res.status(404).json({ error: 'No task with this id' });
       const thread = threadStore.create(owner.id, init);
       const listed = await threadList(owner);
@@ -2668,7 +2914,144 @@ app.post(
   }
 );
 
-/** Close or reopen a thread, mark it read up to a time, or mark a command sent from it */
+const threadRefSchema = z.string().trim().min(1).max(100);
+const tidySchema = z.discriminatedUnion('action', [
+  z
+    .object({
+      session: orchestratorRefSchema,
+      action: z.literal('merge'),
+      thread: threadRefSchema,
+      sources: z.array(threadRefSchema).min(1).max(100),
+    })
+    .strict(),
+  z
+    .object({
+      session: orchestratorRefSchema,
+      action: z.literal('move'),
+      entries: z.array(z.string().min(1).max(200)).min(1).max(500),
+      to: threadRefSchema,
+    })
+    .strict(),
+  z
+    .object({
+      session: orchestratorRefSchema,
+      action: z.literal('rename'),
+      thread: threadRefSchema,
+      title: z.string().trim().min(1).max(200),
+    })
+    .strict(),
+  z
+    .object({
+      session: orchestratorRefSchema,
+      action: z.literal('bind'),
+      thread: threadRefSchema,
+      agent: z.string().trim().min(1).max(200).optional(),
+      status: z.string().trim().min(1).max(400).optional(),
+    })
+    .strict()
+    .refine((b) => !b.agent !== !b.status, 'Bind exactly one of agent or status'),
+  z
+    .object({ session: orchestratorRefSchema, action: z.literal('close'), thread: threadRefSchema })
+    .strict(),
+]);
+
+/** The status task `ref` names in a report: `<task>` or `<project>/<task>`, unique */
+function statusBinding(report, ref) {
+  const hits = (report?.projects ?? []).flatMap((p) =>
+    p.tasks
+      .filter((t) => t.id === ref || `${p.id}/${t.id}` === ref)
+      .map((t) => ({ project: p.id, task: t.id }))
+  );
+  if (hits.length === 1) return hits[0];
+  throw Object.assign(
+    new Error(
+      hits.length ? `"${ref}" names several tasks: use <project>/<task>` : `No status task "${ref}"`
+    ),
+    { status: hits.length ? 400 : 404 }
+  );
+}
+
+/**
+ * Tidy-up of the orchestrator chat (`orkumo thread merge/move/rename/bind/close`): an action on
+ * the stored layer over the transcript, never on the transcript. Only the orchestrator itself
+ * (`session` = the calling session); each action can be taken back (`…/threads/undo`)
+ */
+app.post(
+  '/api/orchestrator/threads/tidy',
+  agentLimiter,
+  sameSiteOnly,
+  validate(tidySchema),
+  async (req, res) => {
+    try {
+      const owner = await chatOrchestrator(req.body.session);
+      if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
+      const b = req.body;
+      const { tidyActions } = orchestratorThreads;
+      let label;
+      let act;
+      if (b.action === 'merge') {
+        label = `merge ${b.sources.join(', ')} into ${b.thread}`;
+        act = (doc) => tidyActions.merge(doc, b.thread, b.sources);
+      } else if (b.action === 'move') {
+        const keys = b.entries.map(orchestratorThreads.entryKey);
+        const known = new Set((await ownEntries(owner)).map((i) => i.key));
+        const unknown = keys.filter((k) => !known.has(k));
+        if (unknown.length)
+          return res
+            .status(400)
+            .json({ error: `No entries with these keys: ${unknown.join(', ')}` });
+        label = `move ${keys.length} entries to ${b.to}`;
+        act = (doc) => tidyActions.move(doc, keys, b.to);
+      } else if (b.action === 'rename') {
+        label = `rename ${b.thread} to "${b.title}"`;
+        act = (doc) => tidyActions.rename(doc, b.thread, b.title);
+      } else if (b.action === 'bind') {
+        let bind;
+        if (b.agent) {
+          const session = orchestrator.findSessionByRef(owner.sessions, b.agent);
+          bind = {
+            agents: [...new Set([b.agent, session?.id, session?.sessionId].filter(Boolean))],
+          };
+        } else bind = { binding: statusBinding(reportStore.get(owner.report)?.report, b.status) };
+        label = `bind ${b.thread} to ${b.agent ? `agent ${b.agent}` : `status ${b.status}`}`;
+        act = (doc) => tidyActions.bind(doc, b.thread, bind);
+      } else {
+        label = `close ${b.thread}`;
+        act = (doc) => tidyActions.close(doc, b.thread);
+      }
+      threadStore.tidy(owner.id, label, act);
+      res.json({ done: label, ...(await threadListBody(owner)) });
+    } catch (error) {
+      if (error.status && error.status < 500)
+        return res.status(error.status).json({ error: error.message });
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/** Takes back the last tidy-up action (CLI `orkumo thread undo`, the panel's "Undo tidy-up") */
+app.post(
+  '/api/orchestrator/threads/undo',
+  agentLimiter,
+  sameSiteOnly,
+  validate(threadOwnerSchema),
+  async (req, res) => {
+    try {
+      const owner = await chatOrchestrator(req.body.session);
+      if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
+      const undone = threadStore.undo(owner.id);
+      res.json({ undone, ...(await threadListBody(owner)) });
+    } catch (error) {
+      if (error.status === 409) return res.status(409).json({ error: error.message });
+      sendAgentError(res, error);
+    }
+  }
+);
+
+/**
+ * Close or reopen a thread, mark it read up to a time, rename it (the tag stays) or mark a command
+ * sent from it
+ */
 app.patch(
   '/api/orchestrator/threads/:thread',
   agentLimiter,
@@ -2686,6 +3069,7 @@ app.patch(
           .regex(/^\/\w[\w:.-]*$/)
           .optional(),
         cancelCommand: z.literal(true).optional(),
+        name: threadNameSchema.optional(),
       })
       .strict()
   ),
@@ -2693,10 +3077,11 @@ app.patch(
     try {
       const owner = await chatOrchestrator(req.body.session);
       if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
-      const { closed, readAt, command, cancelCommand } = req.body;
+      const { closed, readAt, name, command, cancelCommand } = req.body;
       const thread = threadStore.update(threadKey(owner, req.params.thread), req.params.thread, {
         closed,
         readAt,
+        name,
         command,
         cancelCommand,
       });
@@ -2740,10 +3125,12 @@ app.post(
       harness: z.enum(orchestrator.PANE_HARNESSES),
       cwd: pathSchema,
       prompt: panePromptSchema,
+      orchestrator: orchestratorRefSchema.optional(),
     })
   ),
   async (req, res) => {
     if (isRunningInDocker) return res.status(501).json({ error: 'Not available in Docker' });
+    const now = Date.now();
     try {
       const cwd = agentService.assertAllowedPath(
         req.body.cwd,
@@ -2751,14 +3138,20 @@ app.post(
         'Working directory'
       );
       const { model, permissionMode } = settingsService.getAgentViewSettings().dispatch;
-      res
-        .status(201)
-        .json(
-          await orchestrator.startAgentPane(
-            { harness: req.body.harness, cwd, prompt: req.body.prompt, model, permissionMode },
-            orchestratorPaneDeps(cwd)
-          )
-        );
+      const started = await orchestrator.startAgentPane(
+        { harness: req.body.harness, cwd, prompt: req.body.prompt, model, permissionMode },
+        orchestratorPaneDeps(cwd)
+      );
+      const sid = started.sessionId;
+      await openAgentThread(req.body.orchestrator, {
+        // the id `orkumo send` names it by: omp rows are omp-<session>
+        agents: [req.body.harness === 'omp' ? `omp-${sid}` : sid, sid],
+        cwd,
+        // omp names its session itself, later: the task line of the prompt until then
+        name: orchestratorThreads.cleanName(req.body.prompt.split('\n')[0], 40),
+        now,
+      });
+      res.status(201).json(started);
     } catch (error) {
       res.status(error.status || 500).json({ error: error.message });
     }
