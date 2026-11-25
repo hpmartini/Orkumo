@@ -423,6 +423,53 @@ describe('agentService - listSlashCommands', () => {
     expect(list.find((c) => c.name === 'mw:goal-contract').source).toBe('plugin');
   });
 
+  it('reads skill and command paths from the plugin manifest like Claude Code', async () => {
+    const pHome = path.join(tmp, 'manifest-home');
+    const mp = path.join(tmp, 'plugins', 'mp');
+    // `skills` adds to the default scan: nested group folders, a container dir and a skill dir
+    skill(path.join(mp, 'skills', 'engineering'), 'retro', 'disable-model-invocation: true\n');
+    skill(path.join(mp, 'skills'), 'flat');
+    skill(path.join(mp, 'extra'), 'more');
+    // `commands` replaces the default `commands/` scan
+    write(path.join(mp, 'commands', 'ignored.md'), 'x\n');
+    write(path.join(mp, 'slash-commands', 'status.md'), '---\ndescription: Status\n---\n');
+    write(
+      path.join(mp, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({
+        name: 'mp',
+        skills: ['./skills/engineering/retro', './extra/'],
+        commands: ['./slash-commands/'],
+      })
+    );
+    const mapped = path.join(tmp, 'plugins', 'mapped');
+    write(
+      path.join(mapped, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ commands: { about: { content: 'About', description: 'About it' } } })
+    );
+    write(
+      path.join(pHome, 'plugins', 'installed_plugins.json'),
+      JSON.stringify({
+        plugins: {
+          'mp@m': [{ installPath: mp }],
+          'mapped@m': [{ installPath: mapped }],
+        },
+      })
+    );
+    write(
+      path.join(pHome, 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'mp@m': true, 'mapped@m': true } })
+    );
+    const list = await mod.listSlashCommands(null, { claudeHome: pHome });
+    const names = list.map((c) => c.name);
+    expect(names).toEqual(
+      expect.arrayContaining(['mp:retro', 'mp:flat', 'mp:more', 'mp:status', 'mapped:about'])
+    );
+    expect(names).not.toContain('mp:ignored');
+    expect(list.find((c) => c.name === 'mapped:about').description).toBe('About it');
+    const omp = (await mod.listClaudeSkills(null, { claudeHome: pHome })).map((c) => c.name);
+    expect(omp).toEqual(expect.arrayContaining(['retro', 'flat', 'more']));
+  });
+
   it('lists the Claude skills omp sees, un-namespaced', async () => {
     const names = (await mod.listClaudeSkills(cwd, { claudeHome: home })).map((c) => c.name);
     expect(names).toEqual(expect.arrayContaining(['linked', 'goal-contract']));
