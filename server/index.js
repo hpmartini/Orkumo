@@ -2631,7 +2631,12 @@ app.patch(
         session: orchestratorRefSchema,
         closed: z.boolean().optional(),
         readAt: z.number().int().nonnegative().optional(),
-        command: z.enum(['start', 'cancel']).optional(),
+        command: z
+          .string()
+          .max(200)
+          .regex(/^\/\w[\w:.-]*$/)
+          .optional(),
+        cancelCommand: z.literal(true).optional(),
       })
       .strict()
   ),
@@ -2639,8 +2644,13 @@ app.patch(
     try {
       const owner = await chatOrchestrator(req.body.session);
       if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
-      const { closed, readAt, command } = req.body;
-      const thread = threadStore.update(owner.id, req.params.thread, { closed, readAt, command });
+      const { closed, readAt, command, cancelCommand } = req.body;
+      const thread = threadStore.update(owner.id, req.params.thread, {
+        closed,
+        readAt,
+        command,
+        cancelCommand,
+      });
       res.json({
         thread: orchestratorThreads.threadView(thread, reportStore.get(owner.id)?.report),
       });

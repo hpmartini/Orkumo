@@ -164,21 +164,25 @@ export function createThreadStore(dir) {
       return thread;
     },
     /**
-     * Close or open, mark read (forward only), link more workers. `command`: a command was sent
-     * from the thread without its tag (the CLI runs it only as the first word); `start` marks the
-     * server time, the first command turn after it belongs to the thread; `cancel` drops the
-     * latest mark (the send failed)
+     * Close or open, mark read (forward only), link more workers. `command` (`/name`): sent from
+     * the thread without its tag (the CLI runs it only as the first word); marked with the server
+     * time, its first turn after it belongs to the thread. `cancelCommand`: drop the latest mark
+     * (the send failed)
      */
-    update(orchestratorId, threadId, { closed, readAt, agents, command, now = Date.now() }) {
+    update(
+      orchestratorId,
+      threadId,
+      { closed, readAt, agents, command, cancelCommand, now = Date.now() }
+    ) {
       const threads = read(orchestratorId);
       const thread = threads.find((t) => t.id === threadId);
       if (!thread) throw httpError(404, 'No thread with this id');
       if (typeof closed === 'boolean') thread.closed = closed;
       if (typeof readAt === 'number') thread.readAt = Math.max(thread.readAt, readAt);
       if (agents?.length) thread.agents = [...new Set([...thread.agents, ...agents])];
-      if (command === 'start')
-        thread.commands = [...(thread.commands ?? []), now].slice(-MAX_COMMANDS);
-      if (command === 'cancel') thread.commands = (thread.commands ?? []).slice(0, -1);
+      if (command)
+        thread.commands = [...(thread.commands ?? []), { at: now, command }].slice(-MAX_COMMANDS);
+      if (cancelCommand) thread.commands = (thread.commands ?? []).slice(0, -1);
       save(orchestratorId, threads);
       return thread;
     },

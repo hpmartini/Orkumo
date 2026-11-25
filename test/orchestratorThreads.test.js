@@ -113,14 +113,16 @@ describe('thread store', () => {
     const store = createThreadStore(tmp());
     const a = store.create('release', { name: { project: 'A', task: 'B' }, now: T0 });
     expect(a.commands).toEqual([]);
-    store.update('release', a.id, { command: 'start', now: T0 + 1 });
-    store.update('release', a.id, { command: 'start', now: T0 + 2 });
-    expect(store.update('release', a.id, { command: 'cancel' }).commands).toEqual([T0 + 1]);
+    store.update('release', a.id, { command: '/status-report', now: T0 + 1 });
+    store.update('release', a.id, { command: '/skill:ping', now: T0 + 2 });
+    expect(store.update('release', a.id, { cancelCommand: true }).commands).toEqual([
+      { at: T0 + 1, command: '/status-report' },
+    ]);
     for (let i = 0; i < 120; i++)
-      store.update('release', a.id, { command: 'start', now: T0 + 10 + i });
+      store.update('release', a.id, { command: '/x', now: T0 + 10 + i });
     const marks = store.list('release')[0].commands;
     expect(marks).toHaveLength(100);
-    expect(marks.at(-1)).toBe(T0 + 129);
+    expect(marks.at(-1)).toEqual({ at: T0 + 129, command: '/x' });
   });
 
   it('state survives a restart: written by one process, read by another', () => {
