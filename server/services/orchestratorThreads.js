@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
 import { httpError, writeAtomic } from './orchestratorReports.js';
 
 const NAME_MAX = 60;
@@ -171,4 +172,69 @@ export function createThreadStore(dir) {
       return thread;
     },
   };
+}
+
+/** Which of `needles` occur in a file, read line by line (transcripts run to hundreds of MB) */
+async function needlesIn(file, needles) {
+  const found = new Set();
+  try {
+    const lines = readline.createInterface({
+      input: fs.createReadStream(file),
+      crlfDelay: Infinity,
+    });
+    for await (const line of lines)
+      for (const n of needles) if (!found.has(n) && line.includes(n)) found.add(n);
+  } catch {
+    // unreadable transcript: no evidence
+  }
+  return found;
+}
+
+/**
+ * Threads kept under a role (before threads were keyed by session, every orchestrator of a role
+ * shared them) moved to the holder whose transcript proves them: the answered message's record
+ * id, else the tag, found in exactly one holder's transcript. Unproven ones stay. Moves only,
+ * nothing rewritten or dropped; a second run changes nothing.
+ * @param {string} dir orchestrator-reports dir of the store
+ * @param {{ key: string, transcript: string | null }[]} holders current sessions of the role
+ * @returns {Promise<number>} threads moved
+ */
+export async function returnMisplacedThreads(dir, role, holders) {
+  const fileOf = (id) => path.join(dir, 'threads', `${id}.json`);
+  const read = (id) => {
+    try {
+      return JSON.parse(fs.readFileSync(fileOf(id), 'utf8')).threads ?? [];
+    } catch {
+      return [];
+    }
+  };
+  // exact JSON forms: a bare 8-hex id would match by chance in a large transcript
+  const keyNeedle = (t) => t.parentKey && `"id":${JSON.stringify(t.parentKey)}`;
+  const tagNeedle = (t) => JSON.stringify(t.tag).slice(1, -1);
+  const legacy = read(role);
+  if (!legacy.length || !holders.length) return 0;
+  const needles = legacy.flatMap((t) => [keyNeedle(t), tagNeedle(t)]).filter(Boolean);
+  const found = await Promise.all(
+    holders.map((h) => (h.transcript ? needlesIn(h.transcript, needles) : new Set()))
+  );
+  const only = (needle) => {
+    const at = holders.filter((_, i) => needle && found[i].has(needle));
+    return at.length === 1 ? at[0].key : null;
+  };
+  const moved = new Map();
+  const stay = [];
+  for (const t of legacy) {
+    const to = only(keyNeedle(t)) ?? only(tagNeedle(t));
+    if (to) moved.set(to, [...(moved.get(to) ?? []), t]);
+    else stay.push(t);
+  }
+  if (!moved.size) return 0;
+  // the role file shrinks last: a run cut short leaves copies the next run does not add again
+  for (const [key, threads] of moved) {
+    const own = read(key);
+    const have = new Set(own.map((t) => t.id));
+    writeAtomic(fileOf(key), { threads: [...own, ...threads.filter((t) => !have.has(t.id))] });
+  }
+  writeAtomic(fileOf(role), { threads: stay });
+  return legacy.length - stay.length;
 }

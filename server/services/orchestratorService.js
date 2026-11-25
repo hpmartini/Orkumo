@@ -397,6 +397,21 @@ export async function readSessionTranscript(session, last, deps, options) {
   return (await deps.readTranscriptTail(file, last, ...extra)).entries || [];
 }
 
+/** Transcript file of a session (omp store, else a Claude projects file); null when none */
+export async function sessionTranscriptFile(session, deps) {
+  if (session.id.startsWith('omp-'))
+    return session.sessionId
+      ? (deps.findOmpSessionFile ?? findOmpSessionFile)(session.sessionId)
+      : null;
+  if (!session.sessionId || !session.cwd) return null;
+  const file = path.join(
+    deps.projectsDir,
+    deps.projectSlug(session.cwd),
+    `${session.sessionId}.jsonl`
+  );
+  return fs.existsSync(file) ? file : null;
+}
+
 /** The session an id names (row id, transcript uuid or pane id); null when none */
 export const findSessionByRef = (sessions, ref) =>
   sessions.find((s) => s.id === ref || s.sessionId === ref || s.paneId === ref) ?? null;
