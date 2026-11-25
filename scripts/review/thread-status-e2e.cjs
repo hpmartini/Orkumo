@@ -6,6 +6,10 @@
 // Needs a running Orkumo with the Status module and orchestrator ORCH (session id) whose report has
 // the tasks named in TASKS, each with an open decision (options). Sends one message into a new
 // thread bound to the first task and one answer per mode; both reach the orchestrator's PTY.
+// The pane header's own "Show in Status" (whole status of the orchestrator) shows in the panel while
+// maximised and covers an open drawer. Esc right after a list click or "Show in Status" is logged
+// (INFO), not checked. Fixture used for the committed run: report.example.json of the orchestrator
+// CLI plus two waiting tasks (versand-regeln, newsletter) each with a copy of its decision.
 // Usage: NODE_PATH=<dir with playwright> ORCH=<session id> [OTHER=<session id>] [CHROME=<path>]
 //   node scripts/review/thread-status-e2e.cjs <baseUrl> <outDir>
 const pw = (() => {
@@ -177,6 +181,26 @@ async function maximise(page, i) {
   }
 }
 
+// the pane header's "Show in Status" (not the one in a thread's header inside the panel)
+const headerStatus = (page, i) =>
+  panes(page)
+    .nth(i)
+    .locator(':scope > div:first-child')
+    .getByRole('button', { name: 'Show in Status', exact: true });
+// Esc right after an action (focus wherever that action left it); restores the maximised thread view
+async function escProbe(page, i, what) {
+  await page.keyboard.press('Escape');
+  await wait(page, 500);
+  const s = await state(page, i);
+  console.log(
+    `INFO Esc right after ${what}: details ${s.details ? 'still shown' : 'closed'}, ${s.maximized ? 'still maximised' : 'panel restored'}`
+  );
+  if (s.details)
+    await panes(page).nth(i).getByRole('button', { name: 'Back to the thread (Esc)' }).click();
+  if (!s.maximized) await maximise(page, i);
+  await wait(page, 300);
+}
+
 // one mode: list click, details, Back, "Show in Status", one real answer
 async function modeChecks(page, i, name) {
   const pane = panes(page).nth(i);
@@ -247,6 +271,10 @@ async function modeChecks(page, i, name) {
     JSON.stringify({ details: s3.details })
   );
 
+  await pane.locator(`[data-status-row="${PROJECT}/${task}"]`).click();
+  await pane.locator('[data-threads-status]').waitFor({ timeout: 10000 });
+  await escProbe(page, i, `${name} list click`);
+
   // "Show in Status" in the bound thread opens the same details as a click on its row
   await boundThread(page, i);
   await pane
@@ -262,9 +290,27 @@ async function modeChecks(page, i, name) {
     s4.maximized && s4.details === `Status · ${boundTitle}` && s4.current === `${PROJECT}/${bound}`,
     JSON.stringify({ details: s4.details, current: s4.current })
   );
-  // Back button, then this mode's entry again for the answer
+  await escProbe(page, i, `${name} thread "Show in Status"`);
+
+  // the pane header's "Show in Status" while maximised: the whole status in the panel's main area
+  await headerStatus(page, i).click();
+  await pane.locator('[data-threads-status]').waitFor({ timeout: 10000 });
+  await wait(page, 1500);
+  const s6 = await state(page, i);
+  await shot(page, `${name}-3b-header-show-in-status`);
+  check(
+    `${name}: pane header "Show in Status" shows the status in the panel, still maximised`,
+    s6.maximized && s6.details === 'Status' && s6.detailsInside && s6.detailsCut.length === 0,
+    JSON.stringify({ details: s6.details, cut: s6.detailsCut.slice(0, 4) })
+  );
   await pane.getByRole('button', { name: 'Back to the thread (Esc)' }).click();
   await wait(page, 400);
+  const s7 = await state(page, i);
+  check(`${name}: Back from the header's status, still maximised`, !s7.details && s7.maximized);
+  // the header toggle is the host's and stays on after Back: switch it off again
+  await headerStatus(page, i).click();
+  await wait(page, 400);
+  // this mode's entry again for the answer
   await pane.locator(`[data-status-row="${PROJECT}/${task}"]`).click();
   await pane.locator('[data-threads-status]').waitFor({ timeout: 10000 });
   await wait(page, 1500);
@@ -346,7 +392,10 @@ function reached(since) {
   const newPage = async (width) => {
     const ctx = await browser.newContext({ viewport: { width, height: 950 } });
     const page = await ctx.newPage();
-    page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+    page.on(
+      'console',
+      (m) => m.type() === 'error' && errors.push(`${m.text()} ${m.location()?.url || ''}`.trim())
+    );
     page.on('pageerror', (e) => errors.push(`pageerror ${e.message}`));
     await page.goto(`${BASE}/agents`);
     await wait(page, 5000);
@@ -387,6 +436,29 @@ function reached(since) {
   await showPanel(page, 0);
   const d0 = await state(page, 0);
   check('drawer: narrow tab opens the panel as a drawer', d0.mode === 'overlay', d0.mode);
+  // not maximised: the header's "Show in Status" covers the open drawer (it rendered under it)
+  await headerStatus(page, 0).click();
+  await wait(page, 2000);
+  const top = await panes(page)
+    .nth(0)
+    .evaluate((pane) => {
+      const title = [...pane.querySelectorAll('[data-part="title"]')].find(
+        (e) => e.getBoundingClientRect().width > 0 && !e.closest('[data-threads-status]')
+      );
+      if (!title) return 'no status view';
+      const b = title.getBoundingClientRect();
+      const hit = document.elementFromPoint(b.x + b.width / 2, b.y + b.height / 2);
+      return hit && title.contains(hit) ? 'status view on top' : `covered by ${hit?.tagName}`;
+    });
+  await shot(page, 'drawer-0-header-show-in-status');
+  check(
+    'drawer: header "Show in Status" covers the open drawer',
+    top === 'status view on top',
+    top
+  );
+  await headerStatus(page, 0).click();
+  await wait(page, 600);
+  await showPanel(page, 0);
   sent.push(['drawer', await modeChecks(page, 0, 'drawer')]);
   await page.context().close();
   await browser.close();
