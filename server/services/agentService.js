@@ -1473,20 +1473,102 @@ async function readMeta(file) {
   return parseFrontmatter(await fsp.readFile(file, 'utf-8').catch(() => ''));
 }
 
-/** `<dir>/<skill>/SKILL.md` entries (symlinked folders included) as `<prefix><name>` */
-async function readSkillsDir(dir, prefix, source, out) {
+/** `file` resolved (symlinks followed) lies inside the real directory `root`; no root = any */
+async function within(file, root) {
+  if (!root) return true;
+  const real = await fsp.realpath(file).catch(() => null);
+  return Boolean(real && (real === root || real.startsWith(root + path.sep)));
+}
+
+/**
+ * `<dir>/<skill>/SKILL.md` entries (symlinked folders included) as `<prefix><name>`; with `root`,
+ * only files whose real path lies inside it
+ */
+async function readSkillsDir(dir, prefix, source, out, root = null) {
   const names = await fsp.readdir(dir).catch(() => []);
-  for (const entry of names) {
-    const skillFile = path.join(dir, entry, 'SKILL.md');
-    if (!(await statFollow(skillFile))?.isFile()) continue;
-    const meta = await readMeta(skillFile);
-    if (meta['user-invocable'] === 'false') continue;
-    out.push({ name: prefix + (meta.name || entry), description: meta.description || '', source });
+  for (const entry of names) await readSkill(path.join(dir, entry), prefix, source, out, root);
+}
+
+/** One `<dir>/SKILL.md` skill; `disable-model-invocation` keeps it in the `/` menu */
+async function readSkill(dir, prefix, source, out, root = null) {
+  const skillFile = path.join(dir, 'SKILL.md');
+  if (!(await statFollow(skillFile))?.isFile() || !(await within(skillFile, root))) return;
+  const meta = await readMeta(skillFile);
+  if (meta['user-invocable'] === 'false') return;
+  out.push({
+    name: prefix + (meta.name || path.basename(dir)),
+    description: meta.description || '',
+    source,
+  });
+}
+
+/**
+ * Commands and skills of a plugin as Claude Code loads them (plugins-reference, "How each key
+ * combines with its default location"): manifest `commands` (paths or a name → {description}
+ * map) replace `commands/`, manifest `skills` add to `skills/` (a container dir or a skill dir).
+ */
+async function readPlugin(dir, prefix, out, { commands = true } = {}) {
+  const manifest = (await readJson(path.join(dir, '.claude-plugin', 'plugin.json'))) || {};
+  const root = await fsp.realpath(dir).catch(() => null);
+  if (!root) return;
+  // manifest paths must exist and resolve inside the plugin root (symlinks resolved), as Claude
+  // Code requires (manifest-reference, "Containment and existence")
+  const contained = async (p) => {
+    const real = await fsp.realpath(path.resolve(root, p)).catch(() => null);
+    return real && (real === root || real.startsWith(root + path.sep)) ? real : null;
+  };
+  const paths = async (value) => {
+    const list = [].concat(value ?? []).filter((p) => typeof p === 'string');
+    return (await Promise.all(list.map(contained))).filter(Boolean);
+  };
+  const declared = manifest.commands;
+  const isMap = declared && typeof declared === 'object' && !Array.isArray(declared);
+  if (commands && isMap) {
+    for (const [name, entry] of Object.entries(declared)) {
+      const hasSource = typeof entry?.source === 'string';
+      // exactly one of `source` or `content`, else the entry fails validation
+      if (hasSource === (typeof entry?.content === 'string')) continue;
+      let meta = {};
+      if (hasSource) {
+        const file = await contained(entry.source);
+        if (!file?.endsWith('.md') || !(await statFollow(file))?.isFile()) continue;
+        meta = await readMeta(file);
+        if (meta['user-invocable'] === 'false') continue;
+      }
+      out.push({
+        name: prefix + name,
+        description: entry.description || meta.description || '',
+        source: 'plugin',
+      });
+    }
+  } else if (commands) {
+    for (const full of declared == null ? [path.join(root, 'commands')] : await paths(declared)) {
+      const st = await statFollow(full);
+      if (st?.isDirectory()) await readCommandsDir(full, prefix, 'plugin', out, root);
+      else if (st?.isFile() && full.endsWith('.md'))
+        await readCommandFile(full, prefix, 'plugin', out, root);
+    }
+  }
+  for (const skillDir of [path.join(root, 'skills'), ...(await paths(manifest.skills))]) {
+    if ((await statFollow(path.join(skillDir, 'SKILL.md')))?.isFile())
+      await readSkill(skillDir, prefix, 'plugin', out, root);
+    else await readSkillsDir(skillDir, prefix, 'plugin', out, root);
   }
 }
 
+async function readCommandFile(file, prefix, source, out, root = null) {
+  if (!(await within(file, root))) return;
+  const meta = await readMeta(file);
+  if (meta['user-invocable'] === 'false') return;
+  out.push({
+    name: prefix + path.basename(file).replace(/\.md$/, ''),
+    description: meta.description || '',
+    source,
+  });
+}
+
 /** `<dir>/**.md` commands; a file in a subfolder is `<folder>:<name>` */
-async function readCommandsDir(dir, prefix, source, out, depth = 0) {
+async function readCommandsDir(dir, prefix, source, out, root = null, depth = 0) {
   if (depth > 4) return;
   const names = await fsp.readdir(dir).catch(() => []);
   for (const entry of names) {
@@ -1494,15 +1576,9 @@ async function readCommandsDir(dir, prefix, source, out, depth = 0) {
     const st = await statFollow(full);
     if (!st) continue;
     if (st.isDirectory()) {
-      await readCommandsDir(full, `${prefix}${entry}:`, source, out, depth + 1);
+      await readCommandsDir(full, `${prefix}${entry}:`, source, out, root, depth + 1);
     } else if (st.isFile() && entry.endsWith('.md')) {
-      const meta = await readMeta(full);
-      if (meta['user-invocable'] === 'false') continue;
-      out.push({
-        name: prefix + entry.replace(/\.md$/, ''),
-        description: meta.description || '',
-        source,
-      });
+      await readCommandFile(full, prefix, source, out, root);
     }
   }
 }
@@ -1551,7 +1627,7 @@ export async function listClaudeSkills(cwd, { claudeHome = CLAUDE_HOME } = {}) {
   const found = [];
   await readSkillsDir(path.join(claudeHome, 'skills'), '', 'user', found);
   for (const { dir } of await enabledPluginDirs(cwd, claudeHome))
-    await readSkillsDir(path.join(dir, 'skills'), '', 'plugin', found);
+    await readPlugin(dir, '', found, { commands: false });
   const seen = new Set();
   return found.filter((c) => !seen.has(c.name) && seen.add(c.name));
 }
@@ -1591,10 +1667,8 @@ export async function listSlashCommands(cwd, { claudeHome = CLAUDE_HOME } = {}) 
   const synced = path.join(claudeHome, 'skills', 'synced');
   for (const bucket of await fsp.readdir(synced).catch(() => []))
     await readSkillsDir(path.join(synced, bucket), '', 'user', found);
-  for (const { plugin, dir } of await enabledPluginDirs(cwd, claudeHome)) {
-    await readCommandsDir(path.join(dir, 'commands'), `${plugin}:`, 'plugin', found);
-    await readSkillsDir(path.join(dir, 'skills'), `${plugin}:`, 'plugin', found);
-  }
+  for (const { plugin, dir } of await enabledPluginDirs(cwd, claudeHome))
+    await readPlugin(dir, `${plugin}:`, found);
   const seen = new Set();
   return [...builtins, ...found].filter((c) => {
     if (seen.has(c.name)) return false;
