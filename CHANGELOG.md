@@ -71,6 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Releases stuck as drafts since rc.72: `release-mac` failed uploading to the rc.73 draft with "release not found" after three tries, so `release-publish` never ran. `gh release upload <tag>` finds a draft only through GraphQL and reports any failure of that lookup as not found. Uploads and publishing now go by release id over REST (`scripts/release/release-id.sh`, `upload-files.sh`, four tries with growing pauses) and print GitHub's real error
 - UI view: a slash command called with text (`/some-skill:retro Dann …`) shows as your message, the command as a chip and its text after it (agents-ui v0.4.9). Before, Claude transcripts log it as `<command-name>` + `<command-args>` and the view dropped the whole prompt. Commands without text (`/compact`, `/clear`) stay out, the skill's own text (isMeta) too; omp's `/skill:…` lines get the same chip
 - Question card in UI view (agents-ui v0.4.2), with several questions:
   - Claude's question tabs are buttons now (and ←/→ on the card): back to an answered question shows its pick, a new pick replaces it, and only Submit on the review sends the answers.

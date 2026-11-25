@@ -149,7 +149,7 @@ Every merge to `main` becomes a pre-release, built by Woodpecker (`.woodpecker/r
 2. In parallel: `release-linux` (AppImage, deb, rpm), `release-mac` (dmg, zip for arm64 and x64, ad-hoc signed) and `release-docker` (`ghcr.io/hpmartini/devhub-api` and `-frontend` for amd64/arm64 tagged with the version, plus the compose file pinned to it and `init-db.sql`). `latest` images stay with final releases.
 3. `release-publish` publishes the draft as pre-release once all three succeeded, so updaters never see an rc without its `*-mac.yml`.
 
-**Release assets:** besides the installers each build uploads `latest*.yml`/`rc*.yml` and `*.blockmap` (`scripts/release/upload-assets.sh` → `release-assets.sh`); `release-mac` builds arm64 and x64 separately and uploads one `*-mac.yml` merged by `scripts/release/merge-mac-yml.mjs`.
+**Release assets:** besides the installers each build uploads `latest*.yml`/`rc*.yml` and `*.blockmap` (`scripts/release/upload-assets.sh` → `release-assets.sh`); `release-mac` builds arm64 and x64 separately and uploads one `*-mac.yml` merged by `scripts/release/merge-mac-yml.mjs`. Uploads (`upload-files.sh`) and publishing reach the draft by its id from the REST release list (`release-id.sh`), never through `gh release upload/edit/view <tag>`: those find a draft only via GraphQL and report any failure of that lookup as "release not found" (rc.73).
 
 **Woodpecker setup** (once):
 
