@@ -20,11 +20,22 @@
 //  ac11 scroll: real wheel up in the thread and in the main log while the orchestrator streams a
 //       real answer (text between tool calls); the first visible row sampled every 250 ms for
 //       ≥ 10 s stays within 2 px, "New messages" shows, a click goes back and follows again
+// On a Claude Code orchestrator (CORCH), Ergänzung 9/10:
+//  ac12 question card only for a real dialog: the input line "❯ 1. …" (typed into the PTY under
+//       an answer that ends in a numbered list) shows no card; a real AskUserQuestion shows one,
+//       in the main chat, without status-line text or Nerd-Font glyphs
+//  ac13 with that card open the threads panel maximises and restores (button, then Meta+Shift+M),
+//       the card stays in the main chat; then the card's option answers the dialog
+//  ac14 the orchestrator busy (a real 75 s foreground command): a thread message and a thread
+//       `/status-report` wait in the thread ("waits for the current turn"), a main message waits
+//       in main, no "[Thread:" tag anywhere; after delivery each sits at the same place
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/threads-v3-e2e.cjs <baseUrl> <outDir> [width]
 // env: ORCH=<orchestrator session id, omp-…> (required), ORCH2=<second orchestrator> (splits),
 //      SPLIT=tab|right|down (default tab), ONLY=ac7,ac5,… (default all), CHROME=<chromium>,
 //      ORKUMO=<orkumo CLI>, API=<api url>, DATA=<data dir>, PROJECT=<project dir for ac5>,
 //      SUBMIT=enter if the chat setting is "Enter sends"
+//      CORCH=<Claude Code session uuid of an orchestrator pane> and CORCH_SOCK=<its held PTY
+//      socket> for ac12–ac14 (a FAIL without them)
 // ac5 starts one real agent (omp, short prompt) and stops it at the end.
 const pw = (() => {
   try {
@@ -51,6 +62,8 @@ const API = process.env.API || 'http://127.0.0.1:3591/api';
 const DATA = process.env.DATA || '/Users/Shared/orkumo-demo/data';
 const PROJECT = process.env.PROJECT || '/Users/Shared/orkumo-demo/beispiel-shop';
 const ENTER_SENDS = process.env.SUBMIT === 'enter';
+const CORCH = process.env.CORCH;
+const CORCH_SOCK = process.env.CORCH_SOCK;
 const MOD = process.platform === 'darwin' ? 'Meta' : 'Control';
 const RUN = Date.now().toString(36).slice(-4);
 const tag = `w${W}-${SPLIT}`;
@@ -129,14 +142,14 @@ async function openAgent(page, id) {
 }
 
 /** Opens the app with the orchestrator in a tab, or split beside/below the second one */
-async function openLayout(page) {
+async function openLayout(page, id = ORCH) {
   await page.goto(`${BASE}/agents`);
   await page.waitForTimeout(5000);
   const { sessions } = await api('/agents');
-  const paneId = sessions.find((s) => s.id === ORCH)?.paneId;
+  const paneId = sessions.find((s) => s.id === id)?.paneId;
   paneSel = paneId ? `[data-chat-pane][data-agent-pane="${paneId}"]` : '[data-chat-pane]:visible';
   if (SPLIT !== 'tab' && ORCH2) await openAgent(page, ORCH2);
-  await openAgent(page, ORCH);
+  await openAgent(page, id);
   if (SPLIT !== 'tab') {
     const split = page.locator(`button[aria-label^="Split "][aria-label$=" ${SPLIT}"]`).first();
     await split
@@ -988,6 +1001,218 @@ async function scrollCheck(page, where) {
   check(`ac11 ${where}: at the end after the turn`, end.fromBottom <= 40 && !end.button, `${end.fromBottom}`);
 }
 
+// ---- AC-12 … AC-14 on a Claude Code orchestrator ------------------------------------------
+const net = require('net');
+/** The held PTY of the Claude orchestrator: its raw backlog; with `input` types it */
+function pty(input) {
+  return new Promise((resolve, reject) => {
+    const s = net.connect(CORCH_SOCK);
+    s.setEncoding('utf8');
+    let buf = '';
+    s.on('error', reject);
+    s.on('data', (c) => {
+      if (buf === null) return;
+      buf += c;
+      const i = buf.indexOf('\n');
+      if (i < 0) return;
+      const hello = JSON.parse(buf.slice(0, i));
+      buf = null;
+      if (input !== undefined) s.write(JSON.stringify({ t: 'in', d: input }) + '\n');
+      setTimeout(() => s.end(), 300);
+      resolve(String(hello.backlog || ''));
+    });
+  });
+}
+/** The PTY's screen bottom as the page's own terminal emulator renders it (agents-ui renderTerminalScreen) */
+const SCREEN_MOD = `/@fs${path.resolve(__dirname, '../../node_modules/@hpmartini/agents-ui/dist/utils/terminalScreen.js')}`;
+async function ptyScreen(page) {
+  const raw = await pty();
+  const text = await page.evaluate(async ([mod, raw]) => (await import(mod)).renderTerminalScreen(raw), [SCREEN_MOD, raw]);
+  return text.split('\n').slice(-14).join('\n');
+}
+const corchRow = async () => (await api('/agents')).sessions.find((s) => s.sessionId === CORCH);
+async function corchIdle(ms = 240000) {
+  await sleep(3000);
+  return waitFor(async () => {
+    const s = await corchRow();
+    return s && s.displayState !== 'working' && s.status !== 'busy';
+  }, ms, 2000);
+}
+/** Question cards (dialog or screen fallback) in the main chat and in the threads panel */
+const cards = (page) =>
+  paneOf(page).evaluate((pane) => {
+    const aside = pane.querySelector('aside[aria-label="Threads"]');
+    const all = [
+      ...pane.querySelectorAll('[role=group][aria-label="Agent question"], [role=group][aria-label="Permission request"]'),
+      ...[...pane.querySelectorAll('[role=status]')].filter((e) =>
+        (e.textContent || '').includes('The agent is asking: pick an answer')
+      ),
+    ];
+    const vis = (e) => e.getBoundingClientRect().height > 0;
+    return {
+      main: all.filter((e) => !aside?.contains(e)).length,
+      mainVisible: all.filter((e) => !aside?.contains(e) && vis(e)).length,
+      side: all.filter((e) => aside?.contains(e)).length,
+      text: all.map((e) => (e.textContent || '').replace(/\s+/g, ' ').trim()).join(' | ').slice(0, 400),
+    };
+  });
+async function sendMain(page, text) {
+  await paneOf(page).locator('textarea[aria-label="Message"]').click();
+  await page.keyboard.type(text);
+  await page.keyboard.press(ENTER_SENDS ? 'Enter' : `${MOD}+Enter`);
+}
+async function sendThread(page, text) {
+  await paneOf(page).locator('textarea[aria-label="Reply in thread"]').click();
+  await page.keyboard.type(text);
+  // a command opens its popup first
+  if (text.startsWith('/')) await page.waitForTimeout(600);
+  await page.keyboard.press(ENTER_SENDS ? 'Enter' : `${MOD}+Enter`);
+}
+const noTag = async (page) => !(await page.locator('body').innerText()).includes('[Thread:');
+
+async function ac12(page) {
+  check('ac12: Claude orchestrator idle at the start', !!(await corchIdle()));
+  // an answer ending in a numbered list, then "1. …" in the input line: the bug D screen
+  await sendMain(page, 'Reply with exactly three numbered options (1., 2., 3.), one short line each, for what to test next in a chat UI. No tools, nothing else.');
+  check('ac12: numbered answer done', !!(await corchIdle()));
+  const ghost = 'Code-Aufgaben über die Standardroute';
+  await pty(`1. ${ghost}`);
+  const typed = await waitFor(async () => {
+    const sc = await ptyScreen(page);
+    return /❯\s*1\.\s*Code-Aufgaben/.test(sc) ? sc : null;
+  }, 5000, 500);
+  check('ac12: the input line shows "❯ 1. …" (precondition, rendered PTY screen)', !!typed);
+  if (typed) fs.writeFileSync(`${OUT}/${tag}-ac12-pty-screen.txt`, typed);
+  let worst = { main: 0, side: 0, text: '' };
+  for (let i = 0; i < 12; i++) {
+    const c = await cards(page);
+    if (c.main + c.side > worst.main + worst.side) worst = c;
+    await page.waitForTimeout(500);
+  }
+  await shot(page, 'ac12-input-line-no-card');
+  check('ac12: no question card for the input line "❯ 1. …" (6 s polled)', worst.main + worst.side === 0, worst.text);
+  await pty('\u0015');
+  const cleared = await waitFor(async () => !(await ptyScreen(page)).includes(ghost), 5000, 500);
+  check('ac12: input line cleared again', !!cleared);
+  // a real dialog
+  await sendMain(page, 'Use the AskUserQuestion tool once: ask me which color I prefer, options red, green, blue. Nothing else.');
+  const card = await waitFor(async () => {
+    const c = await cards(page);
+    return c.mainVisible ? c : null;
+  }, 120000, 1000);
+  await shot(page, 'ac12-ask-user-question-card');
+  check('ac12: a real AskUserQuestion shows the card in the main chat', !!card, card?.text ?? 'none');
+  check(
+    'ac12: card holds the options, no status line or Nerd-Font glyphs',
+    !!card && /red/i.test(card.text) && /blue/i.test(card.text) && !/[-]|Opus|tokens|░/u.test(card.text),
+    card?.text ?? ''
+  );
+  check('ac12: no card in the threads panel', !card?.side);
+  return !!card;
+}
+
+async function ac13(page) {
+  const pane = paneOf(page);
+  await showPanel(page);
+  const inMain = async () => (await cards(page)).mainVisible > 0;
+  check('ac13: card open before', await inMain());
+  await pane.getByRole('button', { name: 'Maximize threads' }).click();
+  await page.waitForTimeout(700);
+  check('ac13: maximise by button with the card open', (await panelMode(page)) === 'full', await panelMode(page));
+  await shot(page, 'ac13-maximised-by-button');
+  await pane.getByRole('button', { name: 'Restore threads' }).click();
+  await page.waitForTimeout(700);
+  check('ac13: restore by button, card still in main', (await panelMode(page)) !== 'full' && (await inMain()), await panelMode(page));
+  await shot(page, 'ac13-restored-by-button');
+  await pane.locator('textarea[aria-label="Message"]').click();
+  await page.keyboard.press(`${MOD}+Shift+M`);
+  await page.waitForTimeout(700);
+  check('ac13: maximise by Meta+Shift+M with the card open', (await panelMode(page)) === 'full', await panelMode(page));
+  await shot(page, 'ac13-maximised-by-shortcut');
+  await page.keyboard.press(`${MOD}+Shift+M`);
+  await page.waitForTimeout(700);
+  check('ac13: restore by Meta+Shift+M, card still in main', (await panelMode(page)) !== 'full' && (await inMain()), await panelMode(page));
+  await shot(page, 'ac13-restored-by-shortcut');
+  // answer through the card
+  const group = pane.locator('[role=group][aria-label="Agent question"]').first();
+  await group.getByRole('button', { name: /red/i }).first().click();
+  const gone = await waitFor(async () => (await cards(page)).main === 0, 60000, 1000);
+  check('ac13: the card answers the dialog and goes', !!gone);
+  check('ac13: orchestrator idle after the answer', !!(await corchIdle()));
+}
+
+async function ac14(page) {
+  check('ac14: idle, no card before', !!(await corchIdle()) && (await cards(page)).main === 0);
+  await showPanel(page);
+  await setMax(page, false);
+  await paneOf(page).getByRole('button', { name: 'New thread' }).click();
+  await page.getByRole('menuitem', { name: /Thread without a task/ }).click();
+  await page.waitForTimeout(800);
+  await sendMain(page, 'Run exactly this bash command and nothing else (foreground, timeout 300000): python3 -c "import time; time.sleep(75)" ; then reply with one word.');
+  // the command may need a permission: allow it once through the card
+  const busy = await waitFor(async () => {
+    const perm = paneOf(page).locator('[role=group][aria-label="Permission request"]');
+    if (await perm.count()) {
+      console.log('  ac14: permission for the sleep, allowed via the card');
+      await perm.getByRole('button', { name: /^1\.?\s*Yes|^Yes$/ }).first().click();
+      await page.waitForTimeout(1500);
+      return false;
+    }
+    return (await corchRow())?.displayState === 'working';
+  }, 90000, 1000);
+  await page.waitForTimeout(3000);
+  check('ac14: orchestrator busy, no card open', !!busy && (await cards(page)).main === 0, (await corchRow())?.displayState);
+  const msg = `Queued thread check ${RUN}`;
+  const ctl = `Main queued control ${RUN}`;
+  const bubbles = () =>
+    paneOf(page).locator('[data-queued]').evaluateAll((els) =>
+      els.map((e) => ({ inThread: !!e.closest('aside'), text: (e.textContent || '').replace(/\s+/g, ' ').trim() }))
+    );
+  const at = (list, text) => list.find((b) => b.text.includes(text));
+  await sendThread(page, msg);
+  const q1 = await waitFor(async () => at(await bubbles(), msg), 8000);
+  await shot(page, 'ac14-thread-message-queued');
+  check('ac14: thread message waits in the thread at once', q1?.inThread === true && /waits for the current turn/.test(q1.text), JSON.stringify(q1));
+  check('ac14: … not in main', !(await bubbles()).some((b) => !b.inThread && b.text.includes(msg)));
+  check('ac14: no tag (thread message queued)', await noTag(page));
+  await sendThread(page, '/status-report');
+  const q2 = await waitFor(async () => at(await bubbles(), '/status-report'), 8000);
+  await shot(page, 'ac14-thread-command-queued');
+  check('ac14: thread /status-report waits in the thread', q2?.inThread === true && /waits for the current turn/.test(q2.text), JSON.stringify(q2));
+  check('ac14: no tag (command queued)', await noTag(page));
+  await sendMain(page, ctl);
+  const q3 = await waitFor(async () => at(await bubbles(), ctl), 8000);
+  const all = await bubbles();
+  await shot(page, 'ac14-all-queued');
+  check('ac14: main message waits in main', q3?.inThread === false, JSON.stringify(all));
+  check('ac14: thread bubbles stay in the thread', all.filter((b) => b.inThread).length === 2, JSON.stringify(all));
+  check('ac14: no tag (all queued)', await noTag(page));
+  const before = await logTexts(page, 'thread');
+  const iMsg = before.findIndex((t) => t.includes(msg));
+  const iCmd = before.findIndex((t) => t.includes('/status-report'));
+  // delivery: the sleep ends, then the queued prompts run
+  const done = await waitFor(async () => {
+    if (await paneOf(page).locator('[data-queued]').count()) return false;
+    return (await corchRow())?.displayState !== 'working';
+  }, 9 * 60000, 3000);
+  await corchIdle(300000);
+  await page.waitForTimeout(3000);
+  await shot(page, 'ac14-delivered');
+  check('ac14: all delivered', !!done, `${await paneOf(page).locator('[data-queued]').count()} left`);
+  const after = await logTexts(page, 'thread');
+  const jMsg = after.findIndex((t) => t.includes(msg));
+  const jCmd = after.findIndex((t) => t.includes('/status-report'));
+  check(
+    'ac14: delivered thread message and command at the same place in the thread',
+    iMsg >= 0 && jMsg === iMsg && JSON.stringify(after.slice(0, iMsg)) === JSON.stringify(before.slice(0, iMsg)) && jCmd > jMsg,
+    `msg ${iMsg} -> ${jMsg}, cmd ${iCmd} -> ${jCmd}`
+  );
+  const main = await logTexts(page, 'main');
+  check('ac14: thread message and command not in main', !main.some((t) => t.includes(msg) || /^\/status-report/.test(t)), JSON.stringify(main.filter((t) => t.includes(msg)).slice(0, 2)));
+  check('ac14: main message delivered in main', main.some((t) => t.includes(ctl)));
+  check('ac14: no tag (delivered)', await noTag(page));
+}
+
 const stepsBtn = (page) => paneOf(page).locator('button[aria-label="Show thinking and tool calls"]').first();
 async function ac11(page, id) {
   // thinking and tool calls on: the orchestrator's turn then arrives step by step (omp writes
@@ -1029,6 +1254,16 @@ async function ac11(page, id) {
     if (on('ac2')) await ac2(page);
     if (on('ac10')) await ac10(page);
     if (on('ac11')) target ? await ac11(page, target) : check('ac11: a thread to scroll in', false);
+    if (on('ac12') || on('ac13') || on('ac14')) {
+      const c = CORCH && CORCH_SOCK ? await corchRow() : null;
+      if (!c) check('ac12–ac14: a Claude orchestrator (CORCH, CORCH_SOCK)', false, CORCH ?? 'unset');
+      else {
+        await openLayout(page, c.id);
+        const carded = on('ac12') ? await ac12(page) : false;
+        if (on('ac13')) carded ? await ac13(page) : check('ac13: a card to keep open', false);
+        if (on('ac14')) await ac14(page);
+      }
+    }
   } catch (e) {
     const at = (e.stack || '').split('\n').find((l) => l.includes('threads-v3-e2e'))?.trim() ?? '';
     check('run', false, `${e.message.split('\n')[0]} ${at}`);
