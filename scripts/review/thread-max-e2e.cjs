@@ -1,5 +1,5 @@
 /* global document, localStorage */
-// e2e for the threads panel: maximise (button, Mod+Shift+M, Esc), sidebar list, thread composer
+// e2e for the threads panel: maximise (button, Mod+Shift+M, Esc), sidebar list (default on), thread composer
 // send key, height grip (at most 40 % of the pane) and `@` files, with a real mouse and keyboard in
 // a tab and in splits (side by side, stacked). Narrow panes: the main chat keeps its minimum width
 // beside the panel, else the panel is a drawer over it (dimmed, Esc / x / a click outside put it away).
@@ -187,13 +187,16 @@ async function maximiseChecks(page, i, name) {
     `${name}: thread count in the header`,
     /Threads\s*\d/.test((await header.textContent()) || '')
   );
-  // sidebar on, then off again
+  // the list sits on the left by default (AC-4); off, then on again
+  check(`${name}: sidebar layout by default`, s1.layout === 'sidebar', s1.layout);
+  await shot(page, `${name}-sidebar`);
   const side = pane.getByRole('button', { name: 'Thread list on the left' });
   await side.click();
   await page.waitForTimeout(300);
   const s2 = await paneState(page, i);
-  await shot(page, `${name}-sidebar`);
-  check(`${name}: sidebar layout`, s2.layout === 'sidebar', s2.layout);
+  check(`${name}: list on top after switching off`, s2.layout === 'top', s2.layout);
+  await side.click();
+  await page.waitForTimeout(300);
   // Esc in the thread input restores; draft and width come back
   await pane.locator('textarea[aria-label="Reply in thread"]').click();
   await page.keyboard.press('Escape');
@@ -251,8 +254,7 @@ async function maximiseChecks(page, i, name) {
     s5.maximized && (await list.count()) === 0
   );
   await page.keyboard.press('Backspace');
-  // sidebar off for the next pane, then restore with the shortcut
-  await side.click();
+  // restore with the shortcut (the list stays on the left for the next pane)
   await page.keyboard.press(`${MOD}+Shift+KeyM`);
   await page.waitForTimeout(400);
   const s6 = await paneState(page, i);
@@ -298,7 +300,8 @@ async function narrowChecks(page, i, name) {
     // short pane: the open thread fills the panel, "Back to the list" brings the list back
     const rowsOpen = await pane.locator('[data-thread-row]').count();
     await pane.getByRole('button', { name: 'Back to the list (thread stays open)' }).click();
-    await page.waitForTimeout(300);
+    // the list renders after the thread view leaves; give it a moment under load
+    await pane.locator('[data-thread-row]').first().waitFor({ timeout: 3000 }).catch(() => {});
     const rowsBack = await pane.locator('[data-thread-row]').count();
     await shot(page, `${name}-short-list`);
     check(
