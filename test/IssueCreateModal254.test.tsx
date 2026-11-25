@@ -1,6 +1,6 @@
 // #254: pickers of the "Neues Issue" dialog close each other and on outside clicks; status is choosable
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 
 const api = vi.hoisted(() => ({
   createBoardIssue: vi.fn(),
@@ -25,7 +25,7 @@ describe('IssueCreateModal pickers and status (#254)', () => {
     vi.clearAllMocks();
     api.fetchRepoOptions.mockResolvedValue({
       labels: [{ id: 'l1', name: 'bug', color: 'ff0000' }],
-      assignees: [{ id: 'u1', login: 'hpmartini' }],
+      assignees: [{ id: 'u1', login: 'dev' }],
       milestones: [],
     });
     api.createBoardIssue.mockResolvedValue({ id: 'i1' });
@@ -56,8 +56,6 @@ describe('IssueCreateModal pickers and status (#254)', () => {
     expect(lists()).toEqual(['Labels']);
     press(trigger('Assignees'));
     expect(lists()).toEqual(['Assignees']);
-    press(trigger('Milestone'));
-    expect(lists()).toEqual(['Milestone']);
     // keyboard activation: click without mousedown
     fireEvent.click(trigger('Labels'));
     expect(lists()).toEqual(['Labels']);
@@ -83,9 +81,9 @@ describe('IssueCreateModal pickers and status (#254)', () => {
 
   it('creates the issue in the chosen status', async () => {
     await open();
-    const status = screen.getByLabelText('Status') as HTMLInputElement; // only `.value` is read
-    expect(status.value).toBe('s-backlog');
-    fireEvent.change(status, { target: { value: 's-todo' } });
+    // two statuses: a Choice radio group
+    expect(screen.getByRole('radio', { name: 'Backlog' })).toHaveAttribute('aria-checked', 'true');
+    fireEvent.click(screen.getByRole('radio', { name: 'Todo' }));
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Neu' } });
     fireEvent.submit(screen.getByLabelText('Title').closest('form')!);
     await waitFor(() =>
@@ -93,5 +91,86 @@ describe('IssueCreateModal pickers and status (#254)', () => {
         expect.objectContaining({ repo: 'acme/app', title: 'Neu', statusOptionId: 's-todo' })
       )
     );
+  });
+});
+
+describe('IssueCreateModal milestone on Choice', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    api.createBoardIssue.mockResolvedValue({ id: 'i1' });
+  });
+  const milestones = (titles: string[]) =>
+    api.fetchRepoOptions.mockResolvedValue({
+      labels: [],
+      assignees: [],
+      milestones: titles.map((title, i) => ({ id: `m${i}`, title })),
+    });
+  const submit = () => {
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Neu' } });
+    fireEvent.submit(screen.getByLabelText('Title').closest('form')!);
+  };
+
+  it('sends the picked milestone', async () => {
+    milestones(['v1']);
+    render(<IssueCreateModal repo="acme/app" onClose={vi.fn()} onCreated={vi.fn()} />);
+    const group = await screen.findByRole('radiogroup', { name: 'Milestone' });
+    await waitFor(() => expect(within(group).getByRole('radio', { name: 'v1' })).toBeEnabled());
+    fireEvent.click(within(group).getByRole('radio', { name: 'v1' }));
+    submit();
+    await waitFor(() =>
+      expect(api.createBoardIssue).toHaveBeenCalledWith(
+        expect.objectContaining({ milestone: 'v1' })
+      )
+    );
+  });
+
+  it('sends milestone null after picking "No milestone" again', async () => {
+    milestones(['v1']);
+    render(<IssueCreateModal repo="acme/app" onClose={vi.fn()} onCreated={vi.fn()} />);
+    const group = await screen.findByRole('radiogroup', { name: 'Milestone' });
+    await waitFor(() => expect(within(group).getByRole('radio', { name: 'v1' })).toBeEnabled());
+    fireEvent.click(within(group).getByRole('radio', { name: 'v1' }));
+    fireEvent.click(within(group).getByRole('radio', { name: 'No milestone' }));
+    submit();
+    await waitFor(() =>
+      expect(api.createBoardIssue).toHaveBeenCalledWith(
+        expect.objectContaining({ milestone: null })
+      )
+    );
+  });
+
+  it('Escape in an open milestone menu closes only the menu, a second one the dialog', async () => {
+    milestones(['v1', 'v2', 'v3']);
+    const onClose = vi.fn();
+    render(<IssueCreateModal repo="acme/app" onClose={onClose} onCreated={vi.fn()} />);
+    const trigger = await screen.findByRole('button', { name: /^Milestone/ });
+    await waitFor(() => expect(trigger).toBeEnabled());
+    fireEvent.click(trigger);
+    const list = await screen.findByRole('listbox', { name: 'Milestone' });
+    fireEvent.keyDown(list, { key: 'Escape' });
+    expect(screen.queryByRole('listbox', { name: 'Milestone' })).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+    fireEvent.keyDown(trigger, { key: 'Escape' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('IssueCreateModal repository Choice', () => {
+  it('keeps a preset repository that is not among the repos checked', async () => {
+    api.fetchRepoOptions.mockResolvedValue({ labels: [], assignees: [], milestones: [] });
+    render(
+      <IssueCreateModal
+        repo="acme/elsewhere"
+        repos={['acme/app', 'acme/api']}
+        onClose={vi.fn()}
+        onCreated={vi.fn()}
+      />
+    );
+    const group = screen.getByRole('radiogroup', { name: 'Repository' });
+    expect(within(group).getByRole('radio', { name: 'acme/elsewhere' })).toHaveAttribute(
+      'aria-checked',
+      'true'
+    );
+    await waitFor(() => expect(api.fetchRepoOptions).toHaveBeenCalledWith('acme/elsewhere'));
   });
 });

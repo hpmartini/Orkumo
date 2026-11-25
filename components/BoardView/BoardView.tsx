@@ -26,6 +26,7 @@ import { BoardGrid } from './BoardGrid';
 import { BoardItemPanel } from './BoardItemPanel';
 import { IssueCreateModal, lastIssueRepo } from './IssueCreateModal';
 import { SlicePicker } from './SlicePicker';
+import { Choice, choiceMode } from '@hpmartini/agents-ui/components/Choice';
 
 interface BoardViewProps {
   /** Whether the view is visible (drives polling, URL state and keyboard handling) */
@@ -49,7 +50,6 @@ const SLICE_KIND_LABELS: Record<BoardSliceKind, string> = {
   milestone: 'Milestone',
   assignee: 'Assignee',
 };
-const SELECT_CLS = 'bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-200 text-xs';
 const ICON_BTN =
   'p-1 rounded text-gray-400 hover:text-white hover:bg-gray-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cursor';
 const LANE_MODES: { key: BoardSwimlaneMode; label: string }[] = [
@@ -73,6 +73,26 @@ function loadView(): ViewPrefs {
   }
   return DEFAULT_VIEW;
 }
+
+/** Board header agent filter: "All agents" plus one option per agent */
+export const AgentFilter: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}> = ({ value, onChange, options }) => {
+  const pills = choiceMode(options.length) === 'pills';
+  return (
+    <Choice
+      value={value}
+      onChange={onChange}
+      // pills show a hint only as tooltip: the full name of a truncated pill
+      options={pills ? options.map((o) => ({ ...o, hint: o.label })) : options}
+      label="Filter by agent"
+      // long names end in an ellipsis per pill, the row wraps inside the header
+      className={pills ? '[&>button]:max-w-40 [&>button]:truncate' : 'max-w-48'}
+    />
+  );
+};
 
 const toggleIn = (list: string[], key: string) =>
   list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
@@ -224,24 +244,24 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
   const onAgent = (jobId: string) => setParam('agent', agentFilter === jobId ? null : jobId);
   const filterAgent = agentFilter ? (sessionsById.get(agentFilter)?.name ?? agentFilter) : null;
 
+  const agentOptions = [
+    { value: '', label: 'All agents' },
+    ...(agentFilter && !railAgents.some((a) => a.jobId === agentFilter)
+      ? [{ value: agentFilter, label: filterAgent ?? agentFilter }]
+      : []),
+    ...railAgents.map((a) => ({ value: a.jobId, label: a.session?.name ?? a.jobId })),
+  ];
+
   return (
     <div className="relative flex flex-1 h-full min-h-0 bg-gray-900">
       <main className="flex-1 min-w-0 flex flex-col">
-        <header className="flex items-center gap-3 px-4 h-12 border-b border-gray-700 bg-gray-900 shrink-0">
-          <select
+        <header className="flex flex-wrap items-center gap-x-3 gap-y-1.5 px-4 py-1.5 min-h-12 border-b border-gray-700 bg-gray-900 shrink-0">
+          <Choice
             value={sliceKind}
-            onChange={(e) =>
-              selectSlice({ sliceKind: e.target.value as BoardSliceKind, selected: null })
-            }
-            aria-label="Slice by"
-            className={SELECT_CLS}
-          >
-            {SLICE_KINDS.map((k) => (
-              <option key={k} value={k}>
-                {SLICE_KIND_LABELS[k]}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => selectSlice({ sliceKind: v, selected: null })}
+            options={SLICE_KINDS.map((k) => ({ value: k, label: SLICE_KIND_LABELS[k] }))}
+            label="Slice by"
+          />
           <SlicePicker
             slices={slices}
             kindLabel={SLICE_KIND_LABELS[sliceKind]}
@@ -280,22 +300,11 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
                 </button>
               </>
             ))}
-          <select
+          <AgentFilter
             value={agentFilter ?? ''}
-            onChange={(e) => setParam('agent', e.target.value || null)}
-            aria-label="Filter by agent"
-            className={`${SELECT_CLS} max-w-48`}
-          >
-            <option value="">All agents</option>
-            {agentFilter && !railAgents.some((a) => a.jobId === agentFilter) && (
-              <option value={agentFilter}>{filterAgent}</option>
-            )}
-            {railAgents.map((a) => (
-              <option key={a.jobId} value={a.jobId}>
-                {a.session?.name ?? a.jobId}
-              </option>
-            ))}
-          </select>
+            onChange={(v) => setParam('agent', v || null)}
+            options={agentOptions}
+          />
           <span className="text-xs text-gray-400 shrink-0">
             {`${shownItems(visible, options, now).length} items`}
           </span>
@@ -305,20 +314,16 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
               <AlertTriangle size={12} /> Refresh failed
             </span>
           )}
-          <label className="flex items-center gap-1.5 text-xs text-gray-400">
-            Swimlanes
-            <select
+          <div className="flex items-center gap-1.5 text-xs text-gray-400 shrink-0">
+            <span aria-hidden>Swimlanes</span>
+            <Choice
               value={laneMode}
-              onChange={(e) => updateView({ laneMode: e.target.value as BoardSwimlaneMode })}
-              className={SELECT_CLS}
-            >
-              {LANE_MODES.map((m) => (
-                <option key={m.key} value={m.key}>
-                  {m.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={(v) => updateView({ laneMode: v })}
+              options={LANE_MODES.map((m) => ({ value: m.key, label: m.label }))}
+              label="Swimlanes"
+              className="flex-nowrap"
+            />
+          </div>
           <div className="relative">
             <Search
               size={14}
