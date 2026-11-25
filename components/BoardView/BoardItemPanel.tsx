@@ -23,8 +23,7 @@ import {
   assigneeChoices,
   labelChoices,
   labelsFor,
-  milestoneChoices,
-  NO_MILESTONE,
+  milestoneOptions,
   useRepoOptions,
 } from './IssueFields';
 import {
@@ -215,9 +214,11 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
             <Choice
               value={item.statusOptionId ?? ''}
               onChange={(v) => v && onStatus(v)}
-              options={options.map((o) => ({ value: o.id, label: o.name }))}
+              options={[
+                ...(item.statusOptionId ? [] : [{ value: '', label: 'No status' }]),
+                ...options.map((o) => ({ value: o.id, label: o.name })),
+              ]}
               label="Status"
-              placeholder="No status"
             />
           </dd>
           {editable && (
@@ -272,8 +273,7 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                     label="Milestone"
                     value={item.milestone ?? ''}
                     onChange={(v) => save({ milestone: v || null }, { milestone: v || null })}
-                    options={[NO_MILESTONE, ...(milestoneChoices(repoOptions) ?? [])]}
-                    placeholder={item.milestone ?? undefined}
+                    options={milestoneOptions(repoOptions, item.milestone)}
                     disabled={!repoOptions}
                     title={repoOptions ? undefined : 'Loading options…'}
                     // until the options load: no jump from pills to a menu

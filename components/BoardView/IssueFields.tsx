@@ -133,8 +133,20 @@ export const labelChoices = (options: BoardRepoOptions | null) =>
   options?.labels.map((l) => ({ value: l.name, label: <LabelChip label={l} /> })) ?? null;
 export const assigneeChoices = (options: BoardRepoOptions | null) =>
   options?.assignees.map((a) => ({ value: a.login, label: a.login })) ?? null;
-/** Choice option that clears the milestone */
-export const NO_MILESTONE = { value: '', label: 'No milestone' };
+/**
+ * Choice options for the milestone: "No milestone" (''), the open ones and `current` when it is
+ * missing from them (closed: the server lists only open milestones)
+ */
+export const milestoneOptions = (options: BoardRepoOptions | null, current: string | null) => {
+  const open = milestoneChoices(options) ?? [];
+  return [
+    { value: '', label: 'No milestone' },
+    ...open,
+    ...(current && !open.some((m) => m.value === current)
+      ? [{ value: current, label: current }]
+      : []),
+  ];
+};
 export const milestoneChoices = (options: BoardRepoOptions | null) =>
   options?.milestones.map((m) => ({ value: m.title, label: m.title })) ?? null;
 

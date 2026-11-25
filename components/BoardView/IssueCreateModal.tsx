@@ -21,8 +21,7 @@ import {
   assigneeChoices,
   labelChoices,
   labelsFor,
-  milestoneChoices,
-  NO_MILESTONE,
+  milestoneOptions,
   useRepoOptions,
 } from './IssueFields';
 
@@ -250,9 +249,11 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
                   id="issue-create-status"
                   value={statusOptionId}
                   onChange={setStatusOptionId}
-                  options={statusOptions.map((o) => ({ value: o.id, label: o.name }))}
+                  options={[
+                    ...(statusOptionId ? [] : [{ value: '', label: 'Backlog (default)' }]),
+                    ...statusOptions.map((o) => ({ value: o.id, label: o.name })),
+                  ]}
                   label="Status"
-                  placeholder="Backlog (default)"
                   className="w-full"
                 />
               </>
@@ -401,7 +402,7 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               label="Milestone"
               value={milestone[0] ?? ''}
               onChange={(v) => setMilestone(v ? [v] : [])}
-              options={[NO_MILESTONE, ...(milestoneChoices(options) ?? [])]}
+              options={milestoneOptions(options, milestone[0] ?? null)}
               title={options ? undefined : 'Loading options…'}
               mode={options ? 'auto' : 'menu'}
             />
