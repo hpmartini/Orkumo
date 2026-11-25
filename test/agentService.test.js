@@ -470,6 +470,42 @@ describe('agentService - listSlashCommands', () => {
     expect(omp).toEqual(expect.arrayContaining(['retro', 'flat', 'more']));
   });
 
+  it('skips manifest paths that escape the plugin root or do not exist', async () => {
+    const eHome = path.join(tmp, 'escape-home');
+    const ep = path.join(tmp, 'plugins', 'ep');
+    const outside = path.join(tmp, 'outside');
+    skill(path.join(outside, 'skills'), 'stolen');
+    write(path.join(outside, 'outside.md'), 'x\n');
+    fs.mkdirSync(ep, { recursive: true });
+    // lexically inside, really outside
+    fs.symlinkSync(path.join(outside, 'skills'), path.join(ep, 'linked'));
+    write(path.join(ep, 'hidden.md'), '---\nuser-invocable: false\n---\n');
+    write(path.join(ep, 'real.md'), '---\ndescription: From file\n---\n');
+    write(
+      path.join(ep, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({
+        skills: ['./linked'],
+        commands: {
+          ghost: { source: './missing.md' },
+          escape: { source: '../outside.md' },
+          hidden: { source: './hidden.md' },
+          real: { source: './real.md' },
+          both: { source: './real.md', content: 'x' },
+          inline: { content: 'Inline' },
+        },
+      })
+    );
+    write(
+      path.join(eHome, 'plugins', 'installed_plugins.json'),
+      JSON.stringify({ plugins: { 'ep@m': [{ installPath: ep }] } })
+    );
+    write(path.join(eHome, 'settings.json'), JSON.stringify({ enabledPlugins: { 'ep@m': true } }));
+    const list = await mod.listSlashCommands(null, { claudeHome: eHome });
+    const names = list.filter((c) => c.source === 'plugin').map((c) => c.name);
+    expect(names.sort()).toEqual(['ep:inline', 'ep:real']);
+    expect(list.find((c) => c.name === 'ep:real').description).toBe('From file');
+  });
+
   it('lists the Claude skills omp sees, un-namespaced', async () => {
     const names = (await mod.listClaudeSkills(cwd, { claudeHome: home })).map((c) => c.name);
     expect(names).toEqual(expect.arrayContaining(['linked', 'goal-contract']));

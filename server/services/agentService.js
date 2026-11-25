@@ -1499,28 +1499,47 @@ async function readSkill(dir, prefix, source, out) {
  */
 async function readPlugin(dir, prefix, out, { commands = true } = {}) {
   const manifest = (await readJson(path.join(dir, '.claude-plugin', 'plugin.json'))) || {};
-  const root = path.resolve(dir);
-  // manifest paths must stay inside the plugin root, as Claude Code requires
-  const paths = (value) =>
-    []
-      .concat(value ?? [])
-      .filter((p) => typeof p === 'string')
-      .map((p) => path.resolve(root, p))
-      .filter((p) => p === root || p.startsWith(root + path.sep));
+  const root = await fsp.realpath(dir).catch(() => null);
+  if (!root) return;
+  // manifest paths must exist and resolve inside the plugin root (symlinks resolved), as Claude
+  // Code requires (manifest-reference, "Containment and existence")
+  const contained = async (p) => {
+    const real = await fsp.realpath(path.resolve(root, p)).catch(() => null);
+    return real && (real === root || real.startsWith(root + path.sep)) ? real : null;
+  };
+  const paths = async (value) => {
+    const list = [].concat(value ?? []).filter((p) => typeof p === 'string');
+    return (await Promise.all(list.map(contained))).filter(Boolean);
+  };
   const declared = manifest.commands;
   const isMap = declared && typeof declared === 'object' && !Array.isArray(declared);
   if (commands && isMap) {
-    for (const [name, entry] of Object.entries(declared))
-      out.push({ name: prefix + name, description: entry?.description || '', source: 'plugin' });
+    for (const [name, entry] of Object.entries(declared)) {
+      const hasSource = typeof entry?.source === 'string';
+      // exactly one of `source` or `content`, else the entry fails validation
+      if (hasSource === (typeof entry?.content === 'string')) continue;
+      let meta = {};
+      if (hasSource) {
+        const file = await contained(entry.source);
+        if (!file?.endsWith('.md') || !(await statFollow(file))?.isFile()) continue;
+        meta = await readMeta(file);
+        if (meta['user-invocable'] === 'false') continue;
+      }
+      out.push({
+        name: prefix + name,
+        description: entry.description || meta.description || '',
+        source: 'plugin',
+      });
+    }
   } else if (commands) {
-    for (const full of declared == null ? [path.join(root, 'commands')] : paths(declared)) {
+    for (const full of declared == null ? [path.join(root, 'commands')] : await paths(declared)) {
       const st = await statFollow(full);
       if (st?.isDirectory()) await readCommandsDir(full, prefix, 'plugin', out);
       else if (st?.isFile() && full.endsWith('.md'))
         await readCommandFile(full, prefix, 'plugin', out);
     }
   }
-  for (const skillDir of [path.join(root, 'skills'), ...paths(manifest.skills)]) {
+  for (const skillDir of [path.join(root, 'skills'), ...(await paths(manifest.skills))]) {
     if ((await statFollow(path.join(skillDir, 'SKILL.md')))?.isFile())
       await readSkill(skillDir, prefix, 'plugin', out);
     else await readSkillsDir(skillDir, prefix, 'plugin', out);
