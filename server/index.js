@@ -2561,11 +2561,13 @@ async function returnMisplacedThreads(owner) {
   await threadRepairs.get(key);
 }
 
-/** The session's threads, then those its role still keeps (unproven, see above) */
-const ownerThreads = (owner) => [
-  ...threadStore.list(owner.id),
-  ...(owner.report === owner.id ? [] : threadStore.list(owner.report)),
-];
+/** The session's threads, then those its role still keeps (unproven, see above), each once */
+const ownerThreads = (owner) => {
+  const own = threadStore.list(owner.id);
+  if (owner.report === owner.id) return own;
+  const ids = new Set(own.map((t) => t.id));
+  return [...own, ...threadStore.list(owner.report).filter((t) => !ids.has(t.id))];
+};
 /** File a listed thread is kept in */
 const threadKey = (owner, id) =>
   threadStore.list(owner.id).some((t) => t.id === id) ? owner.id : owner.report;

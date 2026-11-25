@@ -188,6 +188,34 @@ describe('threads misplaced under a role', () => {
     expect(read('a').threads).toEqual([KEYED, TAGGED]);
   });
 
+  it('a change to the role file during the scan is kept; a moved thread goes as it is then', async () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'threads'));
+    fs.writeFileSync(
+      path.join(dir, 'threads', 'main.json'),
+      JSON.stringify({
+        threads: [
+          { ...KEYED, readAt: 1 },
+          { ...TAGGED, readAt: 1 },
+        ],
+      })
+    );
+    const transcript = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(transcript, `{"message":{"id":"msg_x"}}\n`);
+    const holders = [
+      { key: 'a', transcripts: [transcript] },
+      { key: 'b', transcripts: [] },
+    ];
+    const store = createThreadStore(dir);
+    const repair = returnMisplacedThreads(dir, 'main', holders);
+    // PATCHes while the transcripts are read
+    store.update('main', 't', { readAt: 5 });
+    store.update('main', 'k', { readAt: 7 });
+    expect(await repair).toBe(1);
+    expect(store.list('main')).toEqual([{ ...TAGGED, readAt: 5 }]);
+    expect(store.list('a')).toEqual([{ ...KEYED, readAt: 7 }]);
+  });
+
   it('a Claude terminal keys its threads by its transcript uuid, not its pid row', () => {
     expect(threadOwnerKey({ id: 'interactive-42', sessionId: 'uuid-1' })).toBe('uuid-1');
     expect(threadOwnerKey({ id: 'omp-1', sessionId: '1' })).toBe('omp-1');

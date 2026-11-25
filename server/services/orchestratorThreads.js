@@ -246,20 +246,22 @@ export async function returnMisplacedThreads(dir, role, holders) {
     return at.length === 1 ? at[0].key : null;
   };
   const moved = new Map();
-  const stay = [];
   for (const t of legacy) {
     // a holder without transcript could hold the tag too: a tag alone proves nothing then
     const to = only(keyNeedle(t)) ?? (allRead ? only(tagNeedle(t)) : null);
-    if (to) moved.set(to, [...(moved.get(to) ?? []), t]);
-    else stay.push(t);
+    if (to) moved.set(t.id, to);
   }
   if (!moved.size) return 0;
-  // the role file shrinks last: a run cut short leaves copies the next run does not add again
-  for (const [key, threads] of moved) {
+  // read again after the scan: a PATCH meanwhile is kept, a moved thread goes as it is now
+  const fresh = read(role);
+  for (const key of new Set(moved.values())) {
     const own = read(key);
     const have = new Set(own.map((t) => t.id));
-    writeAtomic(fileOf(key), { threads: [...own, ...threads.filter((t) => !have.has(t.id))] });
+    const threads = fresh.filter((t) => moved.get(t.id) === key && !have.has(t.id));
+    if (threads.length) writeAtomic(fileOf(key), { threads: [...own, ...threads] });
   }
+  // the role file shrinks last: a run cut short leaves copies the next run does not add again
+  const stay = fresh.filter((t) => !moved.has(t.id));
   writeAtomic(fileOf(role), { threads: stay });
-  return legacy.length - stay.length;
+  return fresh.length - stay.length;
 }

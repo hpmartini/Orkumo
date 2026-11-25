@@ -205,6 +205,18 @@ describe('threads of an orchestrator chat', () => {
     expect(stored('main').find((t) => t.id === LEGACY[3].id).closed).toBe(true);
   });
 
+  it('a thread in both files (a repair cut short) is listed once', async () => {
+    const file = path.join(threadsDir, 'main.json');
+    const before = fs.readFileSync(file, 'utf8');
+    fs.writeFileSync(file, JSON.stringify({ threads: [...stored('main'), LEGACY[0]] }));
+    try {
+      const listed = (await list('sess-a')).threads.map((t) => t.id);
+      expect(listed.filter((id) => id === LEGACY[0].id)).toHaveLength(1);
+    } finally {
+      fs.writeFileSync(file, before);
+    }
+  });
+
   it('after a server restart (reload) the same split; the repair changes nothing more', async () => {
     const before = { a: await ids('sess-a'), b: await ids('sess-b') };
     const files = ['main', 'sess-a', 'sess-b'].map(stored);
