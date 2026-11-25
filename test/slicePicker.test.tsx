@@ -48,6 +48,14 @@ describe('SlicePicker', () => {
     expect(onSelect).toHaveBeenCalledWith('acme/api');
   });
 
+  it('dims hidden entries in the menu (data-muted), visible ones not', () => {
+    const { list } = open(null);
+    expect(within(list).getByRole('option', { name: /acme\/old/ })).toHaveAttribute('data-muted');
+    expect(within(list).getByRole('option', { name: /acme\/api/ })).not.toHaveAttribute(
+      'data-muted'
+    );
+  });
+
   it('picking All clears the selection to null', () => {
     const { onSelect, list } = open('acme/api');
     fireEvent.click(within(list).getByRole('option', { name: /^All/ }));
@@ -112,6 +120,16 @@ describe('SlicePicker as pills (up to 3 options)', () => {
     expect(within(group).getByRole('radio', { name: 'All (5)' })).toHaveAttribute(
       'aria-checked',
       'true'
+    );
+  });
+
+  it('dims the hidden pill (data-muted) and keeps its hidden mark', () => {
+    const { group } = renderPills(small, null);
+    expect(within(group).getByRole('radio', { name: 'acme/old (1, hidden)' })).toHaveAttribute(
+      'data-muted'
+    );
+    expect(within(group).getByRole('radio', { name: 'acme/app (4)' })).not.toHaveAttribute(
+      'data-muted'
     );
   });
 

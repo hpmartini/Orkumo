@@ -39,8 +39,18 @@ export const SlicePicker: React.FC<SlicePickerProps> = ({
         ...groups.flatMap((g) =>
           g.entries.map((e) =>
             pills
-              ? { value: e.value, label: `${e.value} (${e.count}${e.hidden ? ', hidden' : ''})` }
-              : { value: e.value, label: e.value, hint: String(e.count), group: g.label }
+              ? {
+                  value: e.value,
+                  label: `${e.value} (${e.count}${e.hidden ? ', hidden' : ''})`,
+                  muted: e.hidden,
+                }
+              : {
+                  value: e.value,
+                  label: e.value,
+                  hint: String(e.count),
+                  group: g.label,
+                  muted: e.hidden,
+                }
           )
         ),
       ]}

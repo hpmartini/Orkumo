@@ -74,6 +74,26 @@ function loadView(): ViewPrefs {
   return DEFAULT_VIEW;
 }
 
+/** Board header agent filter: "All agents" plus one option per agent */
+export const AgentFilter: React.FC<{
+  value: string;
+  onChange: (value: string) => void;
+  options: { value: string; label: string }[];
+}> = ({ value, onChange, options }) => {
+  const pills = choiceMode(options.length) === 'pills';
+  return (
+    <Choice
+      value={value}
+      onChange={onChange}
+      // pills show a hint only as tooltip: the full name of a truncated pill
+      options={pills ? options.map((o) => ({ ...o, hint: o.label })) : options}
+      label="Filter by agent"
+      // long names end in an ellipsis per pill, the row wraps inside the header
+      className={pills ? '[&>button]:max-w-40 [&>button]:truncate' : 'max-w-48'}
+    />
+  );
+};
+
 const toggleIn = (list: string[], key: string) =>
   list.includes(key) ? list.filter((k) => k !== key) : [...list, key];
 
@@ -280,15 +300,10 @@ export const BoardView: React.FC<BoardViewProps> = ({ active, contextFilter }) =
                 </button>
               </>
             ))}
-          <Choice
+          <AgentFilter
             value={agentFilter ?? ''}
             onChange={(v) => setParam('agent', v || null)}
             options={agentOptions}
-            label="Filter by agent"
-            // the pill row, unlike the menu root, shrinks by default
-            className={
-              choiceMode(agentOptions.length) === 'pills' ? 'flex-nowrap shrink-0' : 'max-w-48'
-            }
           />
           <span className="text-xs text-gray-400 shrink-0">
             {`${shownItems(visible, options, now).length} items`}
