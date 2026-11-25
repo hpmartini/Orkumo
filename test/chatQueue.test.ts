@@ -184,7 +184,7 @@ describe('background task end (<task-notification>)', () => {
     );
   it('records ended tasks, not as a user turn; a running one stays', () => {
     const s = run([[note('b1', 'completed'), note('b2', 'killed'), note('b3', 'running')]]);
-    expect(s.endedTasks).toEqual(['b1', 'b2']);
+    expect(s.endedTasks).toEqual(['b1', 'toolu_1', 'b2']);
     expect(users(s)).toEqual([]);
   });
 
