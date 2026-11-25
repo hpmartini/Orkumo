@@ -79,6 +79,21 @@ export function commandPrompt(text) {
 }
 
 /** Claude transcript JSONL lines → view events (user turns, assistant messages, tool results) */
+/**
+ * Ends of background shells / agents in a text: the view drops their running chips. Claude Code
+ * logs a notification as a user record, a queued_command attachment or only as a queue entry
+ */
+function taskEndedEvents(text) {
+  return [...text.matchAll(/<task-notification>([\s\S]*?)<\/task-notification>/g)].flatMap(
+    ([, n]) => {
+      const id = n.match(/<task-id>([\w-]+)<\/task-id>/)?.[1];
+      if (!id || !/<status>(?:completed|failed|killed|stopped)<\/status>/.test(n)) return [];
+      const toolUseId = n.match(/<tool-use-id>([\w-]+)<\/tool-use-id>/)?.[1];
+      return [{ type: 'devorbit_task_ended', id, ...(toolUseId ? { toolUseId } : {}) }];
+    }
+  );
+}
+
 function claudeHistoryEvents(lines) {
   const events = [];
   for (const line of lines) {
@@ -88,6 +103,7 @@ function claudeHistoryEvents(lines) {
     // turn takes it: the view shows it as queued in between (enqueue/dequeue FIFO, remove by text)
     if (rec.type === 'queue-operation') {
       const text = str(rec.content);
+      events.push(...taskEndedEvents(text));
       // peer messages stay in: they hold their place in the FIFO, the view hides `<…` entries
       if (['enqueue', 'dequeue', 'remove', 'popAll'].includes(rec.operation))
         events.push({ type: 'devorbit_queue', op: rec.operation, text: unwrapPasted(text) });
@@ -118,6 +134,7 @@ function claudeHistoryEvents(lines) {
     if (queued?.type === 'queued_command') {
       const human = !queued.origin || queued.origin.kind === 'human';
       const text = str(queued.prompt);
+      events.push(...taskEndedEvents(text));
       if (queued.commandMode === 'prompt' && human && text.trim() && !isPeerMessage(text))
         events.push({
           type: 'devorbit_user',
@@ -152,11 +169,7 @@ function claudeHistoryEvents(lines) {
       const text = unwrapPasted(raw);
       if (text.includes('<command-name>/clear</command-name>'))
         events.push({ type: 'system', subtype: 'clear' });
-      // A background shell / task ended: the view drops its running chip
-      const ended = text.match(
-        /<task-notification>[\s\S]*?<task-id>([\w-]+)<\/task-id>[\s\S]*?<status>(?:completed|failed|killed|stopped)<\/status>/
-      );
-      if (ended) events.push({ type: 'devorbit_task_ended', id: ended[1] });
+      events.push(...taskEndedEvents(text));
       // A command with text is the user's turn; `<command-name>` without it,
       // `<local-command-stdout>` and similar CLI wrappers are not
       const command = commandPrompt(text);

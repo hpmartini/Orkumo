@@ -423,6 +423,109 @@ describe('agentService - listSlashCommands', () => {
     expect(list.find((c) => c.name === 'mw:goal-contract').source).toBe('plugin');
   });
 
+  it('reads skill and command paths from the plugin manifest like Claude Code', async () => {
+    const pHome = path.join(tmp, 'manifest-home');
+    const mp = path.join(tmp, 'plugins', 'mp');
+    // `skills` adds to the default scan: nested group folders, a container dir and a skill dir
+    skill(path.join(mp, 'skills', 'engineering'), 'retro', 'disable-model-invocation: true\n');
+    skill(path.join(mp, 'skills'), 'flat');
+    skill(path.join(mp, 'extra'), 'more');
+    // `commands` replaces the default `commands/` scan
+    write(path.join(mp, 'commands', 'ignored.md'), 'x\n');
+    write(path.join(mp, 'slash-commands', 'status.md'), '---\ndescription: Status\n---\n');
+    write(
+      path.join(mp, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({
+        name: 'mp',
+        skills: ['./skills/engineering/retro', './extra/'],
+        commands: ['./slash-commands/'],
+      })
+    );
+    const mapped = path.join(tmp, 'plugins', 'mapped');
+    write(
+      path.join(mapped, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({ commands: { about: { content: 'About', description: 'About it' } } })
+    );
+    write(
+      path.join(pHome, 'plugins', 'installed_plugins.json'),
+      JSON.stringify({
+        plugins: {
+          'mp@m': [{ installPath: mp }],
+          'mapped@m': [{ installPath: mapped }],
+        },
+      })
+    );
+    write(
+      path.join(pHome, 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'mp@m': true, 'mapped@m': true } })
+    );
+    const list = await mod.listSlashCommands(null, { claudeHome: pHome });
+    const names = list.map((c) => c.name);
+    expect(names).toEqual(
+      expect.arrayContaining(['mp:retro', 'mp:flat', 'mp:more', 'mp:status', 'mapped:about'])
+    );
+    expect(names).not.toContain('mp:ignored');
+    expect(list.find((c) => c.name === 'mapped:about').description).toBe('About it');
+    const omp = (await mod.listClaudeSkills(null, { claudeHome: pHome })).map((c) => c.name);
+    expect(omp).toEqual(expect.arrayContaining(['retro', 'flat', 'more']));
+  });
+
+  it('skips manifest paths that escape the plugin root or do not exist', async () => {
+    const eHome = path.join(tmp, 'escape-home');
+    const ep = path.join(tmp, 'plugins', 'ep');
+    const outside = path.join(tmp, 'outside');
+    skill(path.join(outside, 'skills'), 'stolen');
+    write(path.join(outside, 'stolen.md'), 'x\n');
+    // `../outside.md` from the plugin root: exists, so only the traversal check can reject it
+    write(path.join(tmp, 'plugins', 'outside.md'), 'x\n');
+    fs.mkdirSync(ep, { recursive: true });
+    // lexically inside, really outside
+    fs.symlinkSync(path.join(outside, 'skills'), path.join(ep, 'linked'));
+    // contained dirs whose files link outside
+    fs.mkdirSync(path.join(ep, 'extra'), { recursive: true });
+    fs.symlinkSync(
+      path.join(outside, 'skills', 'stolen', 'SKILL.md'),
+      path.join(ep, 'extra', 'SKILL.md')
+    );
+    const ep2 = path.join(tmp, 'plugins', 'ep2');
+    fs.mkdirSync(path.join(ep2, 'cmd'), { recursive: true });
+    fs.symlinkSync(path.join(outside, 'stolen.md'), path.join(ep2, 'cmd', 'stolen.md'));
+    write(path.join(ep2, 'cmd', 'own.md'), 'own\n');
+    write(path.join(ep2, '.claude-plugin', 'plugin.json'), JSON.stringify({ commands: ['./cmd'] }));
+    write(path.join(ep, 'hidden.md'), '---\nuser-invocable: false\n---\n');
+    write(path.join(ep, 'real.md'), '---\ndescription: From file\n---\n');
+    write(
+      path.join(ep, '.claude-plugin', 'plugin.json'),
+      JSON.stringify({
+        skills: ['./linked', './extra'],
+        commands: {
+          ghost: { source: './missing.md' },
+          escape: { source: '../outside.md' },
+          hidden: { source: './hidden.md' },
+          real: { source: './real.md' },
+          both: { source: './real.md', content: 'x' },
+          inline: { content: 'Inline' },
+        },
+      })
+    );
+    write(
+      path.join(eHome, 'plugins', 'installed_plugins.json'),
+      JSON.stringify({
+        plugins: { 'ep@m': [{ installPath: ep }], 'ep2@m': [{ installPath: ep2 }] },
+      })
+    );
+    write(
+      path.join(eHome, 'settings.json'),
+      JSON.stringify({ enabledPlugins: { 'ep@m': true, 'ep2@m': true } })
+    );
+    const list = await mod.listSlashCommands(null, { claudeHome: eHome });
+    const names = list.filter((c) => c.source === 'plugin').map((c) => c.name);
+    expect(names.sort()).toEqual(['ep2:own', 'ep:inline', 'ep:real']);
+    const omp = (await mod.listClaudeSkills(null, { claudeHome: eHome })).map((c) => c.name);
+    expect(omp).not.toContain('stolen');
+    expect(list.find((c) => c.name === 'ep:real').description).toBe('From file');
+  });
+
   it('lists the Claude skills omp sees, un-namespaced', async () => {
     const names = (await mod.listClaudeSkills(cwd, { claudeHome: home })).map((c) => c.name);
     expect(names).toEqual(expect.arrayContaining(['linked', 'goal-contract']));
