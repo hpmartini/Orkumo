@@ -3,6 +3,7 @@ import { Pencil, Plus, X } from 'lucide-react';
 import type { BoardIssuePatch, BoardItem } from '../../types';
 import { parseIssueRef } from '../../utils/board';
 import { FIELD_INPUT } from './IssueFields';
+import { Choice } from '@hpmartini/agents-ui/components/Choice';
 
 /** Saves the patch; resolves true when GitHub accepted it */
 export type IssueSave = (
@@ -87,22 +88,15 @@ export const IssueStateSelect: React.FC<{ item: BoardItem; onSave: IssueSave }> 
         : 'COMPLETED'
       : 'OPEN';
   return (
-    <select
+    <Choice
       value={current}
-      aria-label="State"
-      onChange={(e) => {
-        const v = e.target.value as (typeof STATES)[number]['value'];
+      label="State"
+      onChange={(v) => {
         if (v === 'OPEN') onSave({ state: 'OPEN' }, { state: 'OPEN', stateReason: 'REOPENED' });
         else onSave({ state: 'CLOSED', stateReason: v }, { state: 'CLOSED', stateReason: v });
       }}
-      className="bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-100"
-    >
-      {STATES.map((s) => (
-        <option key={s.value} value={s.value}>
-          {s.label}
-        </option>
-      ))}
-    </select>
+      options={[...STATES]}
+    />
   );
 };
 

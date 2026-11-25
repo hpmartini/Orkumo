@@ -34,6 +34,7 @@ import {
 } from '../utils/agentTable';
 import { removeAgent, renameAgent, respawnAgent, stopAgent } from '../services/agentsApi';
 import { useDialogA11y } from '@hpmartini/agents-ui/components/CommandPalette/useDialogA11y';
+import { Choice } from '@hpmartini/agents-ui/components/Choice';
 
 type Pending =
   | {
@@ -165,18 +166,19 @@ export const AgentOverview: React.FC<{ active: boolean; projectPaths?: string[] 
           aria-label="Search agents"
           className="flex-1 min-w-[12rem] rounded-md bg-gray-900 border border-gray-700 px-2 py-1.5 text-gray-200 placeholder-gray-500 focus:border-blue-400 focus:outline-none"
         />
-        <label className="flex items-center gap-1 text-gray-400">
-          Group
-          <select
+        <div className="flex items-center gap-1.5 text-gray-400">
+          <span aria-hidden>Group</span>
+          <Choice
+            label="Group"
             value={grouping}
-            onChange={(e) => setGrouping(e.target.value as AgentGrouping)}
-            className="rounded-md bg-gray-900 border border-gray-700 px-2 py-1.5 text-gray-200"
-          >
-            <option value="none">None</option>
-            <option value="status">Status</option>
-            <option value="project">Project</option>
-          </select>
-        </label>
+            onChange={setGrouping}
+            options={[
+              { value: 'none', label: 'None' },
+              { value: 'status', label: 'Status' },
+              { value: 'project', label: 'Project' },
+            ]}
+          />
+        </div>
         {bucket && (
           <button
             onClick={() => setBucket(null)}

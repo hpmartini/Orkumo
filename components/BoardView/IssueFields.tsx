@@ -133,6 +133,8 @@ export const labelChoices = (options: BoardRepoOptions | null) =>
   options?.labels.map((l) => ({ value: l.name, label: <LabelChip label={l} /> })) ?? null;
 export const assigneeChoices = (options: BoardRepoOptions | null) =>
   options?.assignees.map((a) => ({ value: a.login, label: a.login })) ?? null;
+/** Choice option that clears the milestone */
+export const NO_MILESTONE = { value: '', label: 'No milestone' };
 export const milestoneChoices = (options: BoardRepoOptions | null) =>
   options?.milestones.map((m) => ({ value: m.title, label: m.title })) ?? null;
 

@@ -24,6 +24,7 @@ import {
   labelChoices,
   labelsFor,
   milestoneChoices,
+  NO_MILESTONE,
   useRepoOptions,
 } from './IssueFields';
 import {
@@ -35,6 +36,7 @@ import {
   type IssueSave,
 } from './IssueEditors';
 import { FlowControls } from './FlowControls';
+import { Choice } from '@hpmartini/agents-ui/components/Choice';
 import { IssueComments } from './IssueComments';
 
 const VIA: Record<AgentIssueLink['via'], string> = {
@@ -210,19 +212,13 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
         <dl className="grid grid-cols-[96px_1fr] gap-y-2 text-xs items-center">
           <dt className="text-gray-400">Status</dt>
           <dd>
-            <select
+            <Choice
               value={item.statusOptionId ?? ''}
-              onChange={(e) => e.target.value && onStatus(e.target.value)}
-              className="bg-gray-850 border border-gray-700 rounded px-2 py-1 text-gray-100"
-              aria-label="Status"
-            >
-              {!item.statusOptionId && <option value="">No status</option>}
-              {options.map((o) => (
-                <option key={o.id} value={o.id}>
-                  {o.name}
-                </option>
-              ))}
-            </select>
+              onChange={(v) => v && onStatus(v)}
+              options={options.map((o) => ({ value: o.id, label: o.name }))}
+              label="Status"
+              placeholder="No status"
+            />
           </dd>
           {editable && (
             <>
@@ -272,12 +268,16 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
               <dt className="text-gray-400">Milestone</dt>
               <dd className="text-gray-200 min-w-0">
                 {editable ? (
-                  <FieldPicker
+                  <Choice
                     label="Milestone"
-                    choices={milestoneChoices(repoOptions)}
-                    value={item.milestone ? [item.milestone] : []}
-                    onChange={([m = null]) => save({ milestone: m }, { milestone: m })}
-                    display={item.milestone ?? none}
+                    value={item.milestone ?? ''}
+                    onChange={(v) => save({ milestone: v || null }, { milestone: v || null })}
+                    options={[NO_MILESTONE, ...(milestoneChoices(repoOptions) ?? [])]}
+                    placeholder={item.milestone ?? undefined}
+                    disabled={!repoOptions}
+                    title={repoOptions ? undefined : 'Loading options…'}
+                    // until the options load: no jump from pills to a menu
+                    mode={repoOptions ? 'auto' : 'menu'}
                   />
                 ) : (
                   item.milestone

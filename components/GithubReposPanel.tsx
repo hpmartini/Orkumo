@@ -11,6 +11,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import { Choice } from '@hpmartini/agents-ui/components/Choice';
 import { cloneGithubRepo, fetchGithubRepos, type GithubRepo } from '../services/api';
 
 const FOCUS =
@@ -146,20 +147,16 @@ export const GithubReposPanel: React.FC<Props> = ({ onSetDisabled, onCloned, onC
           />
         </div>
         {directories.length > 1 && (
-          <label className="flex items-center gap-1.5 text-xs text-gray-400">
-            Clone into
-            <select
+          <div className="flex items-center gap-1.5 text-xs text-gray-400">
+            <span aria-hidden>Clone into</span>
+            <Choice
+              label="Clone into"
               value={dir}
-              onChange={(e) => setDir(e.target.value)}
-              className={`max-w-[14rem] px-2 py-1.5 rounded-md bg-gray-800 border border-gray-700 text-xs text-gray-200 font-mono ${FOCUS}`}
-            >
-              {directories.map((d) => (
-                <option key={d} value={d}>
-                  {d.replace(HOME, '~')}
-                </option>
-              ))}
-            </select>
-          </label>
+              onChange={setDir}
+              options={directories.map((d) => ({ value: d, label: d.replace(HOME, '~') }))}
+              className="max-w-[14rem] font-mono"
+            />
+          </div>
         )}
       </div>
 

@@ -208,8 +208,13 @@ describe('ChatHistoryPage (#280)', () => {
     await user.click(within(screen.getByRole('group', { name: 'Provider' })).getByText('ChatGPT'));
     await waitFor(() => expect(lastQuery()).toMatchObject({ provider: 'chatgpt' }));
     await user.click(screen.getByRole('button', { name: /Filters/ }));
-    await user.selectOptions(screen.getByLabelText('Project'), 'p1');
-    await user.selectOptions(screen.getByLabelText('Topic'), 'fahrrad');
+    // Filter is a Choice: up to two values plus "any" render as pills
+    const pick = (group: string, option: string) =>
+      user.click(
+        within(screen.getByRole('radiogroup', { name: group })).getByRole('radio', { name: option })
+      );
+    await pick('Project', 'Backstube (1)');
+    await pick('Topic', 'fahrrad (1)');
     await user.type(screen.getByLabelText('Active from'), '2026-02-01');
     await user.type(screen.getByLabelText('Active until'), '2026-02-28');
     await waitFor(() =>
@@ -637,7 +642,11 @@ describe('ChatHistoryPage: Orkumo chats, order, export (#19)', () => {
     expect(await screen.findByRole('button', { name: 'Unarchive' })).toBeInTheDocument();
 
     await user.click(screen.getByRole('button', { name: /Filters/ }));
-    await user.selectOptions(screen.getByRole('combobox', { name: 'Folder' }), 'Arbeit');
+    await user.click(
+      within(screen.getByRole('radiogroup', { name: 'Folder' })).getByRole('radio', {
+        name: 'Arbeit (2)',
+      })
+    );
     await user.click(screen.getByLabelText('Archived only'));
     await waitFor(() => expect(lastQuery()).toMatchObject({ folder: 'Arbeit', archived: true }));
   });

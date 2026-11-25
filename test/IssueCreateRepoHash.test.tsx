@@ -49,8 +49,10 @@ describe('IssueCreateModal repository via #', () => {
     );
     return { title: screen.getByLabelText('Title') as HTMLInputElement, onClose };
   };
-  const repoSelect = () =>
-    screen.getByLabelText('Repository', { selector: 'select' }) as HTMLInputElement; // only `.value` is read
+  // The Choice trigger shows the chosen repository
+  const repoSelect = () => ({
+    value: screen.getByRole('button', { name: /^Repository / }).textContent,
+  });
 
   it('typing #, filtering and Enter sets the repository and clears the token', async () => {
     const { title } = open();
