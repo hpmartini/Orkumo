@@ -77,7 +77,12 @@ function imageRef(s, block) {
     return { type: 'image' };
   const data = Buffer.from(src.data, 'base64');
   // content hash: the URL always names the same bytes, so the client may cache it for good
-  const ref = crypto.createHash('sha256').update(src.media_type).update(data).digest('hex').slice(0, 32);
+  const ref = crypto
+    .createHash('sha256')
+    .update(src.media_type)
+    .update(data)
+    .digest('hex')
+    .slice(0, 32);
   s.images.delete(ref);
   s.images.set(ref, { mime: src.media_type, data });
   if (s.images.size > MAX_IMAGES) s.images.delete(s.images.keys().next().value);
@@ -148,6 +153,21 @@ function pageStart(events, end, turns) {
 }
 
 /**
+ * `{ olderTs }`: ms of the newest prompt before buffer index `start` (the max: a queued prompt
+ * carries its enqueue time), the client's proof that a thread command mark lies in the loaded
+ * turns; `{}` when there is none or one has no time
+ */
+function olderTs(events, start) {
+  let max = -Infinity;
+  for (let i = 0; i < start; i++) {
+    if (events[i].type !== 'devorbit_user') continue;
+    if (typeof events[i].ts !== 'number') return {};
+    max = Math.max(max, events[i].ts);
+  }
+  return max > -Infinity ? { olderTs: max } : {};
+}
+
+/**
  * The page of `PAGE_TURNS` turns before buffer position `before` (from a `devorbit_page` event):
  * `{ events, before, more }`, `before` being the cursor for the next older page
  */
@@ -159,6 +179,7 @@ export function chatHistoryPage(id, before, turns = PAGE_TURNS) {
     events: s.events.slice(start, end).filter((e) => !isState(e)),
     before: s.dropped + start,
     more: start > 0,
+    ...olderTs(s.events, start),
   };
 }
 
@@ -383,7 +404,12 @@ export function watchChat(id, onEvent, turns = PAGE_TURNS) {
   // Only the last `turns` turns; older ones on request. State events before them still count.
   const start = pageStart(s.events, s.events.length, turns);
   for (let i = 0; i < start; i++) if (isState(s.events[i])) onEvent(s.events[i]);
-  onEvent({ type: 'devorbit_page', before: s.dropped + start, more: start > 0 });
+  onEvent({
+    type: 'devorbit_page',
+    before: s.dropped + start,
+    more: start > 0,
+    ...olderTs(s.events, start),
+  });
   for (let i = start; i < s.events.length; i++) onEvent(s.events[i]);
   const listener = (event) => onEvent(event);
   chatEvents.on(`event:${id}`, listener);
