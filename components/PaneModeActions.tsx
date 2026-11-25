@@ -9,6 +9,9 @@ interface PaneArg {
   orchestrator: boolean;
   role: string | null;
   session: { id: string };
+  /** One report task's details for the maximised threads panel (agents-ui >= 0.4.33) */
+  statusTask?: { project: string; task: string };
+  onClose?: () => void;
 }
 
 /**
@@ -18,10 +21,12 @@ interface PaneArg {
 function PaneModeView({
   modeId,
   orchestrator,
+  task,
   onClose,
 }: {
   modeId: string;
   orchestrator: string;
+  task?: { project: string; task: string };
   onClose: () => void;
 }) {
   const base = useModuleHost(true);
@@ -30,9 +35,9 @@ function PaneModeView({
       ...base,
       search: `orchestrator=${encodeURIComponent(orchestrator)}`,
       setSearch: () => {},
-      pane: { orchestrator },
+      pane: task ? { orchestrator, task } : { orchestrator },
     }),
-    [base, orchestrator]
+    [base, orchestrator, task]
   );
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => ref.current?.focus(), []);
@@ -43,6 +48,8 @@ function PaneModeView({
       className="flex-1 min-h-0 flex flex-col outline-none"
       onKeyDown={(e) => {
         if (e.key !== 'Escape') return;
+        // taken: the maximised threads panel around it must not restore on the same key
+        e.preventDefault();
         e.stopPropagation();
         onClose();
       }}
@@ -94,6 +101,21 @@ export function usePaneModes(modes: ModeEntry[]) {
             })
           : null,
       renderPaneView: (p: PaneArg) => {
+        // H-6: a task's details in the maximised threads panel, apart from the pane's toggle
+        if (p.statusTask && p.onClose) {
+          if (!usable(p)) return null;
+          // shortcut: the first filtering module is Status (the only one), pick by id once there are more
+          const mode = filters[0];
+          return (
+            <PaneModeView
+              key={`${mode.id} ${p.statusTask.project} ${p.statusTask.task}`}
+              modeId={mode.id}
+              orchestrator={p.role ?? p.session.id}
+              task={p.statusTask}
+              onClose={p.onClose}
+            />
+          );
+        }
         const mode = usable(p) ? filters.find((m) => m.id === open[p.paneId]) : undefined;
         return mode ? (
           <PaneModeView

@@ -64,6 +64,48 @@ describe('usePaneModes', () => {
     );
   });
 
+  // H-6: the maximised threads panel asks for one report task's details
+  it('statusTask: the module filtered on the orchestrator and that task, its Esc closes it', () => {
+    const { result } = renderHook(() => usePaneModes([OTHER, STATUS]));
+    const onClose = vi.fn();
+    const task = { project: 'shop', task: 'checkout' };
+    render(
+      <>
+        {result.current.renderPaneView({
+          ...pane('omp-1', { role: 'web' }),
+          statusTask: task,
+          onClose,
+        })}
+      </>
+    );
+    const mount = document.querySelector('[data-mount="status"]')!;
+    expect(mount).toHaveAttribute('data-search', 'orchestrator=web');
+    expect(JSON.parse(mount.getAttribute('data-pane')!)).toEqual({ orchestrator: 'web', task });
+    const esc = new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+    act(() => {
+      mount.dispatchEvent(esc);
+    });
+    expect(onClose).toHaveBeenCalled();
+    // taken: the threads panel must not restore on the same key
+    expect(esc.defaultPrevented).toBe(true);
+    // the pane's own toggle is untouched
+    render(<>{result.current.renderPaneActions(pane('omp-1', { role: 'web' }))}</>);
+    expect(screen.getByRole('button', { name: 'Show in Status' })).toHaveAttribute(
+      'aria-pressed',
+      'false'
+    );
+  });
+
+  it('statusTask without a filtering module: nothing, so the panel offers no Status', () => {
+    const { result } = renderHook(() => usePaneModes([OTHER]));
+    const view = result.current.renderPaneView({
+      ...pane('omp-1'),
+      statusTask: { project: 'p', task: 't' },
+      onClose: () => {},
+    });
+    expect(view).toBeNull();
+  });
+
   it('renders nothing in a worker pane or without a filtering module', () => {
     const { result } = renderHook(() => usePaneModes([STATUS]));
     expect(result.current.renderPaneActions(pane('w', { orchestrator: false }))).toBeNull();
