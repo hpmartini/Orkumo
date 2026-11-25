@@ -29,6 +29,12 @@
 //  ac14 the orchestrator busy (a real 75 s foreground command): a thread message and a thread
 //       `/status-report` wait in the thread ("waits for the current turn"), a main message waits
 //       in main, no "[Thread:" tag anywhere; after delivery each sits at the same place
+// Review round 1 (F5, F6, F9, F10):
+//  f5   after the CLI merge/move no "[Thread:" tag shows, in main nor in the merged thread
+//  f6   main log scrolled up, another tab and back: the same first row within 2 px; at the end it
+//       stays at the end (needs ORCH2, tab layout)
+//  f9   (in ac14) a main /command queued while busy shows a main "Command" bubble
+//  f10  a closed thread renames by double-click and by its menu
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/threads-v3-e2e.cjs <baseUrl> <outDir> [width]
 // env: ORCH=<orchestrator session id, omp-…> (required), ORCH2=<second orchestrator> (splits),
 //      SPLIT=tab|right|down (default tab), ONLY=ac7,ac5,… (default all), CHROME=<chromium>,
@@ -789,6 +795,16 @@ async function ac10(page) {
   const regrouped = await waitFor(async () => (await paneOf(page).locator('[data-thread-row]').count()) === want, 8000);
   await shot(page, 'ac10-tidied');
   check('ac10: UI regroups without a reload (one row per project)', !!regrouped, `${await paneOf(page).locator('[data-thread-row]').count()} rows, want ${want}`);
+  if (on('f5')) {
+    check('f5: no "[Thread:" tag after merge/move (main + panel)', await noTag(page));
+    for (const [, ts] of groups) {
+      if (ts.length < 2 && ts[0] !== shop) continue;
+      await openThread(page, ts[0].id);
+      await page.waitForTimeout(800);
+      check(`f5: no tag in the merged thread ${title(ts[0])}`, await noTag(page), JSON.stringify(await tagHits(page)));
+    }
+    await shot(page, 'f5-merged-thread-no-tag');
+  }
   const after = await assignment();
   const perProject = new Map();
   for (const t of after.threads.filter((x) => !x.mergedInto && !x.closed))
@@ -1068,7 +1084,14 @@ async function sendThread(page, text) {
   if (text.startsWith('/')) await page.waitForTimeout(600);
   await page.keyboard.press(ENTER_SENDS ? 'Enter' : `${MOD}+Enter`);
 }
-const noTag = async (page) => !(await page.locator('body').innerText()).includes('[Thread:');
+// the empty thread's hint ("… tagged [Thread: …]") names its tag on purpose: no message tag
+const shownText = async (page) => (await page.locator('body').innerText()).replace(/orchestrator tagged \[Thread: [^\]]*\]/g, '');
+const noTag = async (page) => !(await shownText(page)).includes('[Thread:');
+/** Where a "[Thread:" shows: the text around each hit (for a FAIL's detail) */
+const tagHits = async (page) => {
+  const t = await shownText(page);
+  return [...t.matchAll(/\[Thread:/g)].map((m) => t.slice(Math.max(0, m.index - 80), m.index + 60).replace(/\s+/g, ' '));
+};
 
 async function ac12(page) {
   check('ac12: Claude orchestrator idle at the start', !!(await corchIdle()));
@@ -1162,6 +1185,8 @@ async function ac14(page) {
   }, 90000, 1000);
   await page.waitForTimeout(3000);
   check('ac14: orchestrator busy, no card open', !!busy && (await cards(page)).main === 0, (await corchRow())?.displayState);
+  const cmdRows = async () => (await logTexts(page, 'main')).filter((t) => /^\/status-report/.test(t)).length;
+  const mainCmds0 = await cmdRows();
   const msg = `Queued thread check ${RUN}`;
   const ctl = `Main queued control ${RUN}`;
   const bubbles = () =>
@@ -1187,6 +1212,13 @@ async function ac14(page) {
   check('ac14: main message waits in main', q3?.inThread === false, JSON.stringify(all));
   check('ac14: thread bubbles stay in the thread', all.filter((b) => b.inThread).length === 2, JSON.stringify(all));
   check('ac14: no tag (all queued)', await noTag(page));
+  if (on('f9')) {
+    await sendMain(page, '/status-report');
+    const q4 = await waitFor(async () => (await bubbles()).find((b) => !b.inThread && /Command/.test(b.text)), 8000);
+    await shot(page, 'f9-main-command-queued');
+    check('f9: a main /command queued while busy shows a main "Command" bubble', !!q4 && /waits for the current turn/.test(q4.text), JSON.stringify(await bubbles()));
+    check('f9: thread bubbles still in the thread', (await bubbles()).filter((b) => b.inThread).length === 2);
+  }
   const before = await logTexts(page, 'thread');
   const iMsg = before.findIndex((t) => t.includes(msg));
   const iCmd = before.findIndex((t) => t.includes('/status-report'));
@@ -1208,9 +1240,13 @@ async function ac14(page) {
     `msg ${iMsg} -> ${jMsg}, cmd ${iCmd} -> ${jCmd}`
   );
   const main = await logTexts(page, 'main');
-  check('ac14: thread message and command not in main', !main.some((t) => t.includes(msg) || /^\/status-report/.test(t)), JSON.stringify(main.filter((t) => t.includes(msg)).slice(0, 2)));
+  // only this run's: earlier runs left theirs in the log
+  const mainCmds = (await cmdRows()) - mainCmds0;
+  // a prompt row starts with its text (an answer, e.g. the main status report, may quote it)
+  const leaked = main.filter((t) => t.startsWith(msg));
+  check('ac14: thread message and command not in main', !leaked.length && mainCmds === (on('f9') ? 1 : 0), `${mainCmds} /status-report in main (${on('f9') ? 'f9 sent one' : 'none sent'}), leaked ${JSON.stringify(leaked)}`);
   check('ac14: main message delivered in main', main.some((t) => t.includes(ctl)));
-  check('ac14: no tag (delivered)', await noTag(page));
+  check('ac14: no tag (delivered)', await noTag(page), JSON.stringify(await tagHits(page)));
 }
 
 const stepsBtn = (page) => paneOf(page).locator('button[aria-label="Show thinking and tool calls"]').first();
@@ -1227,6 +1263,86 @@ async function ac11(page, id) {
   await scrollCheck(page, 'thread');
   await scrollCheck(page, 'main');
   if (!stepsWas) await stepsBtn(page).click();
+}
+
+// ---- F6: back on the tab a scrolled-up main log keeps its place, one at the end stays there ----
+async function f6(page) {
+  if (SPLIT !== 'tab' || !ORCH2) return check('f6: tab layout with ORCH2', false, `${SPLIT} ${ORCH2 ?? 'unset'}`);
+  await setMax(page, false);
+  const g = await logGeo(page, 'main');
+  await page.mouse.move(g.box.x + g.box.w / 2, g.box.y + g.box.h / 2);
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.wheel(0, -200);
+    await page.waitForTimeout(60);
+  }
+  await page.waitForTimeout(800);
+  const probe = await markFirstVisible(page, 'main');
+  const up = await logGeo(page, 'main');
+  check('f6: main log scrolled up (precondition)', up.fromBottom > 40 && !!probe, JSON.stringify({ fromBottom: up.fromBottom, probe }));
+  await openAgent(page, ORCH2);
+  check('f6: another tab in front (the pane hidden)', !(await paneOf(page).isVisible()));
+  await openAgent(page, ORCH);
+  await page.waitForTimeout(1000);
+  const back = await logGeo(page, 'main');
+  await shot(page, 'f6-tab-return-scrolled-up');
+  check(
+    'f6: back on the tab the same first row within 2 px, still scrolled up',
+    back.probeConnected && Math.abs(back.probeTop - up.probeTop) <= 2 && back.fromBottom > 40,
+    JSON.stringify({ before: up.probeTop, after: back.probeTop, fromBottom: back.fromBottom })
+  );
+  // at the end: it stays at the end
+  await page.mouse.move(back.box.x + back.box.w / 2, back.box.y + back.box.h / 2);
+  for (let i = 0; i < 20; i++) await page.mouse.wheel(0, 2000);
+  await page.waitForTimeout(800);
+  const end0 = await logGeo(page, 'main');
+  await openAgent(page, ORCH2);
+  await openAgent(page, ORCH);
+  await page.waitForTimeout(1000);
+  const end = await logGeo(page, 'main');
+  check('f6: at the end before, at the end after the tab return', end0.fromBottom <= 40 && end.fromBottom <= 40, `${end0.fromBottom} -> ${end.fromBottom}`);
+}
+
+// ---- F10: a closed thread renames like an open one ------------------------------------------
+async function f10(page) {
+  const pane = paneOf(page);
+  await setMax(page, false);
+  await showPanel(page);
+  const topic = `Docs · Closed ${RUN}`;
+  const r = cli(ORCH, 'thread', 'open', topic);
+  const id = r.out.match(/\(id ([\w-]+)\)/)?.[1];
+  const c = id ? cli(ORCH, 'thread', 'close', id) : { code: 1, out: 'no id' };
+  check('f10: a thread opened and closed by CLI', r.code === 0 && c.code === 0, `${r.out} ${c.out}`.slice(0, 200));
+  if (!id) return;
+  // a short pane shows the open thread: back to the list
+  const backBtn = pane.getByRole('button', { name: 'Back to the list (thread stays open)' });
+  if ((await backBtn.count()) && (await backBtn.isVisible())) await backBtn.click();
+  const toggle = pane.getByRole('button', { name: /^Closed \(\d+\)/ });
+  await toggle.waitFor({ timeout: 6000 });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') await toggle.click();
+  const name = (n) => pane.locator('li button', { hasText: n }).first();
+  // like ac1: the thread open first (opening reflows the panel under a first click, open rows alike)
+  await name(`Closed ${RUN}`).click();
+  await page.waitForTimeout(800);
+  await name(`Closed ${RUN}`).dblclick();
+  await pane.locator(`[data-thread-rename="${id}"]`).waitFor({ timeout: 3000 }).catch(() => {});
+  check('f10: double-click on a closed row opens the name field', (await pane.locator(`[data-thread-rename="${id}"]`).count()) === 1);
+  await page.keyboard.type(`Closed renamed ${RUN}`);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(800);
+  let t = (await loadThreads()).threads.find((x) => x.id === id);
+  check('f10: double-click + Enter renames the closed thread', t?.name.task === `Closed renamed ${RUN}` && t.closed, JSON.stringify(t?.name));
+  const li = name(`Closed renamed ${RUN}`).locator('xpath=..');
+  await li.hover();
+  await li.getByRole('button', { name: 'Thread actions' }).click();
+  await pane.getByRole('menuitem', { name: 'Rename' }).click();
+  await pane.locator(`[data-thread-rename="${id}"]`).waitFor({ timeout: 3000 }).catch(() => {});
+  await shot(page, 'f10-closed-rename-menu');
+  check('f10: "…" → Rename on a closed row opens the name field', (await pane.locator(`[data-thread-rename="${id}"]`).count()) === 1);
+  await page.keyboard.type(`Closed menu ${RUN}`);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(800);
+  t = (await loadThreads()).threads.find((x) => x.id === id);
+  check('f10: menu rename saves, still closed', t?.name.task === `Closed menu ${RUN}` && t.closed, JSON.stringify(t?.name));
 }
 
 (async () => {
@@ -1254,6 +1370,8 @@ async function ac11(page, id) {
     if (on('ac2')) await ac2(page);
     if (on('ac10')) await ac10(page);
     if (on('ac11')) target ? await ac11(page, target) : check('ac11: a thread to scroll in', false);
+    if (on('f6')) await f6(page);
+    if (on('f10')) await f10(page);
     if (on('ac12') || on('ac13') || on('ac14')) {
       const c = CORCH && CORCH_SOCK ? await corchRow() : null;
       if (!c) check('ac12–ac14: a Claude orchestrator (CORCH, CORCH_SOCK)', false, CORCH ?? 'unset');
