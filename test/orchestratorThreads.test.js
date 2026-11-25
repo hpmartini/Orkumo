@@ -311,8 +311,10 @@ describe('a repair carries the tidy-up layer of the threads it moves (F2)', () =
     const role = store.state('main');
     expect(role.threads.map((t) => t.id)).toEqual(['t']);
     expect(role.overrides).toEqual({ entries: { et: 't', [LOST_KEY]: 'main' }, merged: {} });
-    // a role snapshot of the moved threads can never be taken back correctly: it goes
-    expect(JSON.parse(raw('main')).undo.map((u) => u.label)).toEqual(['unrelated']);
+    // a role snapshot of moved threads goes along with them: the role keeps its own part
+    expect(JSON.parse(raw('main')).undo.map((u) => u.label)).toEqual(['old merge', 'unrelated']);
+    expect(JSON.parse(raw('main')).undo[0].threads.map((t) => t.id)).toEqual(['t']);
+    expect(JSON.parse(raw('a')).undo.map((u) => u.label)).toEqual(['old merge', 'own close']);
     // the session's own undo keeps the carried layer
     store.undo('a');
     expect(store.state('a').overrides.entries).toMatchObject({ ek2: 'k2', [MAIN_KEY]: 'main' });
@@ -321,6 +323,72 @@ describe('a repair carries the tidy-up layer of the threads it moves (F2)', () =
     const before = [raw('main'), raw('a')];
     expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
     expect([raw('main'), raw('a')]).toEqual(before);
+  });
+
+  it('F2-rest: a role undo of moved threads goes along to their session and takes back there only', async () => {
+    const merged = { ...K2, closed: true };
+    const { dir, holders, raw, store } = setup(
+      {
+        threads: [K, merged, T],
+        overrides: { entries: { ek: 'k', et: 't' }, merged: { k2: 'k' } },
+        undo: [
+          {
+            label: 'merge k2 into k',
+            threads: [K, K2, T],
+            overrides: { entries: { ek: 'k2', et: 't' }, merged: {} },
+          },
+        ],
+      },
+      { threads: [], overrides: { entries: {}, merged: {} }, undo: [] }
+    );
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(2);
+    expect(store.state('a')).toMatchObject({
+      threads: [K, merged],
+      overrides: { entries: { ek: 'k' }, merged: { k2: 'k' } },
+      canUndo: true,
+    });
+    // the role keeps the part of the snapshot that stays with it
+    const role = JSON.parse(raw('main'));
+    expect(role.undo).toEqual([
+      { label: 'merge k2 into k', threads: [T], overrides: { entries: { et: 't' }, merged: {} } },
+    ]);
+    const roleBefore = raw('main');
+    const bBefore = raw('b');
+    const second = [raw('main'), raw('a')];
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
+    expect([raw('main'), raw('a')]).toEqual(second);
+    // the session takes it back: k2 open again, its entry back, no merge link; nothing else touched
+    expect(store.undo('a')).toBe('merge k2 into k');
+    expect(store.state('a')).toMatchObject({
+      threads: [K, K2],
+      overrides: { entries: { ek: 'k2' }, merged: {} },
+      canUndo: false,
+    });
+    expect(raw('main')).toBe(roleBefore);
+    expect(raw('b')).toBe(bBefore);
+    expect(store.state('b').canUndo).toBe(false);
+    expect(() => store.undo('a')).toThrow('Nothing to undo');
+  });
+
+  it('F2-rest: a run cut short before the role file shrank carries the undo once', async () => {
+    const { dir, holders, store } = setup(
+      {
+        threads: [K],
+        overrides: { entries: {}, merged: {} },
+        undo: [{ label: 'rename', threads: [K], overrides: { entries: {}, merged: {} } }],
+      },
+      { threads: [], overrides: { entries: {}, merged: {} }, undo: [] }
+    );
+    const roleFile = path.join(dir, 'threads', 'main.json');
+    const roleRaw = fs.readFileSync(roleFile, 'utf8');
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(1);
+    // the role write did not happen
+    fs.writeFileSync(roleFile, roleRaw);
+    await returnMisplacedThreads(dir, 'main', holders);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(dir, 'threads', 'a.json'), 'utf8')).undo
+    ).toHaveLength(1);
+    expect(store.state('main').canUndo).toBe(false);
   });
 
   it('threads moved by an earlier repair: their stranded entries follow', async () => {
@@ -379,6 +447,21 @@ describe('entry scanner (CLI thread messages/move)', () => {
     expect(items[0].key).toBe('user-0');
     // the chat view keeps its replay cap
     expect(TRANSCRIPT_READERS.claude.historyEvents(lines)).toHaveLength(5000);
+  });
+
+  it('N2: two first scans of the same transcript at once list every entry once', async () => {
+    const { TRANSCRIPT_READERS } = await import('../server/services/chatTranscripts.js');
+    const file = path.resolve('test/fixtures/claude-bare-skill.jsonl');
+    const once = await createEntryScanner()(file, TRANSCRIPT_READERS.claude);
+    const scan = createEntryScanner();
+    const [a, b] = await Promise.all([
+      scan(file, TRANSCRIPT_READERS.claude),
+      scan(file, TRANSCRIPT_READERS.claude),
+    ]);
+    const keys = (items) => items.map((i) => i.key);
+    expect(keys(a)).toEqual(keys(once));
+    expect(keys(b)).toEqual(keys(once));
+    expect(keys(await scan(file, TRANSCRIPT_READERS.claude))).toEqual(keys(once));
   });
 });
 

@@ -27,7 +27,7 @@ class FakeEventSource {
 
 const CHAT_A = '11111111-1111-4111-8111-111111111111';
 const CHAT_B = '22222222-2222-4222-8222-222222222222';
-const handlers = () => ({ onOpen: vi.fn(), onEvent: vi.fn(), onGone: vi.fn() });
+const handlers = () => ({ onOpen: vi.fn(), onEvent: vi.fn(), onGone: vi.fn(), onClose: vi.fn() });
 let fetchMock: ReturnType<typeof vi.fn>;
 const watchCalls = (method: string) =>
   fetchMock.mock.calls
@@ -66,6 +66,9 @@ describe('subscribeToChat', () => {
 
     // the stream dropped and came back: both views are watched again (fresh replay)
     source.onerror?.();
+    // item 8: each view hears it, its status waits for the next open
+    expect(a.onClose).toHaveBeenCalledOnce();
+    expect(b.onClose).toHaveBeenCalledOnce();
     source.emit('ready', {});
     await vi.waitFor(() => expect(watchCalls('POST')).toHaveLength(4));
 

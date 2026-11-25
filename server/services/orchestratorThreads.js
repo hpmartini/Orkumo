@@ -557,7 +557,19 @@ export function createEntryScanner() {
       state.open = null;
     }
   };
-  return async function entries(file, reader) {
+  // one read per file at a time: a second caller (CLI and UI at once) reads after the first, so
+  // no state is folded twice
+  const running = new Map();
+  return function entries(file, reader) {
+    const next = (running.get(file) ?? Promise.resolve())
+      .catch(() => {})
+      .then(() => read(file, reader));
+    running.set(file, next);
+    const done = () => running.get(file) === next && running.delete(file);
+    next.then(done, done);
+    return next;
+  };
+  async function read(file, reader) {
     const { size } = await fsp.stat(file);
     let state = files.get(file);
     if (!state || size < state.offset)
@@ -586,7 +598,7 @@ export function createEntryScanner() {
       await handle.close();
     }
     return state.items;
-  };
+  }
 }
 
 /** Routing key of a chat item key: without the history page prefixes `h<before>:` */
@@ -780,8 +792,9 @@ const PROVABLE_KEY = 8;
  * transcript. Unproven ones stay. The role's tidy-up layer goes along, as only the session's is
  * read: an entry with the thread it names (wherever an earlier run put it), a `main` entry to the
  * one holder whose transcript has its key, a merge link with its source's (else target's) thread;
- * the session's own entries win. Role undo states that name a moved thread go (they could never
- * be taken back correctly); the holder's undo states keep the carried layer. Nothing else is
+ * the session's own entries win. The role's undo states split the same way: each holder gets the
+ * part of its threads and layer (under its own undo states, so the session's own go back first),
+ * the role keeps the rest; the holder's undo states keep the carried layer. Nothing else is
  * rewritten or dropped; a second run changes nothing.
  * @param {string} dir orchestrator-reports dir of the store
  * @param {{ key: string, transcripts: string[] }[]} holders current sessions of the role
@@ -802,7 +815,9 @@ export async function returnMisplacedThreads(dir, role, holders) {
   const entryNeedle = (key) => key.length >= PROVABLE_KEY && JSON.stringify(key);
   const first = load(role);
   const legacy = first.threads ?? [];
-  const mainKeys = Object.entries(first.overrides?.entries ?? {})
+  // undo states may name main entries the current layer no longer has
+  const mainKeys = [first.overrides, ...(first.undo ?? []).map((u) => u.overrides)]
+    .flatMap((o) => Object.entries(o?.entries ?? {}))
     .filter(([, to]) => to === 'main')
     .map(([key]) => key);
   const layer = Object.keys(first.overrides?.entries ?? {}).length;
@@ -832,20 +847,44 @@ export async function returnMisplacedThreads(dir, role, holders) {
   const holderOf = (id) =>
     moved.get(id) ??
     holders.find((h) => (docs.get(h.key).threads ?? []).some((t) => t.id === id))?.key;
-  const roleEntries = { ...roleDoc.overrides?.entries };
-  const roleMerged = { ...roleDoc.overrides?.merged };
-  const carry = new Map(holders.map((h) => [h.key, { entries: {}, merged: {} }]));
-  for (const [key, to] of Object.entries(roleEntries)) {
-    const at = to === 'main' ? only(entryNeedle(key)) : holderOf(to);
-    if (!at) continue;
-    carry.get(at).entries[key] = to;
-    delete roleEntries[key];
-  }
-  for (const [from, to] of Object.entries(roleMerged)) {
-    const at = holderOf(from) ?? holderOf(to);
-    if (!at) continue;
-    carry.get(at).merged[from] = to;
-    delete roleMerged[from];
+  /** A tidy-up layer split: each holder's part, and what stays with the role */
+  const split = (overrides) => {
+    const rest = { entries: { ...overrides?.entries }, merged: { ...overrides?.merged } };
+    const parts = new Map(holders.map((h) => [h.key, { entries: {}, merged: {} }]));
+    for (const [key, to] of Object.entries(rest.entries)) {
+      const at = to === 'main' ? only(entryNeedle(key)) : holderOf(to);
+      if (!at) continue;
+      parts.get(at).entries[key] = to;
+      delete rest.entries[key];
+    }
+    for (const [from, to] of Object.entries(rest.merged)) {
+      const at = holderOf(from) ?? holderOf(to);
+      if (!at) continue;
+      parts.get(at).merged[from] = to;
+      delete rest.merged[from];
+    }
+    return { parts, rest };
+  };
+  const empty = (layer) => !Object.keys(layer.entries).length && !Object.keys(layer.merged).length;
+  const { parts: carry, rest: roleLayer } = split(roleDoc.overrides);
+  // role undo states: per holder its threads and layer part, the role keeps what is left
+  const carryUndo = new Map(holders.map((h) => [h.key, []]));
+  const roleUndo = [];
+  for (const u of roleDoc.undo ?? []) {
+    const { parts, rest } = split(u.overrides);
+    const threads = u.threads ?? [];
+    let gone = false;
+    for (const { key } of holders) {
+      const own = threads.filter((t) => holderOf(t.id) === key);
+      if (!own.length && empty(parts.get(key))) continue;
+      gone = true;
+      carryUndo.get(key).push({ label: u.label, threads: own, layer: parts.get(key) });
+    }
+    if (!gone) roleUndo.push(u);
+    else {
+      const stays = threads.filter((t) => !holderOf(t.id));
+      if (stays.length || !empty(rest)) roleUndo.push({ ...u, threads: stays, overrides: rest });
+    }
   }
   const changed = (before, after) => JSON.stringify(before) !== JSON.stringify(after);
   // carried first, the session's own over them
@@ -858,26 +897,38 @@ export async function returnMisplacedThreads(dir, role, holders) {
     const own = doc.threads ?? [];
     const have = new Set(own.map((t) => t.id));
     const add = carry.get(key);
+    // a run cut short before the role file shrank carried these already
+    const had = new Set((doc.undo ?? []).map((u) => JSON.stringify([u.label, u.threads])));
+    const carried = carryUndo
+      .get(key)
+      .filter((u) => !had.has(JSON.stringify([u.label, u.threads])))
+      // taken back, the session's own entries stay; the role part goes back to how it was
+      .map((u) => ({
+        label: u.label,
+        threads: u.threads,
+        overrides: withLayer(doc.overrides, u.layer),
+      }));
     const next = {
       ...doc,
       threads: [...own, ...fresh.filter((t) => moved.get(t.id) === key && !have.has(t.id))],
       overrides: withLayer(doc.overrides, add),
       // an undo goes back to a state the carried layer was already in
-      undo: (doc.undo ?? []).map((u) => ({ ...u, overrides: withLayer(u.overrides, add) })),
+      undo: [
+        ...carried,
+        ...(doc.undo ?? []).map((u) => ({ ...u, overrides: withLayer(u.overrides, add) })),
+      ].slice(-UNDO_MAX),
     };
-    if (!doc.overrides && !Object.keys(add.entries).length && !Object.keys(add.merged).length)
-      delete next.overrides;
-    if (!doc.undo) delete next.undo;
+    if (!doc.overrides && empty(add)) delete next.overrides;
+    if (!doc.undo && !carried.length) delete next.undo;
     if (changed(doc, next)) writeAtomic(fileOf(key), next);
   }
   // the role file shrinks last: a run cut short leaves copies the next run does not add again
   const stay = fresh.filter((t) => !moved.has(t.id));
-  const names = (u) => (u.threads ?? []).some((t) => moved.has(t.id));
   const nextRole = {
     ...roleDoc,
     threads: stay,
-    ...(roleDoc.overrides ? { overrides: { entries: roleEntries, merged: roleMerged } } : {}),
-    ...(roleDoc.undo ? { undo: roleDoc.undo.filter((u) => !names(u)) } : {}),
+    ...(roleDoc.overrides ? { overrides: roleLayer } : {}),
+    ...(roleDoc.undo ? { undo: roleUndo } : {}),
   };
   if (changed(roleDoc, nextRole)) writeAtomic(fileOf(role), nextRole);
   return fresh.length - stay.length;

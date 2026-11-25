@@ -35,6 +35,12 @@ export default defineConfig(({ mode }) => {
           target: `http://localhost:${SERVER_PORT}`,
           changeOrigin: true,
           ws: true, // Enable WebSocket proxying
+          // the API server went away mid-response (restart): end the browser's side too, else an
+          // SSE stays open without data and never reconnects
+          configure: (proxy) =>
+            proxy.on('proxyRes', (proxyRes, _req, res) =>
+              proxyRes.on('close', () => !res.writableEnded && res.destroy())
+            ),
         },
       },
     },
