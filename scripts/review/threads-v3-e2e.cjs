@@ -17,6 +17,9 @@
 //  ac10 tidy-up by CLI (merge per project, move main entries): one thread per project, entry
 //       count unchanged (UI and CLI), the UI regroups without a reload; panel "Undo tidy-up" plus
 //       `orkumo thread undo` restore every entry's thread exactly
+//  ac11 scroll: real wheel up in the thread and in the main log while the orchestrator streams a
+//       real answer (text between tool calls); the first visible row sampled every 250 ms for
+//       ≥ 10 s stays within 2 px, "New messages" shows, a click goes back and follows again
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/threads-v3-e2e.cjs <baseUrl> <outDir> [width]
 // env: ORCH=<orchestrator session id, omp-…> (required), ORCH2=<second orchestrator> (splits),
 //      SPLIT=tab|right|down (default tab), ONLY=ac7,ac5,… (default all), CHROME=<chromium>,
@@ -801,6 +804,206 @@ async function ac10(page) {
   check('ac10: UI shows the start state again without a reload', !!rowsBack);
 }
 
+// ---- AC-11 scroll: a real wheel up during a real streaming answer keeps the reader's place -------
+const logSel = (where) =>
+  where === 'thread'
+    ? 'aside[aria-label="Threads"] section [class*="overflow-y-auto"]'
+    : '[role=log]';
+/** Geometry of the main log (outside the threads panel) or the open thread's log */
+const logGeo = (page, where) =>
+  paneOf(page).evaluate(
+    (pane, [where, sel]) => {
+      const aside = pane.querySelector('aside[aria-label="Threads"]');
+      const log =
+        where === 'thread'
+          ? pane.querySelector(sel)
+          : [...pane.querySelectorAll(sel)].find((l) => !aside?.contains(l));
+      if (!log) return null;
+      const probe = document.querySelector('[data-scroll-probe]');
+      const r = log.getBoundingClientRect();
+      return {
+        top: log.scrollTop,
+        height: log.scrollHeight,
+        client: log.clientHeight,
+        fromBottom: Math.round(log.scrollHeight - log.scrollTop - log.clientHeight),
+        anchor: getComputedStyle(log).overflowAnchor,
+        box: { x: r.x, y: r.y, w: r.width, h: r.height },
+        probeTop: probe ? probe.getBoundingClientRect().top : null,
+        probeConnected: probe ? probe.isConnected && log.contains(probe) : false,
+        probeText: probe ? (probe.textContent || '').slice(0, 40) : null,
+        button: [...pane.querySelectorAll('button')].some(
+          (b) =>
+            /New messages/.test(b.textContent || '') &&
+            (where === 'thread') === !!aside?.contains(b) &&
+            b.offsetParent !== null
+        ),
+      };
+    },
+    [where, logSel(where)]
+  );
+/** Marks the first row whose top is inside the log: the reader's place */
+const markFirstVisible = (page, where) =>
+  paneOf(page).evaluate(
+    (pane, [where, sel]) => {
+      document.querySelectorAll('[data-scroll-probe]').forEach((e) => e.removeAttribute('data-scroll-probe'));
+      const aside = pane.querySelector('aside[aria-label="Threads"]');
+      const log =
+        where === 'thread'
+          ? pane.querySelector(sel)
+          : [...pane.querySelectorAll(sel)].find((l) => !aside?.contains(l));
+      const rows = [...(log.children.length === 1 ? log.firstElementChild.children : log.children)];
+      const top = log.getBoundingClientRect().top;
+      const row = rows.find((r) => r.getBoundingClientRect().top >= top && r.offsetHeight > 0);
+      row?.setAttribute('data-scroll-probe', '1');
+      return row ? (row.textContent || '').slice(0, 40) : null;
+    },
+    [where, logSel(where)]
+  );
+const isWorking = async () =>
+  (await api('/agents')).sessions.find((x) => x.id === ORCH)?.displayState === 'working';
+
+async function scrollCheck(page, where) {
+  const pane = paneOf(page);
+  const box =
+    where === 'thread' ? pane.locator('aside textarea[aria-label="Reply in thread"]') : pane.locator('textarea[aria-label="Message"]');
+  const send = async (text) => {
+    await box.click();
+    await page.keyboard.type(text);
+    await page.keyboard.press(ENTER_SENDS ? 'Enter' : `${MOD}+Enter`);
+  };
+  const g0 = await logGeo(page, where);
+  check(`ac11 ${where}: live bundle (overflow-anchor: none on the log)`, g0?.anchor === 'none', g0?.anchor);
+  // the log must overflow well before the wheel: seed it with one long real answer
+  if (g0 && g0.height - g0.client < 1500) {
+    const since = Date.now();
+    await send(`Scroll seed ${RUN} (${where}). Reply with a numbered list from 1 to 60, one line each: the number and one fruit. No tools.`);
+    await waitAnswer(since);
+    await page.waitForTimeout(3000);
+  }
+  // the streaming answer: text parts between real tool calls arrive over ~30 s
+  const since = Date.now();
+  await send(
+    `Scroll probe ${RUN} (${where}). Do 6 rounds. In each round first write a paragraph of about 50 words ` +
+      'about round N of baking bread, then run the shell command `sleep 5` as its own tool call. ' +
+      'After round 6 reply with a numbered list from 1 to 30, one line each: the number and one vegetable.'
+  );
+  const started = await waitFor(isWorking, 30000, 300);
+  // wait for the answer to start: the log grew past the sent message
+  const h1 = (await logGeo(page, where)).height;
+  await waitFor(async () => (await logGeo(page, where)).height > h1, 30000, 200);
+  const atEnd = await logGeo(page, where);
+  check(
+    `ac11 ${where}: at the end while the answer starts, no "New messages"`,
+    !!started && atEnd.fromBottom <= 40 && !atEnd.button,
+    JSON.stringify({ working: !!started, fromBottom: atEnd.fromBottom, button: atEnd.button })
+  );
+  // a real wheel up over the log, short of the top (no older page)
+  await page.mouse.move(atEnd.box.x + atEnd.box.w / 2, atEnd.box.y + atEnd.box.h / 2);
+  for (let i = 0; i < 4; i++) {
+    await page.mouse.wheel(0, -150);
+    await page.waitForTimeout(60);
+  }
+  await page.waitForTimeout(400);
+  const probe = await markFirstVisible(page, where);
+  const up = await logGeo(page, where);
+  check(
+    `ac11 ${where}: wheel up let go of the end`,
+    up.fromBottom > 40 && up.top > 0 && !!probe,
+    JSON.stringify({ fromBottom: up.fromBottom, scrollTop: up.top, probe })
+  );
+  // ≥ 10 s at 250 ms, longer until content arrived below at least twice (max 60 s)
+  const samples = [];
+  const t0 = Date.now();
+  const growthsOf = () => samples.filter((x, i) => i && x.height > samples[i - 1].height + 1).length;
+  for (;;) {
+    const g = await logGeo(page, where);
+    samples.push({ t: Date.now() - t0, ...g });
+    if ((Date.now() - t0 >= 10250 && growthsOf() >= 2) || Date.now() - t0 > 60000) break;
+    await page.waitForTimeout(250);
+  }
+  const dev = Math.max(...samples.map((x) => Math.abs(x.probeTop - samples[0].probeTop)));
+  const growths = growthsOf();
+  const firstGrowth = samples.findIndex((x) => x.height > samples[0].height + 1);
+  fs.writeFileSync(path.join(OUT, `${tag}-ac11-${where}-samples.json`), JSON.stringify(samples, null, 1));
+  const secs = (samples.at(-1).t - samples[0].t) / 1000;
+  check(
+    `ac11 ${where}: ≥ 41 samples over ≥ 10 s, the same row throughout`,
+    samples.length >= 41 && secs >= 10 && samples.every((x) => x.probeConnected),
+    `${samples.length} samples, ${secs.toFixed(1)} s, probe "${probe}"`
+  );
+  check(
+    `ac11 ${where}: content arrived below during the window (≥ 2 times, streaming)`,
+    growths >= 2,
+    `${growths} growth events, +${samples.at(-1).height - samples[0].height} px`
+  );
+  check(
+    `ac11 ${where}: first visible row stays in place (≤ 2 px)`,
+    dev <= 2,
+    `max deviation ${dev.toFixed(1)} px (top ${samples[0].probeTop.toFixed(1)}), fromBottom ${samples[0].fromBottom} -> ${samples.at(-1).fromBottom}`
+  );
+  check(
+    `ac11 ${where}: "New messages" shows once content arrived`,
+    firstGrowth > 0 && samples.slice(firstGrowth + 2).every((x) => x.button),
+    `first growth at sample ${firstGrowth}, button at last sample: ${samples.at(-1).button}`
+  );
+  await shot(page, `ac11-${where}-scrolled-up`);
+  // a real click on the button: back at the end, button gone, following again
+  const btn = pane.locator(where === 'thread' ? 'aside button' : 'button:not(aside button)', { hasText: 'New messages' });
+  await btn.click();
+  await page.waitForTimeout(800);
+  const back = await logGeo(page, where);
+  check(
+    `ac11 ${where}: click on "New messages" → end, button gone`,
+    back.fromBottom <= 40 && !back.button,
+    JSON.stringify({ fromBottom: back.fromBottom, button: back.button })
+  );
+  await shot(page, `ac11-${where}-after-button`);
+  // the rest of the turn (or, if it already ended, one more real turn): followed at the end
+  const hb = back.height;
+  const later = [];
+  const follow = async () => {
+    while ((await isWorking()) && later.length < 600) {
+      await page.waitForTimeout(250);
+      later.push(await logGeo(page, where));
+    }
+  };
+  await follow();
+  await waitAnswer(since);
+  if ((await logGeo(page, where)).height <= hb + 1) {
+    const again = Date.now();
+    await send(`Scroll follow ${RUN} (${where}). Reply exactly: following`);
+    await waitFor(isWorking, 30000, 300);
+    await follow();
+    await waitAnswer(again);
+  }
+  await page.waitForTimeout(2500);
+  const end = await logGeo(page, where);
+  later.push(end);
+  const grewAfter = end.height > hb + 1;
+  check(
+    `ac11 ${where}: content after the click is followed (≤ 40 px from the end)`,
+    grewAfter && later.every((x) => x.fromBottom <= 40),
+    `+${end.height - hb} px after the click, end fromBottom ${end.fromBottom}, max ${Math.max(...later.map((x) => x.fromBottom))}`
+  );
+  check(`ac11 ${where}: at the end after the turn`, end.fromBottom <= 40 && !end.button, `${end.fromBottom}`);
+}
+
+const stepsBtn = (page) => paneOf(page).locator('button[aria-label="Show thinking and tool calls"]').first();
+async function ac11(page, id) {
+  // thinking and tool calls on: the orchestrator's turn then arrives step by step (omp writes
+  // its transcript per message), a real stream into the log
+  const stepsWas = (await stepsBtn(page).getAttribute('aria-pressed')) === 'true';
+  if (!stepsWas) await stepsBtn(page).click();
+  await setMax(page, false);
+  await showPanel(page);
+  if ((await panelMode(page)) === 'overlay') check('ac11: side panel (not overlay) for main + thread', false);
+  await openThread(page, id);
+  await page.waitForTimeout(1000);
+  await scrollCheck(page, 'thread');
+  await scrollCheck(page, 'main');
+  if (!stepsWas) await stepsBtn(page).click();
+}
+
 (async () => {
   const browser = await chromium.launch({ executablePath: process.env.CHROME || undefined, headless: true });
   const ctx = await browser.newContext({ viewport: { width: W, height: 900 } });
@@ -825,6 +1028,7 @@ async function ac10(page) {
     if (on('ac3')) target ? await ac3(page, target) : check('ac3: a thread to attach in', false);
     if (on('ac2')) await ac2(page);
     if (on('ac10')) await ac10(page);
+    if (on('ac11')) target ? await ac11(page, target) : check('ac11: a thread to scroll in', false);
   } catch (e) {
     const at = (e.stack || '').split('\n').find((l) => l.includes('threads-v3-e2e'))?.trim() ?? '';
     check('run', false, `${e.message.split('\n')[0]} ${at}`);
