@@ -15,14 +15,19 @@ import {
   scanAllDirectories,
 } from './scannerService.js';
 import { settingsService } from './settingsService.js';
+import { githubPolling, restGet } from './githubApi.js';
 
 const GH_TTL_MS = 60_000;
 const CONCURRENCY = 4;
-const GH_FAIL_TTL_MS = 10_000;
 // Repos of sessions without a change since the last compute: git and gh are re-read this rarely
 // (PR merges, CI and edits outside an agent leave no session event)
 const QUIET_MAX_AGE_MS = 5 * 60_000;
-const ghCache = new Map(); // slug -> { at, ttl, promise }
+// A PR's mergeability and CI change without changing the PR list (base moved, check re-run)
+const PR_DETAIL_MAX_AGE_MS = QUIET_MAX_AGE_MS;
+// Checks start a little after a push: a PR without any is re-read this long after it changed
+const CI_START_WINDOW_MS = 10 * 60_000;
+const ghCache = new Map(); // slug -> { at, value, promise }; value: last successful read
+const prCache = new Map(); // `${slug}#${number}` -> what pullState read for that PR
 const gitCache = new Map(); // dir -> { key, at, promise }
 const LSOF_TTL_MS = 5_000;
 let serverScan = null; // { at, promise }
@@ -408,60 +413,170 @@ export function mapPullRequest(pr, slug) {
   };
 }
 
-async function ghIssues(slug) {
-  const out = await run(
-    'gh',
-    ['issue', 'list', '--repo', slug, '--state', 'open', '--json', 'number', '--limit', '100'],
-    undefined,
-    10000
-  );
-  try {
-    return { open: JSON.parse(out).length, url: `https://github.com/${slug}/issues` };
-  } catch {
-    return null;
+/** REST has no reviewDecision: the latest APPROVED / CHANGES_REQUESTED per reviewer decides */
+export function reviewDecisionFrom(reviews) {
+  const latest = new Map();
+  for (const r of reviews || []) {
+    if (['APPROVED', 'CHANGES_REQUESTED', 'DISMISSED'].includes(r?.state)) {
+      latest.set(r.user?.login ?? '', r.state);
+    }
   }
+  const states = [...latest.values()];
+  if (states.includes('CHANGES_REQUESTED')) return 'CHANGES_REQUESTED';
+  return states.includes('APPROVED') ? 'APPROVED' : null;
+}
+
+/**
+ * REST pull (list entry) plus its mergeability, reviews and CI -> the `gh pr list --json` shape
+ * mapPullRequest reads. Commit statuses (Woodpecker) and check runs (Actions) form the rollup.
+ */
+export function restPullFields(pull, { detail, reviews, statuses, checkRuns } = {}) {
+  const upper = (v) => (v ? String(v).toUpperCase() : null);
+  return {
+    number: pull.number,
+    title: pull.title,
+    url: pull.html_url,
+    author: pull.user ? { login: pull.user.login } : null,
+    isDraft: Boolean(pull.draft),
+    headRefName: pull.head?.ref,
+    baseRefName: pull.base?.ref,
+    updatedAt: pull.updated_at,
+    reviewDecision: reviewDecisionFrom(reviews),
+    mergeable:
+      detail?.mergeable === true ? 'MERGEABLE' : detail?.mergeable === false ? 'CONFLICTING' : null,
+    mergeStateStatus: upper(detail?.mergeable_state) ?? undefined,
+    statusCheckRollup: [
+      ...(statuses || []).map((s) => ({ state: upper(s.state) })),
+      ...(checkRuns || []).map((c) => ({
+        status: upper(c.status),
+        conclusion: upper(c.conclusion),
+      })),
+    ],
+  };
+}
+
+/** Open-issue count; GET /issues lists PRs too (first 100 entries, as `gh issue list` did) */
+async function ghIssues(slug) {
+  const open = await restGet(`repos/${slug}/issues?state=open&per_page=100`, {
+    map: (list) => list.filter((i) => !i.pull_request).length,
+  });
+  return { open, url: `https://github.com/${slug}/issues` };
+}
+
+const pickPull = (p) => ({
+  number: p.number,
+  title: p.title,
+  html_url: p.html_url,
+  user: p.user ? { login: p.user.login } : null,
+  draft: p.draft,
+  head: { ref: p.head?.ref, sha: p.head?.sha },
+  base: { ref: p.base?.ref },
+  updated_at: p.updated_at,
+});
+
+/** A failed read of one PR part keeps `fallback`; only a rate limit fails the whole repo read */
+const orKeep = (promise, fallback) =>
+  promise.catch((error) => {
+    if (error?.rateLimited) throw error;
+    return fallback;
+  });
+
+/**
+ * One open PR as AgentPullRequest. Its mergeability and reviews are read when the list entry
+ * changed (or the mergeability is still being computed / PR_DETAIL_MAX_AGE_MS old), its CI on a
+ * new head, while pending, or after PR_DETAIL_MAX_AGE_MS. Every read is conditional (ETag).
+ */
+async function pullState(slug, pull, now) {
+  const key = `${slug}#${pull.number}`;
+  const sha = pull.head?.sha;
+  const version = `${pull.updated_at}|${sha}`;
+  const prev = prCache.get(key);
+  const changed = prev?.version !== version;
+  const state = changed
+    ? { version, changedAt: now, detailAt: 0, reviews: prev?.reviews ?? [], ciAt: 0 }
+    : { ...prev };
+  const pr = `repos/${slug}/pulls/${pull.number}`;
+  if (state.detail?.mergeable == null || now - state.detailAt >= PR_DETAIL_MAX_AGE_MS) {
+    [state.detail, state.reviews] = await Promise.all([
+      orKeep(
+        restGet(pr, {
+          map: (d) => ({ mergeable: d.mergeable, mergeable_state: d.mergeable_state }),
+        }),
+        state.detail
+      ),
+      changed
+        ? orKeep(
+            restGet(`${pr}/reviews?per_page=100`, {
+              map: (list) => list.map((r) => ({ user: { login: r.user?.login }, state: r.state })),
+            }),
+            state.reviews
+          )
+        : state.reviews,
+    ]);
+    state.detailAt = now;
+  }
+  const ciOpen =
+    state.ciState === 'pending' ||
+    (state.ciState === 'none' && now - state.changedAt < CI_START_WINDOW_MS);
+  if (!state.ciAt || ciOpen || now - state.ciAt >= PR_DETAIL_MAX_AGE_MS) {
+    const commit = `repos/${slug}/commits/${sha}`;
+    [state.statuses, state.checkRuns] = await Promise.all([
+      orKeep(
+        restGet(`${commit}/status`, {
+          map: (s) => (s.statuses || []).map((x) => ({ state: x.state })),
+        }),
+        state.statuses
+      ),
+      orKeep(
+        restGet(`${commit}/check-runs?per_page=100`, {
+          map: (r) =>
+            (r.check_runs || []).map((c) => ({ status: c.status, conclusion: c.conclusion })),
+        }),
+        state.checkRuns
+      ),
+    ]);
+    state.ciAt = now;
+  }
+  const mapped = mapPullRequest(restPullFields(pull, state), slug);
+  state.ciState = mapped.ci;
+  prCache.set(key, state);
+  return mapped;
 }
 
 async function ghPulls(slug) {
-  const out = await run(
-    'gh',
-    [
-      'pr',
-      'list',
-      '--repo',
-      slug,
-      '--state',
-      'open',
-      '--limit',
-      '100',
-      '--json',
-      'number,title,url,author,isDraft,headRefName,baseRefName,updatedAt,reviewDecision,mergeable,mergeStateStatus,statusCheckRollup',
-    ],
-    undefined,
-    15000,
-    { maxBuffer: 16 * 1024 * 1024 }
+  const now = Date.now();
+  const list = await restGet(`repos/${slug}/pulls?state=open&per_page=100`, {
+    map: (pulls) => pulls.map(pickPull),
+  });
+  const pulls = list.filter((pr) => /^https:\/\/github\.com\//.test(pr.html_url));
+  const open = new Set(pulls.map((pr) => `${slug}#${pr.number}`));
+  for (const key of prCache.keys())
+    if (key.startsWith(`${slug}#`) && !open.has(key)) prCache.delete(key);
+  const items = new Array(pulls.length);
+  await mapLimit(
+    pulls.map((pr, i) => [pr, i]),
+    2,
+    async ([pr, i]) => (items[i] = await pullState(slug, pr, now))
   );
-  try {
-    const items = JSON.parse(out)
-      .filter((pr) => /^https:\/\/github\.com\//.test(pr.url))
-      .map((pr) => mapPullRequest(pr, slug));
-    return { open: items.length, url: `https://github.com/${slug}/pulls`, items };
-  } catch {
-    return null;
-  }
+  return { open: items.length, url: `https://github.com/${slug}/pulls`, items };
 }
 
-/** `quiet`: no session of this repo changed since the last compute, so the gh data keeps longer */
-async function ghInfo(slug, quiet = false) {
+/**
+ * Open issues and PRs of `slug` over REST with ETags (unchanged = 304 = no rate limit).
+ * `quiet`: no session of this repo changed since the last compute, so the data keeps longer.
+ * A failed read keeps the last result until the next regular refresh; a rate limit pauses all
+ * REST reads (githubApi). Off with the polling switch (dev/test instances).
+ */
+export function ghInfo(slug, quiet = false) {
+  if (!githubPolling()) return Promise.resolve({ issues: null, pulls: null });
   const hit = ghCache.get(slug);
-  const ttl = hit && quiet && hit.ttl === GH_TTL_MS ? QUIET_MAX_AGE_MS : hit?.ttl;
-  if (hit && Date.now() - hit.at < ttl) return hit.promise;
-  // Cache the in-flight promise so concurrent polls share one gh run; failures expire quickly.
-  const entry = { at: Date.now(), ttl: GH_TTL_MS, promise: null };
-  entry.promise = Promise.all([ghIssues(slug), ghPulls(slug)]).then(([issues, pulls]) => {
-    if (!issues || !pulls) entry.ttl = GH_FAIL_TTL_MS;
-    return { issues, pulls };
-  });
+  if (hit && Date.now() - hit.at < (quiet ? QUIET_MAX_AGE_MS : GH_TTL_MS)) return hit.promise;
+  // Cache the in-flight promise so concurrent polls share one read
+  const entry = { at: Date.now(), value: hit?.value ?? null, promise: null };
+  entry.promise = Promise.all([ghIssues(slug), ghPulls(slug)]).then(
+    ([issues, pulls]) => (entry.value = { issues, pulls }),
+    () => entry.value ?? { issues: null, pulls: null }
+  );
   ghCache.set(slug, entry);
   return entry.promise;
 }
