@@ -113,7 +113,7 @@ describe.each(['sidebar', 'modal'] as const)('BoardItemPanel %s (#208 AC-1)', (v
     await screen.findByText('@neu');
     const order = [
       screen.getByText('Testissue'), // title
-      screen.getByDisplayValue('Todo'), // metadata: status select
+      screen.getByRole('radiogroup', { name: 'Status' }), // metadata: status Choice
       await screen.findByRole('button', { name: 'Freigeben' }), // FlowControls
       screen.getByText('Agents on this issue'),
       screen.getByText('Pull Requests'),

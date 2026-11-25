@@ -37,6 +37,7 @@ import {
   asOptions,
 } from '@hpmartini/agents-ui/components/AgentsView/PullRequestsPage';
 import { IssueModal } from '../BoardView/IssueModal';
+import { Choice } from '@hpmartini/agents-ui/components/Choice';
 import { LabelChip } from '../BoardView/BoardCard';
 import { pollWhileVisible } from '@hpmartini/agents-ui/utils/visiblePoll';
 
@@ -277,18 +278,15 @@ export const IssuesPage: React.FC<IssuesPageProps> = ({ active, contextId, sessi
             onChange={(e) => update({ q: e.target.value }, true)}
             className={`${SELECT_CLS} w-56 placeholder:text-gray-500`}
           />
-          <select
-            aria-label="State"
+          <Choice
+            label="State"
             value={query.state}
-            onChange={(e) => select('state')(e.target.value)}
-            className={SELECT_CLS}
-          >
-            {Object.entries(STATE_LABELS).map(([key, text]) => (
-              <option key={key} value={key}>
-                {text}
-              </option>
-            ))}
-          </select>
+            onChange={select('state')}
+            options={Object.entries(STATE_LABELS).map(([key, text]) => ({
+              value: key,
+              label: text,
+            }))}
+          />
           <Filter
             label="Repo"
             value={query.repo}
@@ -326,30 +324,26 @@ export const IssuesPage: React.FC<IssuesPageProps> = ({ active, contextId, sessi
             onChange={select('board')}
           />
           <span className="w-px h-4 bg-gray-700 mx-1" aria-hidden />
-          <select
-            aria-label="Group by"
+          <Choice
+            label="Group by"
             value={query.group}
-            onChange={(e) => select('group')(e.target.value)}
-            className={SELECT_CLS}
-          >
-            {Object.entries(GROUP_LABELS).map(([key, text]) => (
-              <option key={key} value={key}>
-                {key === 'none' ? text : `Group: ${text}`}
-              </option>
-            ))}
-          </select>
-          <select
-            aria-label="Sort by"
+            onChange={select('group')}
+            options={Object.entries(GROUP_LABELS).map(([key, text]) => ({
+              value: key,
+              label: key === 'none' ? text : `Group: ${text}`,
+            }))}
+            className="max-w-[12rem]"
+          />
+          <Choice
+            label="Sort by"
             value={query.sort}
-            onChange={(e) => select('sort')(e.target.value)}
-            className={SELECT_CLS}
-          >
-            {Object.entries(SORT_LABELS).map(([key, text]) => (
-              <option key={key} value={key}>
-                Sort: {text}
-              </option>
-            ))}
-          </select>
+            onChange={select('sort')}
+            options={Object.entries(SORT_LABELS).map(([key, text]) => ({
+              value: key,
+              label: `Sort: ${text}`,
+            }))}
+            className="max-w-[12rem]"
+          />
           <button
             onClick={() => update({ dir: query.dir === 'asc' ? 'desc' : 'asc' })}
             aria-label={query.dir === 'asc' ? 'Sort ascending' : 'Sort descending'}

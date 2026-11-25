@@ -15,7 +15,7 @@ vi.mock('react-hot-toast', () => ({
 
 import { IssueCreateModal, repoHashMatches } from '../components/BoardView/IssueCreateModal';
 
-const REPOS = ['hpmartini/claude-config', 'hpmartini/Orkumo', 'hpmartini/pickyNotes', 'acme/orbit'];
+const REPOS = ['globex/cli-config', 'globex/Ordo', 'globex/stickyNotes', 'acme/orbit'];
 
 describe('repoHashMatches', () => {
   it('is off unless the whole title is one #token', () => {
@@ -25,11 +25,11 @@ describe('repoHashMatches', () => {
     expect(repoHashMatches('#', REPOS)).toEqual(REPOS);
   });
   it('filters case-insensitively, repo-name prefix first, then anywhere in owner/name', () => {
-    expect(repoHashMatches('#or', REPOS)).toEqual(['hpmartini/Orkumo', 'acme/orbit']);
-    expect(repoHashMatches('#NOTES', REPOS)).toEqual(['hpmartini/pickyNotes']);
+    expect(repoHashMatches('#or', REPOS)).toEqual(['globex/Ordo', 'acme/orbit']);
+    expect(repoHashMatches('#NOTES', REPOS)).toEqual(['globex/stickyNotes']);
     expect(repoHashMatches('#c', REPOS)).toEqual([
-      'hpmartini/claude-config',
-      'hpmartini/pickyNotes',
+      'globex/cli-config',
+      'globex/stickyNotes',
       'acme/orbit',
     ]);
     expect(repoHashMatches('#zzz', REPOS)).toEqual([]);
@@ -49,8 +49,10 @@ describe('IssueCreateModal repository via #', () => {
     );
     return { title: screen.getByLabelText('Title') as HTMLInputElement, onClose };
   };
-  const repoSelect = () =>
-    screen.getByLabelText('Repository', { selector: 'select' }) as HTMLInputElement; // only `.value` is read
+  // The Choice trigger shows the chosen repository
+  const repoSelect = () => ({
+    value: screen.getByRole('button', { name: /^Repository / }).textContent,
+  });
 
   it('typing #, filtering and Enter sets the repository and clears the token', async () => {
     const { title } = open();
@@ -60,7 +62,7 @@ describe('IssueCreateModal repository via #', () => {
     ).toHaveLength(4);
     fireEvent.change(title, { target: { value: '#or' } });
     const options = screen.getAllByRole('option').filter((o) => o.tagName === 'LI');
-    expect(options.map((o) => o.textContent)).toEqual(['hpmartini/Orkumo', 'acme/orbit']);
+    expect(options.map((o) => o.textContent)).toEqual(['globex/Ordo', 'acme/orbit']);
     fireEvent.keyDown(title, { key: 'ArrowDown' });
     fireEvent.keyDown(title, { key: 'Enter' });
     expect(repoSelect().value).toBe('acme/orbit');
@@ -79,9 +81,9 @@ describe('IssueCreateModal repository via #', () => {
 
   it('a click picks too; Escape only hides the list and keeps the dialog open', () => {
     const { title, onClose } = open();
-    fireEvent.change(title, { target: { value: '#picky' } });
-    fireEvent.mouseDown(screen.getByText('hpmartini/pickyNotes', { selector: 'li' }));
-    expect(repoSelect().value).toBe('hpmartini/pickyNotes');
+    fireEvent.change(title, { target: { value: '#sticky' } });
+    fireEvent.mouseDown(screen.getByText('globex/stickyNotes', { selector: 'li' }));
+    expect(repoSelect().value).toBe('globex/stickyNotes');
 
     fireEvent.change(title, { target: { value: '#42' } });
     expect(screen.getByRole('listbox')).toBeTruthy();
@@ -90,11 +92,11 @@ describe('IssueCreateModal repository via #', () => {
     expect(onClose).not.toHaveBeenCalled();
     expect(title.value).toBe('#42');
     fireEvent.keyDown(title, { key: 'Enter' });
-    expect(repoSelect().value).toBe('hpmartini/pickyNotes');
+    expect(repoSelect().value).toBe('globex/stickyNotes');
   });
 
   it('no list when the repository is fixed', () => {
-    const { title } = open(['hpmartini/Orkumo']);
+    const { title } = open(['globex/Ordo']);
     fireEvent.change(title, { target: { value: '#' } });
     expect(screen.queryByRole('listbox')).toBeNull();
   });

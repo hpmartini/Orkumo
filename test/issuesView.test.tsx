@@ -37,7 +37,7 @@ const issue = (number: number, patch: Partial<RepoIssue> = {}): RepoIssue => ({
   createdAt: '2026-01-01T00:00:00Z',
   updatedAt: new Date().toISOString(),
   closedAt: null,
-  author: 'hape',
+  author: 'dev',
   labels: [],
   assignees: [],
   milestone: null,
@@ -83,7 +83,7 @@ describe('IssuesPage', () => {
     await waitFor(() => expect(rows()).toHaveLength(2));
     expect(fetchIssues).toHaveBeenCalledWith('ctx', 'open', false);
     expect(screen.getByTestId('issues-count')).toHaveTextContent('2');
-    expect(screen.getAllByText('Board', { selector: 'span' })).toHaveLength(1);
+    expect(screen.getAllByText('Board', { selector: 'span:not([aria-hidden])' })).toHaveLength(1);
     expect(screen.getByRole('alert')).toHaveTextContent(
       'o/broken: GitHub: Could not resolve to a Repository'
     );
@@ -98,9 +98,7 @@ describe('IssuesPage', () => {
     renderPage(<IssuesPage active sessions={[]} />);
     await waitFor(() => expect(rows()).toHaveLength(2));
 
-    fireEvent.change(screen.getByRole('combobox', { name: 'Board' }), {
-      target: { value: 'off' },
-    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Not on board' }));
     expect(rows().map((r) => r.getAttribute('aria-label'))).toEqual(['o/other#2 Issue 2']);
     expect(screen.getByTestId('issues-count')).toHaveTextContent('1 of 2');
     expect(screen.getByTestId('location')).toHaveTextContent('/issues?board=off');
@@ -118,9 +116,7 @@ describe('IssuesPage', () => {
   it('switching to closed issues reloads with that state', async () => {
     renderPage(<IssuesPage active sessions={[]} />);
     await waitFor(() => expect(rows()).toHaveLength(2));
-    fireEvent.change(screen.getByRole('combobox', { name: 'State' }), {
-      target: { value: 'closed' },
-    });
+    fireEvent.click(screen.getByRole('radio', { name: 'Closed' }));
     await waitFor(() => expect(fetchIssues).toHaveBeenLastCalledWith(undefined, 'closed', false));
     expect(screen.getByTestId('location')).toHaveTextContent('/issues?state=closed');
   });

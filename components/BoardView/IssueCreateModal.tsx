@@ -10,6 +10,7 @@ import {
 } from '@hpmartini/agents-ui/components/ImageAttachments';
 import { bodyWithImages, submitIntent } from '@hpmartini/agents-ui/utils/composer';
 import { LabelChip } from './BoardCard';
+import { Choice } from '@hpmartini/agents-ui/components/Choice';
 import {
   NewKindTabs,
   type NewKind,
@@ -20,7 +21,7 @@ import {
   assigneeChoices,
   labelChoices,
   labelsFor,
-  milestoneChoices,
+  milestoneOptions,
   useRepoOptions,
 } from './IssueFields';
 
@@ -224,19 +225,19 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               Repository
             </label>
             {repos && repos.length > 1 ? (
-              <select
+              <Choice
                 id="issue-create-repo"
                 value={repo}
                 disabled={!!orphan}
-                onChange={(e) => changeRepo(e.target.value)}
-                className={FIELD_INPUT}
-              >
-                {repos.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
+                onChange={changeRepo}
+                // a preset repo outside `repos` (agent context) stays visible as the checked one
+                options={(repo && !repos.includes(repo) ? [repo, ...repos] : repos).map((r) => ({
+                  value: r,
+                  label: r,
+                }))}
+                label="Repository"
+                className="w-full"
+              />
             ) : (
               <span id="issue-create-repo" className="font-mono text-gray-200">
                 {repo || '–'}
@@ -248,19 +249,17 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
                 <label htmlFor="issue-create-status" className="text-gray-400">
                   Status
                 </label>
-                <select
+                <Choice
                   id="issue-create-status"
                   value={statusOptionId}
-                  onChange={(e) => setStatusOptionId(e.target.value)}
-                  className={FIELD_INPUT}
-                >
-                  {!statusOptionId && <option value="">Backlog (default)</option>}
-                  {statusOptions.map((o) => (
-                    <option key={o.id} value={o.id}>
-                      {o.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setStatusOptionId}
+                  options={[
+                    ...(statusOptionId ? [] : [{ value: '', label: 'Backlog (default)' }]),
+                    ...statusOptions.map((o) => ({ value: o.id, label: o.name })),
+                  ]}
+                  label="Status"
+                  className="w-full"
+                />
               </>
             )}
 
@@ -380,7 +379,6 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               boxed
               disabled={!!orphan}
               label="Labels"
-              multi
               choices={labelChoices(options)}
               value={labels}
               onChange={setLabels}
@@ -395,21 +393,20 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               boxed
               disabled={!!orphan}
               label="Assignees"
-              multi
               choices={assigneeChoices(options)}
               value={assignees}
               onChange={setAssignees}
               display={assignees.length ? assignees.join(', ') : none}
             />
             <span className="text-gray-400">Milestone</span>
-            <FieldPicker
-              boxed
-              disabled={!!orphan}
+            <Choice
+              disabled={!!orphan || !options}
               label="Milestone"
-              choices={milestoneChoices(options)}
-              value={milestone}
-              onChange={setMilestone}
-              display={milestone[0] ?? none}
+              value={milestone[0] ?? ''}
+              onChange={(v) => setMilestone(v ? [v] : [])}
+              options={milestoneOptions(options, milestone[0] ?? null)}
+              title={options ? undefined : 'Loading options…'}
+              mode={options ? 'auto' : 'menu'}
             />
           </div>
 

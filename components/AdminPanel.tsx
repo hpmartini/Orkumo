@@ -61,6 +61,7 @@ import { RemotePairingSection } from './RemotePairingSection';
 import { ModulesSection } from './ModulesSection';
 import { UpdatesSection } from './UpdatesSection';
 import { ProjectsSettings } from './ProjectsSettings';
+import { Choice } from '@hpmartini/agents-ui/components/Choice';
 
 interface AdminPanelProps {
   isOpen: boolean;
@@ -562,46 +563,26 @@ export const AdminPanel: React.FC<AdminPanelProps> = ({
               <Globe className="text-blue-400" size={18} />
               Open links in
             </legend>
-            <div className="flex flex-wrap gap-2">
-              {LINK_TARGETS.map(([value, label]) => (
-                <label
-                  key={value}
-                  className={`flex items-center gap-2 px-3 py-1.5 rounded border text-sm cursor-pointer transition-colors ${
-                    linkTarget === value
-                      ? 'border-blue-500 bg-blue-500/10 text-white'
-                      : 'border-gray-600 text-gray-300 hover:border-gray-500'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="linkTarget"
-                    value={value}
-                    checked={linkTarget === value}
-                    onChange={() => handleLinkTargetChange(value)}
-                    className="accent-blue-500"
-                  />
-                  {label}
-                </label>
-              ))}
-            </div>
-            <div className="mt-3 grid grid-cols-[auto_minmax(0,14rem)] items-center gap-x-3 gap-y-1.5 text-sm">
+            <Choice
+              label="Open links in"
+              value={linkTarget}
+              onChange={handleLinkTargetChange}
+              options={LINK_TARGETS.map(([value, label]) => ({ value, label }))}
+              size="md"
+            />
+            <div className="mt-3 grid grid-cols-[auto_minmax(0,1fr)] items-center gap-x-3 gap-y-1.5 text-sm">
               {LINK_GESTURES.map(([gesture, label]) => (
                 <Fragment key={gesture}>
                   <label htmlFor={`link-key-${gesture}`} className="text-gray-300">
                     {label}
                   </label>
-                  <select
+                  <Choice
                     id={`link-key-${gesture}`}
+                    label={label}
                     value={linkKeys[gesture]}
-                    onChange={(e) => handleLinkKeyChange(gesture, e.target.value as LinkTarget)}
-                    className="bg-gray-900 border border-gray-600 rounded px-2 py-1 text-gray-100"
-                  >
-                    {LINK_TARGETS.map(([value, name]) => (
-                      <option key={value} value={value}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => handleLinkKeyChange(gesture, v)}
+                    options={LINK_TARGETS.map(([value, name]) => ({ value, label: name }))}
+                  />
                 </Fragment>
               ))}
             </div>

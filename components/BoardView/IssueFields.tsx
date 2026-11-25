@@ -30,11 +30,10 @@ export const FIELD_INPUT =
 const PickerList: React.FC<{
   choices: { value: string; label: React.ReactNode }[];
   selected: string[];
-  multi: boolean;
   onPick: (value: string) => void;
   onClose: () => void;
   label: string;
-}> = ({ choices, selected, multi, onPick, onClose, label }) => {
+}> = ({ choices, selected, onPick, onClose, label }) => {
   const ref = usePopover(onClose, true);
   return (
     <div
@@ -42,7 +41,7 @@ const PickerList: React.FC<{
       tabIndex={-1}
       role="listbox"
       aria-label={label}
-      aria-multiselectable={multi}
+      aria-multiselectable
       className="absolute z-30 left-0 top-full mt-1 w-64 max-h-64 overflow-y-auto thin-scrollbar rounded-md border border-gray-600 bg-gray-800 shadow-xl py-1 focus:outline-none"
     >
       {choices.length === 0 && <p className="px-3 py-2 text-xs text-gray-400">No entries</p>}
@@ -66,13 +65,9 @@ const PickerList: React.FC<{
   );
 };
 
-/**
- * Shows the current value(s) and opens a pick list. Multi mode toggles values and
- * reports the full new set; single mode reports one value (or null to clear) and closes.
- */
+/** Shows the current values and opens a pick list that toggles values and reports the full new set */
 export const FieldPicker: React.FC<{
   label: string;
-  multi?: boolean;
   /** null while the repo options load */
   choices: { value: string; label: React.ReactNode }[] | null;
   value: string[];
@@ -81,15 +76,10 @@ export const FieldPicker: React.FC<{
   disabled?: boolean;
   /** Visible button as wide as its value (create dialog, #254) instead of a hover-only row */
   boxed?: boolean;
-}> = ({ label, multi = false, choices, value, onChange, display, disabled, boxed }) => {
+}> = ({ label, choices, value, onChange, display, disabled, boxed }) => {
   const [open, setOpen] = useState(false);
-  const pick = (v: string) => {
-    if (multi) onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
-    else {
-      onChange(value[0] === v ? [] : [v]);
-      setOpen(false);
-    }
-  };
+  const pick = (v: string) =>
+    onChange(value.includes(v) ? value.filter((x) => x !== v) : [...value, v]);
   return (
     <div className="relative min-w-0">
       <button
@@ -120,7 +110,6 @@ export const FieldPicker: React.FC<{
           label={label}
           choices={choices}
           selected={value}
-          multi={multi}
           onPick={pick}
           onClose={() => setOpen(false)}
         />
@@ -133,6 +122,20 @@ export const labelChoices = (options: BoardRepoOptions | null) =>
   options?.labels.map((l) => ({ value: l.name, label: <LabelChip label={l} /> })) ?? null;
 export const assigneeChoices = (options: BoardRepoOptions | null) =>
   options?.assignees.map((a) => ({ value: a.login, label: a.login })) ?? null;
+/**
+ * Choice options for the milestone: "No milestone" (''), the open ones and `current` when it is
+ * missing from them (closed: the server lists only open milestones)
+ */
+export const milestoneOptions = (options: BoardRepoOptions | null, current: string | null) => {
+  const open = milestoneChoices(options) ?? [];
+  return [
+    { value: '', label: 'No milestone' },
+    ...open,
+    ...(current && !open.some((m) => m.value === current)
+      ? [{ value: current, label: current }]
+      : []),
+  ];
+};
 export const milestoneChoices = (options: BoardRepoOptions | null) =>
   options?.milestones.map((m) => ({ value: m.title, label: m.title })) ?? null;
 
