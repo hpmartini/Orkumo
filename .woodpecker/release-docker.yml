@@ -67,4 +67,4 @@ steps:
       - apt-get update -qq && apt-get install -y -qq --no-install-recommends gh
       - TAG=$$(cat .release-tag)
       - scripts/release/compose-assets.sh "$${TAG#v}" release-assets
-      - gh release upload "$$TAG" release-assets/docker-compose.release.yml release-assets/init-db.sql --clobber
+      - scripts/release/upload-files.sh "$$TAG" release-assets/docker-compose.release.yml release-assets/init-db.sql
