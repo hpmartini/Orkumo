@@ -339,6 +339,30 @@ describe('boardService - GitHub budget: stamp probe, rate limit, polling switch'
     expect(calls).toEqual(['items', 'stamp', 'items']);
   });
 
+  it("a poll's older item load finishing last does not overwrite the user's refresh", async () => {
+    let stamp = 's1';
+    let title = 'v1';
+    const held = [];
+    vi.mocked(execFile).mockImplementation((_cmd, args, _opts, cb) => {
+      const query = String(args.find((a) => String(a).startsWith('query=')) || '');
+      if (!query.includes('items(first')) return cb(null, stampAnswer(stamp), '');
+      const page = itemsPage(title, stamp);
+      if (held.length === 0 && title === 'old') held.push(() => cb(null, page, ''));
+      else cb(null, page, '');
+    });
+    await getBoard(source);
+    vi.setSystemTime(Date.now() + 61_000);
+    stamp = 's2';
+    title = 'old';
+    const polled = getBoard(source); // stamp moved: loads, held back
+    await vi.waitFor(() => expect(held).toHaveLength(1));
+    title = 'new';
+    expect((await getBoard(source, { refresh: true })).items[0].title).toBe('new');
+    held[0]();
+    await polled;
+    expect((await getBoard(source)).items[0].title).toBe('new');
+  });
+
   it('rate limited: serves the cached board, no smaller-page retry, no call during the backoff', async () => {
     let limited = false;
     const calls = gh((kind) =>

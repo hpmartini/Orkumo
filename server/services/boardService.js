@@ -69,6 +69,8 @@ const STATUS_MUTATION = `mutation($projectId:ID!,$itemId:ID!,$fieldId:ID!,$optio
 
 let cache = null; // { key, at, loadedAt, stamp, data }; at: last load or unchanged probe
 let inflight = null; // { key, promise, probe }; probe: may answer from an unchanged stamp
+let loadGeneration = 0; // getBoard calls that may load, in start order
+let cacheGeneration = 0; // the one whose load is in `cache`
 // Items this server wrote (status, create, edit), newest per item: { key, at, item, created }.
 // A fetch that started before a write must not undo it in the cache.
 const recentWrites = new Map();
@@ -319,6 +321,7 @@ export async function getBoard(source, { refresh = false } = {}) {
   if (inflight?.key === key && !(refresh && inflight.probe)) return inflight.promise;
   const startedAt = Date.now();
   const probe = Boolean(current && !refresh && startedAt - current.loadedAt < BOARD_MAX_AGE_MS);
+  const generation = ++loadGeneration;
   const promise = (async () => {
     if (probe) {
       const stamp = await projectStamp(source);
@@ -332,7 +335,10 @@ export async function getBoard(source, { refresh = false } = {}) {
     const writes = [...recentWrites.values()].filter((w) => w.key === key);
     data.items = mergeRecentWrites(data.items, writes, startedAt, now);
     for (const w of writes) if (!keepWrite(w, startedAt, now)) recentWrites.delete(w.item.itemId);
+    // A refresh can run beside a poll's load: the one started last wins the cache
+    if (generation < cacheGeneration && cache?.key === key) return cache.data;
     cache = { key, at: now, loadedAt: now, stamp, data };
+    cacheGeneration = generation;
     return data;
   })()
     .catch((error) => {

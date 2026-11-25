@@ -213,7 +213,7 @@ describe('agentContextService - PRs and issues over REST with ETags', () => {
     vi.setSystemTime(1_000_000 + 61_000);
     const info = await ghInfo('o/rest-quiet');
     expect(calls.map((c) => c.path).sort()).toEqual([
-      'repos/o/rest-quiet/issues?state=open&per_page=100',
+      'repos/o/rest-quiet/issues?state=open&per_page=100&page=1',
       'repos/o/rest-quiet/pulls?state=open&per_page=100',
     ]);
     expect(calls.every((c) => c.etag)).toBe(true);
@@ -308,5 +308,19 @@ describe('agentContextService - PRs and issues over REST with ETags', () => {
     expect((await ghInfo('o/rest-review-retry')).pulls.items[0].reviewDecision).toBe(
       'CHANGES_REQUESTED'
     );
+  });
+
+  it('counts issues behind a page full of PRs', async () => {
+    const prs = Array.from({ length: 100 }, (_, i) => ({ number: 1000 + i, pull_request: {} }));
+    ghApi((path) => {
+      if (path.includes('/issues?')) {
+        return path.endsWith('page=1')
+          ? { status: 200, etag: '"p1"', body: prs }
+          : { status: 200, etag: '"p2"', body: [{ number: 1 }, { number: 2 }] };
+      }
+      if (path.includes('/pulls?')) return { status: 200, etag: '"l"', body: [] };
+      throw new Error(`unexpected ${path}`);
+    });
+    expect((await ghInfo('o/rest-many-prs')).issues.open).toBe(2);
   });
 });

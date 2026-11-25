@@ -465,12 +465,29 @@ export function restPullFields(pull, { detail, reviews, statuses, checkRuns } = 
   };
 }
 
-/** Open-issue count; GET /issues lists PRs too (first 100 entries, as `gh issue list` did) */
+const ISSUE_COUNT_CAP = 100; // as `gh issue list --limit 100` counted
+const ISSUE_MAX_PAGES = 10;
+
+/**
+ * Open-issue count up to ISSUE_COUNT_CAP. GET /issues lists PRs too, so it pages on while PRs
+ * fill the pages (every page conditional, unchanged = 304).
+ */
 async function ghIssues(slug) {
-  const open = await restGet(`repos/${slug}/issues?state=open&per_page=100`, {
-    map: (list) => list.filter((i) => !i.pull_request).length,
-  });
-  return { open, url: `https://github.com/${slug}/issues` };
+  let open = 0;
+  for (let page = 1; page <= ISSUE_MAX_PAGES && open < ISSUE_COUNT_CAP; page++) {
+    const { issues, full } = await restGet(
+      `repos/${slug}/issues?state=open&per_page=100&page=${page}`,
+      {
+        map: (list) => ({
+          issues: list.filter((i) => !i.pull_request).length,
+          full: list.length === 100,
+        }),
+      }
+    );
+    open += issues;
+    if (!full) break;
+  }
+  return { open: Math.min(open, ISSUE_COUNT_CAP), url: `https://github.com/${slug}/issues` };
 }
 
 const pickPull = (p) => ({
