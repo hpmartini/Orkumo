@@ -74,7 +74,13 @@ export const createThread = async (
 export const updateThread = async (
   session: string,
   id: string,
-  patch: { closed?: boolean; readAt?: number; command?: string; cancelCommand?: boolean }
+  patch: {
+    closed?: boolean;
+    readAt?: number;
+    command?: string;
+    cancelCommand?: boolean;
+    name?: { project: string; task: string };
+  }
 ): Promise<ChatThread> =>
   (
     await request<{ thread: ChatThread }>(`/orchestrator/threads/${encodeURIComponent(id)}`, {

@@ -345,7 +345,7 @@ export function createThreadStore(dir) {
     },
     /**
      * Takes back the last tidy-up action: threads and overrides as they were, except what the user
-     * did since (a manual rename, read marks) and threads opened since. Its label
+     * did since (a manual rename, read marks, command marks) and threads opened since. Its label
      */
     undo(orchestratorId) {
       return change(orchestratorId, (doc) => {
@@ -356,6 +356,8 @@ export function createThreadStore(dir) {
           const now = current.get(t.id);
           if (!now) return t;
           if (now.readAt > t.readAt) t.readAt = now.readAt;
+          // command marks are the user's sends, not tidy-up: they stay
+          if (now.commands) t.commands = now.commands;
           if (now.renamed) {
             t.name = now.name;
             t.renamed = true;

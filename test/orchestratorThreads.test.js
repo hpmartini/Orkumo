@@ -384,3 +384,19 @@ describe('entries routed as the UI routes them (CLI thread list/messages)', () =
     expect(routeEntries(items, [marked, thread('t2')], merged)).toEqual(['t2', 't2', null]);
   });
 });
+
+describe('undo of a tidy-up action', () => {
+  it('keeps a command mark sent from the thread after the action', () => {
+    const store = createThreadStore(tmp());
+    const t = store.create('sess', { name: { project: 'Demo', task: 'One' } });
+    store.tidy('sess', 'close', (doc) => {
+      doc.threads[0].closed = true;
+    });
+    store.update('sess', t.id, { command: '/status-report', now: 42 });
+    store.undo('sess');
+    expect(store.list('sess')[0]).toMatchObject({
+      closed: false,
+      commands: [{ at: 42, command: '/status-report' }],
+    });
+  });
+});
