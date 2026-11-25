@@ -46,7 +46,8 @@ export const SlicePicker: React.FC<SlicePickerProps> = ({
       ]}
       label={`Select ${kindLabel}`}
       searchPlaceholder={`Search ${kindLabel}…`}
-      className="max-w-56"
+      // pills wrap only when the header runs out of room; the menu trigger truncates
+      className={pills ? undefined : 'max-w-56'}
     />
   );
 };
