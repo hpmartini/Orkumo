@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import type { ModeEntry } from '../hooks/useModules';
 import { moduleIcon } from './moduleIcon';
 import { ModuleMount, useModuleHost } from './ModuleMount';
+import { openInstruct, type InstructTarget } from './InstructDialog';
+import { API_BASE_URL } from '../utils/apiConfig';
+import { targetOf } from '../utils/agentTarget';
 
 /** What agents-ui hands `renderPaneActions`/`renderPaneView` (the parts used here) */
 interface PaneArg {
@@ -21,11 +24,14 @@ interface PaneArg {
 function PaneModeView({
   modeId,
   orchestrator,
+  session,
   task,
   onClose,
 }: {
   modeId: string;
   orchestrator: string;
+  /** The pane's session: its reports live on its instance (a peer's in Cluster mode) */
+  session: string;
   task?: { project: string; task: string };
   onClose: () => void;
 }) {
@@ -33,11 +39,13 @@ function PaneModeView({
   const host = useMemo(
     () => ({
       ...base,
+      apiBase: `${API_BASE_URL}${targetOf(session)}`,
+      instruct: (target: InstructTarget) => openInstruct({ ...target, session }),
       search: `orchestrator=${encodeURIComponent(orchestrator)}`,
       setSearch: () => {},
       pane: task ? { orchestrator, task } : { orchestrator },
     }),
-    [base, orchestrator, task]
+    [base, orchestrator, session, task]
   );
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => ref.current?.focus(), []);
@@ -111,6 +119,7 @@ export function usePaneModes(modes: ModeEntry[]) {
               key={`${mode.id} ${p.statusTask.project} ${p.statusTask.task}`}
               modeId={mode.id}
               orchestrator={p.role ?? p.session.id}
+              session={p.session.id}
               task={p.statusTask}
               onClose={p.onClose}
             />
@@ -122,6 +131,7 @@ export function usePaneModes(modes: ModeEntry[]) {
             key={mode.id}
             modeId={mode.id}
             orchestrator={p.role ?? p.session.id}
+            session={p.session.id}
             onClose={() => set(p.paneId, null)}
           />
         ) : null;

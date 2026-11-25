@@ -18,6 +18,8 @@ export interface InstructTarget {
   task?: { project: string; task: string };
   title: string;
   project?: string;
+  /** Agent pane the Status view runs in (set by the host, not the module): its instance gets the message */
+  session?: string;
 }
 
 // One dialog for the whole app; module UIs open it through the host, outside React
@@ -61,12 +63,18 @@ function Dialog({ target, onClose }: { target: InstructTarget; onClose: () => vo
     if (busy || done || !text.trim()) return;
     setPhase({ kind: 'sending' });
     try {
-      const attachments = await Promise.all(files.map(uploadAttachment));
-      await instructOrchestrator(target.orchestrator, {
-        ...(target.entry ? { entry: target.entry } : { task: target.task }),
-        text: text.trim(),
-        attachments,
-      });
+      const attachments = await Promise.all(
+        files.map((file) => uploadAttachment(file, target.session))
+      );
+      await instructOrchestrator(
+        target.orchestrator,
+        {
+          ...(target.entry ? { entry: target.entry } : { task: target.task }),
+          text: text.trim(),
+          attachments,
+        },
+        target.session
+      );
       setPhase({ kind: 'delivered' });
     } catch (e) {
       setPhase({ kind: 'error', message: e instanceof Error ? e.message : String(e) });

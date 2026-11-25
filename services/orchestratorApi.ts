@@ -44,15 +44,20 @@ export interface InstructBody {
   attachments?: { path: string; kind: 'image' | 'file' }[];
 }
 
-/** Instruct (Status view): one message to the orchestrator; the server prepends the context header */
+/**
+ * Instruct (Status view): one message to the orchestrator; the server prepends the context header.
+ * `session`: the agent pane the Status view is shown in; the report then lives on its instance
+ */
 export const instructOrchestrator = (
   orchestrator: string,
-  body: InstructBody
+  body: InstructBody,
+  session?: string
 ): Promise<{ delivered: boolean }> =>
-  request(`/orchestrator/reports/${encodeURIComponent(orchestrator)}/instruct`, {
-    method: 'POST',
-    body: JSON.stringify(body),
-  });
+  request(
+    `/orchestrator/reports/${encodeURIComponent(orchestrator)}/instruct`,
+    { method: 'POST', body: JSON.stringify(body) },
+    session ? targetOf(session) : ''
+  );
 
 /**
  * Threads of an orchestrator chat (`session`: the pane's listed session). They live on the
