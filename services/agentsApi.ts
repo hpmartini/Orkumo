@@ -461,10 +461,11 @@ export const fetchChatArtifactContent = (id: string, path: string) =>
 export const chatImageUrl = (chatId: string, ref: string): string =>
   agentApiUrl(`${chatPath(chatId, 'images')}/${encodeURIComponent(ref)}`);
 
-export function agentImageUrl(path: string): string | null {
+/** `chatId`: the chat the image was sent in; it is stored on that chat's instance */
+export function agentImageUrl(path: string, chatId?: string): string | null {
   const name = path.split('/').pop() ?? '';
   return /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/.test(name) && path.includes('/agent-images/')
-    ? agentApiUrl(`/agents/images/${name}`)
+    ? agentApiUrl(`/agents/images/${name}`, chatId)
     : null;
 }
 

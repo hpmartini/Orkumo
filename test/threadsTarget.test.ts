@@ -7,7 +7,7 @@ import {
   instructOrchestrator,
   updateThread,
 } from '../services/orchestratorApi';
-import { uploadAttachment } from '../services/agentsApi';
+import { agentImageUrl, uploadAttachment } from '../services/agentsApi';
 import { pinTarget, resetAgentTarget, setAgentTarget } from '../utils/agentTarget';
 import { API_BASE_URL } from '../utils/apiConfig';
 
@@ -72,5 +72,15 @@ describe('instruct and uploads by pane instance', () => {
       `${API_BASE_URL}/agents/files?name=a.txt`,
       `${API_BASE_URL}${PEER}/agents/files?name=a.txt`,
     ]);
+  });
+});
+
+describe('image previews by chat instance', () => {
+  it('a stored image of a peer chat previews through the peer, whatever the picker', () => {
+    pinTarget('chat-peer', PEER);
+    const path = '/data/agent-images/0b3e279b-1111-4222-8333-444455556666.png';
+    expect(agentImageUrl(path, 'chat-peer')).toBe(
+      `${API_BASE_URL}${PEER}/agents/images/0b3e279b-1111-4222-8333-444455556666.png`
+    );
   });
 });
