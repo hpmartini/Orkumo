@@ -230,7 +230,11 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
                 value={repo}
                 disabled={!!orphan}
                 onChange={changeRepo}
-                options={repos.map((r) => ({ value: r, label: r }))}
+                // a preset repo outside `repos` (agent context) stays visible as the checked one
+                options={(repo && !repos.includes(repo) ? [repo, ...repos] : repos).map((r) => ({
+                  value: r,
+                  label: r,
+                }))}
                 label="Repository"
                 className="w-full"
               />
