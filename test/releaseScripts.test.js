@@ -152,3 +152,67 @@ describe('release-tag.sh (Woodpecker release on merge)', () => {
     expect(run({}, 'main', '--next')).toBeNull();
   });
 });
+
+describe('upload-files.sh (draft uploads over REST, rc.73)', () => {
+  // stubs log their calls; gh answers the REST lists in the scripts' --jq shapes ("<tag> <id>", "<id> <name>")
+  const run = ({ releases, assets = '', curlExit = 0 }, ...files) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'upload-files-'));
+    const log = path.join(dir, 'calls.log');
+    const stub = (name, body) =>
+      fs.writeFileSync(path.join(dir, name), `#!/usr/bin/env bash\necho "${name} $*" >> "$LOG"\n${body}\n`, {
+        mode: 0o755,
+      });
+    stub(
+      'gh',
+      'case "$*" in *DELETE*) ;; *"/assets"*) printf "%s" "$STUB_ASSETS" ;; *"/releases"*) printf "%s" "$STUB_RELEASES" ;; esac'
+    );
+    stub('curl', 'exit $STUB_CURL_EXIT');
+    stub('sleep', ':');
+    for (const f of files) fs.writeFileSync(path.join(dir, f), 'x');
+    let ok = true;
+    try {
+      execFileSync(
+        'bash',
+        [path.join(repo, 'scripts/release/upload-files.sh'), 'v1.0.0-rc.74', ...files.map((f) => path.join(dir, f))],
+        {
+          env: {
+            ...process.env,
+            PATH: `${dir}:${process.env.PATH}`,
+            LOG: log,
+            GH_REPO: 'o/r',
+            GH_TOKEN: 't',
+            STUB_RELEASES: releases,
+            STUB_ASSETS: assets,
+            STUB_CURL_EXIT: String(curlExit),
+          },
+          stdio: 'pipe',
+        }
+      );
+    } catch {
+      ok = false;
+    }
+    const calls = fs.existsSync(log) ? fs.readFileSync(log, 'utf8').trim().split('\n') : [];
+    return { ok, calls };
+  };
+  const releases = 'v1.0.0-rc.73 111\nv1.0.0-rc.74 222\n';
+
+  it('uploads to the draft found by id, replacing only the asset of the same name', () => {
+    const { ok, calls } = run({ releases, assets: '9 a.zip\n8 other.yml\n' }, 'a.zip', 'b.yml');
+    expect(ok).toBe(true);
+    const uploads = calls.filter((c) => c.startsWith('curl'));
+    expect(uploads).toHaveLength(2);
+    expect(uploads[0]).toContain('/releases/222/assets?name=a.zip');
+    expect(uploads[1]).toContain('/releases/222/assets?name=b.yml');
+    expect(calls.filter((c) => c.includes('DELETE'))).toEqual(['gh api -X DELETE repos/o/r/releases/assets/9']);
+    expect(calls.some((c) => c.includes('release upload'))).toBe(false);
+  });
+
+  it('fails without a release for the tag, and after the fourth failed try of a file', () => {
+    const missing = run({ releases: 'v1.0.0-rc.73 111\n' }, 'a.zip');
+    expect(missing.ok).toBe(false);
+    expect(missing.calls.some((c) => c.startsWith('curl'))).toBe(false);
+    const broken = run({ releases, curlExit: 22 }, 'a.zip', 'b.yml');
+    expect(broken.ok).toBe(false);
+    expect(broken.calls.filter((c) => c.startsWith('curl'))).toHaveLength(4);
+  });
+});
