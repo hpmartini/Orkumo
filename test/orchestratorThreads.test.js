@@ -11,6 +11,8 @@ import {
   threadView,
   repoAgents,
   threadText,
+  returnMisplacedThreads,
+  threadOwnerKey,
 } from '../server/services/orchestratorThreads.js';
 import example from '../server/orchestrator/report.example.json';
 
@@ -109,6 +111,22 @@ describe('thread store', () => {
     );
   });
 
+  it('command marks: a command sent from the thread is marked at server time; cancel drops it', () => {
+    const store = createThreadStore(tmp());
+    const a = store.create('release', { name: { project: 'A', task: 'B' }, now: T0 });
+    expect(a.commands).toEqual([]);
+    store.update('release', a.id, { command: '/status-report', now: T0 + 1 });
+    store.update('release', a.id, { command: '/skill:ping', now: T0 + 2 });
+    expect(store.update('release', a.id, { cancelCommand: true }).commands).toEqual([
+      { at: T0 + 1, command: '/status-report' },
+    ]);
+    for (let i = 0; i < 120; i++)
+      store.update('release', a.id, { command: '/x', now: T0 + 10 + i });
+    const marks = store.list('release')[0].commands;
+    expect(marks).toHaveLength(100);
+    expect(marks.at(-1)).toEqual({ at: T0 + 129, command: '/x' });
+  });
+
   it('state survives a restart: written by one process, read by another', () => {
     const dir = tmp();
     const mod = path.resolve(
@@ -138,5 +156,69 @@ describe('typed text', () => {
     expect(threadText({ tag: '[Thread: A · B]' }, '[Status] A · B\n\nhi')).toBe(
       '[Thread: A · B]\n[Status] A · B\n\nhi'
     );
+  });
+});
+
+describe('threads misplaced under a role', () => {
+  const thread = (id, tag, parentKey = null) => ({ id, tag, parentKey, agents: [], closed: false });
+  const KEYED = thread('k', '[Thread: Answer 09:00 · keyed]', 'msg_x');
+  const TAGGED = thread('t', '[Thread: Thread 09:05 · tagged]');
+
+  it('without every transcript only the answered message proves; a rerun changes nothing', async () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'threads'));
+    fs.writeFileSync(
+      path.join(dir, 'threads', 'main.json'),
+      JSON.stringify({ threads: [KEYED, TAGGED] })
+    );
+    const transcript = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(transcript, `{"message":{"id":"msg_x"}}\n{"text":"${TAGGED.tag} hi"}\n`);
+    const holders = [
+      { key: 'a', transcripts: [transcript] },
+      { key: 'b', transcripts: [] },
+    ];
+    const read = (k) => JSON.parse(fs.readFileSync(path.join(dir, 'threads', `${k}.json`), 'utf8'));
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(1);
+    expect(read('a').threads).toEqual([KEYED]);
+    expect(read('main').threads).toEqual([TAGGED]);
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
+    // with b's transcript read, the tag proves a
+    holders[1].transcripts = [path.join(dir, 'missing.jsonl')];
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(1);
+    expect(read('a').threads).toEqual([KEYED, TAGGED]);
+  });
+
+  it('a change to the role file during the scan is kept; a moved thread goes as it is then', async () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'threads'));
+    fs.writeFileSync(
+      path.join(dir, 'threads', 'main.json'),
+      JSON.stringify({
+        threads: [
+          { ...KEYED, readAt: 1 },
+          { ...TAGGED, readAt: 1 },
+        ],
+      })
+    );
+    const transcript = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(transcript, `{"message":{"id":"msg_x"}}\n`);
+    const holders = [
+      { key: 'a', transcripts: [transcript] },
+      { key: 'b', transcripts: [] },
+    ];
+    const store = createThreadStore(dir);
+    const repair = returnMisplacedThreads(dir, 'main', holders);
+    // PATCHes while the transcripts are read
+    store.update('main', 't', { readAt: 5 });
+    store.update('main', 'k', { readAt: 7 });
+    expect(await repair).toBe(1);
+    expect(store.list('main')).toEqual([{ ...TAGGED, readAt: 5 }]);
+    expect(store.list('a')).toEqual([{ ...KEYED, readAt: 7 }]);
+  });
+
+  it('a Claude terminal keys its threads by its transcript uuid, not its pid row', () => {
+    expect(threadOwnerKey({ id: 'interactive-42', sessionId: 'uuid-1' })).toBe('uuid-1');
+    expect(threadOwnerKey({ id: 'omp-1', sessionId: '1' })).toBe('omp-1');
+    expect(threadOwnerKey({ id: '13c54a91', sessionId: 'uuid-2' })).toBe('13c54a91');
   });
 });

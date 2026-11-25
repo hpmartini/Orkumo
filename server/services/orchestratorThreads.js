@@ -7,6 +7,7 @@
 import crypto from 'crypto';
 import fs from 'fs';
 import path from 'path';
+import readline from 'readline';
 import { httpError, writeAtomic } from './orchestratorReports.js';
 
 const NAME_MAX = 60;
@@ -107,6 +108,16 @@ export function repoAgents(report, projectId, sessions, contexts, orchestratorSe
     .map((s) => s.id);
 }
 
+/** Command marks kept per thread: older ones have claimed their turn long ago */
+const MAX_COMMANDS = 100;
+
+/**
+ * Key of an orchestrator's threads: its session id; a Claude terminal's row id is its pid (new on
+ * every restart), so its transcript uuid
+ */
+export const threadOwnerKey = (session) =>
+  (session.id.startsWith('interactive-') && session.sessionId) || session.id;
+
 export function createThreadStore(dir) {
   const threadsDir = path.join(dir, 'threads');
   const fileOf = (id) => path.join(threadsDir, `${id}.json`);
@@ -155,20 +166,102 @@ export function createThreadStore(dir) {
         createdAt: now,
         readAt: now,
         closed: false,
+        commands: [],
       };
       save(orchestratorId, [...threads, thread]);
       return thread;
     },
-    /** Close or open, mark read (forward only), link more workers */
-    update(orchestratorId, threadId, { closed, readAt, agents }) {
+    /**
+     * Close or open, mark read (forward only), link more workers. `command` (`/name`): sent from
+     * the thread without its tag (the CLI runs it only as the first word); marked with the server
+     * time, its first turn after it belongs to the thread. `cancelCommand`: drop the latest mark
+     * (the send failed)
+     */
+    update(
+      orchestratorId,
+      threadId,
+      { closed, readAt, agents, command, cancelCommand, now = Date.now() }
+    ) {
       const threads = read(orchestratorId);
       const thread = threads.find((t) => t.id === threadId);
       if (!thread) throw httpError(404, 'No thread with this id');
       if (typeof closed === 'boolean') thread.closed = closed;
       if (typeof readAt === 'number') thread.readAt = Math.max(thread.readAt, readAt);
       if (agents?.length) thread.agents = [...new Set([...thread.agents, ...agents])];
+      if (command)
+        thread.commands = [...(thread.commands ?? []), { at: now, command }].slice(-MAX_COMMANDS);
+      if (cancelCommand) thread.commands = (thread.commands ?? []).slice(0, -1);
       save(orchestratorId, threads);
       return thread;
     },
   };
+}
+
+/** Which of `needles` occur in the files, read line by line (transcripts run to hundreds of MB) */
+async function needlesIn(files, needles) {
+  const found = new Set();
+  for (const file of files)
+    try {
+      const lines = readline.createInterface({
+        input: fs.createReadStream(file),
+        crlfDelay: Infinity,
+      });
+      for await (const line of lines)
+        for (const n of needles) if (!found.has(n) && line.includes(n)) found.add(n);
+    } catch {
+      // unreadable transcript: no evidence
+    }
+  return found;
+}
+
+/**
+ * Threads kept under a role (before threads were keyed by session, every orchestrator of a role
+ * shared them) moved to the holder whose transcript proves them: the answered message's record
+ * id, else the tag (only when every holder's transcript was found), in exactly one holder's
+ * transcript. Unproven ones stay. Moves only,
+ * nothing rewritten or dropped; a second run changes nothing.
+ * @param {string} dir orchestrator-reports dir of the store
+ * @param {{ key: string, transcripts: string[] }[]} holders current sessions of the role
+ * @returns {Promise<number>} threads moved
+ */
+export async function returnMisplacedThreads(dir, role, holders) {
+  const fileOf = (id) => path.join(dir, 'threads', `${id}.json`);
+  const read = (id) => {
+    try {
+      return JSON.parse(fs.readFileSync(fileOf(id), 'utf8')).threads ?? [];
+    } catch {
+      return [];
+    }
+  };
+  // exact JSON forms: a bare 8-hex id would match by chance in a large transcript
+  const keyNeedle = (t) => t.parentKey && `"id":${JSON.stringify(t.parentKey)}`;
+  const tagNeedle = (t) => JSON.stringify(t.tag).slice(1, -1);
+  const legacy = read(role);
+  if (!legacy.length || !holders.length) return 0;
+  const needles = legacy.flatMap((t) => [keyNeedle(t), tagNeedle(t)]).filter(Boolean);
+  const found = await Promise.all(holders.map((h) => needlesIn(h.transcripts, needles)));
+  const allRead = holders.every((h) => h.transcripts.length);
+  const only = (needle) => {
+    const at = holders.filter((_, i) => needle && found[i].has(needle));
+    return at.length === 1 ? at[0].key : null;
+  };
+  const moved = new Map();
+  for (const t of legacy) {
+    // a holder without transcript could hold the tag too: a tag alone proves nothing then
+    const to = only(keyNeedle(t)) ?? (allRead ? only(tagNeedle(t)) : null);
+    if (to) moved.set(t.id, to);
+  }
+  if (!moved.size) return 0;
+  // read again after the scan: a PATCH meanwhile is kept, a moved thread goes as it is now
+  const fresh = read(role);
+  for (const key of new Set(moved.values())) {
+    const own = read(key);
+    const have = new Set(own.map((t) => t.id));
+    const threads = fresh.filter((t) => moved.get(t.id) === key && !have.has(t.id));
+    if (threads.length) writeAtomic(fileOf(key), { threads: [...own, ...threads] });
+  }
+  // the role file shrinks last: a run cut short leaves copies the next run does not add again
+  const stay = fresh.filter((t) => !moved.has(t.id));
+  writeAtomic(fileOf(role), { threads: stay });
+  return fresh.length - stay.length;
 }

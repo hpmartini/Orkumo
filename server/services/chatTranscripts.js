@@ -60,12 +60,16 @@ const isPeerMessage = (text) => /^\s*<(agent-message|task-notification)\b/.test(
 /**
  * A slash command called with text (`/retro Dann …`), which Claude Code logs as
  * `<command-name>/retro</command-name>` + `<command-args>Dann …</command-args>`: `/retro Dann …`.
- * null without text (`/compact`, `/clear`): those stay control lines, not user turns.
+ * A skill without text is a turn too (`/status-report`): Claude Code logs it `<command-message>`
+ * first, built-ins `<command-name>` first. null for a built-in without text (`/compact`,
+ * `/clear`): those stay control lines, not user turns.
  */
 export function commandPrompt(text) {
   const name = text.match(/<command-name>(\/[^<\s]+)<\/command-name>/)?.[1];
   const args = text.match(/<command-args>([\s\S]*?)<\/command-args>/)?.[1]?.trim();
-  return name && args ? `${name} ${args}` : null;
+  if (!name) return null;
+  if (args) return `${name} ${args}`;
+  return text.trimStart().startsWith('<command-message>') ? name : null;
 }
 
 /** Claude transcript JSONL lines → view events (user turns, assistant messages, tool results) */
@@ -305,6 +309,14 @@ function sessionHistoryEvents(lines) {
     if (rec.type === 'model_change') {
       const model = modelOf(rec);
       if (model) events.push({ type: 'system', subtype: 'init', model });
+      continue;
+    }
+    // An interactive `/skill:name …` is no user message: omp logs the skill's prompt with the
+    // line as typed in `details.prompt`
+    if (rec.type === 'custom_message' && rec.customType === 'skill-prompt') {
+      const typed = str(rec.details?.prompt);
+      if (typed.trim())
+        events.push({ type: 'devorbit_user', text: typed, history: true, ...stamp(rec) });
       continue;
     }
     const msg = rec.type === 'message' && isObj(rec.message) ? rec.message : null;

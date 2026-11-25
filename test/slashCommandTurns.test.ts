@@ -26,3 +26,69 @@ describe('slash commands in a Claude transcript', () => {
     ]);
   });
 });
+
+// A skill called without text (`/ping` from a throwaway `claude -p` run, neutralised): the
+// command record carries `<command-message>` first and no `<command-args>`, then the isMeta skill
+// text. A built-in without text (`/reload-plugins`) logs `<command-name>` first: no turn.
+describe('a skill without text', () => {
+  const bare = fs
+    .readFileSync(path.join(__dirname, 'fixtures', 'claude-bare-skill.jsonl'), 'utf8')
+    .split('\n')
+    .filter(Boolean);
+
+  it('is the user turn `/skill` (Claude); a built-in without text is not', () => {
+    const users = TRANSCRIPT_READERS.claude
+      .historyEvents(bare)
+      .filter((e: { type: string }) => e.type === 'devorbit_user');
+    expect(users).toEqual([
+      {
+        type: 'devorbit_user',
+        text: '/ping',
+        history: true,
+        ts: Date.parse('2026-11-25T11:43:04.273Z'),
+      },
+    ]);
+  });
+
+  it("is the user turn as typed (omp's skill-prompt record, interactive)", () => {
+    const rec = (o: object) => JSON.stringify(o);
+    const lines = [
+      rec({
+        type: 'custom_message',
+        customType: 'skill-prompt',
+        content:
+          '[IMPORTANT: User invoked the "ping" skill; follow its instructions.]\n\nReply pong.',
+        display: true,
+        details: {
+          name: 'ping',
+          path: '/tmp/demo/SKILL.md',
+          args: 'now',
+          prompt: '/skill:ping now',
+        },
+        attribution: 'user',
+        id: 'c1',
+        timestamp: '2026-11-25T11:43:18.790Z',
+      }),
+      rec({
+        type: 'custom_message',
+        customType: 'tool-roster-notice',
+        content: '<system-notice>Tools changed</system-notice>',
+        display: false,
+        attribution: 'agent',
+        id: 'c2',
+        timestamp: '2026-11-25T11:43:19.000Z',
+      }),
+    ];
+    const users = TRANSCRIPT_READERS.omp
+      .historyEvents(lines)
+      .filter((e: { type: string }) => e.type === 'devorbit_user');
+    expect(users).toEqual([
+      {
+        type: 'devorbit_user',
+        text: '/skill:ping now',
+        history: true,
+        ts: Date.parse('2026-11-25T11:43:18.790Z'),
+      },
+    ]);
+  });
+});

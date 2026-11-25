@@ -496,6 +496,27 @@ describe('history pages', () => {
     expect(chatHistoryPage(s.id, 0).events).toEqual([]);
   });
 
+  it('a page names the newest prompt time before it (olderTs): proof that a thread mark is in reach', async () => {
+    const T = Date.parse('2026-11-24T09:00:00Z');
+    const at = (rec, i) => ({ ...rec, timestamp: new Date(T + i * 1000).toISOString() });
+    const records = [];
+    for (let i = 1; i <= 45; i++)
+      records.push(at(claudeUser(`p${i}`), i * 2), at(claudeAnswer(`a${i}`), i * 2 + 1));
+    const { dir } = claudeProjects(records);
+    const s = viewSession(
+      { harness: 'claude', sessionId: CLAUDE_ID, cwd: project },
+      { ...ctx, transcriptDir: dir }
+    );
+    await sleep(80);
+    const seen = [];
+    watchChat(s.id, (e) => seen.push(e));
+    const page = seen.find((e) => e.type === 'devorbit_page');
+    // the window starts at p26: the prompt before it is p25
+    expect(page.olderTs).toBe(T + 50_000);
+    expect(chatHistoryPage(s.id, page.before).olderTs).toBe(T + 10_000);
+    expect(chatHistoryPage(s.id, 0)).not.toHaveProperty('olderTs');
+  });
+
   it('a short session replays whole, with no older page', async () => {
     const s = await session(3);
     const seen = [];
