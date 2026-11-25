@@ -622,8 +622,11 @@ async function composerChecks(page, i, name) {
   await openAgent(page, 1); // the split needs two tabs
   await openAgent(page, 0);
   await ensureThread(page, 0);
-  const h2 = (await paneState(page, 0)).threadHeight;
-  check('reload: thread input height remembered', Math.abs(h2 - height) <= 2, `${height} -> ${h2}`);
+  const r2 = await paneState(page, 0);
+  const h2 = r2.threadHeight;
+  // a shorter section after the reload clamps the saved height to the cap (AC-4)
+  const want = Math.min(height, r2.threadCap);
+  check('reload: thread input height remembered', Math.abs(h2 - want) <= 2, `${height} -> ${h2}, cap ${r2.threadCap}`);
 
   const split = page.locator(`button[aria-label^="Split "][aria-label$=" ${SPLIT}"]`).first();
   if (await split.count()) {
