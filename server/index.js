@@ -2256,12 +2256,9 @@ app.get('/api/orchestrator/projects', async (req, res) => {
 
 // Status reports of orchestrators (`orkumo report`) and the answers given in the Status view
 // Next to the workspace, not in it: the workspace guard lets orchestrators write plain files there
-const reportStore = orchestratorReports.createReportStore(
-  path.join(path.dirname(orchestrator.orchestratorDir()), 'orchestrator-reports')
-);
-const threadStore = orchestratorThreads.createThreadStore(
-  path.join(path.dirname(orchestrator.orchestratorDir()), 'orchestrator-reports')
-);
+const reportsDir = path.join(path.dirname(orchestrator.orchestratorDir()), 'orchestrator-reports');
+const reportStore = orchestratorReports.createReportStore(reportsDir);
+const threadStore = orchestratorThreads.createThreadStore(reportsDir);
 
 /** Agents with display state, activity and PRs: what the stale check and the sender check read */
 async function reportAgents() {
@@ -2491,8 +2488,15 @@ app.post(
         .status(404)
         .json({ error: req.body.entry ? 'No open entry with this id' : 'No task with this id' });
     try {
-      // The instruction opens (or continues) the task's thread in the orchestrator's chat
-      const thread = threadStore.create(req.params.id, bound);
+      // The instruction opens (or continues) the task's thread in the chat it is typed into
+      const session = orchestratorReports.orchestratorSessionOf(
+        req.params.id,
+        state.report.orchestrator.agentId,
+        await agentService.currentSessions(),
+        settingsService.getAgentViewSettings()
+      );
+      if (!session) return res.status(409).json({ error: 'The orchestrator is not running' });
+      const thread = threadStore.create(orchestratorThreads.threadOwnerKey(session), bound);
       // the tag, the header (title, refs), 8000 characters of text and ten attachment lines
       const refused = await deliverToOrchestrator(
         req.params.id,
@@ -2509,8 +2513,8 @@ app.post(
 );
 
 /**
- * The orchestrator a chat pane shows (its role, else its session id: the report store's key);
- * null for any other session
+ * The orchestrator a chat pane shows: its threads are keyed by the session, its status report by
+ * its role (shared by every session of the role), else the session; null for any other session
  */
 async function chatOrchestrator(ref) {
   const sessions = await agentService.currentSessions();
@@ -2518,17 +2522,60 @@ async function chatOrchestrator(ref) {
   const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
   if (!session || !orchestrator.isOrchestratorSession(session, orchestrators)) return null;
   return {
-    id: orchestrator.sessionRole(session, orchestratorRoles) ?? session.id,
+    id: orchestratorThreads.threadOwnerKey(session),
+    report: orchestrator.sessionRole(session, orchestratorRoles) ?? session.id,
     session,
     sessions,
   };
 }
 
+/**
+ * Threads once kept under the role go back to the session of the role that proves them (its
+ * transcript); once per process and set of role holders
+ */
+const threadRepairs = new Map();
+async function returnMisplacedThreads(owner) {
+  if (owner.report === owner.id) return;
+  const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
+  const holders = await Promise.all(
+    owner.sessions
+      .filter(
+        (s) =>
+          orchestrator.isOrchestratorSession(s, orchestrators) &&
+          orchestrator.sessionRole(s, orchestratorRoles) === owner.report
+      )
+      .map(async (s) => ({
+        key: orchestratorThreads.threadOwnerKey(s),
+        transcripts: await orchestrator.sessionTranscriptFiles(s, orchestratorTranscriptDeps),
+      }))
+  );
+  // again when a holder or a transcript joins (a new session writes its file later)
+  const key = `${owner.report}:${holders.map((h) => `${h.key}/${h.transcripts.length}`)}`;
+  if (!threadRepairs.has(key))
+    threadRepairs.set(
+      key,
+      orchestratorThreads
+        .returnMisplacedThreads(reportsDir, owner.report, holders)
+        .catch((error) => console.warn('[threads] repair:', error.message))
+    );
+  await threadRepairs.get(key);
+}
+
+/** The session's threads, then those its role still keeps (unproven, see above) */
+const ownerThreads = (owner) => [
+  ...threadStore.list(owner.id),
+  ...(owner.report === owner.id ? [] : threadStore.list(owner.report)),
+];
+/** File a listed thread is kept in */
+const threadKey = (owner, id) =>
+  threadStore.list(owner.id).some((t) => t.id === id) ? owner.id : owner.report;
+
 /** Threads with what the list shows; workers now in a bound task's repo join its links */
 async function threadList(owner) {
-  const report = reportStore.get(owner.id)?.report ?? null;
+  await returnMisplacedThreads(owner);
+  const report = reportStore.get(owner.report)?.report ?? null;
   const contexts = await getAgentContexts().catch(() => ({}));
-  return threadStore.list(owner.id).map((thread) => {
+  return ownerThreads(owner).map((thread) => {
     const linked = thread.binding?.project
       ? orchestratorThreads.repoAgents(
           report,
@@ -2540,7 +2587,7 @@ async function threadList(owner) {
       : [];
     const fresh = linked.filter((id) => !thread.agents.includes(id));
     const current = fresh.length
-      ? threadStore.update(owner.id, thread.id, { agents: fresh })
+      ? threadStore.update(threadKey(owner, thread.id), thread.id, { agents: fresh })
       : thread;
     return orchestratorThreads.threadView(current, report);
   });
@@ -2569,9 +2616,9 @@ app.get('/api/orchestrator/threads', async (req, res) => {
     const owner = await chatOrchestrator(query.data.session);
     if (!owner) return res.json({ orchestrator: null, threads: [], tasks: [] });
     res.json({
-      orchestrator: owner.id,
+      orchestrator: owner.report,
       threads: await threadList(owner),
-      tasks: reportTasks(reportStore.get(owner.id)?.report),
+      tasks: reportTasks(reportStore.get(owner.report)?.report),
     });
   } catch (error) {
     sendAgentError(res, error);
@@ -2605,7 +2652,7 @@ app.post(
     try {
       const owner = await chatOrchestrator(req.body.session);
       if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
-      const report = reportStore.get(owner.id)?.report;
+      const report = reportStore.get(owner.report)?.report;
       const init = req.body.task
         ? report && orchestratorThreads.taskThread(report, { task: req.body.task })
         : { name: req.body.name, parentKey: req.body.parentKey ?? null };
@@ -2645,14 +2692,14 @@ app.patch(
       const owner = await chatOrchestrator(req.body.session);
       if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
       const { closed, readAt, command, cancelCommand } = req.body;
-      const thread = threadStore.update(owner.id, req.params.thread, {
+      const thread = threadStore.update(threadKey(owner, req.params.thread), req.params.thread, {
         closed,
         readAt,
         command,
         cancelCommand,
       });
       res.json({
-        thread: orchestratorThreads.threadView(thread, reportStore.get(owner.id)?.report),
+        thread: orchestratorThreads.threadView(thread, reportStore.get(owner.report)?.report),
       });
     } catch (error) {
       if (error.status === 404) return res.status(404).json({ error: error.message });
