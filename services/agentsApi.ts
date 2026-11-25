@@ -142,35 +142,43 @@ export function dispatchAgent(body: AgentDispatchRequest): Promise<AgentDispatch
   }).then((result) => pinAll([result], target)[0]);
 }
 
-/** Stores an image for a prompt and returns its server path; large images are scaled down first */
-export async function uploadAgentImage(file: Blob): Promise<string> {
+/**
+ * Stores an image for a prompt and returns its server path; large images are scaled down first.
+ * `session`: the agent the prompt goes to; the file must sit on its instance (else the picker's)
+ */
+export async function uploadAgentImage(file: Blob, session?: string): Promise<string> {
   const image = await fitImage(file);
-  const data = await request<{ path: string }>('/agents/images', {
-    method: 'POST',
-    headers: { 'Content-Type': image.type || 'application/octet-stream' },
-    body: image,
-  });
+  const data = await request<{ path: string }>(
+    '/agents/images',
+    {
+      method: 'POST',
+      headers: { 'Content-Type': image.type || 'application/octet-stream' },
+      body: image,
+    },
+    session
+  );
   return data.path;
 }
 
 /** Stores a PDF / text / code file for a prompt (#19 AK-3) and returns its server path */
-export async function uploadAgentFile(file: File): Promise<string> {
+export async function uploadAgentFile(file: File, session?: string): Promise<string> {
   const data = await request<{ path: string }>(
     `/agents/files${query({ name: file.name || 'file.txt' })}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: file,
-    }
+    },
+    session
   );
   return data.path;
 }
 
 /** Stores one composer attachment: the four image types as image, everything else as file */
-export async function uploadAttachment(file: File): Promise<StoredAttachment> {
+export async function uploadAttachment(file: File, session?: string): Promise<StoredAttachment> {
   return PROMPT_IMAGE_TYPES.includes(file.type)
-    ? { path: await uploadAgentImage(file), kind: 'image' }
-    : { path: await uploadAgentFile(file), kind: 'file' };
+    ? { path: await uploadAgentImage(file, session), kind: 'image' }
+    : { path: await uploadAgentFile(file, session), kind: 'file' };
 }
 
 export function openCloudSession(target?: string): Promise<{ args: string[] }> {
@@ -453,10 +461,11 @@ export const fetchChatArtifactContent = (id: string, path: string) =>
 export const chatImageUrl = (chatId: string, ref: string): string =>
   agentApiUrl(`${chatPath(chatId, 'images')}/${encodeURIComponent(ref)}`);
 
-export function agentImageUrl(path: string): string | null {
+/** `chatId`: the chat the image was sent in; it is stored on that chat's instance */
+export function agentImageUrl(path: string, chatId?: string): string | null {
   const name = path.split('/').pop() ?? '';
   return /^[0-9a-f-]{36}\.(png|jpg|gif|webp)$/.test(name) && path.includes('/agent-images/')
-    ? agentApiUrl(`/agents/images/${name}`)
+    ? agentApiUrl(`/agents/images/${name}`, chatId)
     : null;
 }
 
