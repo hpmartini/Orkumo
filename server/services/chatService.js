@@ -43,6 +43,8 @@ const ORPHAN_TIMEOUT_MS = Number(process.env.DEVORBIT_CHAT_ORPHAN_MS) || 10 * 60
 const VIEW_POLL_MS = 1000;
 /** How often a view looks again for the running agent of its session (none yet, or ended) */
 const LOCATE_MS = 5000;
+/** A /clear record this close to a session switch is that switch (a resumed file may hold old ones) */
+const SWITCH_CLEAR_MS = 30_000;
 
 function badRequest(message) {
   const error = new Error(message);
@@ -350,7 +352,11 @@ export function viewSession(opts, context = {}) {
         const events = reader.historyEvents(lines);
         // The divider of a session switch: Claude's /clear record is one, else a switch mark
         if (switchedAt && events.length) {
-          if (!events.some((e) => e.type === 'system' && e.subtype === 'clear'))
+          const cleared = (e) =>
+            e.type === 'system' &&
+            e.subtype === 'clear' &&
+            Math.abs(e.ts - switchedAt) < SWITCH_CLEAR_MS;
+          if (!events.some(cleared))
             record(s, { type: 'system', subtype: 'session_switch', ts: switchedAt });
           switchedAt = null;
         }

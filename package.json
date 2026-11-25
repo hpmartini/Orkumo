@@ -47,7 +47,7 @@
     "prepare": "husky"
   },
   "dependencies": {
-    "@hpmartini/agents-ui": "github:hpmartini/agents-ui#b01f693292864ab37c24780837c0741e5d8edb67",
+    "@hpmartini/agents-ui": "github:hpmartini/agents-ui#1705f3ec1e54c963866b21e99ae39542b7b7a640",
     "@tanstack/react-virtual": "^3.13.15",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/addon-image": "0.9.0",

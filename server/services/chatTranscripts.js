@@ -399,7 +399,8 @@ const readEntries = (dir) => {
 /**
  * Claude Code's registry entry of the process that runs `sessionId` (`~/.claude/sessions/<pid>.json`);
  * its `sessionId` moves on with /clear and /resume. Returns `current()` → the id it runs now,
- * or null once the process is gone (a reused pid is another process: its `procStart` differs).
+ * null once the process is gone (a reused pid is another process: its `procStart` differs),
+ * undefined while unreadable.
  */
 function locateClaudeProcess(sessionId, dir = path.join(agentPaths.CLAUDE_HOME, 'sessions')) {
   const entryOf = (file) => {
@@ -416,7 +417,8 @@ function locateClaudeProcess(sessionId, dir = path.join(agentPaths.CLAUDE_HOME, 
     if (entry?.sessionId !== sessionId) continue;
     return () => {
       const now = entryOf(file);
-      return now?.procStart === entry.procStart && SESSION_ID_RE.test(str(now.sessionId))
+      if (!now) return fs.existsSync(file) ? undefined : null; // read mid-write: ask again
+      return now.procStart === entry.procStart && SESSION_ID_RE.test(str(now.sessionId))
         ? now.sessionId
         : null;
     };

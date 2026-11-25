@@ -740,6 +740,7 @@ describe('the view follows the pane to its next session (/clear, /resume, omp /n
     await vi.waitFor(() => expect(users(seen)).toEqual(['before clear']));
 
     // what Claude Code 2.1.332 writes on /clear: a new file that opens with the command record
+    const clearedAt = new Date().toISOString();
     const next = path.join(dir, '-elsewhere', `${NEXT_ID}.jsonl`);
     fs.writeFileSync(
       next,
@@ -756,7 +757,7 @@ describe('the view follows the pane to its next session (/clear, /resume, omp /n
             content:
               '<command-name>/clear</command-name>\n<command-message>clear</command-message>\n<command-args></command-args>',
           },
-          ...at('2026-11-25T21:29:17.830Z'),
+          ...at(clearedAt),
         },
       ])
     );
@@ -769,7 +770,7 @@ describe('the view follows the pane to its next session (/clear, /resume, omp /n
     );
     await vi.waitFor(() => expect(users(seen)).toEqual(['before clear', 'after clear']));
     const clear = seen.find((e) => e.type === 'system' && e.subtype === 'clear');
-    expect(clear).toMatchObject({ ts: Date.parse('2026-11-25T21:29:17.830Z') });
+    expect(clear).toMatchObject({ ts: Date.parse(clearedAt) });
     // the clear mark is the divider; no second one for the switch itself
     expect(seen.filter((e) => e.type === 'system' && e.subtype !== 'init')).toHaveLength(1);
     expect(listChats()).toEqual([expect.objectContaining({ id: s.id, sessionId: NEXT_ID })]);
@@ -783,11 +784,17 @@ describe('the view follows the pane to its next session (/clear, /resume, omp /n
     await vi.waitFor(() => expect(users(seen)).toEqual(['before clear', 'after clear', 'live']));
   });
 
-  it('Claude /resume of another session: a session mark (no clear), then that history', async () => {
+  it('Claude /resume of another session: a session mark, then that history', async () => {
     const { dir } = claudeProjects([claudeUser('mine')]);
+    // the resumed session itself began with a /clear long ago: that is its history, not this switch
+    const oldClear = {
+      type: 'user',
+      message: { role: 'user', content: '<command-name>/clear</command-name>' },
+      ...at('2026-11-20T08:00:00Z'),
+    };
     fs.writeFileSync(
       path.join(dir, '-elsewhere', `${NEXT_ID}.jsonl`),
-      jsonl([claudeUser('resumed')])
+      jsonl([oldClear, claudeUser('resumed')])
     );
     const sessionsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'chat-sessions-'));
     const pidFile = path.join(sessionsDir, '4243.json');
@@ -798,10 +805,16 @@ describe('the view follows the pane to its next session (/clear, /resume, omp /n
     );
     const { seen } = collect(s.id);
     await vi.waitFor(() => expect(users(seen)).toEqual(['mine']));
+    // read mid-write: the view keeps the process, it does not lose it
+    fs.writeFileSync(pidFile, '{"pid": 42');
+    await sleep(80);
     fs.writeFileSync(pidFile, JSON.stringify({ pid: 4243, sessionId: NEXT_ID, procStart: 'a' }));
     await vi.waitFor(() => expect(users(seen)).toEqual(['mine', 'resumed']));
     const marks = seen.filter((e) => e.type === 'system' && e.subtype !== 'init');
-    expect(marks).toEqual([{ type: 'system', subtype: 'session_switch', ts: expect.any(Number) }]);
+    expect(marks).toEqual([
+      { type: 'system', subtype: 'session_switch', ts: expect.any(Number) },
+      { type: 'system', subtype: 'clear', ts: Date.parse('2026-11-20T08:00:00Z') },
+    ]);
   });
 
   it('a reused pid (other process start) is not followed', async () => {
