@@ -37,8 +37,11 @@ export interface ModuleHost {
   connectBackend: (prefix: string, label: string) => void;
   /** Back to this machine; reloads */
   disconnectBackend: () => void;
-  /** Set when the UI is shown inside an orchestrator's agent pane (`Show in <label>`) */
-  pane?: { orchestrator: string };
+  /**
+   * Set when the UI is shown inside an orchestrator's agent pane (`Show in <label>`); `task` in
+   * the maximised threads panel: one report task's details
+   */
+  pane?: { orchestrator: string; task?: { project: string; task: string } };
   /** Opens the Instruct dialog: one message about this item to its orchestrator (Status view) */
   instruct: (target: InstructTarget) => void;
   /**
