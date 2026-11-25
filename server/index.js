@@ -2619,7 +2619,7 @@ app.post(
   }
 );
 
-/** Close or reopen a thread, or mark it read up to a time */
+/** Close or reopen a thread, mark it read up to a time, or mark a command sent from it */
 app.patch(
   '/api/orchestrator/threads/:thread',
   agentLimiter,
@@ -2631,6 +2631,7 @@ app.patch(
         session: orchestratorRefSchema,
         closed: z.boolean().optional(),
         readAt: z.number().int().nonnegative().optional(),
+        command: z.enum(['start', 'cancel']).optional(),
       })
       .strict()
   ),
@@ -2638,8 +2639,8 @@ app.patch(
     try {
       const owner = await chatOrchestrator(req.body.session);
       if (!owner) return res.status(404).json({ error: 'Not an orchestrator chat' });
-      const { closed, readAt } = req.body;
-      const thread = threadStore.update(owner.id, req.params.thread, { closed, readAt });
+      const { closed, readAt, command } = req.body;
+      const thread = threadStore.update(owner.id, req.params.thread, { closed, readAt, command });
       res.json({
         thread: orchestratorThreads.threadView(thread, reportStore.get(owner.id)?.report),
       });
