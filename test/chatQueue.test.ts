@@ -187,6 +187,24 @@ describe('background task end (<task-notification>)', () => {
     expect(s.endedTasks).toEqual(['b1', 'b2']);
     expect(users(s)).toEqual([]);
   });
+
+  // 13c54a91: notifications absorbed mid-turn never become a user record, only a queue entry
+  // and/or a queued_command attachment; async agents end the same way, matched by tool-use id
+  it('reads ends from queue entries and queued_command attachments, with the tool-use id', () => {
+    const text = (id: string, tool: string) =>
+      `<task-notification>\n<task-id>${id}</task-id>\n<tool-use-id>${tool}</tool-use-id>\n<status>completed</status>\n</task-notification>`;
+    const events = TRANSCRIPT_READERS.claude.historyEvents([
+      q('enqueue', text('b4', 'toolu_4')),
+      q('remove', text('b4', 'toolu_4')),
+      queuedCmd(text('a5', 'toolu_5')),
+    ]);
+    expect(events.filter((e) => e.type === 'devorbit_task_ended')).toEqual([
+      { type: 'devorbit_task_ended', id: 'b4', toolUseId: 'toolu_4' },
+      { type: 'devorbit_task_ended', id: 'b4', toolUseId: 'toolu_4' },
+      { type: 'devorbit_task_ended', id: 'a5', toolUseId: 'toolu_5' },
+    ]);
+    expect(pendingPrompts(run([[q('enqueue', text('b4', 'toolu_4'))]]))).toEqual([]);
+  });
 });
 
 describe('model and effort in use', () => {
