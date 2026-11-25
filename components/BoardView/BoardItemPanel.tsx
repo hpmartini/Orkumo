@@ -236,7 +236,6 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
             {editable ? (
               <FieldPicker
                 label="Labels"
-                multi
                 choices={labelChoices(repoOptions)}
                 value={item.labels.map((l) => l.name)}
                 onChange={(names) =>
@@ -292,7 +291,6 @@ export const BoardItemPanel: React.FC<BoardItemPanelProps> = ({
                 {editable ? (
                   <FieldPicker
                     label="Assignees"
-                    multi
                     choices={assigneeChoices(repoOptions)}
                     value={item.assignees}
                     onChange={(logins) => save({ assignees: logins }, { assignees: logins })}

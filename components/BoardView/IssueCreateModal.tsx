@@ -379,7 +379,6 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               boxed
               disabled={!!orphan}
               label="Labels"
-              multi
               choices={labelChoices(options)}
               value={labels}
               onChange={setLabels}
@@ -394,7 +393,6 @@ export const IssueCreateModal: React.FC<IssueCreateModalProps> = ({
               boxed
               disabled={!!orphan}
               label="Assignees"
-              multi
               choices={assigneeChoices(options)}
               value={assignees}
               onChange={setAssignees}
