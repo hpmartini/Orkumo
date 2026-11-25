@@ -2,6 +2,7 @@
  * API client for orchestrators (`/api/orchestrator/*`, server/services/orchestratorService.js).
  */
 import { API_BASE_URL } from '../utils/apiConfig';
+import { targetOf } from '../utils/agentTarget';
 import type {
   ChatThread,
   ChatThreadList,
@@ -10,8 +11,9 @@ import type {
   QuickAgent,
 } from '@hpmartini/agents-ui';
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, {
+/** `target`: instance prefix (utils/agentTarget) the call goes to; '' is this machine */
+async function request<T>(path: string, init?: RequestInit, target = ''): Promise<T> {
+  const response = await fetch(`${API_BASE_URL}${target}${path}`, {
     ...init,
     headers: { 'Content-Type': 'application/json', ...(init?.headers || {}) },
   });
@@ -52,9 +54,12 @@ export const instructOrchestrator = (
     body: JSON.stringify(body),
   });
 
-/** Threads of an orchestrator chat (`session`: the pane's listed session) */
+/**
+ * Threads of an orchestrator chat (`session`: the pane's listed session). They live on the
+ * session's instance (its orchestrators and thread store), so a peer pane asks the peer (#220)
+ */
 export const fetchThreads = (session: string): Promise<ChatThreadList> =>
-  request(`/orchestrator/threads?session=${encodeURIComponent(session)}`);
+  request(`/orchestrator/threads?session=${encodeURIComponent(session)}`, {}, targetOf(session));
 
 export const createThread = async (
   session: string,
@@ -63,10 +68,14 @@ export const createThread = async (
     | { name: { project: string; task: string }; parentKey?: string }
 ): Promise<ChatThread> =>
   (
-    await request<{ thread: ChatThread }>('/orchestrator/threads', {
-      method: 'POST',
-      body: JSON.stringify({ session, ...body }),
-    })
+    await request<{ thread: ChatThread }>(
+      '/orchestrator/threads',
+      {
+        method: 'POST',
+        body: JSON.stringify({ session, ...body }),
+      },
+      targetOf(session)
+    )
   ).thread;
 
 export const updateThread = async (
@@ -75,8 +84,12 @@ export const updateThread = async (
   patch: { closed?: boolean; readAt?: number; command?: string; cancelCommand?: boolean }
 ): Promise<ChatThread> =>
   (
-    await request<{ thread: ChatThread }>(`/orchestrator/threads/${encodeURIComponent(id)}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ session, ...patch }),
-    })
+    await request<{ thread: ChatThread }>(
+      `/orchestrator/threads/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ session, ...patch }),
+      },
+      targetOf(session)
+    )
   ).thread;
