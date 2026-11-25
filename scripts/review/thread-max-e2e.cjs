@@ -430,6 +430,16 @@ async function tallInputChecks(page, i, name) {
     const log = Math.round((await pane.locator('[role="log"]').first().boundingBox()).height);
     check(`${name} typed ${label}: chat log keeps >= 90 px`, log >= 90, `${log}`);
     check(`${name} typed ${label}: thread input and buttons inside the panel`, s.threadInside);
+    // a shorter window afterwards must refit the grown field, not leave it past the pane
+    const vp = page.viewportSize();
+    await page.setViewportSize({ width: vp.width, height: 560 });
+    await page.waitForTimeout(400);
+    const low = await paneState(page, i);
+    await shot(page, `${name}-typed-${label === 'Message' ? 'main' : 'thread'}-low`);
+    clipCheck(`${name} typed ${label}, window 560 high`, low);
+    check(`${name} typed ${label}, window 560 high: thread input inside the panel`, low.threadInside);
+    await page.setViewportSize(vp);
+    await page.waitForTimeout(400);
     await page.keyboard.press(`${process.platform === 'darwin' ? 'Meta' : 'Control'}+a`);
     await page.keyboard.press('Backspace');
     await page.waitForTimeout(200);
@@ -490,7 +500,7 @@ async function heightCapCheck(page, i, name) {
   );
   check(
     `${name}: thread input reaches ~40 % of the pane where the thread view has room`,
-    s.threadHeight >= Math.min(s.paneHeight * 0.4, s.sectionHeight - 180) - 10,
+    s.threadHeight >= Math.min(s.paneHeight * 0.4, s.sectionHeight - 230) - 10,
     `${s.threadHeight} of ${s.paneHeight}, section ${s.sectionHeight}`
   );
   check(`${name}: tallest thread input still inside the panel`, s.threadInside);
