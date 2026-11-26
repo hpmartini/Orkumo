@@ -515,13 +515,13 @@ async function claudeTurn(file) {
 /**
  * Whether a session the CLI reports as `working` really runs a turn right now.
  * The job file's `done` (e.g. after `/goal clear`) beats a stale CLI `working`; a job asking
- * (`blocked`) runs none unless its transcript shows one. `tempo`/`status` also stay active while
+ * (`blocked`) waits for an answer even while a tool call that asked is open. `tempo`/`status` also stay active while
  * the session's own background tasks run after its turn ended, so an ended turn in the
  * transcript (`session.turn`) vetoes them; they stay the liveness signal otherwise.
  */
 function isTurnActive(session, jobState) {
-  if (jobState === 'done' || session.status === 'idle' || session.turn === 'idle') return false;
-  if (jobState === 'blocked' && session.turn !== 'working') return false;
+  if (jobState === 'done' || jobState === 'blocked' || session.status === 'idle') return false;
+  if (session.turn === 'idle') return false;
   return session.tempo ? session.tempo === 'active' : session.status === 'busy';
 }
 

@@ -88,6 +88,16 @@ export const WORKING_CASES = [
     expected: 'needs-input',
   },
   {
+    label: 'job asks through a tool call, tool still open in the transcript',
+    cli: 'working',
+    job: 'blocked',
+    status: 'busy',
+    tempo: 'active',
+    inFlight: { tasks: 3, queued: 0 },
+    turn: 'working',
+    expected: 'needs-input',
+  },
+  {
     label: 'finished job, its background shell still runs',
     cli: 'done',
     job: 'done',
