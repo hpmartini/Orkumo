@@ -30,6 +30,7 @@ import {
   removeOmpSession,
   ompSessionsDir,
   OMP_SESSION_ID_RE,
+  readTurnState,
 } from './ompSessions.js';
 import { getAllPtySessions, ptyEvents, PTY_ACTIVE_MS } from './ptyService.js';
 import { settingsService } from './settingsService.js';
@@ -468,12 +469,59 @@ export function parseDaemonStatus(output) {
 }
 
 /**
+ * What one Claude Code transcript record says about the turn: 'working' (it runs), 'idle' (it
+ * ended) or null (bookkeeping, queue entries, monitor events, built-in commands). A turn starts
+ * with any user record (prompt, hand-back, task notification, tool result) and ends with the stop
+ * hooks (`stop_hook_summary`, short turns write no `turn_duration`) or a final assistant message.
+ */
+export function claudeTurnSignal(record) {
+  if (!record || record.isSidechain) return null;
+  if (record.type === 'system')
+    return record.subtype === 'turn_duration' || record.subtype === 'stop_hook_summary'
+      ? 'idle'
+      : null;
+  if (record.type === 'assistant') {
+    const stop = record.message?.stop_reason;
+    return !stop || stop === 'tool_use' ? 'working' : 'idle';
+  }
+  if (record.type !== 'user' || record.isCompactSummary) return null;
+  const content = record.message?.content;
+  const text = (
+    typeof content === 'string'
+      ? content
+      : Array.isArray(content)
+        ? content.map((b) => (b?.type === 'text' ? b.text : '')).join('\n')
+        : ''
+  ).trimStart();
+  if (text.startsWith('[Request interrupted by user')) return 'idle';
+  if (!text.startsWith('<')) return 'working';
+  if (/^<(task-notification|agent-message)\b/.test(text)) return 'working';
+  // a skill or a command with text runs a turn; `/model`, its stdout and `!` shells do not
+  if (text.startsWith('<command-message>') || /<command-args>(?!\s*<\/command-args>)/.test(text))
+    return 'working';
+  return Array.isArray(content) && content.some((b) => b?.type === 'tool_result')
+    ? 'working'
+    : null;
+}
+
+/** 'working' | 'idle' | null from the end of a Claude transcript (null: unknown or unreadable) */
+async function claudeTurn(file) {
+  if (!file) return null;
+  const stat = await fsp.stat(file).catch(() => null);
+  if (!stat) return null;
+  return readTurnState(file, stat.size, stat.mtimeMs, claudeTurnSignal).catch(() => null);
+}
+
+/**
  * Whether a session the CLI reports as `working` really runs a turn right now.
- * The job file's `done` (e.g. after `/goal clear`) beats a stale CLI `working`; `tempo` is the
- * live turn signal, `status` the fallback for job files without it.
+ * The job file's `done` (e.g. after `/goal clear`) beats a stale CLI `working`; a job asking
+ * (`blocked`) runs none unless its transcript shows one. `tempo`/`status` also stay active while
+ * the session's own background tasks run after its turn ended, so an ended turn in the
+ * transcript (`session.turn`) vetoes them; they stay the liveness signal otherwise.
  */
 function isTurnActive(session, jobState) {
-  if (jobState === 'done' || session.status === 'idle') return false;
+  if (jobState === 'done' || session.status === 'idle' || session.turn === 'idle') return false;
+  if (jobState === 'blocked' && session.turn !== 'working') return false;
   return session.tempo ? session.tempo === 'active' : session.status === 'busy';
 }
 
@@ -484,7 +532,9 @@ function isTurnActive(session, jobState) {
  */
 function interactiveDisplayState(session, paneActive = false) {
   if (session.status === 'waiting' || session.waitingFor) return 'needs-input';
-  return session.status === 'busy' || paneActive ? 'working' : 'interactive';
+  return (session.status === 'busy' && session.turn !== 'idle') || paneActive
+    ? 'working'
+    : 'interactive';
 }
 
 /**
@@ -508,6 +558,7 @@ export function deriveDisplayState(session, jobState = null) {
     case 'working':
       // The CLI keeps `working` while a /goal is active, even with no turn running (#194)
       if (isTurnActive(session, jobState)) return 'working';
+      if (jobState === 'blocked') return 'needs-input';
       return session.inFlight?.tasks > 0 ? 'waiting' : 'idle';
     case 'blocked':
       return 'needs-input';
@@ -517,7 +568,7 @@ export function deriveDisplayState(session, jobState = null) {
       return 'stopped';
     case 'done':
       // a reply to a finished job runs in its still-living process
-      if (session.status === 'busy' && session.pid) return 'working';
+      if (session.status === 'busy' && session.pid && session.turn !== 'idle') return 'working';
       return session.status === 'idle' || session.pid ? 'idle' : 'completed';
     default:
       return session.status === 'busy' ? 'working' : 'idle';
@@ -919,6 +970,13 @@ async function listClaudeSessions(options, panes) {
             paneId: null,
             state: null,
             waitingFor: entry.waitingFor || null,
+            // busy also covers background tasks after the turn: the transcript tells
+            turn:
+              entry.status === 'busy' && entry.sessionId && entry.cwd
+                ? await claudeTurn(
+                    path.join(PROJECTS_DIR, projectSlug(entry.cwd), `${entry.sessionId}.jsonl`)
+                  )
+                : null,
             detail: entry.status === 'busy' ? 'working in a terminal' : 'interactive session',
             pinned: false,
             order: null,
@@ -975,6 +1033,9 @@ async function listClaudeSessions(options, panes) {
         order,
         links: extractPrLinks(state.children),
       };
+      // only a session the CLI calls busy needs the transcript to tell turn from background tasks
+      if (session.status === 'busy' || session.tempo === 'active')
+        session.turn = await claudeTurn(session.transcriptPath);
       session.displayState = deriveDisplayState(session, state.state || null);
       return session;
     })

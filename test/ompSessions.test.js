@@ -349,7 +349,7 @@ describe('omp turn state from the session tail', () => {
     expect(await readTurnState(done, stat.size, stat.mtimeMs)).toBe('idle');
   });
 
-  it('marks running sessions working by turn, subagent or pane output', async () => {
+  it('marks running sessions working by turn or pane output, waiting on a subagent after the turn', async () => {
     const pid = (id) => running.get([...running.keys()].find((f) => f.includes(id)));
     const rows = await listOmpSessions({
       sessionsDir: root,
@@ -362,7 +362,8 @@ describe('omp turn state from the session tail', () => {
       [TOOL]: 'working',
       [AFTER_STOP]: 'idle',
       [EXITED]: 'idle',
-      [SUBAGENT]: 'working',
+      // the parent's turn ended: its async subagent runs in the background, no turn of its own
+      [SUBAGENT]: 'waiting',
       [STALE_SUB]: 'idle',
       [PANE]: 'working',
       [HUGE]: 'working',
@@ -372,6 +373,7 @@ describe('omp turn state from the session tail', () => {
       status: 'waiting',
       waitingFor: 'ask',
     });
+    expect(rows.find((r) => r.sessionId === SUBAGENT)).toMatchObject({ status: 'idle' });
     expect(rows.find((r) => r.sessionId === PANE)).toMatchObject({
       paneId: 'pane-1',
       status: 'busy',

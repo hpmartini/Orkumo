@@ -25,6 +25,7 @@ const sessions: AgentSession[] = WORKING_CASES.map((c, i) => {
     status: c.status,
     tempo: c.tempo,
     inFlight: c.inFlight,
+    turn: c.turn ?? null,
     pid: 1,
     pinned: false,
     order: null,

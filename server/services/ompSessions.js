@@ -285,8 +285,11 @@ async function scanLinesBackward(handle, size, { chunk, max }, visit) {
 // The turn state changes only with the file: cache per path, size and mtime
 const turns = new Map();
 
-/** 'working' | 'idle' | null (the tail does not tell) from the newest record that says something */
-export async function readTurnState(file, size, mtimeMs) {
+/**
+ * 'working' | 'idle' | null (the tail does not tell) from the newest record that says something;
+ * `signal` classifies one record (omp's `turnSignal`, Claude Code's `claudeTurnSignal`)
+ */
+export async function readTurnState(file, size, mtimeMs, signalOf = turnSignal) {
   const cached = turns.get(file);
   if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.state;
   let state = null;
@@ -299,7 +302,7 @@ export async function readTurnState(file, size, mtimeMs) {
       (line) => {
         let signal;
         try {
-          signal = turnSignal(JSON.parse(line));
+          signal = signalOf(JSON.parse(line));
         } catch {
           return true;
         }
@@ -335,13 +338,18 @@ async function subagentWorking(file, parentMtimeMs) {
   return false;
 }
 
-/** Whether a running session works right now (see the module comment) */
+/**
+ * Whether a running session works right now (see the module comment): true, 'waiting' (its turn
+ * ended, an async subagent still runs) or false
+ */
 async function isWorking(file, stat, { now, pane }) {
   if (pane?.active) return true;
   const turn = await readTurnState(file, stat.size, stat.mtimeMs).catch(() => null);
   if (turn === 'working') return true;
   if (turn === null && now - stat.mtimeMs < RECENT_WRITE_MS) return true;
-  return subagentWorking(file, stat.mtimeMs);
+  const sub = await subagentWorking(file, stat.mtimeMs);
+  if (sub && turn === 'idle') return 'waiting';
+  return sub;
 }
 
 /**
@@ -401,7 +409,8 @@ export async function listOmpSessions({
 }
 
 function toRow(head, { pid, updatedAt, paneId, working, asking = false }) {
-  const busy = Boolean(pid && working);
+  const waiting = Boolean(pid && working === 'waiting');
+  const busy = Boolean(pid && working) && !waiting;
   return {
     id: `omp-${head.id}`,
     sessionId: head.id,
@@ -421,7 +430,15 @@ function toRow(head, { pid, updatedAt, paneId, working, asking = false }) {
     pinned: false,
     order: null,
     links: [],
-    displayState: pid ? (asking ? 'needs-input' : busy ? 'working' : 'idle') : 'completed',
+    displayState: pid
+      ? asking
+        ? 'needs-input'
+        : busy
+          ? 'working'
+          : waiting
+            ? 'waiting'
+            : 'idle'
+      : 'completed',
   };
 }
 
