@@ -210,13 +210,17 @@ const WORKER_MCP_CONFIG = JSON.stringify({
   },
 });
 /**
- * `orchestrator` (New agent "Orchestrator", `orkumo start --orchestrator`): Remote Control on, so
- * the session shows up in the Claude app although ~/.claude/settings.json turns it off for all
- * others. The CLI stores the flag in the job's respawnFlags: respawn and resume keep it.
+ * `orchestrator` (New agent "Orchestrator", `orkumo start --orchestrator`):
+ * ~/.claude/profiles/orchestrator.json turns Remote Control on, so the session shows up in the
+ * Claude app although ~/.claude/settings.json turns it off for all others, and keeps the fixed
+ * prompt load small (no Workflow/ScheduleWakeup tools, fewer connectors, a short skill listing).
+ * The CLI stores the flag in the job's respawnFlags: respawn and resume keep it.
  */
-export const REMOTE_CONTROL_SETTINGS = JSON.stringify({ remoteControlAtStartup: true });
+export const ORCHESTRATOR_SETTINGS = path.join(CLAUDE_HOME, 'profiles', 'orchestrator.json');
+/** What `--orchestrator` passed before the profile file; respawn and resume swap in the file */
+export const LEGACY_ORCHESTRATOR_SETTINGS = JSON.stringify({ remoteControlAtStartup: true });
 export const DISPATCH_PROFILES = {
-  orchestrator: () => ['--settings', REMOTE_CONTROL_SETTINGS],
+  orchestrator: () => ['--settings', ORCHESTRATOR_SETTINGS],
   worker: () => [
     '--settings',
     path.join(CLAUDE_HOME, 'profiles', 'worker.json'),
@@ -241,27 +245,38 @@ export function resumeProfileArgs(respawnFlags = []) {
 }
 
 /**
- * Respawn flags of a session marked as orchestrator (`agentView.orchestrators`) that was started
- * without Remote Control (e.g. before the global setting went off): the flag added, or null when
- * nothing changes (not marked, or a `--settings` of its own, which a second one would clash with).
+ * Respawn flags of an orchestrator, or null when nothing changes: a session started with the
+ * legacy inline settings gets the profile file instead; a session marked as orchestrator
+ * (`agentView.orchestrators`) that was started without `--settings` gets it added. A session
+ * with a `--settings` of its own stays as it is (a second one would clash).
  */
 function orchestratorRespawnFlags(session, respawnFlags = []) {
+  const at = respawnFlags.indexOf('--settings');
+  if (at !== -1 && respawnFlags[at + 1] === LEGACY_ORCHESTRATOR_SETTINGS) {
+    const flags = [...respawnFlags];
+    flags[at + 1] = ORCHESTRATOR_SETTINGS;
+    return flags;
+  }
   const { orchestrators } = settingsService.getAgentViewSettings();
-  if (!isOrchestratorSession(session, orchestrators) || respawnFlags.includes('--settings'))
-    return null;
-  return [...respawnFlags, '--settings', REMOTE_CONTROL_SETTINGS];
+  if (at !== -1 || !isOrchestratorSession(session, orchestrators)) return null;
+  return [...respawnFlags, '--settings', ORCHESTRATOR_SETTINGS];
 }
 
 /**
  * Extra PTY args for `claude --resume <id>` in a pane: a marked orchestrator gets
- * `--remote-control <role|orchestrator>` again (interactive sessions keep no flags of their own).
+ * `--remote-control <role|orchestrator>` and the orchestrator profile again (interactive sessions
+ * keep no flags of their own); flags already on the command line are not repeated.
  */
-export function interactiveRemoteControlArgs(args, { orchestrators = [], orchestratorRoles = {} }) {
+export function interactiveOrchestratorArgs(args, { orchestrators = [], orchestratorRoles = {} }) {
   const at = args.indexOf('--resume');
   const sessionId = at === -1 ? null : args[at + 1];
-  if (!sessionId || args.includes('--remote-control') || !orchestrators.includes(sessionId))
-    return [];
-  return ['--remote-control', orchestratorRoles[sessionId] || 'orchestrator'];
+  if (!sessionId || !orchestrators.includes(sessionId)) return [];
+  return [
+    ...(args.includes('--remote-control')
+      ? []
+      : ['--remote-control', orchestratorRoles[sessionId] || 'orchestrator']),
+    ...(args.includes('--settings') ? [] : ['--settings', ORCHESTRATOR_SETTINGS]),
+  ];
 }
 
 export function isUnsafeFlagsAllowed() {

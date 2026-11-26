@@ -28,8 +28,9 @@ const {
   replySession,
   respawnSession,
   resumeProfileArgs,
-  interactiveRemoteControlArgs,
-  REMOTE_CONTROL_SETTINGS,
+  interactiveOrchestratorArgs,
+  ORCHESTRATOR_SETTINGS,
+  LEGACY_ORCHESTRATOR_SETTINGS,
 } = await import('../server/services/agentService.js');
 const { settingsService } = await import('../server/services/settingsService.js');
 const workerSettings = path.join(home, 'profiles', 'worker.json');
@@ -103,13 +104,15 @@ describe('worker profile', () => {
   });
 });
 
-// Orchestrators stay reachable from the Claude app although ~/.claude/settings.json turns
-// Remote Control off for every other session
-describe('orchestrator profile (Remote Control)', () => {
+// Orchestrators start with ~/.claude/profiles/orchestrator.json: Remote Control on (although
+// ~/.claude/settings.json turns it off for every other session) and a small fixed prompt load
+describe('orchestrator profile', () => {
   const writeJob = (id, state) => {
     fs.mkdirSync(path.join(home, 'jobs', id), { recursive: true });
     fs.writeFileSync(path.join(home, 'jobs', id, 'state.json'), JSON.stringify(state));
   };
+  const readFlags = (id) =>
+    JSON.parse(fs.readFileSync(path.join(home, 'jobs', id, 'state.json'), 'utf8')).respawnFlags;
   const marked = (orchestrators, orchestratorRoles = {}) =>
     vi.spyOn(settingsService, 'getAgentViewSettings').mockReturnValue({
       ...settingsService.getAgentViewSettings(),
@@ -117,7 +120,7 @@ describe('orchestrator profile (Remote Control)', () => {
       orchestratorRoles,
     });
 
-  it('start: a worker gets no Remote Control, an orchestrator does', async () => {
+  it('start: a worker gets the worker profile, an orchestrator the orchestrator profile', async () => {
     await dispatch(
       { prompt: 'fix the login', cwd: project, profile: 'worker' },
       { allowedDirs: [project], unsafeAllowed: false }
@@ -127,14 +130,14 @@ describe('orchestrator profile (Remote Control)', () => {
       { allowedDirs: [project], unsafeAllowed: false }
     );
     const [worker, orch] = claudeCalls();
-    expect(worker.join(' ')).not.toContain('remoteControlAtStartup');
-    expect(REMOTE_CONTROL_SETTINGS).toBe('{"remoteControlAtStartup":true}');
+    expect(worker).not.toContain(ORCHESTRATOR_SETTINGS);
+    expect(ORCHESTRATOR_SETTINGS).toBe(path.join(home, 'profiles', 'orchestrator.json'));
     expect(orch).toEqual([
       '--bg',
       '--name',
       'b-orchestrator',
       '--settings',
-      REMOTE_CONTROL_SETTINGS,
+      ORCHESTRATOR_SETTINGS,
       '--',
       'watch the board',
     ]);
@@ -149,11 +152,11 @@ describe('orchestrator profile (Remote Control)', () => {
     ).rejects.toThrow(/settings/);
   });
 
-  it('resume: an orchestrator keeps Remote Control', async () => {
+  it('resume: an orchestrator keeps its profile', async () => {
     marked([]);
     writeJob('job12345', {
       sessionId: 'sess-1',
-      respawnFlags: ['--name', 'b-orchestrator', '--settings', REMOTE_CONTROL_SETTINGS],
+      respawnFlags: ['--name', 'b-orchestrator', '--settings', ORCHESTRATOR_SETTINGS],
     });
     await replySession('job12345', 'weiter', { mode: 'resume' });
     expect(claudeCalls()[0]).toEqual([
@@ -161,37 +164,62 @@ describe('orchestrator profile (Remote Control)', () => {
       'sess-1',
       '--bg',
       '--settings',
-      REMOTE_CONTROL_SETTINGS,
+      ORCHESTRATOR_SETTINGS,
       '--',
       'weiter',
     ]);
   });
 
-  it('resume: a session marked as orchestrator but started without the flag gets it', async () => {
+  it('resume: an orchestrator started with the legacy inline settings gets the profile', async () => {
+    marked([]);
+    writeJob('job12345', {
+      sessionId: 'sess-1',
+      respawnFlags: ['--name', 'b-orchestrator', '--settings', LEGACY_ORCHESTRATOR_SETTINGS],
+    });
+    await replySession('job12345', 'weiter', { mode: 'resume' });
+    expect(claudeCalls()[0]).toEqual([
+      '--resume',
+      'sess-1',
+      '--bg',
+      '--settings',
+      ORCHESTRATOR_SETTINGS,
+      '--',
+      'weiter',
+    ]);
+  });
+
+  it('resume: a session marked as orchestrator but started without --settings gets the profile', async () => {
     marked(['job12345']);
     writeJob('job12345', { sessionId: 'sess-1', respawnFlags: ['--name', 'main-orchestrator'] });
     await replySession('job12345', 'weiter', { mode: 'resume' });
-    expect(claudeCalls()[0]).toContain(REMOTE_CONTROL_SETTINGS);
+    expect(claudeCalls()[0]).toContain(ORCHESTRATOR_SETTINGS);
     marked([]);
     calls.length = 0;
     await replySession('job12345', 'weiter', { mode: 'resume' });
-    expect(claudeCalls()[0].join(' ')).not.toContain('remoteControlAtStartup');
+    expect(claudeCalls()[0]).not.toContain(ORCHESTRATOR_SETTINGS);
   });
 
-  it('respawn: a marked orchestrator gets the flag written into its respawn flags first', async () => {
+  it('respawn: a marked orchestrator gets the profile written into its respawn flags first', async () => {
     marked(['job12345']);
     writeJob('job12345', { sessionId: 'sess-1', respawnFlags: ['--name', 'main-orchestrator'] });
     await respawnSession('job12345');
-    const state = JSON.parse(
-      fs.readFileSync(path.join(home, 'jobs', 'job12345', 'state.json'), 'utf8')
-    );
-    expect(state.respawnFlags).toEqual([
+    expect(readFlags('job12345')).toEqual([
       '--name',
       'main-orchestrator',
       '--settings',
-      REMOTE_CONTROL_SETTINGS,
+      ORCHESTRATOR_SETTINGS,
     ]);
     expect(claudeCalls()[0]).toEqual(['respawn', 'job12345']);
+  });
+
+  it('respawn: the legacy inline settings are replaced in place', async () => {
+    marked([]);
+    writeJob('job12345', {
+      sessionId: 'sess-1',
+      respawnFlags: ['--settings', LEGACY_ORCHESTRATOR_SETTINGS, '--model', 'opus'],
+    });
+    await respawnSession('job12345');
+    expect(readFlags('job12345')).toEqual(['--settings', ORCHESTRATOR_SETTINGS, '--model', 'opus']);
   });
 
   it('respawn: a worker and a session with its own --settings stay as they are', async () => {
@@ -202,29 +230,34 @@ describe('orchestrator profile (Remote Control)', () => {
     marked([]);
     writeJob('job99999', { sessionId: 'sess-2', respawnFlags: ['--name', 'w'] });
     await respawnSession('job99999');
-    const read = (id) =>
-      JSON.parse(fs.readFileSync(path.join(home, 'jobs', id, 'state.json'), 'utf8')).respawnFlags;
-    expect(read('job12345')).toEqual(flags);
-    expect(read('job99999')).toEqual(['--name', 'w']);
+    expect(readFlags('job12345')).toEqual(flags);
+    expect(readFlags('job99999')).toEqual(['--name', 'w']);
   });
 
-  it('interactive resume of a marked orchestrator adds --remote-control with its role name', () => {
+  it('interactive resume of a marked orchestrator adds --remote-control and the profile', () => {
     const settings = {
       orchestrators: ['uuid-1', 'uuid-2'],
       orchestratorRoles: { 'uuid-2': 'board-orchestrator' },
     };
-    expect(interactiveRemoteControlArgs(['--resume', 'uuid-1'], settings)).toEqual([
+    expect(interactiveOrchestratorArgs(['--resume', 'uuid-1'], settings)).toEqual([
       '--remote-control',
       'orchestrator',
+      '--settings',
+      ORCHESTRATOR_SETTINGS,
     ]);
-    expect(interactiveRemoteControlArgs(['--resume', 'uuid-2'], settings)).toEqual([
+    expect(interactiveOrchestratorArgs(['--resume', 'uuid-2'], settings)).toEqual([
       '--remote-control',
       'board-orchestrator',
+      '--settings',
+      ORCHESTRATOR_SETTINGS,
     ]);
-    expect(interactiveRemoteControlArgs(['--resume', 'uuid-3'], settings)).toEqual([]);
-    expect(interactiveRemoteControlArgs(['--session-id', 'uuid-1'], settings)).toEqual([]);
+    expect(interactiveOrchestratorArgs(['--resume', 'uuid-3'], settings)).toEqual([]);
+    expect(interactiveOrchestratorArgs(['--session-id', 'uuid-1'], settings)).toEqual([]);
     expect(
-      interactiveRemoteControlArgs(['--resume', 'uuid-1', '--remote-control', 'x'], settings)
+      interactiveOrchestratorArgs(
+        ['--resume', 'uuid-1', '--remote-control', 'x', '--settings', '{}'],
+        settings
+      )
     ).toEqual([]);
   });
 });

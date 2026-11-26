@@ -4334,7 +4334,7 @@ wss.on('connection', (ws, req) => {
         command === 'claude'
           ? [
               ...parsedArgs,
-              ...agentService.interactiveRemoteControlArgs(
+              ...agentService.interactiveOrchestratorArgs(
                 parsedArgs,
                 settingsService.getAgentViewSettings()
               ),
