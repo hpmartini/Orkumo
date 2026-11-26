@@ -12,7 +12,12 @@ import {
   repoAgents,
   threadText,
   returnMisplacedThreads,
+  routeEntries,
   threadOwnerKey,
+  createSenderScanner,
+  createEntryScanner,
+  threadName,
+  isAutoNamed,
 } from '../server/services/orchestratorThreads.js';
 import example from '../server/orchestrator/report.example.json';
 
@@ -220,5 +225,369 @@ describe('threads misplaced under a role', () => {
     expect(threadOwnerKey({ id: 'interactive-42', sessionId: 'uuid-1' })).toBe('uuid-1');
     expect(threadOwnerKey({ id: 'omp-1', sessionId: '1' })).toBe('omp-1');
     expect(threadOwnerKey({ id: '13c54a91', sessionId: 'uuid-2' })).toBe('13c54a91');
+  });
+
+  it('a repair keeps the tidy-up layer and undo stack of both files', async () => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'threads'));
+    const layer = { entries: { e1: 'main' }, merged: {} };
+    const write = (k, doc) =>
+      fs.writeFileSync(path.join(dir, 'threads', `${k}.json`), JSON.stringify(doc));
+    write('main', { threads: [KEYED], overrides: layer, undo: [{ label: 'x' }] });
+    write('a', { threads: [], overrides: { entries: { e2: 'k' }, merged: {} }, undo: [] });
+    const transcript = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(transcript, `{"message":{"id":"msg_x"}}\n`);
+    expect(
+      await returnMisplacedThreads(dir, 'main', [{ key: 'a', transcripts: [transcript] }])
+    ).toBe(1);
+    const store = createThreadStore(dir);
+    expect(store.state('a')).toMatchObject({
+      threads: [KEYED],
+      overrides: { entries: { e2: 'k' } },
+    });
+    expect(store.state('main')).toMatchObject({ threads: [], overrides: layer, canUndo: true });
+  });
+});
+
+describe('a repair carries the tidy-up layer of the threads it moves (F2)', () => {
+  const thread = (id, tag, parentKey = null) => ({ id, tag, parentKey, agents: [], closed: false });
+  const K = thread('k', '[Thread: Shop · keyed]', 'msg_x');
+  const K2 = thread('k2', '[Thread: Shop · second]', 'msg_y');
+  const T = thread('t', '[Thread: Shop · tagged]');
+  const MAIN_KEY = '7c1e0d2a-0000-4000-8000-00000000000a';
+  const LOST_KEY = '7c1e0d2a-0000-4000-8000-00000000000b';
+  const setup = (role, session) => {
+    const dir = tmp();
+    fs.mkdirSync(path.join(dir, 'threads'));
+    const write = (k, doc) =>
+      fs.writeFileSync(path.join(dir, 'threads', `${k}.json`), JSON.stringify(doc));
+    write('main', role);
+    write('a', session);
+    const transcript = path.join(dir, 'a.jsonl');
+    fs.writeFileSync(
+      transcript,
+      `{"message":{"id":"msg_x"}}\n{"message":{"id":"msg_y"}}\n{"uuid":"${MAIN_KEY}"}\n`
+    );
+    // b has a transcript too: a tag alone could prove, but T's tag is in neither
+    const other = path.join(dir, 'b.jsonl');
+    fs.writeFileSync(other, '{"message":{"id":"msg_z"}}\n');
+    const holders = [
+      { key: 'a', transcripts: [transcript] },
+      { key: 'b', transcripts: [other] },
+    ];
+    const raw = (k) => fs.readFileSync(path.join(dir, 'threads', `${k}.json`), 'utf8');
+    return { dir, holders, raw, store: createThreadStore(dir) };
+  };
+
+  it('entries and merge links go with their thread; the session decides first; undo stays true', async () => {
+    const { dir, holders, raw, store } = setup(
+      {
+        threads: [K, K2, T],
+        overrides: {
+          entries: { ek: 'k', ek2: 'k2', et: 't', [MAIN_KEY]: 'main', [LOST_KEY]: 'main' },
+          merged: { k2: 'k', t: 'k' },
+        },
+        undo: [
+          { label: 'old merge', threads: [K, K2, T], overrides: { entries: {}, merged: {} } },
+          { label: 'unrelated', threads: [T], overrides: { entries: {}, merged: {} } },
+        ],
+      },
+      {
+        threads: [],
+        overrides: { entries: { ek: 'main' }, merged: {} },
+        undo: [
+          { label: 'own close', threads: [], overrides: { entries: { ek: 'main' }, merged: {} } },
+        ],
+      }
+    );
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(2);
+    const a = store.state('a');
+    expect(a.threads.map((t) => t.id)).toEqual(['k', 'k2']);
+    // the session's own move of ek wins; ek2 and the proven main entry come along
+    expect(a.overrides.entries).toEqual({ ek: 'main', ek2: 'k2', [MAIN_KEY]: 'main' });
+    expect(a.overrides.merged).toEqual({ k2: 'k', t: 'k' });
+    expect(a.canUndo).toBe(true);
+    // unproven ones stay under the role, nothing dropped
+    const role = store.state('main');
+    expect(role.threads.map((t) => t.id)).toEqual(['t']);
+    expect(role.overrides).toEqual({ entries: { et: 't', [LOST_KEY]: 'main' }, merged: {} });
+    // a role snapshot of moved threads goes along with them: the role keeps its own part
+    expect(JSON.parse(raw('main')).undo.map((u) => u.label)).toEqual(['old merge', 'unrelated']);
+    expect(JSON.parse(raw('main')).undo[0].threads.map((t) => t.id)).toEqual(['t']);
+    expect(JSON.parse(raw('a')).undo.map((u) => u.label)).toEqual(['old merge', 'own close']);
+    // the session's own undo keeps the carried layer
+    store.undo('a');
+    expect(store.state('a').overrides.entries).toMatchObject({ ek2: 'k2', [MAIN_KEY]: 'main' });
+    expect(store.state('a').overrides.merged).toEqual({ k2: 'k', t: 'k' });
+    // a second run changes nothing
+    const before = [raw('main'), raw('a')];
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
+    expect([raw('main'), raw('a')]).toEqual(before);
+  });
+
+  it('F2-rest: a role undo of moved threads goes along to their session and takes back there only', async () => {
+    const merged = { ...K2, closed: true };
+    const { dir, holders, raw, store } = setup(
+      {
+        threads: [K, merged, T],
+        overrides: { entries: { ek: 'k', et: 't' }, merged: { k2: 'k' } },
+        undo: [
+          {
+            label: 'merge k2 into k',
+            threads: [K, K2, T],
+            overrides: { entries: { ek: 'k2', et: 't' }, merged: {} },
+          },
+        ],
+      },
+      { threads: [], overrides: { entries: {}, merged: {} }, undo: [] }
+    );
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(2);
+    expect(store.state('a')).toMatchObject({
+      threads: [K, merged],
+      overrides: { entries: { ek: 'k' }, merged: { k2: 'k' } },
+      canUndo: true,
+    });
+    // the role keeps the part of the snapshot that stays with it
+    const role = JSON.parse(raw('main'));
+    expect(role.undo).toEqual([
+      { label: 'merge k2 into k', threads: [T], overrides: { entries: { et: 't' }, merged: {} } },
+    ]);
+    const roleBefore = raw('main');
+    const bBefore = raw('b');
+    const second = [raw('main'), raw('a')];
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
+    expect([raw('main'), raw('a')]).toEqual(second);
+    // the session takes it back: k2 open again, its entry back, no merge link; nothing else touched
+    expect(store.undo('a')).toBe('merge k2 into k');
+    expect(store.state('a')).toMatchObject({
+      threads: [K, K2],
+      overrides: { entries: { ek: 'k2' }, merged: {} },
+      canUndo: false,
+    });
+    expect(raw('main')).toBe(roleBefore);
+    expect(raw('b')).toBe(bBefore);
+    expect(store.state('b').canUndo).toBe(false);
+    expect(() => store.undo('a')).toThrow('Nothing to undo');
+  });
+
+  it('F2-rest: a run cut short before the role file shrank carries the undo once', async () => {
+    const { dir, holders, store } = setup(
+      {
+        threads: [K],
+        overrides: { entries: {}, merged: {} },
+        undo: [{ label: 'rename', threads: [K], overrides: { entries: {}, merged: {} } }],
+      },
+      { threads: [], overrides: { entries: {}, merged: {} }, undo: [] }
+    );
+    const roleFile = path.join(dir, 'threads', 'main.json');
+    const roleRaw = fs.readFileSync(roleFile, 'utf8');
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(1);
+    // the role write did not happen
+    fs.writeFileSync(roleFile, roleRaw);
+    await returnMisplacedThreads(dir, 'main', holders);
+    expect(
+      JSON.parse(fs.readFileSync(path.join(dir, 'threads', 'a.json'), 'utf8')).undo
+    ).toHaveLength(1);
+    expect(store.state('main').canUndo).toBe(false);
+  });
+
+  it('threads moved by an earlier repair: their stranded entries follow', async () => {
+    const { dir, holders, store } = setup(
+      { threads: [T], overrides: { entries: { ek: 'k', et: 't' }, merged: { k2: 'k' } }, undo: [] },
+      { threads: [K, K2], overrides: { entries: {}, merged: {} }, undo: [] }
+    );
+    expect(await returnMisplacedThreads(dir, 'main', holders)).toBe(0);
+    expect(store.state('a').overrides).toEqual({ entries: { ek: 'k' }, merged: { k2: 'k' } });
+    expect(store.state('main').overrides).toEqual({ entries: { et: 't' }, merged: {} });
+  });
+});
+
+describe('sender scanner', () => {
+  const line = (id, at) =>
+    `${JSON.stringify({
+      type: 'message',
+      timestamp: new Date(at).toISOString(),
+      message: {
+        role: 'user',
+        content: [{ type: 'text', text: `[from agent ${id} via orkumo send]\n\nhi` }],
+      },
+    })}\n`;
+
+  it('reads only appended whole lines; a half-written line waits; a rewritten file starts over', async () => {
+    const file = path.join(tmp(), 'orch.jsonl');
+    const scan = createSenderScanner();
+    const second = line('omp-bbbbbbbb', T0 + 2);
+    fs.writeFileSync(file, line('omp-aaaaaaaa', T0) + second.slice(0, 20));
+    expect([...(await scan(file)).keys()]).toEqual(['omp-aaaaaaaa']);
+    fs.appendFileSync(file, second.slice(20) + line('omp-aaaaaaaa', T0 + 9));
+    const senders = await scan(file);
+    expect([...senders.keys()]).toEqual(['omp-aaaaaaaa', 'omp-bbbbbbbb']);
+    expect(senders.get('omp-aaaaaaaa').ts).toBe(T0);
+    fs.writeFileSync(file, line('omp-cccccccc', T0 + 20));
+    expect([...(await scan(file)).keys()]).toEqual(['omp-cccccccc']);
+  });
+});
+
+describe('entry scanner (CLI thread messages/move)', () => {
+  it('F3: lists every entry of a long transcript, not only the last 5000', async () => {
+    const { TRANSCRIPT_READERS } = await import('../server/services/chatTranscripts.js');
+    const dir = tmp();
+    const file = path.join(dir, 'long.jsonl');
+    const lines = Array.from({ length: 5001 }, (_, i) =>
+      JSON.stringify({
+        type: 'user',
+        uuid: `user-${i}`,
+        timestamp: new Date(T0 + i).toISOString(),
+        message: { role: 'user', content: `message ${i}` },
+      })
+    );
+    fs.writeFileSync(file, `${lines.join('\n')}\n`);
+    const items = await createEntryScanner()(file, TRANSCRIPT_READERS.claude);
+    expect(items).toHaveLength(5001);
+    expect(items[0].key).toBe('user-0');
+    // the chat view keeps its replay cap
+    expect(TRANSCRIPT_READERS.claude.historyEvents(lines)).toHaveLength(5000);
+  });
+
+  it('N2: two first scans of the same transcript at once list every entry once', async () => {
+    const { TRANSCRIPT_READERS } = await import('../server/services/chatTranscripts.js');
+    const file = path.resolve('test/fixtures/claude-bare-skill.jsonl');
+    const once = await createEntryScanner()(file, TRANSCRIPT_READERS.claude);
+    const scan = createEntryScanner();
+    const [a, b] = await Promise.all([
+      scan(file, TRANSCRIPT_READERS.claude),
+      scan(file, TRANSCRIPT_READERS.claude),
+    ]);
+    const keys = (items) => items.map((i) => i.key);
+    expect(keys(a)).toEqual(keys(once));
+    expect(keys(b)).toEqual(keys(once));
+    expect(keys(await scan(file, TRANSCRIPT_READERS.claude))).toEqual(keys(once));
+  });
+});
+
+describe('server-made names (AC-9)', () => {
+  const projects = [
+    { name: 'Demo Shop', aliases: ['Demo Shop', 'demo-shop'] },
+    { name: 'Beispiel-Shop', aliases: ['Beispiel-Shop', 'beispiel-shop'] },
+  ];
+  const ctx = {
+    agentName: (id) => (id === 'w1' ? { project: 'Demo Shop', task: 'checkout-fix' } : null),
+    report,
+    projects,
+    text: 'Beispiel-Shop first, then **demo-shop**',
+    fallback: { project: 'Lead', task: 'New topic' },
+  };
+  const bound = { project: 'beispiel-shop', task: 'rabatt-codes' };
+  it('agent before status task before project mention before the provisional name', () => {
+    expect(threadName({ agents: ['x', 'w1'], binding: bound }, ctx)).toEqual({
+      project: 'Demo Shop',
+      task: 'checkout-fix',
+    });
+    expect(threadName({ agents: ['x'], binding: bound }, ctx)).toEqual({
+      project: 'Beispiel-Shop',
+      task: 'Rabattcodes pro Kunde begrenzen',
+    });
+    expect(threadName({ agents: [], binding: null }, ctx)).toEqual({
+      project: 'Beispiel-Shop',
+      task: 'Beispiel-Shop',
+    });
+    expect(threadName({ agents: [], binding: null }, { ...ctx, text: 'nothing' })).toBe(
+      ctx.fallback
+    );
+  });
+});
+
+describe('orkumo start against a poll that linked the agent first', () => {
+  it('the start thread is opened anyway and the bound thread lets go of the agent', () => {
+    const store = createThreadStore(tmp());
+    const task = store.create('lead', {
+      name: { project: 'Shop', task: 'Checkout' },
+      binding: { project: 'shop', task: 'checkout' },
+      agents: ['job1', 'other'],
+      now: T0,
+    });
+    // a backfill (no start) leaves it linked where it is
+    expect(
+      store.addAgentThreads('lead', [
+        { agents: ['job1'], name: { project: 'Shop', task: 'x' }, now: T0 },
+      ])
+    ).toEqual([]);
+    const [own] = store.addAgentThreads(
+      'lead',
+      [{ agents: ['job1'], name: { project: 'Shop', task: 'fix' }, now: T0 }],
+      { start: true }
+    );
+    expect(own).toMatchObject({ agents: ['job1'], binding: null });
+    // named by the server: it follows the agent's later name (omp titles a session after its
+    // first turn; until then its name is the prompt), never past a rename by the user
+    expect(isAutoNamed(own)).toBe(true);
+    expect(store.list('lead').find((t) => t.id === task.id).agents).toEqual(['other']);
+    // started again: its own thread exists, nothing new
+    expect(
+      store.addAgentThreads(
+        'lead',
+        [{ agents: ['job1'], name: { project: 'Shop', task: 'fix' }, now: T0 }],
+        { start: true }
+      )
+    ).toEqual([]);
+  });
+
+  it('a poll keeps the tidy-up layer and undo stack of the file', () => {
+    const store = createThreadStore(tmp());
+    const a = store.create('lead', { name: { project: 'A', task: 'a' }, now: T0 });
+    const b = store.create('lead', { name: { project: 'B', task: 'b' }, now: T0 });
+    store.tidy('lead', 'merge', (doc) => {
+      doc.overrides.merged[b.id] = a.id;
+    });
+    store.update('lead', a.id, { readAt: T0 + 5, agents: ['w9'] });
+    store.addAgentThreads('lead', [{ agents: ['w8'], name: { project: 'C', task: 'c' }, now: T0 }]);
+    expect(store.state('lead')).toMatchObject({
+      overrides: { merged: { [b.id]: a.id } },
+      canUndo: true,
+    });
+  });
+});
+
+describe('entries routed as the UI routes them (CLI thread list/messages)', () => {
+  const thread = (id, commands = []) => ({
+    id,
+    tag: `[Thread: Demo · ${id}]`,
+    agents: [],
+    closed: false,
+    createdAt: 0,
+    commands,
+  });
+  const items = [
+    { kind: 'user', key: 'u1', text: '/status-report', ts: 10 },
+    { kind: 'answer', key: 'm1', text: 'Report sent.', first: 'Report sent.', ts: 11 },
+    { kind: 'user', key: 'u2', text: '/status-report', ts: 20 },
+  ];
+  const marked = thread('t1', [{ at: 5, command: '/status-report' }]);
+
+  it('a command mark claims its one turn; the next same command stays in the main chat', () => {
+    expect(routeEntries(items, [marked, thread('t2')])).toEqual(['t1', 't1', null]);
+  });
+
+  it('a tidy-up move beats the mark; a merge carries the marked turn to its target', () => {
+    const moved = { entries: { u1: 'main' }, merged: {} };
+    expect(routeEntries(items, [marked, thread('t2')], moved)).toEqual([null, null, null]);
+    const merged = { entries: {}, merged: { t1: 't2' } };
+    expect(routeEntries(items, [marked, thread('t2')], merged)).toEqual(['t2', 't2', null]);
+  });
+});
+
+describe('undo of a tidy-up action', () => {
+  it('keeps a command mark sent from the thread after the action', () => {
+    const store = createThreadStore(tmp());
+    const t = store.create('sess', { name: { project: 'Demo', task: 'One' } });
+    store.tidy('sess', 'close', (doc) => {
+      doc.threads[0].closed = true;
+    });
+    store.update('sess', t.id, { command: '/status-report', now: 42 });
+    store.undo('sess');
+    expect(store.list('sess')[0]).toMatchObject({
+      closed: false,
+      commands: [{ at: 42, command: '/status-report' }],
+    });
   });
 });

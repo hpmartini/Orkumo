@@ -28,7 +28,24 @@ export const HELP = `orkumo: hand out and watch work of the agents running in Or
   orkumo send <id> <message…|->           message an agent (background job or Orkumo pane)
   orkumo start --project <path|name> [--harness claude|omp] [--name n] [--orchestrator] <prompt…|->
                                           start a new agent in a project; --orchestrator: with
-                                          Remote Control (Claude app), workers run without
+                                          Remote Control (Claude app), workers run without;
+                                          from an orchestrator: a thread of its own in your chat
+  orkumo thread open <title…>             open a thread in your chat for a topic without an agent
+                                          ("Project · Topic");
+                                          start your answers on it with the tag it prints
+  orkumo thread list [--json]             your chat's threads: id, title, project, binding,
+                                          entries, last activity (orchestrators only)
+  orkumo thread messages [<id>|main] [--json]
+                                          entry keys and short text of a thread or the main chat
+  orkumo thread rename <id> <Project · Topic…>
+                                          name a thread (never one the owner renamed)
+  orkumo thread merge <target> <source…>  fold threads into one
+  orkumo thread move <entry…> <id|main>   put entries into a thread or back into the main chat
+  orkumo thread bind <id> --agent <id> | --status <task>
+                                          link an agent (here only) or bind a status task
+  orkumo thread close <id>                close a thread
+  orkumo thread undo                      take back the last rename/merge/move/bind/close
+                                          (thread ids: the full id or a unique prefix)
   orkumo stop <id>                        stop an agent
   orkumo projects [--json]                projects Orkumo knows
   orkumo report <file|->                  send your status report (JSON, schema: report.schema.json)
@@ -46,11 +63,16 @@ const COMMANDS = {
   stop: {},
   projects: { json: true },
   report: {},
+  thread: { json: true, agent: false, status: false },
   guard: {},
   help: {},
 };
 /** Positional arguments before free text starts: the rest is the message / prompt, verbatim */
-const TEXT_AFTER = { send: 1, start: 0 };
+const TEXT_AFTER = { send: 1, start: 0, thread: 1 };
+/** `thread`: free text after `open` and after `rename <id>`; other subcommands take flags */
+const THREAD_TEXT_AFTER = { open: 1, rename: 2 };
+const textAfter = (command, args) =>
+  command === 'thread' ? (THREAD_TEXT_AFTER[args[0]] ?? Infinity) : TEXT_AFTER[command];
 
 /**
  * `argv` without node and script. Free text (send's message, start's prompt) is taken verbatim
@@ -63,7 +85,7 @@ export function parseArgs(argv) {
   let command = null;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
-    if (command && command in TEXT_AFTER && args.length > TEXT_AFTER[command]) {
+    if (command && command in TEXT_AFTER && args.length > textAfter(command, args)) {
       args.push(arg);
       continue;
     }
@@ -380,6 +402,165 @@ export function guardDecision(input, workspace) {
   return PROTECTED.includes(first) ? blocked(workspace, target) : null;
 }
 
+/** Shown name as the chat panel shows it: "Project · Task", a doubled part once */
+export const threadTitle = (name) =>
+  [...new Set([name.project, name.task].filter(Boolean))].join(' · ');
+
+const oneLine = (text, max = 100) => {
+  const line = String(text || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+};
+
+/**
+ * Threads of the calling orchestrator with their entry counts and last activity, and the main
+ * chat's: counted from the transcript as the chat panel routes it
+ */
+export function threadSummary({ threads, entries }) {
+  const stats = (id) => {
+    const mine = entries.filter((e) => e.thread === id);
+    const last = Math.max(0, ...mine.map((e) => e.ts || 0));
+    return { entries: mine.length, lastActivity: last ? new Date(last).toISOString() : null };
+  };
+  return {
+    threads: threads.map((t) => ({
+      id: t.id,
+      title: threadTitle(t.name),
+      project: t.name.project,
+      binding: t.binding ?? null,
+      agents: t.agents,
+      closed: t.closed,
+      mergedInto: t.mergedInto ?? null,
+      renamed: !!t.renamed,
+      ...stats(t.id),
+    })),
+    main: stats(null),
+  };
+}
+
+/** `orkumo thread …`: open, list, messages and the tidy-up actions; orchestrators only */
+async function threadCommand(api, args, flags, { out, json, now, readStdin, session }) {
+  const [sub, ...rest] = args;
+  if (!sub)
+    throw usage('thread takes open, list, messages, rename, merge, move, bind, close or undo.');
+  if (!session)
+    throw new CliError(
+      'Only an orchestrator session can work on its threads: run this inside your orchestrator.'
+    );
+  const tidy = async (body) => {
+    const result = await api('POST', '/orchestrator/threads/tidy', { session, ...body });
+    out(`Done: ${result.done}. "orkumo thread undo" takes it back.`);
+    return 0;
+  };
+  const entries = () => api('GET', `/orchestrator/threads/entries?session=${enc(session)}`);
+  switch (sub) {
+    case 'open': {
+      const title = await textArg(rest, readStdin, 'title');
+      // "Project · Topic"; one part alone names both (the panel shows it once)
+      const at = title.indexOf(' · ');
+      const name =
+        at > 0
+          ? { project: title.slice(0, at), task: title.slice(at + 3) || title.slice(0, at) }
+          : { project: title, task: title };
+      const { thread } = await api('POST', '/orchestrator/threads', { session, name });
+      out(
+        `Opened ${thread.tag} (id ${thread.id})\nStart every answer on this topic with this tag, verbatim, as its first line.`
+      );
+      return 0;
+    }
+    case 'list': {
+      const summary = threadSummary(await entries());
+      if (flags.json) return json(summary);
+      const lines = summary.threads.map((t) => {
+        const bound = t.binding
+          ? `status ${t.binding.project}/${t.binding.task ?? t.binding.entry}`
+          : t.agents.length
+            ? `agents ${t.agents.join(',')}`
+            : 'unbound';
+        const state = [
+          t.closed && 'closed',
+          t.mergedInto && `merged into ${t.mergedInto}`,
+          t.renamed && 'renamed by the owner',
+        ]
+          .filter(Boolean)
+          .join(', ');
+        return `${t.id}  ${t.title}  [project ${t.project}]  ${bound}  ${t.entries} entries  ${ago(t.lastActivity, now) ?? 'no activity'}${state ? `  (${state})` : ''}`;
+      });
+      lines.push(
+        `main  ${summary.main.entries} entries  ${ago(summary.main.lastActivity, now) ?? 'no activity'}`
+      );
+      out(lines.join('\n'));
+      return 0;
+    }
+    case 'messages': {
+      if (rest.length > 1) throw usage('thread messages takes one thread id or "main".');
+      const data = await entries();
+      const ref = rest[0] ?? 'main';
+      let id = null;
+      if (ref !== 'main') {
+        const hits = data.threads.filter((t) => t.id === ref || t.id.startsWith(ref));
+        if (hits.length !== 1)
+          throw new CliError(
+            hits.length
+              ? `"${ref}" matches several threads.`
+              : `No thread "${ref}". Run "orkumo thread list".`
+          );
+        id = hits[0].id;
+      }
+      const mine = data.entries
+        .filter((e) => e.thread === id)
+        .map((e) => ({ key: e.key, kind: e.kind, text: oneLine(e.text), ts: e.ts }));
+      if (flags.json) return json({ thread: id ?? 'main', entries: mine });
+      out(
+        mine.length
+          ? mine.map((e) => `${e.key}  ${e.kind === 'user' ? 'in ' : 'out'}  ${e.text}`).join('\n')
+          : 'No entries.'
+      );
+      return 0;
+    }
+    case 'rename': {
+      if (!rest[0]) throw usage('thread rename takes <id> "<Project · Topic>".');
+      return tidy({
+        action: 'rename',
+        thread: rest[0],
+        title: await textArg(rest.slice(1), readStdin, 'name'),
+      });
+    }
+    case 'merge':
+      if (rest.length < 2) throw usage('thread merge takes <target> <source…>.');
+      return tidy({ action: 'merge', thread: rest[0], sources: rest.slice(1) });
+    case 'move':
+      if (rest.length < 2) throw usage('thread move takes <entry…> <thread id|main>.');
+      return tidy({ action: 'move', entries: rest.slice(0, -1), to: rest[rest.length - 1] });
+    case 'bind': {
+      if (rest.length !== 1 || !flags.agent === !flags.status)
+        throw usage('thread bind takes <id> and one of --agent <id> or --status <task>.');
+      let agent;
+      if (flags.agent) {
+        const { agents } = await api('GET', '/orchestrator/overview?all=1&text=0');
+        agent = findAgent(agents, String(flags.agent)).id;
+      }
+      return tidy({
+        action: 'bind',
+        thread: rest[0],
+        ...(agent ? { agent } : { status: String(flags.status) }),
+      });
+    }
+    case 'close':
+      if (rest.length !== 1) throw usage('thread close takes one thread id.');
+      return tidy({ action: 'close', thread: rest[0] });
+    case 'undo': {
+      if (rest.length) throw usage('thread undo takes no arguments.');
+      const { undone } = await api('POST', '/orchestrator/threads/undo', { session });
+      out(`Undid: ${undone}.`);
+      return 0;
+    }
+    default:
+      throw usage(`Unknown thread command "${sub}".`);
+  }
+}
+
 /**
  * Runs one CLI invocation.
  * @param {string[]} argv
@@ -488,8 +669,12 @@ export async function run(argv, deps = {}) {
           throw usage(
             '--orchestrator needs --harness claude: only Claude Code has Remote Control.'
           );
+        // an orchestrator gets a thread for the new agent in its chat
+        const sender = senderId(deps.env ?? process.env);
+        const from = sender ? { orchestrator: sender } : {};
         if (harness === 'claude') {
           const result = await api('POST', '/agents/dispatch', {
+            ...from,
             prompt,
             cwd,
             // worker: no dialog/plan/remote/artifact tools, strict MCP; orchestrator: Remote
@@ -504,7 +689,7 @@ export async function run(argv, deps = {}) {
           return 0;
         }
         if (flags.name) err('Note: Oh My Pi names its sessions itself; --name is ignored.');
-        const result = await api('POST', '/orchestrator/panes', { harness, cwd, prompt });
+        const result = await api('POST', '/orchestrator/panes', { ...from, harness, cwd, prompt });
         if (flags.json) return json(result);
         out(`Started omp-${result.sessionId} in Orkumo pane ${result.paneId} (${cwd}).`);
         return 0;
@@ -542,6 +727,14 @@ export async function run(argv, deps = {}) {
         );
         return 0;
       }
+      case 'thread':
+        return await threadCommand(api, args, flags, {
+          out,
+          json,
+          now,
+          readStdin,
+          session: senderId(deps.env ?? process.env),
+        });
       case 'stop': {
         const agent = await agentByRef(api, args[0]);
         const route = stopRoute(agent);

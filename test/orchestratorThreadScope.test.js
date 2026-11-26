@@ -179,9 +179,10 @@ describe('threads of an orchestrator chat', () => {
         .map((t) => t.id)
         .sort()
     ).toEqual(LEFTOVERS);
-    // moved as they were: nothing rewritten
-    expect(stored('sess-a')).toEqual([LEGACY[0]]);
-    expect(stored('sess-b')).toEqual([LEGACY[1]]);
+    // moved as they were; only the old "Answer HH:MM" name follows the project then (AC-9)
+    const renamedOnly = (t) => ({ ...t, name: expect.any(Object), autoName: true });
+    expect(stored('sess-a')).toEqual([renamedOnly(LEGACY[0])]);
+    expect(stored('sess-b')).toEqual([renamedOnly(LEGACY[1])]);
   });
 
   it('two orchestrators of one role, one new thread each: each lists only its own', async () => {
@@ -193,6 +194,65 @@ describe('threads of an orchestrator chat', () => {
     expect(await ids('sess-b')).not.toContain(a.id);
     // an orchestrator without a role is untouched by both
     expect(await ids('sess-c')).toEqual([]);
+  });
+
+  it('two orchestrators of one role: tidy-up, overrides and undo of one never touch the other', async () => {
+    const post = async (route, body) => {
+      const res = await fetch(`${api}/orchestrator/threads/${route}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return { status: res.status, body: await res.json() };
+    };
+    const raw = (key) => fs.readFileSync(path.join(threadsDir, `${key}.json`), 'utf8');
+    const [a1, a2] = [await create('sess-a', 'tidy one'), await create('sess-a', 'tidy two')];
+    const b1 = await create('sess-b', 'tidy own');
+    const bBefore = raw('sess-b');
+    const roleBefore = raw('main');
+
+    const merged = await post('tidy', {
+      session: 'sess-a',
+      action: 'merge',
+      thread: a1.id,
+      sources: [a2.id],
+    });
+    expect(merged.status).toBe(200);
+    expect(merged.body).toMatchObject({ overrides: { merged: { [a2.id]: a1.id } }, canUndo: true });
+    // B sees neither the layer nor an undo; its file and the role's are as they were
+    expect(await list('sess-b')).toMatchObject({
+      overrides: { entries: {}, merged: {} },
+      canUndo: false,
+    });
+    expect(raw('sess-b')).toBe(bBefore);
+    expect(raw('main')).toBe(roleBefore);
+    // B cannot reach A's threads, and has nothing to undo
+    expect((await post('tidy', { session: 'sess-b', action: 'close', thread: a1.id })).status).toBe(
+      404
+    );
+    expect((await post('undo', { session: 'sess-b' })).status).toBe(409);
+    expect(stored('sess-a').find((t) => t.id === a1.id).closed).toBe(false);
+
+    // B's own tidy-up, then A's undo: only A's merge goes, B's rename stays
+    expect(
+      (
+        await post('tidy', {
+          session: 'sess-b',
+          action: 'rename',
+          thread: b1.id,
+          title: 'Demo · B',
+        })
+      ).status
+    ).toBe(200);
+    const undone = await post('undo', { session: 'sess-a' });
+    expect(undone.status).toBe(200);
+    expect(undone.body).toMatchObject({ overrides: { merged: {} }, canUndo: false });
+    expect(await list('sess-b')).toMatchObject({ canUndo: true });
+    expect(stored('sess-b').find((t) => t.id === b1.id).name).toEqual({
+      project: 'Demo',
+      task: 'B',
+    });
+    expect(raw('main')).toBe(roleBefore);
   });
 
   it('a leftover thread is still updated in place', async () => {

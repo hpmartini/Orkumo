@@ -62,6 +62,38 @@ Control, so Hape reaches it from the Claude app; name it `<topic>-orchestrator`.
 without. The prompt is the agent's whole briefing: goal, context, acceptance criteria, what to
 report.
 
+## thread
+
+```
+orkumo thread open <title…>
+orkumo thread list [--json]                      # id, title, project, binding, entries, last activity
+orkumo thread messages [<id>|main] [--json]      # entry keys + short text
+orkumo thread rename <id> "<Project · Topic>"
+orkumo thread merge <target> <source…>
+orkumo thread move <entry…> <id|main>
+orkumo thread bind <id> --agent <agent> | --status <task>
+orkumo thread close <id>
+orkumo thread undo                               # takes back the last rename/merge/move/bind/close
+```
+
+Opens a thread in the owner's chat for a topic and prints its tag (`[Thread: <Project> · <Task>]`).
+New topic without an agent → `orkumo thread open "<title>"` and start your answers on it with
+its tag; agents you start get their own thread automatically (`orkumo start` from your session
+opens one named after the agent; its messages and your answers to them land there).
+
+Names: Orkumo names threads after their project (linked agent, status task, or the project your
+answer names). On your first answer in a new thread without a project name: name it after the
+project with `orkumo thread rename <id> "<Project · Topic>"` (≤ 4 words). A thread Hape renamed
+keeps his name; rename refuses it.
+
+Tidy-up: on "räum die Unterhaltung auf" / "tidy up the conversation", run `orkumo thread list`
+and `orkumo thread messages main`, group threads and main-chat entries by project, agent or topic,
+`merge` duplicate threads, `move` scattered entries (keys from `messages`) into their thread,
+`rename` each thread to its project, so each group ends with exactly one thread. Then send Hape a
+short list "Thread → Inhalt". This only stores an assignment layer over your transcript, which
+stays untouched; the chat regroups live; `orkumo thread undo` (or Hape's "Undo tidy-up") takes
+back one step at a time. Thread ids: full id or a unique prefix.
+
 ## report
 
 ```

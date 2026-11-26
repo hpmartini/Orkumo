@@ -535,6 +535,8 @@ function connectChatStream(target: string, stream: ChatStream) {
   };
   source.onerror = () => {
     stream.ready = false;
+    // the server may be restarting: its views' ids may be gone, nothing polls them till `watch`
+    stream.subs.forEach((watch) => watch.handlers.onClose?.());
     // A dropped stream reconnects on its own; a refused one (CLOSED) gets a new EventSource
     if (source.readyState !== EventSource.CLOSED) return;
     const delay = Math.min(1000 * 2 ** stream.attempts, 30000);

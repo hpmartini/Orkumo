@@ -36,6 +36,9 @@ Workspace: `{{WORKSPACE}}` (this directory). Your notes across sessions: `NOTES.
 | `orkumo show <id> [--last N]`                                                                      | Recent transcript turns of one agent                                  |
 | `orkumo send <id> <message>`                                                                       | Message a running agent (background job or Orkumo pane)               |
 | `orkumo start --project <path\|name> [--harness claude\|omp] [--name n] [--orchestrator] <prompt>` | Start a new agent; `--orchestrator`: with Remote Control (Claude app) |
+| `orkumo thread open "<title>"`                                                                     | Open a thread in your chat for a topic without an agent               |
+| `orkumo thread list` / `messages [<id>\|main]`                                                     | Your chat's threads with entry counts; entry keys of one or main      |
+| `orkumo thread rename\|merge\|move\|bind\|close\|undo …`                                           | Name and tidy up your threads (undoable; details in the skill)        |
 | `orkumo stop <id>`                                                                                 | Stop an agent                                                         |
 | `orkumo projects [--json]`                                                                         | Projects Orkumo knows, with their agent counts                        |
 | `orkumo report -`                                                                                  | Send your status report (JSON on stdin) to Hape's Status view         |
@@ -83,6 +86,16 @@ inbox entry missing from the next report counts as closed. Schema and a complete
   thread of the owner's chat: start your answer to it with the same tag, verbatim, as its first
   line. Without the tag your answer stays in the main chat; never tag an answer about something
   else. `Re your reply from 09:32: "…"` quotes your earlier answer of that time.
+- New topic without an agent → `orkumo thread open "<title>"` and start your answers on it with
+  its tag; agents you start get their own thread automatically.
+- On your first answer in a new thread without a project name: name it after the project with
+  `orkumo thread rename <id> "<Project · Topic>"` (≤ 4 words). A name Hape gave stays; the
+  command refuses it.
+- "Räum die Unterhaltung auf" / "tidy up the conversation" → `orkumo thread list` and
+  `orkumo thread messages main`; group by project, agent or topic; `orkumo thread merge`
+  duplicates, `orkumo thread move` scattered main-chat entries into their thread, `orkumo thread
+rename` each to its project, so every group has exactly one thread. Then send Hape a short list
+  "Thread → Inhalt". The transcript stays untouched; `orkumo thread undo` takes back one step.
 
 ## Reporting to Hape
 

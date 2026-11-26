@@ -21,6 +21,7 @@ describe('slash commands in a Claude transcript', () => {
         type: 'devorbit_user',
         text: '/demo-skills:retro Dann musst du das prüfen!!!! Und messen, ob die Hebel wirken.\n\nUnd du hast schon wieder vergessen, dass du delegierst!!!',
         history: true,
+        key: expect.any(String),
         ts: expect.any(Number),
       },
     ]);
@@ -46,6 +47,8 @@ describe('a skill without text', () => {
         text: '/ping',
         history: true,
         ts: Date.parse('2026-11-25T11:43:04.273Z'),
+        // the record's uuid: what the tidy-up layer keys the entry by
+        key: '2869da46-0000-4000-8000-000000000003',
       },
     ]);
   });
@@ -88,6 +91,8 @@ describe('a skill without text', () => {
         text: '/skill:ping now',
         history: true,
         ts: Date.parse('2026-11-25T11:43:18.790Z'),
+        // F4: the record id, as every other omp user turn: the tidy-up layer keys the entry by it
+        key: 'c1',
       },
     ]);
   });

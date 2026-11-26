@@ -49,6 +49,12 @@ const stamp = (rec) => {
   return Number.isFinite(ts) ? { ts } : {};
 };
 
+/**
+ * `{ key }` of a typed user message: its transcript record's own id (Claude `uuid`, omp/pi `id`).
+ * The chat view keys the message by it, and the orchestrator's tidy-up layer routes by that key
+ */
+const keyOf = (id) => (typeof id === 'string' && id ? { key: id } : {});
+
 /** Pasted text arrives wrapped in `<pasted_content id="…">…</pasted_content id="…">`: show it bare */
 export function unwrapPasted(text) {
   return text.replace(/<\/?pasted_content(?:\s+id="[^"]*")?>\n?/g, '');
@@ -88,7 +94,7 @@ function taskEndedEvents(text) {
   );
 }
 
-function claudeHistoryEvents(lines) {
+function claudeHistoryEvents(lines, cap = MAX_HISTORY_EVENTS) {
   const events = [];
   for (const line of lines) {
     const rec = parseLine(line);
@@ -134,6 +140,7 @@ function claudeHistoryEvents(lines) {
           type: 'devorbit_user',
           text: unwrapPasted(text),
           history: true,
+          ...keyOf(rec.uuid),
           ...stamp(rec),
         });
       continue;
@@ -167,16 +174,28 @@ function claudeHistoryEvents(lines) {
       // `<local-command-stdout>` and similar CLI wrappers are not
       const command = commandPrompt(text);
       if (command)
-        events.push({ type: 'devorbit_user', text: command, history: true, ...stamp(rec) });
+        events.push({
+          type: 'devorbit_user',
+          text: command,
+          history: true,
+          ...keyOf(rec.uuid),
+          ...stamp(rec),
+        });
       else if (text.trim() && !text.trimStart().startsWith('<')) {
-        events.push({ type: 'devorbit_user', text, history: true, ...stamp(rec) });
+        events.push({
+          type: 'devorbit_user',
+          text,
+          history: true,
+          ...keyOf(rec.uuid),
+          ...stamp(rec),
+        });
       }
       if (Array.isArray(content) && content.some((b) => b?.type === 'tool_result')) {
         events.push({ type: 'user', message: rec.message, parent_tool_use_id: null });
       }
     }
   }
-  return events.slice(-MAX_HISTORY_EVENTS);
+  return events.slice(-cap);
 }
 
 /** Transcript of a Claude session: the cwd's project folder, else any (worktree sessions) */
@@ -310,7 +329,7 @@ const modelOf = (rec) =>
  * results, model changes and turn ends. Skipped: system/developer prompts, custom and internal
  * entries (custom_message, mode_change, compaction, title, ...).
  */
-function sessionHistoryEvents(lines) {
+function sessionHistoryEvents(lines, cap = MAX_HISTORY_EVENTS) {
   const events = [];
   for (const line of lines) {
     const rec = parseLine(line);
@@ -329,7 +348,13 @@ function sessionHistoryEvents(lines) {
     if (rec.type === 'custom_message' && rec.customType === 'skill-prompt') {
       const typed = str(rec.details?.prompt);
       if (typed.trim())
-        events.push({ type: 'devorbit_user', text: typed, history: true, ...stamp(rec) });
+        events.push({
+          type: 'devorbit_user',
+          text: typed,
+          history: true,
+          ...keyOf(rec.id),
+          ...stamp(rec),
+        });
       continue;
     }
     const msg = rec.type === 'message' && isObj(rec.message) ? rec.message : null;
@@ -340,7 +365,13 @@ function sessionHistoryEvents(lines) {
       );
       // omp records its injected `<system-reminder …>` notes as user messages too: not prompts
       if (text.trim() && !text.trimStart().startsWith('<system-reminder'))
-        events.push({ type: 'devorbit_user', text, history: true, ...stamp(rec) });
+        events.push({
+          type: 'devorbit_user',
+          text,
+          history: true,
+          ...keyOf(rec.id),
+          ...stamp(rec),
+        });
     } else if (msg.role === 'assistant') {
       const content = assistantBlocks(msg.content);
       if (msg.stopReason === 'error' && str(msg.errorMessage))
@@ -375,7 +406,7 @@ function sessionHistoryEvents(lines) {
       });
     }
   }
-  return events.slice(-MAX_HISTORY_EVENTS);
+  return events.slice(-cap);
 }
 
 export const piSessionsDir = (home = os.homedir()) => path.join(home, '.pi', 'agent', 'sessions');
@@ -446,7 +477,8 @@ function locateOmpTerminal(
 
 /**
  * harness → reader. `findTranscript(sessionId, cwd, dir?)` resolves to the session file or null
- * (`dir` overrides the harness's base folder, for tests); `historyEvents(lines)` translates.
+ * (`dir` overrides the harness's base folder, for tests); `historyEvents(lines, cap?)` translates
+ * (the last `cap` events, the view's replay cap by default).
  * `locate(sessionId, context)` finds the running agent of a session (null: none) and returns
  * `current()` → the session id it writes now (synchronous), so a view follows /clear, /resume and omp /new.
  */

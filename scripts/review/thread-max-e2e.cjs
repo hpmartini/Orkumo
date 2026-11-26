@@ -1,5 +1,5 @@
 /* global document, localStorage */
-// e2e for the threads panel: maximise (button, Mod+Shift+M, Esc), sidebar list, thread composer
+// e2e for the threads panel: maximise (button, Mod+Shift+M, Esc), sidebar list (default on), thread composer
 // send key, height grip (at most 40 % of the pane) and `@` files, with a real mouse and keyboard in
 // a tab and in splits (side by side, stacked). Narrow panes: the main chat keeps its minimum width
 // beside the panel, else the panel is a drawer over it (dimmed, Esc / x / a click outside put it away).
@@ -8,7 +8,8 @@
 // only in a git work tree: the orchestrator directory must be one.
 // Usage: NODE_PATH=<dir with playwright> node scripts/review/thread-max-e2e.cjs <baseUrl> <outDir> [width]
 // (CHROME=<path> to use a given Chromium; SUBMIT=enter if the chat setting is "Enter sends";
-// SPLIT=down for stacked panes; VIDEO=<dir> records the run)
+// SPLIT=down for stacked panes; VIDEO=<dir> records the run; FAULT=n5 raises a synthetic console
+// error and page error: the run must FAIL)
 const pw = (() => {
   try {
     return require('playwright');
@@ -64,6 +65,16 @@ const paneState = (page, i) =>
       mainDraft: main ? main.value : null,
       threadValue: thread ? thread.value : null,
       threadHeight: thread ? Math.round(thread.getBoundingClientRect().height) : 0,
+      // the package's cap for the thread input (agents-ui threadInputMax): 40 % of the pane,
+      // and room for the thread view in its section
+      threadCap: thread
+        ? Math.round(
+            Math.min(
+              pane.clientHeight * 0.4,
+              (thread.closest('section')?.clientHeight ?? 0) - 230
+            )
+          )
+        : 0,
       mainHeight: main ? Math.round(main.getBoundingClientRect().height) : 0,
       focusInThread: !!thread && document.activeElement === thread,
       handle: !!pane.querySelector('[role=separator][aria-label="Resize threads panel"]'),
@@ -187,13 +198,16 @@ async function maximiseChecks(page, i, name) {
     `${name}: thread count in the header`,
     /Threads\s*\d/.test((await header.textContent()) || '')
   );
-  // sidebar on, then off again
+  // the list sits on the left by default (AC-4); off, then on again
+  check(`${name}: sidebar layout by default`, s1.layout === 'sidebar', s1.layout);
+  await shot(page, `${name}-sidebar`);
   const side = pane.getByRole('button', { name: 'Thread list on the left' });
   await side.click();
   await page.waitForTimeout(300);
   const s2 = await paneState(page, i);
-  await shot(page, `${name}-sidebar`);
-  check(`${name}: sidebar layout`, s2.layout === 'sidebar', s2.layout);
+  check(`${name}: list on top after switching off`, s2.layout === 'top', s2.layout);
+  await side.click();
+  await page.waitForTimeout(300);
   // Esc in the thread input restores; draft and width come back
   await pane.locator('textarea[aria-label="Reply in thread"]').click();
   await page.keyboard.press('Escape');
@@ -251,8 +265,7 @@ async function maximiseChecks(page, i, name) {
     s5.maximized && (await list.count()) === 0
   );
   await page.keyboard.press('Backspace');
-  // sidebar off for the next pane, then restore with the shortcut
-  await side.click();
+  // restore with the shortcut (the list stays on the left for the next pane)
   await page.keyboard.press(`${MOD}+Shift+KeyM`);
   await page.waitForTimeout(400);
   const s6 = await paneState(page, i);
@@ -298,7 +311,8 @@ async function narrowChecks(page, i, name) {
     // short pane: the open thread fills the panel, "Back to the list" brings the list back
     const rowsOpen = await pane.locator('[data-thread-row]').count();
     await pane.getByRole('button', { name: 'Back to the list (thread stays open)' }).click();
-    await page.waitForTimeout(300);
+    // the list renders after the thread view leaves; give it a moment under load
+    await pane.locator('[data-thread-row]').first().waitFor({ timeout: 3000 }).catch(() => {});
     const rowsBack = await pane.locator('[data-thread-row]').count();
     await shot(page, `${name}-short-list`);
     check(
@@ -544,8 +558,9 @@ async function composerChecks(page, i, name) {
     await shot(page, `${name}-taller`);
     check(
       `${name}: drag up 80 px makes the thread input taller`,
-      s1.threadHeight >= s0.threadHeight + 70,
-      `${s0.threadHeight} -> ${s1.threadHeight}`
+      // short panes: the input stops at its cap (AC-4), short of the full 80 px
+      s1.threadHeight >= Math.min(s0.threadHeight + 70, s0.threadCap - 2),
+      `${s0.threadHeight} -> ${s1.threadHeight}, cap ${s0.threadCap}`
     );
     check(`${name}: main input height untouched`, s1.mainHeight === s0.mainHeight);
   }
@@ -587,8 +602,16 @@ async function composerChecks(page, i, name) {
   const page = await ctx.newPage();
   const errors = [];
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  page.on('pageerror', (e) => errors.push(e.message));
   await page.goto(`${BASE}/agents`);
   await page.waitForTimeout(5000);
+  if (process.env.FAULT === 'n5')
+    await page.evaluate(() => {
+      console.error('synthetic n5 console error');
+      setTimeout(() => {
+        throw new Error('synthetic n5 page error');
+      });
+    });
   await page.evaluate(() => {
     localStorage.removeItem('devOrbitChatThreadComposerHeight');
     localStorage.removeItem('agents-ui:threads-sidebar');
@@ -608,8 +631,11 @@ async function composerChecks(page, i, name) {
   await openAgent(page, 1); // the split needs two tabs
   await openAgent(page, 0);
   await ensureThread(page, 0);
-  const h2 = (await paneState(page, 0)).threadHeight;
-  check('reload: thread input height remembered', Math.abs(h2 - height) <= 2, `${height} -> ${h2}`);
+  const r2 = await paneState(page, 0);
+  const h2 = r2.threadHeight;
+  // a shorter section after the reload clamps the saved height to the cap (AC-4)
+  const want = Math.min(height, r2.threadCap);
+  check('reload: thread input height remembered', Math.abs(h2 - want) <= 2, `${height} -> ${h2}, cap ${r2.threadCap}`);
 
   const split = page.locator(`button[aria-label^="Split "][aria-label$=" ${SPLIT}"]`).first();
   if (await split.count()) {
@@ -678,7 +704,7 @@ async function composerChecks(page, i, name) {
   await heightCapCheck(page, 0, 'tab');
   await tallInputChecks(page, 0, 'tab');
 
-  console.log('console errors', JSON.stringify(errors));
+  check('0 console errors', errors.length === 0, JSON.stringify(errors.slice(0, 5)));
   await ctx.close();
   await browser.close();
   console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
