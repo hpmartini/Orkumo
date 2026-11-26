@@ -11,6 +11,8 @@ const {
   createHandoffReset,
   createPaneLookup,
   createSessionTracker,
+  createPaneTyper,
+  createPaneRunning,
   markerKey,
   paneKey,
   HARNESS_STEPS,
@@ -37,7 +39,14 @@ afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
  * A pane with a scripted agent on a fake clock: `sleep` advances the clock and fires the events
  * the typed commands scheduled (marker written, session switched, marker taken).
  */
-function makeWorld({ harness = 'claude', timeouts = {}, react = {}, paneEnv = true } = {}) {
+function makeWorld({
+  harness = 'claude',
+  timeouts = {},
+  react = {},
+  paneEnv = true,
+  background = false,
+  paneId = PANE,
+} = {}) {
   const world = {
     clock: 1_000_000,
     typed: [],
@@ -48,8 +57,9 @@ function makeWorld({ harness = 'claude', timeouts = {}, react = {}, paneEnv = tr
     running: true,
     svc: null,
     resetIds: [],
+    contexts: [],
   };
-  const marker = path.join(pendingDir, paneEnv === false ? markerKey(cwd) : paneKey(PANE));
+  const marker = path.join(pendingDir, paneEnv === false ? markerKey(cwd) : paneKey(paneId));
   world.marker = marker;
   // what the typed skill command carries, as handoff.py mark would read it
   world.args = () => {
@@ -72,8 +82,9 @@ function makeWorld({ harness = 'claude', timeouts = {}, react = {}, paneEnv = tr
     ...react,
   };
   const steps = HARNESS_STEPS[harness];
-  world.type = (paneId, text) => {
+  world.type = (paneId, text, context) => {
     world.typed.push(text);
+    world.contexts.push(context);
     if (text.startsWith(`${steps.skill} `)) behave.skill(world);
     else if (text === steps.reset) behave.reset(world);
     else if (text === 'weiter') behave.weiter(world);
@@ -83,7 +94,7 @@ function makeWorld({ harness = 'claude', timeouts = {}, react = {}, paneEnv = tr
     world.clock += ms;
     for (const event of world.events.filter((e) => e.at <= world.clock)) event.fn();
     world.events = world.events.filter((e) => e.at > world.clock);
-    const phase = world.svc.get(PANE)?.phase;
+    const phase = world.svc.get(paneId)?.phase;
     if (phase && world.phases.at(-1) !== phase) world.phases.push(phase);
     await new Promise((resolve) => setTimeout(resolve, 0));
   };
@@ -94,8 +105,12 @@ function makeWorld({ harness = 'claude', timeouts = {}, react = {}, paneEnv = tr
       sessionId: world.sessionId,
       working: world.working,
       paneEnv,
+      background,
     }),
-    paneRunning: () => world.running,
+    paneRunning: async (paneId, context) => {
+      world.contexts.push(context);
+      return world.running;
+    },
     type: world.type,
     newResetId: () => {
       world.resetIds.push(`reset-${world.resetIds.length + 1}`);
@@ -302,6 +317,44 @@ describe('Handoff + Reset job', () => {
     expect(world.svc.get(PANE).error).toBe(
       `The new session did not take the handoff (marker still pending: ${world.marker})`
     );
+  });
+
+  it('background job: pane key like a pane, --key typed, the cwd marker of the folder is never read', async () => {
+    const JOB = '13c54a91';
+    const world = makeWorld({ paneId: JOB, paneEnv: true, background: true });
+    // a foreign session's marker in the job's folder, even one carrying this job's reset id
+    const cwdMarker = path.join(pendingDir, markerKey(cwd));
+    fs.writeFileSync(cwdMarker, `${root}/foreign.md\nreset-1\n`);
+    await world.svc.start(JOB);
+    await vi.waitFor(() => expect(['done', 'error']).toContain(world.svc.get(JOB).phase), {
+      timeout: 5000,
+    });
+    const job = world.svc.get(JOB);
+    expect(job).toMatchObject({
+      phase: 'done',
+      keyMode: 'pane',
+      markerKey: paneKey(JOB),
+      newSessionId: NEW,
+      resetId: 'reset-1',
+    });
+    expect(world.typed).toEqual([
+      `/hape-skills:handoff-reset --key orkumo-pane-${JOB} --reset-id reset-1`,
+      '/clear',
+      'weiter',
+    ]);
+    expect(world.contexts.every((c) => c?.background === true)).toBe(true);
+    expect(fs.readFileSync(cwdMarker, 'utf8')).toBe(`${root}/foreign.md\nreset-1\n`);
+  });
+
+  it('two background jobs in one folder run side by side, each with its own key and reset id', async () => {
+    const world = makeWorld({ paneId: 'job-a', paneEnv: true, background: true });
+    await world.svc.start('job-a');
+    await expect(world.svc.start('job-b')).resolves.toMatchObject({
+      phase: 'writing',
+      markerKey: 'orkumo-pane-job-b',
+    });
+    world.svc.cancel('job-a');
+    world.svc.cancel('job-b');
   });
 
   it('pane-key jobs of different panes in one folder do run side by side', async () => {
@@ -745,24 +798,28 @@ describe('createPaneLookup', () => {
       envOf = async () => `claude PATH=/b ORKUMO_PANE_ID=${job.id}`
     ) => createPaneLookup({ listRows: async () => rows, ptySessions: () => ptys, envOf });
 
-    const NO_KEY =
-      'Background jobs have no pane key yet; the handoff could be taken by another session in /m. Open the session in an Orkumo pane, or reset by hand.';
-
-    it('a running job, with or without an attach pane, is refused: it has no pane key', async () => {
-      const withPane = lookupWith([job], [pty(`agent-${job.id}-1700000000000`)]);
-      expect(await withPane(job.id)).toEqual({ refusal: NO_KEY });
-      expect(await lookupWith([job])(job.id)).toEqual({ refusal: NO_KEY });
+    it('a running job with an open attach pane: the row of the job, pane key mode, the attach process env is never read', async () => {
+      const lookup = lookupWith([job], [pty(`agent-${job.id}-1700000000000`)], async () => {
+        throw new Error('envOf must not be called');
+      });
+      expect(await lookup(job.id)).toEqual({
+        harness: 'claude',
+        cwd: '/m',
+        sessionId: NEW,
+        working: true,
+        paneEnv: true,
+        background: true,
+      });
     });
 
-    it('the start answers 400 with that text', async () => {
-      const svc = createHandoffReset({
-        lookupPane: lookupWith([job]),
-        paneRunning: () => true,
-        type: () => true,
-        pendingDir,
+    it('a running job without any pane resolves through the row too', async () => {
+      const lookup = lookupWith([{ ...job, status: 'idle', displayState: 'idle' }]);
+      expect(await lookup(job.id)).toMatchObject({
+        background: true,
+        paneEnv: true,
+        working: false,
+        sessionId: NEW,
       });
-      await expect(svc.start(job.id)).rejects.toMatchObject({ status: 400, message: NO_KEY });
-      expect(svc.get(job.id)).toBeNull();
     });
 
     it('a job that is not running is refused with its state', async () => {
@@ -805,9 +862,171 @@ describe('createPaneLookup', () => {
       };
       const lookup = lookupWith([app]);
       expect((await lookup('interactive-9')).refusal).toBe(
-        'Claude App (interactive-9) was not started in an Orkumo pane: Handoff + Reset needs an agent pane'
+        'Claude App (interactive-9) was not started in an Orkumo pane: Handoff + Reset needs an agent pane or a running background job'
       );
       expect(await lookup('nope')).toBeNull();
+    });
+  });
+
+  describe('typing and liveness for background jobs', () => {
+    const make = ({ pane = true, replyOk = true, jobAlive = true } = {}) => {
+      const calls = [];
+      const deps = {
+        typeIntoPane: (paneId, text) => {
+          calls.push(['pane', paneId, text]);
+          return pane;
+        },
+        replyToJob: async (id, text) => {
+          calls.push(['reply', id, text]);
+          if (!replyOk) throw new Error('attach failed');
+        },
+        paneAlive: () => pane,
+        jobAlive: async (id) => (calls.push(['alive', id]), jobAlive),
+      };
+      return { calls, type: createPaneTyper(deps), running: createPaneRunning(deps) };
+    };
+
+    it('an open attach pane gets the keystrokes', async () => {
+      const { calls, type } = make();
+      expect(await type('13c54a91', '/clear', { background: true })).toBe(true);
+      expect(calls).toEqual([['pane', '13c54a91', '/clear']]);
+    });
+
+    it('no pane: a job is typed into through the reply path (hidden attach)', async () => {
+      const { calls, type } = make({ pane: false });
+      expect(await type('13c54a91', '/clear', { background: true })).toBe(true);
+      expect(calls).toEqual([
+        ['pane', '13c54a91', '/clear'],
+        ['reply', '13c54a91', '/clear'],
+      ]);
+    });
+
+    it('a failed reply or a non-job pane is not delivered', async () => {
+      expect(await make({ pane: false, replyOk: false }).type('j', 'x', { background: true })).toBe(
+        false
+      );
+      const plain = make({ pane: false });
+      expect(await plain.type('orch-1', 'x', { background: false })).toBe(false);
+      expect(plain.calls).toEqual([['pane', 'orch-1', 'x']]);
+    });
+
+    it('liveness: the pane, or for a job its running row', async () => {
+      expect(await make({ pane: true }).running('p', { background: false })).toBe(true);
+      expect(await make({ pane: false }).running('p', { background: false })).toBe(false);
+      expect(await make({ pane: false, jobAlive: true }).running('j', { background: true })).toBe(
+        true
+      );
+      expect(await make({ pane: false, jobAlive: false }).running('j', { background: true })).toBe(
+        false
+      );
+    });
+  });
+
+  describe('background flow with fakes (lookup + typer + liveness + job)', () => {
+    const JOB = '13c54a91';
+    const flow = ({ openPane }) => {
+      let clock = 5_000_000;
+      const events = [];
+      const row = {
+        id: JOB,
+        kind: 'background',
+        sessionId: OLD,
+        cwd,
+        pid: 12950,
+        status: 'idle',
+        displayState: 'idle',
+        name: 'main-orchestrator',
+      };
+      const delivered = [];
+      const at = (ms, fn) => events.push({ at: clock + ms, fn });
+      const react = (text) => {
+        delivered.push(text);
+        if (text.startsWith('/hape-skills:handoff-reset ')) {
+          // what handoff.py mark does with `--key K --reset-id R`
+          const key = /--key (\S+)/.exec(text)[1];
+          const rid = /--reset-id (\S+)/.exec(text)[1];
+          at(4000, () =>
+            fs.writeFileSync(path.join(pendingDir, key), `${root}/handoff.md\n${rid}\n`)
+          );
+        } else if (text === '/clear') {
+          at(2000, () => (row.sessionId = NEW));
+          at(2100, () => fs.rmSync(path.join(pendingDir, paneKey(JOB)), { force: true }));
+        }
+      };
+      const svc = createHandoffReset({
+        lookupPane: createPaneLookup({
+          listRows: async () => [row],
+          ptySessions: () => (openPane ? [pty(`agent-${JOB}-1700000000000`)] : []),
+          envOf: async () => {
+            throw new Error('the env of the attach process must not be read');
+          },
+        }),
+        paneRunning: createPaneRunning({
+          paneAlive: () => openPane,
+          jobAlive: async () => !!row.pid,
+        }),
+        type: createPaneTyper({
+          typeIntoPane: (paneId, text) => {
+            if (!openPane) return false;
+            expect(paneId).toBe(JOB);
+            react(text);
+            return true;
+          },
+          replyToJob: async (id, text) => {
+            expect(id).toBe(JOB);
+            react(text);
+          },
+        }),
+        pendingDir,
+        now: () => clock,
+        sleep: async (ms) => {
+          clock += ms;
+          for (const event of events.filter((e) => e.at <= clock)) event.fn();
+          events.splice(0, events.length, ...events.filter((e) => e.at > clock));
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        },
+        locate: () => null,
+        newResetId: () => 'rid-1',
+        timeouts: { markerMs: 60_000, turnEndMs: 20_000, resetMs: 10_000, takeMs: 10_000 },
+      });
+      return { svc, row, delivered };
+    };
+    const settled = (svc) =>
+      vi.waitFor(() => expect(['done', 'error']).toContain(svc.get(JOB).phase), { timeout: 5000 });
+
+    for (const openPane of [true, false]) {
+      it(`${openPane ? 'through the open attach pane' : 'through the hidden attach reply'}: key, /clear seen in the row, weiter, taken`, async () => {
+        const { svc, delivered } = flow({ openPane });
+        const started = await svc.start(JOB);
+        expect(started).toMatchObject({ keyMode: 'pane', markerKey: `orkumo-pane-${JOB}` });
+        await settled(svc);
+        expect(svc.get(JOB)).toMatchObject({
+          phase: 'done',
+          error: null,
+          oldSessionId: OLD,
+          newSessionId: NEW,
+          keyMode: 'pane',
+          markerKey: `orkumo-pane-${JOB}`,
+          resetId: 'rid-1',
+          handoffFile: `${root}/handoff.md`,
+        });
+        expect(delivered).toEqual([
+          `/hape-skills:handoff-reset --key orkumo-pane-${JOB} --reset-id rid-1`,
+          '/clear',
+          'weiter',
+        ]);
+      });
+    }
+
+    it('a job that stops while the handoff is written ends in an error', async () => {
+      const { svc, row } = flow({ openPane: false });
+      await svc.start(JOB);
+      row.pid = null;
+      await settled(svc);
+      expect(svc.get(JOB)).toMatchObject({
+        phase: 'error',
+        error: 'The agent in this pane is gone',
+      });
     });
   });
 
