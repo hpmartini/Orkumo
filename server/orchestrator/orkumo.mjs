@@ -47,6 +47,10 @@ export const HELP = `orkumo: hand out and watch work of the agents running in Or
   orkumo thread undo                      take back the last rename/merge/move/bind/close
                                           (thread ids: the full id or a unique prefix)
   orkumo stop <id>                        stop an agent
+  orkumo handoff-reset [--pane <id>] [--auto] [--json]
+                                          start Handoff + Reset in a pane (the agent writes a
+                                          handoff file, the pane is reset and continues);
+                                          --auto: the compaction threshold fired
   orkumo projects [--json]                projects Orkumo knows
   orkumo report <file|->                  send your status report (JSON, schema: report.schema.json)
 
@@ -61,6 +65,7 @@ const COMMANDS = {
   send: {},
   start: { project: false, harness: false, name: false, orchestrator: true, json: true },
   stop: {},
+  'handoff-reset': { pane: false, auto: true, json: true },
   projects: { json: true },
   report: {},
   thread: { json: true, agent: false, status: false },
@@ -204,7 +209,9 @@ export function createApi({ apiUrl, token, fetch = globalThis.fetch, paneId }) {
       if (Array.isArray(data?.errors)) message += `\n  ${data.errors.join('\n  ')}`;
       if (res.status === 401)
         message += ' (the API wants the pairing token: set ORKUMO_TOKEN or restart Orkumo)';
-      throw new CliError(`${method} ${route} failed (${res.status}): ${message}`);
+      const error = new CliError(`${method} ${route} failed (${res.status}): ${message}`);
+      error.status = res.status;
+      throw error;
     }
     return data;
   };
@@ -567,6 +574,20 @@ async function threadCommand(api, args, flags, { out, json, now, readStdin, sess
 }
 
 /**
+ * The pane a Handoff + Reset runs in: `--pane`, else the pane of this session
+ * (`ORKUMO_PANE_ID`), else the id of the background job this session belongs to
+ * (`CLAUDE_JOB_DIR`, its basename); null when none of them names a pane.
+ */
+export function handoffResetPane(flag, env = {}) {
+  const pane = String(flag || env.ORKUMO_PANE_ID || '').trim();
+  if (pane) return pane;
+  const jobDir = String(env.CLAUDE_JOB_DIR || '').trim();
+  if (!jobDir || jobDir === '/') return null;
+  const jobId = path.basename(jobDir);
+  return jobId && jobId !== '.' && jobId !== '..' ? jobId : null;
+}
+
+/**
  * Runs one CLI invocation.
  * @param {string[]} argv
  * @param {{ fetch?: Function, env?: object, out?: (s: string) => void, err?: (s: string) => void,
@@ -754,6 +775,34 @@ export async function run(argv, deps = {}) {
         }
         await api('POST', route);
         out(`Stopped ${agent.id} (${agent.name || agent.harness}).`);
+        return 0;
+      }
+      case 'handoff-reset': {
+        if (args.length) throw usage('handoff-reset takes no arguments.');
+        const env = deps.env ?? process.env;
+        const pane = handoffResetPane(flags.pane, env);
+        if (!pane) {
+          throw usage(
+            'handoff-reset needs a pane: pass --pane <id>, or run it inside an Orkumo pane (ORKUMO_PANE_ID) or a background job (CLAUDE_JOB_DIR).'
+          );
+        }
+        const trigger = flags.auto ? 'auto' : 'manual';
+        let data;
+        try {
+          data = await api('POST', `/agents/panes/${enc(pane)}/handoff-reset`, { trigger });
+        } catch (error) {
+          // 409 = a job is already running, 400/404 = the pane cannot be reset: own exit codes
+          if (error instanceof CliError && error.status) {
+            const code = error.status === 409 ? 3 : error.status === 400 || error.status === 404 ? 2 : 1;
+            throw new CliError(error.message, code);
+          }
+          throw error;
+        }
+        const job = data?.job ?? null;
+        if (flags.json) return json(job);
+        out(
+          `Handoff + Reset started in ${pane} (${trigger}): phase ${job?.phase ?? 'writing'}, job ${job?.resetId ?? '?'}.`
+        );
         return 0;
       }
       case 'projects': {

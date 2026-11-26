@@ -134,6 +134,19 @@ reset with the **Handoff + Reset** button in its pane (Hape clicks it); it keeps
 and status report. A role has one live holder: starting a second session for a held role is
 refused (409): use the session that holds it.
 
+## handoff-reset
+
+```
+orkumo handoff-reset [--pane <id>] [--auto] [--json]
+```
+
+Starts Handoff + Reset in a pane: the agent writes a handoff file, the pane is reset (`/clear`,
+omp `/new`) and the new session continues from the file. The pane is `--pane`, else the pane of
+this session (`ORKUMO_PANE_ID`), else the background job of this session (`CLAUDE_JOB_DIR`).
+`--auto` says the compaction threshold fired: the job then waits for the running turn to end.
+Exit 0 started, 3 a job is already running, 2 the pane cannot be reset, 1 Orkumo is unreachable.
+Use it when a session is too full to continue; Hape clicks the same thing in the UI.
+
 ## projects
 
 ```

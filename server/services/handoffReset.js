@@ -39,6 +39,8 @@ export const TIMEOUTS = Object.freeze({
   turnEndMs: 2 * 60_000,
   resetMs: 60_000,
   takeMs: 30_000,
+  /** an automatic handoff waits for the running turn to end before it types anything */
+  autoWaitMs: 15 * 60_000,
   /** pi: its session switch cannot be seen, give `/new` this long */
   blindResetMs: 3000,
   /** after the new session is seen: its TUI takes input */
@@ -46,7 +48,7 @@ export const TIMEOUTS = Object.freeze({
   retainMs: 10 * 60_000,
 });
 
-const ACTIVE = new Set(['writing', 'resetting', 'continuing']);
+const ACTIVE = new Set(['waiting', 'writing', 'resetting', 'continuing']);
 
 export const defaultPendingDir = (home = os.homedir()) =>
   path.join(home, '.claude', 'handoffs', '.pending');
@@ -281,7 +283,7 @@ export function createSessionTracker({
 }
 
 /**
- * @typedef {'writing'|'resetting'|'continuing'|'done'|'error'} HandoffResetPhase
+ * @typedef {'waiting'|'writing'|'resetting'|'continuing'|'done'|'error'} HandoffResetPhase
  * @param {object} deps
  * @param {(paneId: string) => Promise<{harness: string, cwd: string, sessionId: string|null, working: boolean}|null>} deps.lookupPane
  * @param {(paneId: string, context: { background: boolean }) => boolean|Promise<boolean>} deps.paneRunning the agent behind the pane still runs
@@ -348,6 +350,22 @@ export function createHandoffReset({
       lookupPane,
       locate,
     });
+
+    // An automatic handoff (compaction threshold) starts while the agent is still working: wait
+    // for the turn to end before typing anything, so the skill command is not read as input.
+    if (job.trigger === 'auto') {
+      phase('waiting');
+      const idle = await until(t.autoWaitMs, async () => {
+        const pane = await lookupPane(paneId);
+        return pane ? pane.working === false : false;
+      });
+      if (!idle) {
+        throw new Error(
+          `The agent did not finish its turn within ${Math.round(t.autoWaitMs / 60_000)} min; the automatic handoff was not started`
+        );
+      }
+    }
+    phase('writing');
 
     // Only a marker carrying this job's reset id is this handoff; older ones (any age) never count.
     // Env presence unknown (a legacy PTY `ps` could not read): --key anyway, handoff.py honours it.
@@ -423,8 +441,12 @@ export function createHandoffReset({
   const snapshot = (entry) => ({ ...entry.job });
 
   return {
-    /** Starts a job for the pane; throws errors with `status` (400 unknown pane / harness, 409 active) */
-    async start(paneId) {
+    /**
+     * Starts a job for the pane; throws errors with `status` (400 unknown pane / harness, 409 active)
+     * `trigger` is 'manual' (a person pressed the button) or 'auto' (the compaction threshold
+     * fired): an automatic job waits for the running turn to end before it types the skill.
+     */
+    async start(paneId, { trigger = 'manual' } = {}) {
       if (isActive(jobs.get(paneId)) || starting.has(paneId)) {
         throw httpError(409, 'Handoff + Reset already runs in this pane');
       }
@@ -455,7 +477,8 @@ export function createHandoffReset({
             paneId,
             harness: pane.harness,
             cwd: pane.cwd,
-            phase: 'writing',
+            trigger,
+            phase: trigger === 'auto' ? 'waiting' : 'writing',
             startedAt: started,
             updatedAt: started,
             oldSessionId: pane.sessionId,

@@ -538,6 +538,114 @@ describe('commands', () => {
     expect(out).toBe('');
   });
 
+  it('handoff-reset: starts the job in the pane of the session, exits 0', async () => {
+    const routes = {
+      'POST /agents/panes/work-1/handoff-reset': () => [
+        202,
+        { job: { paneId: 'work-1', phase: 'writing', resetId: 'reset-1', trigger: 'manual' } },
+      ],
+    };
+    const { code, out, calls } = await cli(['handoff-reset'], routes, {
+      env: { ORKUMO_PANE_ID: 'work-1' },
+    });
+    expect(code).toBe(0);
+    expect(calls[0].route).toBe('/agents/panes/work-1/handoff-reset');
+    expect(calls[0].body).toEqual({ trigger: 'manual' });
+    expect(out).toMatch(/Handoff \+ Reset started in work-1 \(manual\)/);
+  });
+
+  it('handoff-reset --auto: sends the auto trigger, --pane wins over the env', async () => {
+    const routes = {
+      'POST /agents/panes/other-9/handoff-reset': () => [
+        202,
+        { job: { paneId: 'other-9', phase: 'waiting', resetId: 'reset-2', trigger: 'auto' } },
+      ],
+    };
+    const { code, calls } = await cli(['handoff-reset', '--auto', '--pane', 'other-9'], routes, {
+      env: { ORKUMO_PANE_ID: 'work-1' },
+    });
+    expect(code).toBe(0);
+    expect(calls[0].route).toBe('/agents/panes/other-9/handoff-reset');
+    expect(calls[0].body).toEqual({ trigger: 'auto' });
+  });
+
+  it('handoff-reset: a background job names its pane by CLAUDE_JOB_DIR', async () => {
+    const routes = {
+      'POST /agents/panes/job1234/handoff-reset': () => [
+        202,
+        { job: { paneId: 'job1234', phase: 'writing', resetId: 'reset-3' } },
+      ],
+    };
+    const { code, calls } = await cli(['handoff-reset'], routes, {
+      env: { CLAUDE_JOB_DIR: '/Users/hape/.claude/jobs/job1234' },
+    });
+    expect(code).toBe(0);
+    expect(calls[0].route).toBe('/agents/panes/job1234/handoff-reset');
+  });
+
+  it('handoff-reset without a pane exits 2', async () => {
+    const { code, err } = await cli(['handoff-reset']);
+    expect(code).toBe(2);
+    expect(err).toMatch(/needs a pane/);
+    const stray = await cli(['handoff-reset', 'extra'], {}, { env: { ORKUMO_PANE_ID: 'work-1' } });
+    expect(stray.code).toBe(2);
+    expect(stray.err).toMatch(/takes no arguments/);
+  });
+
+  it('handoff-reset: 409 exits 3, 400 and 404 exit 2', async () => {
+    const running = await cli(
+      ['handoff-reset'],
+      {
+        'POST /agents/panes/work-1/handoff-reset': () => [
+          409,
+          { error: 'Handoff + Reset already runs in this pane' },
+        ],
+      },
+      { env: { ORKUMO_PANE_ID: 'work-1' } }
+    );
+    expect(running.code).toBe(3);
+    expect(running.err).toContain('already runs in this pane');
+
+    for (const status of [400, 404]) {
+      const refused = await cli(
+        ['handoff-reset'],
+        {
+          'POST /agents/panes/work-1/handoff-reset': () => [status, { error: 'no agent there' }],
+        },
+        { env: { ORKUMO_PANE_ID: 'work-1' } }
+      );
+      expect(refused.code).toBe(2);
+      expect(refused.err).toContain('no agent there');
+    }
+  });
+
+  it('handoff-reset: an unreachable Orkumo exits 1', async () => {
+    const code = await run(['handoff-reset'], {
+      fetch: async () => {
+        throw new Error('ECONNREFUSED');
+      },
+      env: { ORKUMO_API_URL: 'http://api.test/api', ORKUMO_PANE_ID: 'work-1' },
+      out: () => {},
+      err: () => {},
+    });
+    expect(code).toBe(1);
+  });
+
+  it('handoff-reset --json prints the job', async () => {
+    const { code, out } = await cli(
+      ['handoff-reset', '--json'],
+      {
+        'POST /agents/panes/work-1/handoff-reset': () => [
+          202,
+          { job: { paneId: 'work-1', phase: 'writing', resetId: 'reset-4' } },
+        ],
+      },
+      { env: { ORKUMO_PANE_ID: 'work-1' } }
+    );
+    expect(code).toBe(0);
+    expect(JSON.parse(out)).toMatchObject({ paneId: 'work-1', resetId: 'reset-4' });
+  });
+
   it('projects: lists name, path and agent count', async () => {
     const { out } = await cli(['projects']);
     expect(out).toBe('App  /p/app  (1 agent)\nApi  /p/api');

@@ -196,6 +196,42 @@ describe('Handoff + Reset job', () => {
     ]);
   });
 
+  it('auto: waits while the agent works, then types the skill', async () => {
+    const world = makeWorld();
+    world.working = true;
+    // the turn ends 3 s later
+    world.events.push({ at: world.clock + 3000, fn: () => (world.working = false) });
+    const job = await world.svc.start(PANE, { trigger: 'auto' });
+    expect(job).toMatchObject({ trigger: 'auto', phase: 'waiting' });
+    await finished(world);
+    const done = world.svc.get(PANE);
+    expect(done).toMatchObject({ phase: 'done', trigger: 'auto' });
+    expect(world.typed[0]).toBe(
+      `/hape-skills:handoff-reset --key ${paneKey(PANE)} --reset-id reset-1`
+    );
+    expect(world.phases).toContain('waiting');
+  });
+
+  it('auto: a turn that never ends times out with a clear error', async () => {
+    const world = makeWorld({ timeouts: { autoWaitMs: 20_000 } });
+    world.working = true;
+    await world.svc.start(PANE, { trigger: 'auto' });
+    await finished(world);
+    const job = world.svc.get(PANE);
+    expect(job.phase).toBe('error');
+    expect(job.error).toMatch(/did not finish its turn/);
+    expect(world.typed).toHaveLength(0);
+  });
+
+  it('manual: the trigger stays manual and types right away', async () => {
+    const world = makeWorld();
+    world.working = true;
+    world.events.push({ at: world.clock + 3000, fn: () => (world.working = false) });
+    const job = await world.svc.start(PANE);
+    expect(job).toMatchObject({ trigger: 'manual', phase: 'writing' });
+    expect(world.typed).toHaveLength(1);
+  });
+
   it('ignores markers of an older job and of other panes: only the own reset id counts', async () => {
     const world = makeWorld();
     const otherPane = path.join(pendingDir, paneKey('orch-other'));
