@@ -52,6 +52,8 @@ export const agentViewSettingsSchema = z
     orchestratorRoles: z
       .record(z.string().regex(/^[\w.:-]{1,200}$/), z.string().regex(/^[a-z0-9][\w.-]{0,63}$/i))
       .optional(),
+    // Context size (tokens) above which a pane offers Handoff + Reset
+    handoffResetTokens: z.number().int().min(1000).max(10_000_000).optional(),
     dispatch: z
       .object({
         harness: z.enum(['claude', 'omp', 'opencode', 'codex', 'pi']).optional(),
