@@ -11,8 +11,6 @@ const {
   createHandoffReset,
   createPaneLookup,
   createSessionTracker,
-  createPaneTyper,
-  createPaneRunning,
   markerKey,
   paneKey,
   HARNESS_STEPS,
@@ -39,13 +37,7 @@ afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
  * A pane with a scripted agent on a fake clock: `sleep` advances the clock and fires the events
  * the typed commands scheduled (marker written, session switched, marker taken).
  */
-function makeWorld({
-  harness = 'claude',
-  timeouts = {},
-  react = {},
-  paneEnv = true,
-  background = false,
-} = {}) {
+function makeWorld({ harness = 'claude', timeouts = {}, react = {}, paneEnv = true } = {}) {
   const world = {
     clock: 1_000_000,
     typed: [],
@@ -56,7 +48,6 @@ function makeWorld({
     running: true,
     svc: null,
     resetIds: [],
-    contexts: [],
   };
   const marker = path.join(pendingDir, paneEnv === false ? markerKey(cwd) : paneKey(PANE));
   world.marker = marker;
@@ -81,9 +72,8 @@ function makeWorld({
     ...react,
   };
   const steps = HARNESS_STEPS[harness];
-  world.type = (paneId, text, context) => {
+  world.type = (paneId, text) => {
     world.typed.push(text);
-    world.contexts.push(context);
     if (text.startsWith(`${steps.skill} `)) behave.skill(world);
     else if (text === steps.reset) behave.reset(world);
     else if (text === 'weiter') behave.weiter(world);
@@ -104,12 +94,8 @@ function makeWorld({
       sessionId: world.sessionId,
       working: world.working,
       paneEnv,
-      background,
     }),
-    paneRunning: async (paneId, context) => {
-      world.contexts.push(context);
-      return world.running;
-    },
+    paneRunning: () => world.running,
     type: world.type,
     newResetId: () => {
       world.resetIds.push(`reset-${world.resetIds.length + 1}`);
@@ -316,45 +302,6 @@ describe('Handoff + Reset job', () => {
     expect(world.svc.get(PANE).error).toBe(
       `The new session did not take the handoff (marker still pending: ${world.marker})`
     );
-  });
-
-  it('background job: cwd marker, only --reset-id, typing and liveness get the background context', async () => {
-    const world = makeWorld({ paneEnv: false, background: true });
-    await world.svc.start('13c54a91');
-    await vi.waitFor(() => expect(['done', 'error']).toContain(world.svc.get('13c54a91').phase), {
-      timeout: 5000,
-    });
-    const job = world.svc.get('13c54a91');
-    expect(job).toMatchObject({
-      phase: 'done',
-      keyMode: 'cwd',
-      markerKey: markerKey(cwd),
-      newSessionId: NEW,
-      resetId: 'reset-1',
-    });
-    expect(world.typed).toEqual([
-      '/hape-skills:handoff-reset --reset-id reset-1',
-      '/clear',
-      'weiter',
-    ]);
-    expect(world.contexts.every((c) => c?.background === true)).toBe(true);
-  });
-
-  it('two cwd-key jobs in one folder never run at once (shared marker): 409', async () => {
-    const world = makeWorld({ paneEnv: false, background: true });
-    await world.svc.start('job-a');
-    await expect(world.svc.start('job-b')).rejects.toMatchObject({
-      status: 409,
-      message: expect.stringMatching(/same folder/),
-    });
-    await vi.waitFor(() => expect(['done', 'error']).toContain(world.svc.get('job-a').phase), {
-      timeout: 5000,
-    });
-    fs.rmSync(world.marker, { force: true });
-    await expect(world.svc.start('job-b')).resolves.toMatchObject({ phase: 'writing' });
-    await vi.waitFor(() => expect(['done', 'error']).toContain(world.svc.get('job-b').phase), {
-      timeout: 5000,
-    });
   });
 
   it('pane-key jobs of different panes in one folder do run side by side', async () => {
@@ -798,25 +745,24 @@ describe('createPaneLookup', () => {
       envOf = async () => `claude PATH=/b ORKUMO_PANE_ID=${job.id}`
     ) => createPaneLookup({ listRows: async () => rows, ptySessions: () => ptys, envOf });
 
-    it('a job id with an open attach pane: the row of the job, never the attach process env', async () => {
-      const lookup = lookupWith([job], [pty(`agent-${job.id}-1700000000000`)]);
-      expect(await lookup(job.id)).toEqual({
-        harness: 'claude',
-        cwd: '/m',
-        sessionId: NEW,
-        working: true,
-        paneEnv: false,
-        background: true,
-      });
+    const NO_KEY =
+      'Background jobs have no pane key yet; the handoff could be taken by another session in /m. Open the session in an Orkumo pane, or reset by hand.';
+
+    it('a running job, with or without an attach pane, is refused: it has no pane key', async () => {
+      const withPane = lookupWith([job], [pty(`agent-${job.id}-1700000000000`)]);
+      expect(await withPane(job.id)).toEqual({ refusal: NO_KEY });
+      expect(await lookupWith([job])(job.id)).toEqual({ refusal: NO_KEY });
     });
 
-    it('a job id without any pane resolves through the row too', async () => {
-      const lookup = lookupWith([{ ...job, status: 'idle', displayState: 'idle' }]);
-      expect(await lookup(job.id)).toMatchObject({
-        background: true,
-        working: false,
-        sessionId: NEW,
+    it('the start answers 400 with that text', async () => {
+      const svc = createHandoffReset({
+        lookupPane: lookupWith([job]),
+        paneRunning: () => true,
+        type: () => true,
+        pendingDir,
       });
+      await expect(svc.start(job.id)).rejects.toMatchObject({ status: 400, message: NO_KEY });
+      expect(svc.get(job.id)).toBeNull();
     });
 
     it('a job that is not running is refused with its state', async () => {
@@ -859,63 +805,9 @@ describe('createPaneLookup', () => {
       };
       const lookup = lookupWith([app]);
       expect((await lookup('interactive-9')).refusal).toBe(
-        'Claude App (interactive-9) was not started in an Orkumo pane: Handoff + Reset needs an agent pane or a running background job'
+        'Claude App (interactive-9) was not started in an Orkumo pane: Handoff + Reset needs an agent pane'
       );
       expect(await lookup('nope')).toBeNull();
-    });
-  });
-
-  describe('typing and liveness for background jobs', () => {
-    const make = ({ pane = true, replyOk = true, jobAlive = true } = {}) => {
-      const calls = [];
-      const deps = {
-        typeIntoPane: (paneId, text) => {
-          calls.push(['pane', paneId, text]);
-          return pane;
-        },
-        replyToJob: async (id, text) => {
-          calls.push(['reply', id, text]);
-          if (!replyOk) throw new Error('attach failed');
-        },
-        paneAlive: () => pane,
-        jobAlive: async (id) => (calls.push(['alive', id]), jobAlive),
-      };
-      return { calls, type: createPaneTyper(deps), running: createPaneRunning(deps) };
-    };
-
-    it('an open attach pane gets the keystrokes', async () => {
-      const { calls, type } = make();
-      expect(await type('13c54a91', '/clear', { background: true })).toBe(true);
-      expect(calls).toEqual([['pane', '13c54a91', '/clear']]);
-    });
-
-    it('no pane: a job is typed into through the reply path (hidden attach)', async () => {
-      const { calls, type } = make({ pane: false });
-      expect(await type('13c54a91', '/clear', { background: true })).toBe(true);
-      expect(calls).toEqual([
-        ['pane', '13c54a91', '/clear'],
-        ['reply', '13c54a91', '/clear'],
-      ]);
-    });
-
-    it('a failed reply or a non-job pane is not delivered', async () => {
-      expect(await make({ pane: false, replyOk: false }).type('j', 'x', { background: true })).toBe(
-        false
-      );
-      const plain = make({ pane: false });
-      expect(await plain.type('orch-1', 'x', { background: false })).toBe(false);
-      expect(plain.calls).toEqual([['pane', 'orch-1', 'x']]);
-    });
-
-    it('liveness: the pane, or for a job its running row', async () => {
-      expect(await make({ pane: true }).running('p', { background: false })).toBe(true);
-      expect(await make({ pane: false }).running('p', { background: false })).toBe(false);
-      expect(await make({ pane: false, jobAlive: true }).running('j', { background: true })).toBe(
-        true
-      );
-      expect(await make({ pane: false, jobAlive: false }).running('j', { background: true })).toBe(
-        false
-      );
     });
   });
 
