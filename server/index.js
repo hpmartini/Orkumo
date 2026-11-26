@@ -36,9 +36,11 @@ import {
   typeIntoPanePty,
   ptyEvents,
   detectClaudeCLI,
+  getAllPtySessions,
 } from './services/ptyService.js';
 import { startQuickAgent } from './services/quickAgent.js';
 import { listOmpSessions } from './services/ompSessions.js';
+import { createHandoffReset, createPaneLookup, paneIdOf } from './services/handoffReset.js';
 import * as orchestrator from './services/orchestratorService.js';
 import * as orchestratorReports from './services/orchestratorReports.js';
 import { parseReport } from './services/orchestratorReport.js';
@@ -2173,6 +2175,32 @@ app.post(
     res.json({ delivered: true });
   }
 );
+
+// Handoff + Reset (server/services/handoffReset.js): the agent writes a handoff file, the pane is
+// reset and the new session continues from it; one in-memory job per pane
+const handoffReset = createHandoffReset({
+  lookupPane: createPaneLookup({
+    listRows: () => agentService.currentSessions(),
+    ptySessions: getAllPtySessions,
+  }),
+  paneRunning: (paneId) => getAllPtySessions().some((s) => paneIdOf(s.id) === paneId),
+  type: typeIntoPanePty,
+});
+const handoffResetRoute = (action, status = 200) => [
+  agentLimiter,
+  sameSiteOnly,
+  validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
+  async (req, res) => {
+    try {
+      res.status(status).json({ job: await action(req.params.paneId) });
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.message });
+    }
+  },
+];
+app.post('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.start, 202));
+app.get('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.get));
+app.delete('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.cancel));
 
 // ---------------------------------------------------------------------------
 // Orchestrators: sessions that hand out and watch work through the `orkumo` CLI
