@@ -30,7 +30,7 @@ Prototyp: agents-ui `demo/prototype.tsx`, Start `npx vite demo --port 5611 --str
 | Wiedererkennen statt Erinnern | 2     | Rail-Zeilen von needs-input und failed zeigen weder Frage noch Grund (`before-01`)                                                   |
 | Effizienz                     | 3     | Tastatur vorhanden; kein „nächster, der mich braucht“                                                                                |
 | Ästhetik, Minimalismus        | 2     | Null-Zähler in der Leiste, ~40 px Leerraum pro Rail-Karte, Cloud-Block dauerhaft sichtbar                                            |
-| Fehler erkennen und beheben   | 1     | Failed = rotes ✻ + „46s“, kein Grund, keine Aktion                                                                                   |
+| Fehler erkennen und beheben   | 1     | Failed = rotes ✻ + „46s“ in der Rail, im Pane Kopf „ready“, kein Grund, keine Aktion (`before-10`)                                   |
 | Hilfe                         | 2     | Leerzustände helfen, Zustände/Glyphen sind nirgends erklärt                                                                          |
 
 Detector (`impeccable detect`): Quellcode Chat + AgentList 1 Fund (`gray-on-color`, `ChatThreads.tsx:528`, Fehlalarm: graue Schrift nur im disabled-Zustand auf grauem Grund). URL-Scan der Instanz scheiterte (Navigation-Timeout 30 s, vermutlich offene SSE/PTY-Verbindungen) – kein sauberes Ergebnis, nur Fehler. Konsole: nur der erwartete `502 /api/board/items` (kein GitHub in der Fixture).
@@ -57,17 +57,18 @@ Stärken, die bleiben: die Frage-Karte (Frage als Überschrift, Optionen mit Fol
 
 ### 3.2 Zustände und Herleitung
 
-| Ziel-Zustand         | Rail-Gruppe | heutige `displayState`        | Herleitung (Quelle)                                                                                                 |
-| -------------------- | ----------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------- |
-| **Waiting for you**  | Needs you   | `needs-input`                 | Job `blocked` oder Dialog auf dem Pane-Screen (`agentDialog.ts`); offen: Frage im Antworttext, siehe Entscheidung 3 |
-| **Failed**           | Needs you   | `failed`                      | Job `failed` / Fehler-Toolresult; Grund = letzte Fehlermeldung                                                      |
-| **Working**          | Running     | `working`                     | **ein Turn läuft** – Turn-Ende aus dem Transkript, nicht aus `tempo`                                                |
-| **Waiting on tasks** | Running     | `waiting`                     | Turn beendet, `inFlight.tasks > 0`; Text nennt Anzahl und Art                                                       |
-| **Done**             | Finished    | `completed`                   | Job `done`                                                                                                          |
-| **Idle**             | Finished    | `idle`, `stopped`             | kein Turn, keine Tasks, keine Frage                                                                                 |
-| (Verbindung)         | –           | `starting`, `unknown`/offline | eigene graue Zeile „Starting…“/„Offline“, kein Gruppenwechsel                                                       |
+| Ziel-Zustand         | Rail-Gruppe | heutige `displayState` | Herleitung (Quelle)                                                                                                 |
+| -------------------- | ----------- | ---------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| **Waiting for you**  | Needs you   | `needs-input`          | Job `blocked` oder Dialog auf dem Pane-Screen (`agentDialog.ts`); offen: Frage im Antworttext, siehe Entscheidung 3 |
+| **Failed**           | Needs you   | `failed`               | Job `failed` / Fehler-Toolresult; Grund = letzte Fehlermeldung                                                      |
+| **Working**          | Running     | `working`              | **ein Turn läuft** – Turn-Ende aus dem Transkript, nicht aus `tempo`                                                |
+| **Waiting on tasks** | Running     | `waiting`              | Turn beendet, `inFlight.tasks > 0`; Text nennt Anzahl und Art                                                       |
+| **Done**             | Finished    | `completed`            | Job `done`                                                                                                          |
+| **Idle**             | Finished    | `idle`, `stopped`      | kein Turn, keine Tasks, keine Frage                                                                                 |
+| Looping              | Running     | `loop`                 | `/loop` aktiv; Zeile nennt Intervall und nächsten Lauf                                                              |
+| Interactive          | Finished    | `interactive`          | Sitzung außerhalb Orkumo, Aktivität unbekannt; graue Zeile „Interactive · activity unknown“                         |
 
-Die Korrektur der Statuslogik („working“ aus dem Turn-Ende statt aus dem Tempo, Schrittzähler wird bei jedem Turn-Start zurückgesetzt) liefert **ein anderer Agent** (Retro `retro-dauerbeschaeftigt.md`, Vorschläge 1 und 2; Fixture-Fälle in `test/fixtures/workingStates.js`). Dieses Konzept setzt sie voraus und baut nur die Darstellung darauf. Was darüber hinausgeht (Frage im Prosatext, unbeantwortete Thread-Nachricht als eigener Zustand), ist **nicht beschlossen** und steht als Entscheidung im Handoff.
+Die Korrektur der Statuslogik („working“ aus dem Turn-Ende statt aus dem Tempo, Schrittzähler wird bei jedem Turn-Start zurückgesetzt) liefert **ein anderer Agent** (Retro `retro-dauerbeschaeftigt.md`, Vorschläge 1 und 2; Fixture-Fälle in `test/fixtures/workingStates.js`). Dieses Konzept setzt sie voraus und baut nur die Darstellung darauf. Hinweis: dieser Agent hat seine Commits auf denselben Branch gelegt – Orkumo `7ef9a9f` (fix(agents): working only while a turn runs…), agents-ui `483fa69` (fix(chat): steps restart at every turn start…); nicht Teil dieses Konzepts, von mir nicht geprüft. Was darüber hinausgeht (Frage im Prosatext, unbeantwortete Thread-Nachricht als eigener Zustand), ist **nicht beschlossen** und steht als Entscheidung im Handoff.
 
 ### 3.3 Threads und Pills
 
@@ -83,10 +84,11 @@ Die Korrektur der Statuslogik („working“ aus dem Turn-Ende statt aus dem Tem
 
 ### 3.4 Lesebreite der Antwortkarten
 
-- Fließtext der Antwort max. **72ch**, linksbündig; Karte ohne Rahmen, Kopfzeile klein. Eigene Nachrichten rechts, max. 60ch.
+- Fließtext der Antwort max. **60ch im CSS ≈ 74 Zeichen pro Zeile** (Inter), linksbündig; Karte ohne Rahmen, Kopfzeile klein. Eigene Nachrichten rechts, max. 60ch.
+- Warum 60ch: `ch` ist die Breite der Ziffer 0; Inter-Fließtext ist schmaler, 72ch ergaben real ~91–95 Zeichen. Gemessen wird die echte Zeichenzahl pro gerenderter Zeile.
 - Tabellen, Code, Diffs dürfen bis **110ch** wachsen; breiter → horizontales Scrollen **im Block**, nie die Seite (gemessen: `scrollWidth === clientWidth` am Dokument in allen 22 Prototyp-Screens).
-- Gemessen im Prototyp: 72ch bei 1600/1920/1100 px, 70ch im Split-Pane (1600 px, zwei Panes).
-- Frage-Karte und Pill-Details folgen derselben 72ch-Kante.
+- Gemessen im Prototyp (lange Docs-Antwort, Zeichen ÷ Zeilen): ~74 Zeichen bei 1100 px, 1920 px maximiert und im Split-Pane (1600 px, zwei Panes); Ziel 70–80 eingehalten.
+- Frage-Karte, Fehlerkarte und Pill-Details folgen derselben Kante.
 
 ### 3.5 Issue-Ansicht: Repo-Köpfe (#327)
 
@@ -111,19 +113,19 @@ Geprüft an `src/components/Choice.tsx`, nicht am PR-Text:
 
 ## 4. Vorher / Nachher
 
-| Thema                   | Vorher                                                         | Nachher (Prototyp)                                                    |
-| ----------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------- |
-| Rail                    | `before-01-rail.png`                                           | `after/01-needs-you-{dark,light}.png`                                 |
-| Frage auffinden         | `before-02-question-card.png`                                  | `after/01-needs-you-*` (Frage in Zeile + über Composer, Choice-Pills) |
-| Frage nur im Text       | `before-05-prose-question-idle.png`                            | `after/02-prose-question-*` („from the answer text“)                  |
-| Failed                  | nur rotes ✻ (`before-01`)                                      | `after/03-failed-*` (Grund, Show log, Retry)                          |
-| Falsches working        | `before-03-false-working.png`                                  | `after/04-waiting-on-tasks-*`                                         |
-| Thread-Fehlrouting      | `before-04-thread-misroute.png`, `before-09-max-threads.png`   | `after/05-unanswered-thread-*`                                        |
-| Subagent als Thread     | –                                                              | `after/06-subagent-thread-*`                                          |
-| Pills                   | `before-03` (Chips)                                            | `after/07-pill-open-*`                                                |
-| Lesebreite maximiert    | `before-06-max-reading-width.png`                              | `after/08-reading-max-*`                                              |
-| Lesebreite schmal/Split | `before-07-narrow-reading.png`, `before-08-narrow-threads.png` | `after/09-reading-split-*`, `after/10-narrow-*`                       |
-| Working                 | –                                                              | `after/11-working-*`                                                  |
+| Thema                   | Vorher                                                               | Nachher (Prototyp)                                                    |
+| ----------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------- |
+| Rail                    | `before-01-rail.png`                                                 | `after/01-needs-you-{dark,light}.png`                                 |
+| Frage auffinden         | `before-02-question-card.png`                                        | `after/01-needs-you-*` (Frage in Zeile + über Composer, Choice-Pills) |
+| Frage nur im Text       | `before-05-prose-question-idle.png`                                  | `after/02-prose-question-*` („from the answer text“)                  |
+| Failed                  | `before-10-failed.png` (Pane-Kopf „ready“, kein Grund, keine Aktion) | `after/03-failed-*` (Grund, Show log, Retry)                          |
+| Falsches working        | `before-03-false-working.png`                                        | `after/04-waiting-on-tasks-*`                                         |
+| Thread-Fehlrouting      | `before-04-thread-misroute.png`, `before-09-max-threads.png`         | `after/05-unanswered-thread-*`                                        |
+| Subagent als Thread     | –                                                                    | `after/06-subagent-thread-*`                                          |
+| Pills                   | `before-03` (Chips)                                                  | `after/07-pill-open-*`                                                |
+| Lesebreite maximiert    | `before-06-max-reading-width.png`                                    | `after/08-reading-max-*`                                              |
+| Lesebreite schmal/Split | `before-07-narrow-reading.png`, `before-08-narrow-threads.png`       | `after/09-reading-split-*`, `after/10-narrow-*`                       |
+| Working                 | –                                                                    | `after/11-working-*`                                                  |
 
 Alle Bilder unter `briefings/assets/threads-status/`.
 
@@ -131,5 +133,5 @@ Alle Bilder unter `briefings/assets/threads-status/`.
 
 - **Mode:** Operate. Klarheit vor Ausdruck; Marke steckt in Präzision (Vokabular, Kanten, Zustände).
 - **Umfang erste Stufe:** Rail-Gruppen + Zeilentext, Zustandsvokabular, Pane-Kopf, Lesebreite, Composer-Ziel, Pills mit Art/Status. Zweite Stufe: Thread-Tabs statt Thread-Panel, Subagent-Threads, „No answer“-Erkennung. Dritte: #327, Choice-Schwelle, App-`DESIGN.md`, helles Theme.
-- **Annahmen (aus dem Briefing abgeleitet, nicht bestätigt):** A1 Hape arbeitet überwiegend dunkel, helles Theme ist Wunsch, kein Muss. A2 Projekt-Gruppierung ist verzichtbar, wenn Projekt-Tag + Filter bleiben. A3 „No answer“ ab sofort nach dem Senden, Hervorhebung ab 5 min. A4 72ch passt auch für Deutsch.
+- **Annahmen (aus dem Briefing abgeleitet, nicht bestätigt):** A1 Hape arbeitet überwiegend dunkel, helles Theme ist Wunsch, kein Muss. A2 Projekt-Gruppierung ist verzichtbar, wenn Projekt-Tag + Filter bleiben. A3 „No answer“ ab sofort nach dem Senden, Hervorhebung ab 5 min. A4 ~74 Zeichen pro Zeile passen auch für Deutsch.
 - **Nicht im Umfang:** Statuslogik selbst (anderer Agent), Terminal-Ansicht, Board.
