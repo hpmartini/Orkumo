@@ -88,6 +88,36 @@ describe('roleHeldRefusal', () => {
     ).toBeNull();
     expect(roleHeldRefusal('cto', { sessions: [chief], settings })).toBeNull();
   });
+  const held = (who) =>
+    `Role playmaker is already held by ${who}. Use that session; reset it with Handoff + Reset instead of starting a second one.`;
+  const pm = { id: 'pm', kind: 'background', name: 'playmaker', state: 'working' };
+  const pmMarked = { orchestrators: ['pm'], orchestratorRoles: {} };
+  it('a live orchestrator is held by its name too (25.11.: stop + start --name playmaker)', () => {
+    expect(roleHeldRefusal('playmaker', { sessions: [pm], settings: pmMarked })).toEqual({
+      status: 409,
+      error: held('playmaker'),
+    });
+    expect(roleHeldRefusal(' Playmaker ', { sessions: [pm], settings: pmMarked })).not.toBeNull();
+  });
+  it('a role id equals a name: the requested name matches the role of a holder', () => {
+    expect(roleHeldRefusal('chief', { sessions: [chief], settings }).status).toBe(409);
+  });
+  it('a server-started orchestrator pane (orch-…) holds its name before it is marked', () => {
+    const row = { id: 'interactive-5', paneId: 'orch-5', name: 'playmaker', state: null };
+    expect(
+      roleHeldRefusal('playmaker', { sessions: [row], settings: { orchestrators: [] } }).error
+    ).toBe(held('playmaker (pane orch-5)'));
+  });
+  it('workers, stopped orchestrators and other names are free', () => {
+    expect(roleHeldRefusal('playmaker', { sessions: [{ ...pm }], settings: {} })).toBeNull();
+    expect(
+      roleHeldRefusal('playmaker', {
+        sessions: [{ ...pm, state: 'stopped' }],
+        settings: pmMarked,
+      })
+    ).toBeNull();
+    expect(roleHeldRefusal('other', { sessions: [pm], settings: pmMarked })).toBeNull();
+  });
 });
 
 describe('isUiRequest', () => {
@@ -153,20 +183,26 @@ const cli = (args, env = {}) =>
     env: { PATH: process.env.PATH, HOME: home, ORKUMO_API_URL: api, ...env },
   });
 
+const SESSIONS = [
+  { kind: 'background', id: 'chiefjob', name: 'chief', state: 'working', cwd: tmp },
+  { kind: 'background', id: 'workerj1', name: 'worker', state: 'working', cwd: tmp },
+];
+/** What the stub `claude agents --json` lists */
+const writeSessions = (list) =>
+  fs.writeFileSync(path.join(home, 'sessions.json'), JSON.stringify(list));
+
 beforeAll(async () => {
   fs.mkdirSync(path.join(data, 'orchestrator', 'roles'), { recursive: true });
   fs.writeFileSync(path.join(data, 'orchestrator', 'roles', 'ceo.md'), '# ceo\n');
   fs.mkdirSync(home, { recursive: true });
-  const sessions = [
-    { kind: 'background', id: 'chiefjob', name: 'chief', state: 'working', cwd: tmp },
-    { kind: 'background', id: 'workerj1', name: 'worker', state: 'working', cwd: tmp },
-  ];
   fs.writeFileSync(
     path.join(home, 'claude'),
-    // `claude agents|respawn|stop …` answer at once; the pane start (an orchestrator session) stays up a moment
-    `#!/bin/sh\ncase " $* " in\n  *" stop "*) echo stopped ;;\n  *" agents "*|*" respawn "*) echo '${JSON.stringify(sessions)}' ;;\n  *) exec sleep 3 ;;\nesac\n`,
+    // `claude agents|respawn|stop|--bg …` answer at once (sessions: $HOME/sessions.json); the pane start
+    // (an orchestrator session) stays up a moment
+    `#!/bin/sh\ncase " $* " in\n  *" --bg "*) echo "backgrounded · newjob1 · bg" ;;\n  *" stop "*) echo stopped ;;\n  *" agents "*|*" respawn "*) cat "$HOME/sessions.json" ;;\n  *) exec sleep 3 ;;\nesac\n`,
     { mode: 0o755 }
   );
+  writeSessions(SESSIONS);
   fs.writeFileSync(path.join(data, 'config.json'), JSON.stringify({ directories: [tmp] }));
   fs.writeFileSync(
     path.join(data, 'settings.json'),
@@ -227,6 +263,54 @@ describe('one live holder per role (server)', () => {
       body: { role: 'ceo' },
     });
     expect(res.status).toBe(201);
+  });
+});
+
+describe('a second orchestrator under the name of a live one (dispatch, 25.11.)', () => {
+  const dispatch = (body, headers = {}) =>
+    call('POST', '/agents/dispatch', {
+      headers,
+      body: { cwd: tmp, prompt: 'Survey the agents in Orkumo', ...body },
+    });
+  const heldBy = (label, who) =>
+    `Role ${label} is already held by ${who}. Use that session; reset it with Handoff + Reset instead of starting a second one.`;
+
+  it('profile orchestrator named like a live orchestrator or its role: 409 naming the holder', async () => {
+    const byName = await dispatch({ profile: 'orchestrator', name: 'chief' });
+    expect(byName.status).toBe(409);
+    expect((await byName.json()).error).toBe(heldBy('chief', 'chief'));
+    const byRole = await dispatch({ profile: 'orchestrator', name: 'CEO' });
+    expect(byRole.status).toBe(409);
+    expect((await byRole.json()).error).toBe(heldBy('CEO', 'chief'));
+  });
+
+  it('workers keep any name', async () => {
+    expect((await dispatch({ profile: 'worker', name: 'chief' })).status).toBe(201);
+    expect((await dispatch({ name: 'chief' })).status).toBe(201);
+  });
+
+  it('a free name starts, is marked by the server and then counts as held', async () => {
+    expect((await dispatch({ profile: 'orchestrator', name: 'playmaker' })).status).toBe(201);
+    writeSessions([
+      ...SESSIONS,
+      { kind: 'background', id: 'newjob1', name: 'playmaker', state: 'working', cwd: tmp },
+    ]);
+    const again = await dispatch({ profile: 'orchestrator', name: 'playmaker' });
+    expect(again.status).toBe(409);
+    expect((await again.json()).error).toBe(heldBy('playmaker', 'playmaker'));
+  });
+
+  it('the UI may start a second one', async () => {
+    expect((await dispatch({ profile: 'orchestrator', name: 'chief' }, asUi)).status).toBe(201);
+  });
+
+  it('orkumo start --orchestrator --name <live orchestrator>: server text on stderr, exit 1', () => {
+    const run = cli(
+      ['start', '--project', tmp, '--orchestrator', '--name', 'playmaker', 'Survey the agents'],
+      { ORKUMO_AGENT_ID: 'chiefjob' }
+    );
+    expect(run.status).toBe(1);
+    expect(run.stderr).toContain(heldBy('playmaker', 'playmaker'));
   });
 });
 

@@ -526,6 +526,18 @@ describe('commands', () => {
     expect(out).toBe('');
   });
 
+  it('start --orchestrator: a refused second holder prints the server message and exits 1', async () => {
+    const message =
+      'Role playmaker is already held by playmaker. Use that session; reset it with Handoff + Reset instead of starting a second one.';
+    const { code, err, out } = await cli(
+      ['start', '--project', 'app', '--orchestrator', '--name', 'playmaker', 'do it now'],
+      { 'POST /agents/dispatch': () => [409, { error: message }] }
+    );
+    expect(code).toBe(1);
+    expect(err).toContain(message);
+    expect(out).toBe('');
+  });
+
   it('projects: lists name, path and agent count', async () => {
     const { out } = await cli(['projects']);
     expect(out).toBe('App  /p/app  (1 agent)\nApi  /p/api');

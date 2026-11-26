@@ -1603,8 +1603,25 @@ app.get('/api/agents/stream', (req, res) => {
 app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), async (req, res) => {
   const now = Date.now();
   const { orchestrator: sender, ...opts } = req.body;
+  const asOrchestrator = opts.profile === 'orchestrator';
+  // An orchestrator started under the name (or role) of a live one is a second holder: only the UI
+  // (Hape) may; workers keep any name. Marked here, so the next start sees it before the UI does.
+  const start = async () => {
+    const refusal =
+      asOrchestrator && opts.name && !agentCaller(req).ui
+        ? orchestrator.roleHeldRefusal(opts.name, {
+            sessions: await orchestratorSessions().catch(() => []),
+            settings: settingsService.getAgentViewSettings(),
+            livePanes: agentService.livePaneIds(),
+          })
+        : null;
+    if (refusal) throw Object.assign(new Error(refusal.error), { status: refusal.status });
+    const started = await agentService.dispatch(opts);
+    if (asOrchestrator) markOrchestrator(started.id);
+    return started;
+  };
   try {
-    const result = await agentService.dispatch(opts);
+    const result = await (asOrchestrator ? oneStartAtATime(start) : start());
     await openAgentThread(sender, {
       agents: [result.id],
       cwd: opts.cwd,
@@ -2367,12 +2384,12 @@ async function refuseRespawnAll(req, res) {
   if (refusal) res.status(refusal.status).json({ error: refusal.error });
   return !!refusal;
 }
-/** The server marks a pane it started as orchestrator (by pane id: it follows the pane), with its role */
-function markOrchestratorPane(paneId, role) {
+/** The server marks an orchestrator it started (a pane by its pane id: it follows the pane; a job by its id), with its role */
+function markOrchestrator(key, role) {
   const { orchestrators = [], orchestratorRoles = {} } = settingsService.getAgentViewSettings();
   settingsService.updateAgentViewSettings({
-    orchestrators: [...new Set([...orchestrators, paneId])],
-    ...(role ? { orchestratorRoles: { ...orchestratorRoles, [paneId]: role } } : {}),
+    orchestrators: [...new Set([...orchestrators, key])],
+    ...(role ? { orchestratorRoles: { ...orchestratorRoles, [key]: role } } : {}),
   });
 }
 // Starts of orchestrators one at a time: the role check of the second sees the first's mark
@@ -3299,7 +3316,7 @@ app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, (req, res) => {
         },
         orchestratorPaneDeps(dir)
       );
-      markOrchestratorPane(started.paneId, role);
+      markOrchestrator(started.paneId, role);
       res.status(201).json(started);
     } catch (error) {
       res.status(error.status || 500).json({ error: error.message });

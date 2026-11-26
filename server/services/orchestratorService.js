@@ -502,10 +502,16 @@ export function stopRefusal({ session, paneId = session?.paneId, caller, setting
   };
 }
 
+const sameLabel = (a, b) =>
+  !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+
 /**
- * Why a second session may not take `role` (a live session holds it); null when it is free.
- * A role key that is the id of a pane whose agent still runs (`livePanes`) holds the role too: the
- * server marks a new orchestrator pane at start, before its row is listed
+ * Why a second session may not take `role` (a live orchestrator holds it); null when it is free.
+ * A role is also a name: `role` matches the role id OR the name of a live orchestrator (a marked
+ * session or a server-started `orch-` pane), case-insensitively: stopping `playmaker` and starting
+ * `--name playmaker` is a second holder. A role key that is the id of a pane whose agent still runs
+ * (`livePanes`) holds the role too: the server marks a new orchestrator pane at start, before its
+ * row is listed
  * @param {{ sessions: object[], settings: { orchestrators?: string[], orchestratorRoles?: object },
  *   livePanes?: Set<string> }} opts
  */
@@ -514,13 +520,13 @@ export function roleHeldRefusal(role, { sessions, settings, livePanes }) {
   const session = sessions.find(
     (s) =>
       !isFinished(s) &&
-      isOrchestratorSession(s, orchestrators) &&
-      sessionRole(s, orchestratorRoles) === role
+      (isOrchestratorSession(s, orchestrators) || s.paneId?.startsWith(ORCHESTRATOR_PANE_PREFIX)) &&
+      (sameLabel(sessionRole(s, orchestratorRoles), role) || sameLabel(s.name, role))
   );
   const paneId =
     session?.paneId ??
     Object.keys(orchestratorRoles).find(
-      (key) => orchestratorRoles[key] === role && livePanes?.has(key)
+      (key) => sameLabel(orchestratorRoles[key], role) && livePanes?.has(key)
     );
   if (!session && !paneId) return null;
   const who = session
