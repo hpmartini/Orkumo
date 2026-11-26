@@ -87,10 +87,11 @@ const defaultShell = detectShell();
 console.log(`[PTY] Service initialized with default shell: ${defaultShell}`);
 
 /**
- * What a PTY runs: `options.command` or the login shell, in `cwd` (a missing one falls back to
- * /tmp or $HOME), with an env for an interactive xterm.js color terminal.
+ * /tmp or $HOME), with an env for an interactive xterm.js color terminal. An agent pane's PTY
+ * (`sessionId` = `agent-<pane>-<ts>`) gets ORKUMO_PANE_ID=<pane>, whatever it runs: the `orkumo`
+ * CLI names its pane to the server (X-Orkumo-Pane), the handoff marker is keyed by it.
  */
-function spawnSpec(cwd, options = {}) {
+function spawnSpec(cwd, options = {}, sessionId = '') {
   let workingDir = cwd;
   if (!fs.existsSync(workingDir)) {
     console.warn(`[PTY] CWD ${workingDir} doesn't exist, using fallback`);
@@ -166,6 +167,7 @@ function spawnSpec(cwd, options = {}) {
   const ptyEnv = {
     ...ptyBaseEnv(),
     ...options.env,
+    ...(paneIdOf(sessionId) ? { ORKUMO_PANE_ID: paneIdOf(sessionId) } : {}),
     // options.pathPrefix: dirs searched first (orchestrator panes find the `orkumo` CLI)
     PATH: [...(options.pathPrefix || []), enhancedPath].join(':'),
     TERM: 'xterm-256color',
@@ -254,7 +256,7 @@ export function createPtySession(
   }
 
   try {
-    const spec = spawnSpec(cwd, options);
+    const spec = spawnSpec(cwd, options, sessionId);
     const ptyProcess = pty.spawn(spec.file, spec.args, {
       name: 'xterm-256color',
       cols,
@@ -305,7 +307,7 @@ function addHeldSession(held) {
 
 async function startHeldSession(sessionId, cwd, cols, rows, options) {
   try {
-    const spec = spawnSpec(cwd, options);
+    const spec = spawnSpec(cwd, options, sessionId);
     const held = await spawnHeldPty({
       id: sessionId,
       file: spec.file,

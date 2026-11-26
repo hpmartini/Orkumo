@@ -96,6 +96,14 @@ export function hasRendererSecret(req) {
 export const isLocalAdmin = (req) =>
   isLocalRequest(req) && (isLoopbackOrigin(req.headers.origin) || hasRendererSecret(req));
 
+/**
+ * Orkumo's own UI: the Electron renderer (secret) or a page on a loopback origin. A request
+ * without Origin (the `orkumo` CLI, curl) is an agent's. Tells UI from agent for the C4 guards;
+ * an agent that forges a loopback Origin passes: this is no login (the secret is the proof).
+ */
+export const isUiRequest = (req) =>
+  hasRendererSecret(req) || (!!req.headers.origin && isLoopbackOrigin(req.headers.origin));
+
 const secrets = new Map();
 
 /** Random secret, created on first use and kept in the data dir (mode 600). */

@@ -863,6 +863,9 @@ export function agentPanes(now = Date.now()) {
   return panes;
 }
 
+/** Panes whose agent PTY runs now (orchestrator identity follows these, orchestratorService.js) */
+export const livePaneIds = () => new Set([...agentPanes().values()].map((pane) => pane.paneId));
+
 /** A Claude terminal row (of an earlier listing, too) with the current pane (activity) of its pid */
 function withPane(session, panes) {
   if (session.kind !== 'interactive') return session;
@@ -1919,6 +1922,9 @@ async function refreshOmpSessions() {
 function publishSessions(sessions) {
   try {
     latestSessions = sessions;
+    // every listing, also when nothing the UI shows changed: a new session id in a pane is not in
+    // snapshotKey, orchestrators follow it (orchestratorService.js createPaneFollower)
+    agentEvents.emit('refresh', { sessions, livePanes: livePaneIds() });
     const next = new Map(sessions.map((s) => [s.id, s]));
     const notifications = [];
     for (const session of sessions) {
