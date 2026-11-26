@@ -87,4 +87,14 @@ export const WORKING_CASES = [
     turn: null,
     expected: 'needs-input',
   },
+  {
+    label: 'finished job, its background shell still runs',
+    cli: 'done',
+    job: 'done',
+    status: 'busy',
+    tempo: 'idle',
+    inFlight: { tasks: 1, queued: 0, kinds: ['local_bash'], drainableMonitors: 0 },
+    turn: 'idle',
+    expected: 'waiting',
+  },
 ];

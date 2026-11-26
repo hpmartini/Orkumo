@@ -569,6 +569,8 @@ export function deriveDisplayState(session, jobState = null) {
     case 'done':
       // a reply to a finished job runs in its still-living process
       if (session.status === 'busy' && session.pid && session.turn !== 'idle') return 'working';
+      // its own background shells / agents outlive the finished turn
+      if (session.status === 'busy' && session.pid && session.inFlight?.tasks > 0) return 'waiting';
       return session.status === 'idle' || session.pid ? 'idle' : 'completed';
     default:
       return session.status === 'busy' ? 'working' : 'idle';
