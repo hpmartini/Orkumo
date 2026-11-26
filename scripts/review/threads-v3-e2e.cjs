@@ -837,18 +837,28 @@ async function ac10(page) {
   check('ac10: UI shows the start state again without a reload', !!rowsBack);
 }
 
-/** AC-14: message and command delivered where they waited, rows before them untouched */
-function ac14Place(before, after, msg) {
+/**
+ * AC-14: message and command delivered where they waited. The message keeps its row; every row
+ * that was there keeps its order around both; between message and command only new rows (the
+ * answer to the message) may come, never one that was there before
+ */
+function ac14Place(before, after, msg, label = 'ac14: delivered thread message and command at the same place in the thread') {
   const [iMsg, jMsg] = [before, after].map((l) => l.findIndex((t) => t.includes(msg)));
   const [iCmd, jCmd] = [before, after].map((l) => l.findIndex((t) => t.includes('/status-report')));
+  const rest = before.filter((_, i) => i !== iMsg && i !== iCmd);
+  const old = new Set(rest);
+  const kept = after.filter((t, i) => i !== jMsg && i !== jCmd && old.has(t));
+  // each old row on the same side of the message and of the command as before
+  const side = (l, m, c) => l.map((t, i) => (old.has(t) && i !== m && i !== c ? `${t}|${i < m}|${i < c}` : null)).filter(Boolean);
   check(
-    'ac14: delivered thread message and command at the same place in the thread',
+    label,
     iMsg >= 0 &&
+      iCmd > iMsg &&
       jMsg === iMsg &&
-      iCmd >= 0 &&
-      jCmd === iCmd &&
-      JSON.stringify(after.slice(0, Math.min(iMsg, iCmd))) === JSON.stringify(before.slice(0, Math.min(iMsg, iCmd))),
-    `msg ${iMsg} -> ${jMsg}, cmd ${iCmd} -> ${jCmd}`
+      jCmd > jMsg &&
+      JSON.stringify(kept) === JSON.stringify(rest) &&
+      JSON.stringify(side(after, jMsg, jCmd)) === JSON.stringify(side(before, iMsg, iCmd)),
+    `msg ${iMsg} -> ${jMsg}, cmd ${iCmd} -> ${jCmd}, between ${JSON.stringify(after.slice(jMsg + 1, jCmd).map((t) => t.slice(0, 40)))}`
   );
 }
 
@@ -1404,8 +1414,12 @@ async function f10(page) {
 const statusOk = [];
 (async () => {
   if (process.env.FAULT === 'n6') {
-    // the waiting command one row further down after delivery: must FAIL
-    ac14Place(['a', 'thread msg', '/status-report'], ['a', 'thread msg', 'x', '/status-report'], 'thread msg');
+    // the answer to the message comes before the command: the right place (PASS)
+    ac14Place(['a', 'thread msg', '/status-report'], ['a', 'thread msg', 'answer', '/status-report'], 'thread msg', 'n6 synthetic: new answer between (must PASS)');
+    // a row that was there before moved between message and command: must FAIL
+    ac14Place(['a', 'thread msg', '/status-report', 'z'], ['a', 'thread msg', 'z', '/status-report'], 'thread msg', 'n6 synthetic: old row moved above the command (must FAIL)');
+    // the message moved: must FAIL
+    ac14Place(['a', 'b', 'thread msg', '/status-report'], ['a', 'thread msg', 'b', '/status-report'], 'thread msg', 'n6 synthetic: message moved (must FAIL)');
     console.log(fails ? `FAILED ${fails}` : 'ALL PASS');
     process.exit(fails ? 1 : 0);
   }
