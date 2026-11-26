@@ -48,6 +48,7 @@ export const DEFAULT_AGENT_VIEW_SETTINGS = {
   // Orchestrator sessions (orchestratorService.js): row id, transcript uuid or pane id
   orchestrators: [],
   orchestratorRoles: {}, // orchestrator session key -> role id (roles/<id>.md)
+  handoffResetTokens: 150000, // context size above which a pane offers Handoff + Reset
   cardDensity: 'comfortable', // 'comfortable' | 'compact'
   // Card element -> slot (#159); mirrors DEFAULT_AGENT_CARD_FIELDS in types.ts
   cardFields: {
