@@ -37,6 +37,8 @@ const DROP = new Set([
   'CLAUDE_CODE_SESSION_ID',
   'CLAUDE_CODE_ENTRYPOINT',
   'CLAUDE_CODE_CHILD_SESSION',
+  // an agent pane gets its own (ptyService.js); the launcher's names another pane
+  'ORKUMO_PANE_ID',
 ]);
 const DROP_PREFIXES = [
   'GHOSTTY_',

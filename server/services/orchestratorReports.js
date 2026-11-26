@@ -159,6 +159,26 @@ export function createReportStore(dir) {
         .map((f) => read(f.slice(0, -5)))
         .filter(Boolean);
     },
+    /**
+     * The report of a roleless orchestrator is keyed by its row id; a new session in its pane
+     * (omp `/new`) has a new row id: the report moves to it (its `agentId` too, when given). An
+     * existing newer report of `to` wins; the old file is gone. false: nothing to move
+     */
+    rekey(from, to, { agentId } = {}) {
+      const state = read(from);
+      if (from === to || !state) return false;
+      const target = read(to);
+      if (!target || ms(target.receivedAt) < ms(state.receivedAt)) {
+        state.report.orchestrator = {
+          ...state.report.orchestrator,
+          id: to,
+          ...(agentId ? { agentId } : {}),
+        };
+        save(state);
+      }
+      fs.rmSync(fileOf(from), { force: true });
+      return true;
+    },
     /** Stores a parsed report; returns the new state and its change-log entry */
     submit(report, { now = Date.now(), watch = {} } = {}) {
       const id = report.orchestrator.id;

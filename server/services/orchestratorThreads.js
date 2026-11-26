@@ -116,12 +116,7 @@ export function repoAgents(report, projectId, sessions, contexts, orchestratorSe
 /** Command marks kept per thread: older ones have claimed their turn long ago */
 const MAX_COMMANDS = 100;
 
-/**
- * Key of an orchestrator's threads: its session id; a Claude terminal's row id is its pid (new on
- * every restart), so its transcript uuid
- */
-export const threadOwnerKey = (session) =>
-  (session.id.startsWith('interactive-') && session.sessionId) || session.id;
+export { threadOwnerKey } from './orchestratorService.js';
 
 /** Tidy-up actions an orchestrator can take back (`orkumo thread undo`, "Undo tidy-up") */
 const UNDO_MAX = 20;
@@ -222,6 +217,22 @@ export function createThreadStore(dir) {
     state(id) {
       const { threads, overrides, undo } = load(id);
       return { threads, overrides, canUndo: undo.length > 0 };
+    },
+    /**
+     * The orchestrator's session id changed (`/clear`, `/new`): its threads file goes to the new
+     * owner key, merged into threads that one has already; the old file is gone. false: nothing to move
+     */
+    moveOwner(from, to) {
+      if (from === to || !fs.existsSync(fileOf(from))) return false;
+      const source = load(from);
+      change(to, (doc) => {
+        const have = new Set(doc.threads.map((t) => t.id));
+        doc.threads.push(...source.threads.filter((t) => !have.has(t.id)));
+        doc.overrides.entries = { ...source.overrides.entries, ...doc.overrides.entries };
+        doc.overrides.merged = { ...source.overrides.merged, ...doc.overrides.merged };
+      });
+      fs.rmSync(fileOf(from), { force: true });
+      return true;
     },
     /**
      * A thread for `binding` (the existing one, opened again, its links grown) or a new one; a

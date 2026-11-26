@@ -23,6 +23,12 @@ Workspace: `{{WORKSPACE}}` (this directory). Your notes across sessions: `NOTES.
 - Do not answer questions an agent asks Hape on his behalf unless the answer is unambiguous from
   what Hape told you; otherwise collect them for Hape.
 - Never stop an agent that is working unless Hape asked for it or it is clearly stuck.
+- **Never stop or start an orchestrator to reset a session.** Only Hape stops an orchestrator
+  (`orkumo stop` on one is refused, 403), and a role has one live holder: a second start for a role
+  that is held is refused (409). A session that is full or confused is reset with the
+  **Handoff + Reset** button in its Orkumo pane (Hape clicks it): the session keeps its role, threads
+  and status report, and continues from its handoff. Use the session that holds the role; do not
+  start a replacement.
 - Writes are only allowed inside this workspace (enforced by a hook for Claude Code).
 
 ## The CLI

@@ -1885,6 +1885,7 @@ app.put(
 
 app.post('/api/agents/respawn-all', agentLimiter, async (req, res) => {
   try {
+    if (await refuseRespawnAll(req, res)) return;
     res.json(await agentService.respawnSession('--all'));
   } catch (error) {
     sendAgentError(res, error);
@@ -2097,6 +2098,7 @@ app.post(
   validateParams(agentIdSchema),
   async (req, res) => {
     try {
+      if (await refuseEnding(req, res, { ref: req.params.id })) return;
       res.json(await agentService.stopSession(req.params.id));
     } catch (error) {
       sendAgentError(res, error);
@@ -2110,7 +2112,8 @@ app.post(
   agentLimiter,
   sameSiteOnly,
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
-  (req, res) => {
+  async (req, res) => {
+    if (await refuseEnding(req, res, { paneId: req.params.paneId })) return;
     res.json({ stopped: killPanePtys(req.params.paneId) });
   }
 );
@@ -2211,7 +2214,7 @@ const panePromptSchema = z
 app.get('/api/orchestrator/overview', async (req, res) => {
   try {
     const [sessions, contexts] = await Promise.all([
-      agentService.currentSessions(),
+      orchestratorSessions(),
       getAgentContexts().catch(() => ({})),
     ]);
     res.json(
@@ -2238,10 +2241,7 @@ app.get(
   async (req, res) => {
     try {
       const last = Math.min(100, Math.max(1, parseInt(String(req.query.last || '10'), 10) || 10));
-      const session = orchestrator.findSessionByRef(
-        await agentService.currentSessions(),
-        req.params.id
-      );
+      const session = orchestrator.findSessionByRef(await orchestratorSessions(), req.params.id);
       if (!session) return res.status(404).json({ error: 'No agent with this id' });
       res.json({
         agent: { id: session.id, name: session.name || null },
@@ -2259,7 +2259,7 @@ app.get(
 
 app.get('/api/orchestrator/projects', async (req, res) => {
   try {
-    const sessions = await agentService.currentSessions().catch(() => []);
+    const sessions = await orchestratorSessions().catch(() => []);
     res.json({
       projects: orchestrator.projectList(await scanAllDirectories(), sessions),
       defaultHarness: settingsService.getAgentViewSettings().dispatch.harness,
@@ -2275,10 +2275,90 @@ const reportsDir = path.join(path.dirname(orchestrator.orchestratorDir()), 'orch
 const reportStore = orchestratorReports.createReportStore(reportsDir);
 const threadStore = orchestratorThreads.createThreadStore(reportsDir);
 
+// C4: an orchestrator's identity follows its pane through /clear, /new and /resume. Fed by every
+// agents listing (below) and by the orchestrator routes' reads, so it needs no open UI view.
+const paneFollower = orchestrator.createPaneFollower({
+  file: path.join(reportsDir, 'pane-sessions.json'),
+  getSettings: () => settingsService.getAgentViewSettings(),
+  setSettings: (partial) => settingsService.updateAgentViewSettings(partial),
+  threads: threadStore,
+  reports: reportStore,
+});
+const followPanes = (sessions, livePanes) => {
+  try {
+    paneFollower.observe(sessions, livePanes);
+  } catch (error) {
+    console.warn('[orchestrator] following panes:', error.message);
+  }
+};
+agentService.agentEvents.on('refresh', ({ sessions, livePanes }) =>
+  followPanes(sessions, livePanes)
+);
+/** The agents listing orchestrator routes read; panes of orchestrators are followed first */
+async function orchestratorSessions() {
+  const sessions = await agentService.currentSessions();
+  followPanes(sessions, agentService.livePaneIds());
+  return sessions;
+}
+
+// C4 guards. UI = the renderer secret or a loopback page origin (remoteAccess.isUiRequest); every
+// other caller (CLI, curl) is an agent, naming its pane in X-Orkumo-Pane (ORKUMO_PANE_ID)
+const agentCaller = (req) => {
+  const pane = req.get('x-orkumo-pane');
+  return {
+    ui: remoteAccess.isUiRequest(req),
+    paneId: pane && /^[\w.:-]{1,200}$/.test(pane) ? pane : null,
+  };
+};
+/** Answers 403 and returns true when the caller may not end the session `ref` / the pane `paneId` runs */
+async function refuseEnding(req, res, { ref, paneId }) {
+  const caller = agentCaller(req);
+  if (caller.ui) return false;
+  const sessions = await orchestratorSessions().catch(() => []);
+  const session = paneId
+    ? (sessions.find((s) => s.paneId === paneId) ?? null)
+    : orchestrator.findSessionByRef(sessions, ref);
+  const refusal = orchestrator.stopRefusal({
+    session,
+    paneId: paneId ?? session?.paneId,
+    caller,
+    settings: settingsService.getAgentViewSettings(),
+  });
+  if (refusal) res.status(refusal.status).json({ error: refusal.error });
+  return !!refusal;
+}
+/** `claude respawn --all` restarts every background session: refused while it would restart an orchestrator */
+async function refuseRespawnAll(req, res) {
+  const caller = agentCaller(req);
+  if (caller.ui) return false;
+  const settings = settingsService.getAgentViewSettings();
+  const refusal = (await orchestratorSessions().catch(() => []))
+    .filter((s) => s.kind === 'background')
+    .map((session) => orchestrator.stopRefusal({ session, caller, settings }))
+    .find(Boolean);
+  if (refusal) res.status(refusal.status).json({ error: refusal.error });
+  return !!refusal;
+}
+/** The server marks a pane it started as orchestrator (by pane id: it follows the pane), with its role */
+function markOrchestratorPane(paneId, role) {
+  const { orchestrators = [], orchestratorRoles = {} } = settingsService.getAgentViewSettings();
+  settingsService.updateAgentViewSettings({
+    orchestrators: [...new Set([...orchestrators, paneId])],
+    ...(role ? { orchestratorRoles: { ...orchestratorRoles, [paneId]: role } } : {}),
+  });
+}
+// Starts of orchestrators one at a time: the role check of the second sees the first's mark
+let orchestratorStarts = Promise.resolve();
+const oneStartAtATime = (task) => {
+  const run = orchestratorStarts.then(task, task);
+  orchestratorStarts = run.catch(() => {});
+  return run;
+};
+
 /** Agents with display state, activity and PRs: what the stale check and the sender check read */
 async function reportAgents() {
   const [sessions, contexts] = await Promise.all([
-    agentService.currentSessions(),
+    orchestratorSessions(),
     getAgentContexts().catch(() => ({})),
   ]);
   const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
@@ -2401,7 +2481,7 @@ async function deliverToOrchestrator(id, state, text, max) {
   const session = orchestratorReports.orchestratorSessionOf(
     id,
     state.report.orchestrator.agentId,
-    await agentService.currentSessions(),
+    await orchestratorSessions(),
     settingsService.getAgentViewSettings()
   );
   if (!session) return { status: 409, error: 'The orchestrator is not running' };
@@ -2507,7 +2587,7 @@ app.post(
       const session = orchestratorReports.orchestratorSessionOf(
         req.params.id,
         state.report.orchestrator.agentId,
-        await agentService.currentSessions(),
+        await orchestratorSessions(),
         settingsService.getAgentViewSettings()
       );
       if (!session) return res.status(409).json({ error: 'The orchestrator is not running' });
@@ -2532,7 +2612,7 @@ app.post(
  * its role (shared by every session of the role), else the session; null for any other session
  */
 async function chatOrchestrator(ref) {
-  const sessions = await agentService.currentSessions();
+  const sessions = await orchestratorSessions();
   const session = orchestrator.findSessionByRef(sessions, ref);
   const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
   if (!session || !orchestrator.isOrchestratorSession(session, orchestrators)) return null;
@@ -3160,14 +3240,24 @@ app.post(
 );
 
 /** "New orchestrator": the default harness (Claude Code when it has no pane) in the workspace; `role` names a roles/<role>.md */
-app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, async (req, res) => {
+app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, (req, res) => {
   if (isRunningInDocker) return res.status(501).json({ error: 'Not available in Docker' });
   const { harness, model, permissionMode } = settingsService.getAgentViewSettings().dispatch;
-  try {
-    const { dir } = ensureOrchestratorWorkspace();
-    const role = req.body?.role == null ? null : orchestrator.assertRole(req.body.role, dir);
-    res.status(201).json(
-      await orchestrator.startAgentPane(
+  return oneStartAtATime(async () => {
+    try {
+      const { dir } = ensureOrchestratorWorkspace();
+      const role = req.body?.role == null ? null : orchestrator.assertRole(req.body.role, dir);
+      // One live holder per role: only the UI (Hape) may start a second one
+      const refusal =
+        role && !agentCaller(req).ui
+          ? orchestrator.roleHeldRefusal(role, {
+              sessions: await orchestratorSessions().catch(() => []),
+              settings: settingsService.getAgentViewSettings(),
+              livePanes: agentService.livePaneIds(),
+            })
+          : null;
+      if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+      const started = await orchestrator.startAgentPane(
         {
           harness: orchestrator.PANE_HARNESSES.includes(harness) ? harness : 'claude',
           cwd: dir,
@@ -3180,11 +3270,13 @@ app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, async (req, res)
           orchestrator: true,
         },
         orchestratorPaneDeps(dir)
-      )
-    );
-  } catch (error) {
-    res.status(error.status || 500).json({ error: error.message });
-  }
+      );
+      markOrchestratorPane(started.paneId, role);
+      res.status(201).json(started);
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.message });
+    }
+  });
 });
 
 app.post(
@@ -3193,6 +3285,7 @@ app.post(
   validateParams(agentIdSchema),
   async (req, res) => {
     try {
+      if (await refuseEnding(req, res, { ref: req.params.id })) return;
       res.json(await agentService.respawnSession(req.params.id));
     } catch (error) {
       sendAgentError(res, error);
@@ -3207,6 +3300,7 @@ app.delete(
   validate(agentRemoveSchema),
   async (req, res) => {
     try {
+      if (await refuseEnding(req, res, { ref: req.params.id })) return;
       const result = await agentService.removeSession(req.params.id, req.body);
       res.status(result.removed ? 200 : 409).json(result);
     } catch (error) {
