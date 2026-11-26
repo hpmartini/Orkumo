@@ -6,7 +6,8 @@ import path from 'path';
 // node-pty is a native module - keep it out of the unit test
 vi.mock('node-pty', () => ({ spawn: vi.fn() }));
 
-const { readContextTokens } = await import('../server/services/ompSessions.js');
+const { readContextTokens, contextTokensCacheSize, CONTEXT_TOKENS_CACHE_MAX } =
+  await import('../server/services/ompSessions.js');
 const { sessionContextTokens, sessionCache } =
   await import('../server/services/agentContextService.js');
 
@@ -64,6 +65,18 @@ describe('context tokens', () => {
     expect(await readContextTokens(file)).toBe(10);
     fs.appendFileSync(file, assistant({ input: 1, cacheRead: 99, cacheWrite: 0 }) + '\n');
     expect(await readContextTokens(file)).toBe(100);
+  });
+
+  it('omp: the cache is bounded and keeps the files read last', async () => {
+    const files = [];
+    for (let i = 0; i < CONTEXT_TOKENS_CACHE_MAX + 20; i += 1) {
+      files.push(write(`f${i}.jsonl`, [assistant({ input: 1, cacheRead: i, cacheWrite: 0 })]));
+      await readContextTokens(files[i]);
+    }
+    expect(contextTokensCacheSize()).toBe(CONTEXT_TOKENS_CACHE_MAX);
+    // evicted files are simply read again, with the right answer
+    expect(await readContextTokens(files[0])).toBe(1);
+    expect(contextTokensCacheSize()).toBe(CONTEXT_TOKENS_CACHE_MAX);
   });
 
   it('claude: the last turn of the transcript (read + written + input)', async () => {

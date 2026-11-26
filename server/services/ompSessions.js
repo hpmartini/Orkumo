@@ -535,7 +535,10 @@ export async function readOmpTranscriptTail(file, limit = 40, { maxChars = 4000 
 
 /** Bytes scanned at most for the context size: one tool result can be megabytes */
 const CONTEXT_SCAN_MAX = 8 * 1024 * 1024;
-const contextTokensCache = new Map(); // file -> { size, mtimeMs, tokens }
+/** Files kept in the context-size cache: the listed sessions (MAX_LISTED) plus chat panes */
+export const CONTEXT_TOKENS_CACHE_MAX = 200;
+const contextTokensCache = new Map(); // file -> { size, mtimeMs, tokens }; oldest read first
+export const contextTokensCacheSize = () => contextTokensCache.size;
 
 /**
  * Tokens in the model context of the session's latest turn: `input + cacheRead + cacheWrite` of the
@@ -575,6 +578,10 @@ export async function readContextTokens(file) {
   } finally {
     await handle.close();
   }
+  contextTokensCache.delete(file);
   contextTokensCache.set(file, { size, mtimeMs, tokens });
+  if (contextTokensCache.size > CONTEXT_TOKENS_CACHE_MAX) {
+    contextTokensCache.delete(contextTokensCache.keys().next().value);
+  }
   return tokens;
 }
