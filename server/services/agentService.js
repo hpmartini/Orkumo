@@ -33,6 +33,7 @@ import {
 } from './ompSessions.js';
 import { getAllPtySessions, ptyEvents, PTY_ACTIVE_MS } from './ptyService.js';
 import { settingsService } from './settingsService.js';
+import { paneIdOf } from '../../config/ptyEnv.js';
 import { keepMainAgentAlive } from './mainAgent.js';
 import { orchestratorDir, isOrchestratorSession } from './orchestratorService.js';
 import { chatsDir } from './orkumoChats.js';
@@ -855,9 +856,9 @@ async function toAppSession(entry) {
 export function agentPanes(now = Date.now()) {
   const panes = new Map();
   for (const { id, pid, outputAt } of getAllPtySessions()) {
-    const match = /^agent-(.+)-\d+$/.exec(id);
-    if (match && pid) {
-      panes.set(pid, { paneId: match[1], active: !!outputAt && now - outputAt < PTY_ACTIVE_MS });
+    const paneId = paneIdOf(id);
+    if (paneId && pid) {
+      panes.set(pid, { paneId, active: !!outputAt && now - outputAt < PTY_ACTIVE_MS });
     }
   }
   return panes;

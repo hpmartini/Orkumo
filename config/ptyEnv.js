@@ -58,3 +58,16 @@ export function ptyBaseEnv(env = process.env) {
     )
   );
 }
+
+/** Pane of an agent PTY id (`agent-<pane>-<ts>`); null for any other PTY */
+export const paneIdOf = (sessionId) => /^agent-(.+)-\d+$/.exec(sessionId ?? '')?.[1] ?? null;
+
+/**
+ * `ORKUMO_PANE_ID=<pane>` of an agent pane's PTY, whatever it runs: the `orkumo` CLI names its
+ * pane to the server (X-Orkumo-Pane) and the handoff marker is keyed by it. Shared by the API
+ * (`ptyService.js`) and pty-host (Docker proxy).
+ */
+export const paneEnv = (sessionId) => {
+  const paneId = paneIdOf(sessionId);
+  return paneId ? { ORKUMO_PANE_ID: paneId } : {};
+};

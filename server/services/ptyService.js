@@ -9,7 +9,7 @@ import * as pty from 'node-pty';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import { exec } from 'child_process';
-import { ptyBaseEnv } from '../../config/ptyEnv.js';
+import { paneEnv, paneIdOf, ptyBaseEnv } from '../../config/ptyEnv.js';
 import { connectHeldPty, heldPtySockets, removeStaleSocket, spawnHeldPty } from './heldPty.js';
 
 // Store active PTY sessions
@@ -87,6 +87,7 @@ const defaultShell = detectShell();
 console.log(`[PTY] Service initialized with default shell: ${defaultShell}`);
 
 /**
+ * What a PTY runs: `options.command` or the login shell, in `cwd` (a missing one falls back to
  * /tmp or $HOME), with an env for an interactive xterm.js color terminal. An agent pane's PTY
  * (`sessionId` = `agent-<pane>-<ts>`) gets ORKUMO_PANE_ID=<pane>, whatever it runs: the `orkumo`
  * CLI names its pane to the server (X-Orkumo-Pane), the handoff marker is keyed by it.
@@ -167,7 +168,7 @@ function spawnSpec(cwd, options = {}, sessionId = '') {
   const ptyEnv = {
     ...ptyBaseEnv(),
     ...options.env,
-    ...(paneIdOf(sessionId) ? { ORKUMO_PANE_ID: paneIdOf(sessionId) } : {}),
+    ...paneEnv(sessionId),
     // options.pathPrefix: dirs searched first (orchestrator panes find the `orkumo` CLI)
     PATH: [...(options.pathPrefix || []), enhancedPath].join(':'),
     TERM: 'xterm-256color',
@@ -332,8 +333,6 @@ async function startHeldSession(sessionId, cwd, cols, rows, options) {
     return { success: false, error: spawnErrorMessage(options.command, error) };
   }
 }
-
-const paneIdOf = (sessionId) => /^agent-(.+)-\d+$/.exec(sessionId)?.[1] ?? null;
 
 /** The running agent PTY of pane `paneId` (PTY ids are `agent-<pane>-<ts>`), null when none runs */
 function runningPanePty(paneId) {

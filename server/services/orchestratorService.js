@@ -502,6 +502,14 @@ export function stopRefusal({ session, paneId = session?.paneId, caller, setting
   };
 }
 
+/** Typed text that ends the agent (`/exit`, `/quit`): a way to stop it that no stop route sees */
+export const endsSession = (text) => /^\s*\/(?:exit|quit)\b(?![\w-])/i.test(String(text));
+
+/** Transcripts of an orchestrator's chat: the pane's earlier sessions (oldest first), then its own */
+export const transcriptSessionIds = (session, earlier = []) => [
+  ...new Set([...earlier, session.sessionId].filter(Boolean)),
+];
+
 const sameLabel = (a, b) =>
   !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 
@@ -512,10 +520,12 @@ const sameLabel = (a, b) =>
  * `--name playmaker` is a second holder. A role key that is the id of a pane whose agent still runs
  * (`livePanes`) holds the role too: the server marks a new orchestrator pane at start, before its
  * row is listed
+ * `pending`: orchestrators the server started that no listing shows yet (`{ name, who }`): a second
+ * start right behind the first must see it
  * @param {{ sessions: object[], settings: { orchestrators?: string[], orchestratorRoles?: object },
- *   livePanes?: Set<string> }} opts
+ *   livePanes?: Set<string>, pending?: { name: string, who: string }[] }} opts
  */
-export function roleHeldRefusal(role, { sessions, settings, livePanes }) {
+export function roleHeldRefusal(role, { sessions, settings, livePanes, pending = [] }) {
   const { orchestrators = [], orchestratorRoles = {} } = settings;
   const session = sessions.find(
     (s) =>
@@ -528,10 +538,13 @@ export function roleHeldRefusal(role, { sessions, settings, livePanes }) {
     Object.keys(orchestratorRoles).find(
       (key) => sameLabel(orchestratorRoles[key], role) && livePanes?.has(key)
     );
-  if (!session && !paneId) return null;
+  const waiting = pending.find((p) => sameLabel(p.name, role));
+  if (!session && !paneId && !waiting) return null;
   const who = session
     ? `${session.name || session.id}${session.paneId ? ` (pane ${session.paneId})` : ''}`
-    : `pane ${paneId}`;
+    : paneId
+      ? `pane ${paneId}`
+      : waiting.who;
   return {
     status: 409,
     error: `Role ${role} is already held by ${who}. Use that session; reset it with Handoff + Reset instead of starting a second one.`,
@@ -544,9 +557,11 @@ export function roleHeldRefusal(role, { sessions, settings, livePanes }) {
 
 const newestFirst = (a, b) => activityMs(b) - activityMs(a);
 
-/** A new row in the pane is the same agent when the same process runs it (`/clear`, `/new`, `/resume`) */
-const sameProcess = (tracked, row) =>
-  tracked.pid && row.pid ? tracked.pid === row.pid : tracked.cwd === row.cwd;
+/**
+ * A new row in the pane is the same agent when the same process runs it (`/clear`, `/new`,
+ * `/resume`). Without a pid nothing is known (every orchestrator shares one cwd): not followed
+ */
+const sameProcess = (tracked, row) => !!tracked.pid && tracked.pid === row.pid;
 
 /**
  * Follows orchestrator panes across new session ids. The agents refresh feeds `observe` every
@@ -582,11 +597,14 @@ export function createPaneFollower({ file, getSettings, setSettings, threads, re
     fs.writeFileSync(tmp, JSON.stringify(tracked));
     fs.renameSync(tmp, file);
   };
-  const track = (row) => ({
+  // `previous`: the sessions the pane had before (oldest first): the transcripts that hold the
+  // entries of the threads that moved along
+  const track = (row, previous = []) => ({
     rowId: row.id,
     sessionId: row.sessionId ?? null,
     pid: row.pid ?? null,
     cwd: row.cwd ?? null,
+    previous,
   });
   const same = (t, row) => row.id === t.rowId && (row.sessionId ?? null) === t.sessionId;
 
@@ -595,7 +613,7 @@ export function createPaneFollower({ file, getSettings, setSettings, threads, re
     const settings = getSettings();
     const { orchestrators = [], orchestratorRoles = {} } = settings;
     const before = { id: t.rowId, sessionId: t.sessionId, paneId };
-    if (!isOrchestratorSession(before, orchestrators)) return;
+    if (!isOrchestratorSession(before, orchestrators)) return false;
 
     const newKey = next.sessionId || next.paneId || next.id;
     const stillValid = new Set([next.id, next.sessionId, next.paneId]);
@@ -623,9 +641,12 @@ export function createPaneFollower({ file, getSettings, setSettings, threads, re
     reports.rekey(reportBefore, sessionRole(next, roles) ?? next.id, {
       agentId: agentId === t.rowId ? next.id : agentId === t.sessionId ? next.sessionId : undefined,
     });
+    return true;
   }
 
   return {
+    /** Sessions the pane had before its current one, oldest first */
+    previousSessions: (paneId) => load()[paneId]?.previous ?? [],
     /**
      * @param {object[]} sessions the agents listing
      * @param {Set<string>|null} livePanes panes whose agent PTY runs; null: unknown
@@ -644,14 +665,18 @@ export function createPaneFollower({ file, getSettings, setSettings, threads, re
         const current = here.find((row) => same(t, row));
         if (current) {
           if ((current.pid ?? null) !== t.pid) {
-            map[paneId] = track(current);
+            map[paneId] = track(current, t.previous);
             dirty = true;
           }
           continue;
         }
         const next = [...here].sort(newestFirst)[0];
-        if (sameProcess(t, next)) follow(paneId, t, next);
-        delete map[paneId]; // tracked again below when the new row is marked
+        delete map[paneId]; // a new agent in the pane is tracked below when its row is marked
+        if (sameProcess(t, next) && follow(paneId, t, next))
+          map[paneId] = track(
+            next,
+            [...(t.previous ?? []), t.sessionId].filter(Boolean).slice(-20)
+          );
         dirty = true;
       }
       const { orchestrators = [] } = getSettings();

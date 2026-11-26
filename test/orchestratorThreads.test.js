@@ -4,6 +4,7 @@ import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { describe, expect, it } from 'vitest';
+import { threadOwnerKey } from '../server/services/orchestratorService.js';
 import {
   createThreadStore,
   cleanName,
@@ -13,7 +14,6 @@ import {
   threadText,
   returnMisplacedThreads,
   routeEntries,
-  threadOwnerKey,
   createSenderScanner,
   createEntryScanner,
   threadName,

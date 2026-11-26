@@ -190,3 +190,38 @@ describe('nothing moves for an unrelated session', () => {
     untouched();
   });
 });
+
+describe('what the switch keeps', () => {
+  it('the undo stack of the threads file moves with it; a tag taken in the target is renamed, not lost', () => {
+    settings = { orchestrators: ['uuid-A'], orchestratorRoles: {} };
+    thread('uuid-A', 'Launch');
+    threads.tidy('uuid-A', 'close', (doc) => {
+      doc.threads[0].closed = true;
+    });
+    thread('uuid-B', 'Launch'); // same name as A's thread
+    const f = follower();
+    f.observe([claudeRow('P', 'uuid-A', 7)], new Set(['P']));
+    f.observe([claudeRow('P', 'uuid-B', 7)], new Set(['P']));
+    expect(threads.state('uuid-B').canUndo).toBe(true);
+    const tags = threads.list('uuid-B').map((t) => t.tag);
+    expect(tags).toHaveLength(2);
+    expect(new Set(tags).size).toBe(2);
+  });
+
+  it('the pane remembers its earlier sessions (their transcripts hold the threads’ entries), also over a restart', () => {
+    settings = { orchestrators: ['uuid-A'], orchestratorRoles: {} };
+    follower().observe([claudeRow('P', 'uuid-A', 7)], new Set(['P']));
+    follower().observe([claudeRow('P', 'uuid-B', 7)], new Set(['P']));
+    follower().observe([claudeRow('P', 'uuid-C', 7)], new Set(['P']));
+    expect(follower().previousSessions('P')).toEqual(['uuid-A', 'uuid-B']);
+    expect(follower().previousSessions('other')).toEqual([]);
+  });
+
+  it('a row without a pid is never followed (all orchestrators share one cwd)', () => {
+    settings = { orchestrators: ['uuid-A'], orchestratorRoles: {} };
+    const f = follower();
+    f.observe([claudeRow('P', 'uuid-A', null)], new Set(['P']));
+    f.observe([claudeRow('P', 'uuid-Z', null)], new Set(['P']));
+    expect(settings.orchestrators).toEqual(['uuid-A']);
+  });
+});
