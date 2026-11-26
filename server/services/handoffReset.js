@@ -6,7 +6,7 @@
  * hook takes (deletes) it: marker with this job's reset id = handoff written, marker gone after the
  * reset = taken. K is the pane key (`orkumo-pane-<paneId>`; every agent pane PTY has env
  * `ORKUMO_PANE_ID`), or, for a pane started before that env existed, the cwd key. This service
- * types the three steps into the pane PTY and watches both signals; one in-memory job per pane.
+ * types the three steps into the pane PTY and watches the marker; one in-memory job per pane.
  *
  * Everything outside (clock, PTY, pane lookup, pending dir) is injected, so tests run with fakes.
  */
@@ -15,6 +15,7 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { paneIdOf } from '../../config/ptyEnv.js';
 import { TRANSCRIPT_READERS } from './chatTranscripts.js';
 
 /**
@@ -99,8 +100,6 @@ function httpError(status, message) {
 
 class Cancelled extends Error {}
 
-export const paneIdOf = (ptyId) => /^agent-(.+)-\d+$/.exec(ptyId)?.[1] ?? null;
-
 const defaultCommandOf = (pid) =>
   new Promise((resolve) => {
     execFile('ps', ['-p', String(pid), '-o', 'args='], { timeout: 3000 }, (error, stdout) =>
@@ -156,7 +155,14 @@ export function createPaneLookup({
       .filter((s) => paneIdOf(s.id) === paneId)
       .sort((a, b) => b.createdAt - a.createdAt)[0];
     if (!pty) return null;
-    const paneEnv = pty.pid ? paneEnvOf(await envOf(pty.pid), paneId) : null;
+    // the server recorded at spawn that it set the env (also in the holder of a restored PTY);
+    // `ps` only for a PTY that predates that record
+    const paneEnv =
+      typeof pty.paneEnvSet === 'boolean'
+        ? pty.paneEnvSet
+        : pty.pid
+          ? paneEnvOf(await envOf(pty.pid), paneId)
+          : null;
     const rows = await listRows().catch(() => []);
     const row = rows.find((r) => r.paneId === paneId && r.kind === 'interactive');
     if (row) {
@@ -268,7 +274,7 @@ export function createHandoffReset({
     });
 
     // Only a marker carrying this job's reset id is this handoff; older ones (any age) never count.
-    // Env presence unknown: handoff.py gets --key anyway and both marker files are watched.
+    // Env presence unknown (a legacy PTY `ps` could not read): --key anyway, handoff.py honours it.
     typeStep(
       job.keyMode === 'cwd'
         ? `${steps.skill} --reset-id ${job.resetId}`
@@ -390,9 +396,12 @@ export function createHandoffReset({
         starting.delete(paneId);
       }
       const { paneEnv, cwd } = entry.pane;
+      // `--key` makes handoff.py write the pane marker whatever the env; only a pane known to lack
+      // the env is typed without it and marks under the cwd key
       const candidates = [
-        ...(paneEnv === false ? [] : [{ key: paneKey(paneId), mode: 'pane' }]),
-        ...(paneEnv === true ? [] : [{ key: markerKey(cwd), mode: 'cwd' }]),
+        paneEnv === false
+          ? { key: markerKey(cwd), mode: 'cwd' }
+          : { key: paneKey(paneId), mode: 'pane' },
       ];
       run(entry, candidates).catch((error) => {
         if (error instanceof Cancelled || entry.ctl.cancelled) return;

@@ -11,7 +11,14 @@ vi.mock('../server/services/heldPty.js', () => ({
     heldSpecs.push(spec);
     return {
       pid: 4343,
-      hello: { id: spec.id, cwd: spec.cwd, file: spec.file, createdAt: Date.now(), backlog: '' },
+      hello: {
+        id: spec.id,
+        cwd: spec.cwd,
+        file: spec.file,
+        createdAt: Date.now(),
+        backlog: '',
+        envPaneId: spec.env.ORKUMO_PANE_ID ?? null,
+      },
       start() {},
       onData() {},
       onExit() {},
@@ -25,7 +32,7 @@ const spawn = vi.hoisted(() =>
 );
 vi.mock('node-pty', () => ({ spawn, default: { spawn } }));
 
-const { openAgentPty, createPtySession, killPtySession } =
+const { openAgentPty, createPtySession, killPtySession, getAllPtySessions } =
   await import('../server/services/ptyService.js');
 
 describe('ORKUMO_PANE_ID on agent pane PTYs', () => {
@@ -62,5 +69,15 @@ describe('ORKUMO_PANE_ID on agent pane PTYs', () => {
     process.env.ORKUMO_PANE_ID = 'orch-launcher';
     await openAgentPty('agent-orch-abc-1', '/tmp', 80, 24, { command: 'claude', args: [] });
     expect(heldSpecs.at(-1).env.ORKUMO_PANE_ID).toBe('orch-abc');
+  });
+
+  it('the server records that it set the env (held: via the holder’s hello), for handoff + reset', async () => {
+    await openAgentPty('agent-orch-rec-1', '/tmp', 80, 24, { command: 'claude', args: [] });
+    createPtySession('agent-work-rec-2', '/tmp', 80, 24, { command: 'claude' });
+    const rec = (id) => getAllPtySessions().find((x) => x.id === id)?.paneEnvSet;
+    expect(rec('agent-orch-rec-1')).toBe(true);
+    expect(rec('agent-work-rec-2')).toBe(true);
+    killPtySession('agent-orch-rec-1');
+    killPtySession('agent-work-rec-2');
   });
 });

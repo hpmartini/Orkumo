@@ -502,6 +502,12 @@ export function stopRefusal({ session, paneId = session?.paneId, caller, setting
   };
 }
 
+/** Typed text that runs a shell line in the agent (`! kill …`: Claude Code's bash mode, omp's too) */
+export const startsShell = (text) => /^\s*!/.test(String(text));
+
+/** Typed text that ends the agent or can: no stop route sees it */
+export const endsOrRunsShell = (text) => endsSession(text) || startsShell(text);
+
 /** Typed text that ends the agent (`/exit`, `/quit`): a way to stop it that no stop route sees */
 export const endsSession = (text) => /^\s*\/(?:exit|quit)\b(?![\w-])/i.test(String(text));
 
@@ -552,43 +558,73 @@ export function roleHeldRefusal(role, { sessions, settings, livePanes, pending =
 }
 
 /**
- * Marks and roles the server wrote (pane follower, a started orchestrator) that no client has read
- * yet. A page that did not know of them PUTs its own copy of `orchestrators` / `orchestratorRoles`
- * and would undo them: `reconcile` maps keys the follower moved (a stale copy still has the old
- * session id) and keeps the unread keys. A client read (`seen`) ends the protection: from then on
- * a missing key is the user's decision. [shortcut: one reader assumed; a second open page that has
- * not read yet keeps the keys once more]
+ * Revisions of the view settings, for the marks and roles the server writes itself (pane follower,
+ * a started orchestrator). A page PUTs its own copy of `orchestrators` / `orchestratorRoles` and
+ * would undo such a write it has not read yet. So GET hands out a revision and a PUT names the one
+ * it was based on:
+ * - based on the current revision: the page saw everything, the PUT is taken as written (an unmark
+ *   by the user sticks);
+ * - based on an older one (or another server run): `rebase` replays what the server wrote since,
+ *   keys the follower moved are mapped and the keys it added are kept;
+ * - no revision (curl, an older client): taken as written.
+ * @param {{ keep?: number, boot?: string }} [options] `keep`: server writes remembered
  */
-export function createMarkGuard() {
-  let unseen = { marks: new Set(), roles: {}, moved: {} };
+export function createMarkLog({ keep = 200, boot = crypto.randomUUID().slice(0, 8) } = {}) {
+  let n = 0;
+  let log = [];
+  const revision = () => `${boot}.${n}`;
+
+  /** What the entries amount to: old key -> final key, marks and roles still the server's */
+  function fold(entries) {
+    const moved = {};
+    const marks = new Set();
+    const roles = {};
+    for (const e of entries) {
+      for (const [from, to] of Object.entries(moved)) if (to in e.moved) moved[from] = e.moved[to];
+      Object.assign(moved, e.moved);
+      // a key that moved on again is no longer the server's to keep
+      for (const from of Object.keys(e.moved)) {
+        marks.delete(from);
+        delete roles[from];
+      }
+      for (const key of e.marks) marks.add(key);
+      Object.assign(roles, e.roles);
+    }
+    return { moved, marks, roles };
+  }
+
   return {
+    revision,
     /** @param {{ marks?: string[], roles?: Record<string,string>, moved?: Record<string,string> }} change */
     written({ marks = [], roles = {}, moved = {} }) {
-      for (const [from, to] of Object.entries(unseen.moved))
-        if (to in moved) unseen.moved[from] = moved[to];
-      Object.assign(unseen.moved, moved);
-      // a key that was moved on again is no longer the server's to protect
-      for (const from of Object.keys(moved)) {
-        unseen.marks.delete(from);
-        delete unseen.roles[from];
-      }
-      for (const key of marks) unseen.marks.add(key);
-      Object.assign(unseen.roles, roles);
+      n += 1;
+      log = [...log, { n, marks, roles, moved }].slice(-keep);
     },
-    seen() {
-      unseen = { marks: new Set(), roles: {}, moved: {} };
+    /** A client's PUT was stored: the revision moves on, nothing for a later rebase to replay */
+    bump() {
+      n += 1;
     },
-    /** The PUT body with the server's unread changes applied; fields it does not carry stay out */
-    reconcile(partial) {
+    /** The PUT body as it should be stored, for a PUT based on revision `base` */
+    rebase(partial, base) {
+      if (!base || base === revision()) return partial;
+      const [run, at] = String(base).split('.');
+      const known =
+        run === boot && Number.isInteger(Number(at)) && Number(at) >= (log[0]?.n ?? 1) - 1;
+      // another run or a revision older than the log: replay everything it holds
+      const {
+        moved,
+        marks,
+        roles: added,
+      } = fold(known ? log.filter((e) => e.n > Number(at)) : log);
       const out = { ...partial };
-      const key = (k) => unseen.moved[k] ?? k;
+      const key = (k) => moved[k] ?? k;
       if (Array.isArray(partial.orchestrators))
-        out.orchestrators = [...new Set([...partial.orchestrators.map(key), ...unseen.marks])];
+        out.orchestrators = [...new Set([...partial.orchestrators.map(key), ...marks])];
       if (partial.orchestratorRoles && typeof partial.orchestratorRoles === 'object') {
         const roles = {};
         for (const [k, role] of Object.entries(partial.orchestratorRoles))
           if (!(key(k) in roles) || key(k) === k) roles[key(k)] = role;
-        out.orchestratorRoles = { ...unseen.roles, ...roles };
+        out.orchestratorRoles = { ...added, ...roles };
       }
       return out;
     },

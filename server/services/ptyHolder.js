@@ -7,7 +7,7 @@
  *
  * Spec: env ORKUMO_PTY_HOLDER, JSON { socketPath, logPath, id, file, args, cwd, cols, rows, env }.
  * Protocol, one JSON object per line:
- *   holder → client  { t: 'hello', v, id, pid, file, args, cwd, cols, rows, createdAt, backlog }
+ *   holder → client  { t: 'hello', v, id, pid, file, args, cwd, cols, rows, createdAt, backlog, envPaneId }
  *                    { t: 'out', d }   { t: 'exit', exitCode, signal }
  *   client → holder  { t: 'in', d }    { t: 'resize', cols, rows }   { t: 'kill' }
  */
@@ -71,6 +71,8 @@ const server = net.createServer((socket) => {
     rows,
     createdAt,
     backlog,
+    // ORKUMO_PANE_ID the agent was started with (null: none): the server's record that it set it
+    envPaneId: spec.env?.ORKUMO_PANE_ID ?? null,
   });
   let buffer = '';
   socket.on('data', (chunk) => {

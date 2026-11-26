@@ -40,7 +40,8 @@ import {
 } from './services/ptyService.js';
 import { startQuickAgent } from './services/quickAgent.js';
 import { listOmpSessions } from './services/ompSessions.js';
-import { createHandoffReset, createPaneLookup, paneIdOf } from './services/handoffReset.js';
+import { createHandoffReset, createPaneLookup } from './services/handoffReset.js';
+import { paneIdOf } from '../config/ptyEnv.js';
 import * as orchestrator from './services/orchestratorService.js';
 import * as orchestratorReports from './services/orchestratorReports.js';
 import { parseReport } from './services/orchestratorReport.js';
@@ -1470,7 +1471,14 @@ const agentDispatchSchema = z.object({
     .optional(),
 });
 const agentReplySchema = z.object({
-  text: z.string().min(1).max(20000),
+  // typed into the agent like a pane message: no control characters besides tab / newline (an ESC or
+  // Ctrl-D would end the paste and act as keys)
+  text: z
+    .string()
+    .min(1)
+    .max(20000)
+    // eslint-disable-next-line no-control-regex
+    .refine((t) => !/[\x00-\x08\x0b-\x1f\x7f]/.test(t), 'Text must not contain control characters'),
   mode: z.enum(['auto', 'attach', 'resume']).optional(),
 });
 const agentRemoveSchema = z.object({
@@ -2111,6 +2119,12 @@ app.post(
   validate(agentReplySchema),
   async (req, res) => {
     try {
+      // `/exit` or a `!` shell line typed into an orchestrator ends it like a stop does
+      if (
+        orchestrator.endsOrRunsShell(req.body.text) &&
+        (await refuseEnding(req, res, { ref: req.params.id }))
+      )
+        return;
       res.json(
         await agentService.replySession(req.params.id, req.body.text, {
           mode: req.body.mode || 'auto',
@@ -2203,9 +2217,9 @@ app.post(
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
   validate(z.object({ text: typedTextSchema(100000) })),
   async (req, res) => {
-    // `/exit` ends the agent like a stop does
+    // `/exit` or a `!` shell line ends the agent like a stop does
     if (
-      orchestrator.endsSession(req.body.text) &&
+      orchestrator.endsOrRunsShell(req.body.text) &&
       (await refuseEnding(req, res, { paneId: req.params.paneId }))
     )
       return;
@@ -2340,13 +2354,13 @@ const reportsDir = path.join(path.dirname(orchestrator.orchestratorDir()), 'orch
 const reportStore = orchestratorReports.createReportStore(reportsDir);
 const threadStore = orchestratorThreads.createThreadStore(reportsDir);
 
-// Marks and roles the server writes: remembered until a client has read them (a stale PUT must
-// not undo them) and announced on the agents stream, so an open page refetches the settings
-const markGuard = orchestrator.createMarkGuard();
+// Marks and roles the server writes: logged by settings revision (a PUT based on an older one is
+// rebased over them, createMarkLog) and announced on the agents stream, so an open page refetches
+const markLog = orchestrator.createMarkLog();
 function writeMarks(partial, moved = {}) {
   const before = settingsService.getAgentViewSettings();
   const next = settingsService.updateAgentViewSettings(partial);
-  markGuard.written({
+  markLog.written({
     marks: (next.orchestrators ?? []).filter((k) => !(before.orchestrators ?? []).includes(k)),
     roles: Object.fromEntries(
       Object.entries(next.orchestratorRoles ?? {}).filter(
@@ -2455,7 +2469,9 @@ function recordStartedPane(paneId, role) {
 }
 function saveStartedPanes() {
   fs.mkdirSync(reportsDir, { recursive: true });
-  fs.writeFileSync(startedPanesFile, JSON.stringify(startedPanes));
+  const tmp = `${startedPanesFile}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(startedPanes));
+  fs.renameSync(tmp, startedPanesFile);
 }
 async function roleHeldRefusalNow(label) {
   const sessions = await orchestratorSessions().catch(() => []);
@@ -2463,10 +2479,14 @@ async function roleHeldRefusalNow(label) {
   const pending = [];
   const live = agentService.livePaneIds();
   const panes = readStartedPanes();
+  const { orchestrators = [], orchestratorRoles = {} } = settingsService.getAgentViewSettings();
   let ended = false;
   for (const [paneId, { role }] of Object.entries(panes)) {
-    if (live.has(paneId)) pending.push({ name: role, who: `pane ${paneId}` });
-    else ended = delete panes[paneId] || ended;
+    if (!live.has(paneId)) ended = delete panes[paneId] || ended;
+    // held while the pane is still marked with that role: unmarking it or giving it another role
+    // (the UI's decision) releases the role
+    else if (orchestrators.includes(paneId) && orchestratorRoles[paneId] === role)
+      pending.push({ name: role, who: `pane ${paneId}` });
   }
   if (ended) saveStartedPanes();
   for (const [id, { name, at }] of pendingHolders) {
@@ -4127,14 +4147,20 @@ app.post(
  */
 app.get('/api/settings/agent-view', (req, res) => {
   try {
-    markGuard.seen();
-    res.json(settingsService.getAgentViewSettings());
+    res.json({ ...settingsService.getAgentViewSettings(), revision: markLog.revision() });
   } catch (error) {
     sendAgentError(res, error);
   }
 });
 
-app.put('/api/settings/agent-view', validate(agentViewSettingsSchema), (req, res) => {
+// `revision`: the settings revision the page's copy was read at (GET), not a setting itself
+const takeRevision = (req, res, next) => {
+  const { revision, ...rest } = req.body ?? {};
+  req.settingsRevision = typeof revision === 'string' ? revision.slice(0, 100) : undefined;
+  req.body = rest;
+  next();
+};
+app.put('/api/settings/agent-view', takeRevision, validate(agentViewSettingsSchema), (req, res) => {
   try {
     if (req.body.scopeCwd) {
       req.body.scopeCwd = agentService.assertAllowedPath(
@@ -4143,7 +4169,11 @@ app.put('/api/settings/agent-view', validate(agentViewSettingsSchema), (req, res
         'Scope directory'
       );
     }
-    res.json(settingsService.updateAgentViewSettings(markGuard.reconcile(req.body)));
+    const saved = settingsService.updateAgentViewSettings(
+      markLog.rebase(req.body, req.settingsRevision)
+    );
+    markLog.bump();
+    res.json({ ...saved, revision: markLog.revision() });
   } catch (error) {
     sendAgentError(res, error);
   }

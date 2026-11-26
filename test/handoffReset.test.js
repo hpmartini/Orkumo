@@ -276,43 +276,31 @@ describe('Handoff + Reset job', () => {
     });
   });
 
-  it('env unknown: a marker under the cwd key with this reset id completes the job', async () => {
+  it('env unknown: only the pane marker counts; a cwd marker with this reset id is not watched', async () => {
     const cwdMarker = path.join(pendingDir, markerKey(cwd));
     const world = makeWorld({
       paneEnv: null,
+      timeouts: { markerMs: 20_000 },
       react: {
         skill: (w) => w.events.push({ at: w.clock + 3000, fn: () => w.writeMarker(cwdMarker) }),
-        weiter: (w) =>
-          w.events.push({ at: w.clock + 2000, fn: () => fs.rmSync(cwdMarker, { force: true }) }),
       },
     });
-    // an unrelated pane-key marker with another reset id must not count
-    fs.writeFileSync(path.join(pendingDir, paneKey(PANE)), '/stale.md\nold-reset\n');
     await world.svc.start(PANE);
     await finished(world);
-    expect(world.svc.get(PANE)).toMatchObject({
-      phase: 'done',
-      keyMode: 'cwd',
-      markerKey: markerKey(cwd),
-      handoffFile: `${root}/handoff.md`,
-    });
-    // taken-check follows the matched file: the stale pane marker stays and does not block
-    expect(fs.existsSync(path.join(pendingDir, paneKey(PANE)))).toBe(true);
+    expect(world.svc.get(PANE)).toMatchObject({ phase: 'error', keyMode: 'pane' });
+    expect(world.svc.get(PANE).error).toContain(path.join(pendingDir, paneKey(PANE)));
+    expect(world.svc.get(PANE).error).not.toContain(markerKey(cwd));
   });
 
-  it('env unknown: the matched marker must go; a cwd marker still pending is an error', async () => {
-    const cwdMarker = path.join(pendingDir, markerKey(cwd));
+  it('env unknown: the pane marker must go after the reset; still pending is an error', async () => {
     const world = makeWorld({
       paneEnv: null,
-      react: {
-        skill: (w) => w.events.push({ at: w.clock + 3000, fn: () => w.writeMarker(cwdMarker) }),
-        weiter: () => {},
-      },
+      react: { weiter: () => {} },
     });
     await world.svc.start(PANE);
     await finished(world);
     expect(world.svc.get(PANE).error).toBe(
-      `The new session did not take the handoff (marker still pending: ${cwdMarker})`
+      `The new session did not take the handoff (marker still pending: ${world.marker})`
     );
   });
 
@@ -680,6 +668,22 @@ describe('createPaneLookup', () => {
     expect(await paneEnv()).toBeNull();
     env = `x PATH=/bin ORKUMO_PANE_ID=${PANE}`;
     expect(await paneEnv()).toBe(true);
+  });
+
+  it('paneEnv comes from the spawn record when there is one: no ps', async () => {
+    const envOf = vi.fn(async () => 'claude HOME=/h PATH=/bin');
+    const lookupOf = (paneEnvSet) =>
+      createPaneLookup({
+        listRows: async () => [{ paneId: PANE, kind: 'interactive', sessionId: OLD }],
+        ptySessions: () => [pty(`agent-${PANE}-1`, { paneEnvSet })],
+        envOf,
+      });
+    expect((await lookupOf(true)(PANE)).paneEnv).toBe(true);
+    expect((await lookupOf(false)(PANE)).paneEnv).toBe(false);
+    expect(envOf).not.toHaveBeenCalled();
+    // a PTY that predates the record is asked from ps
+    expect((await lookupOf(undefined)(PANE)).paneEnv).toBe(false);
+    expect(envOf).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to the pane process (pi) and its terminal activity', async () => {

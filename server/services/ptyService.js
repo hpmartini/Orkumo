@@ -206,6 +206,9 @@ function spawnErrorMessage(command, error) {
 }
 
 /** Registers `session` (its `pty` local or held) and relays its output and exit as ptyEvents */
+/** The env of `spec` carries this PTY's pane id (recorded: whether the agent's env has it) */
+const paneEnvSetBy = (spec, sessionId) => spec.env.ORKUMO_PANE_ID === paneIdOf(sessionId);
+
 function addSession(session) {
   const { id: sessionId, pty: ptyProcess } = session;
   // A reconnect reuses the sessionId and replaces this PTY; a replaced PTY must not
@@ -273,6 +276,7 @@ export function createPtySession(
       type: spec.type,
       createdAt: Date.now(),
       held: false,
+      paneEnvSet: paneEnvSetBy(spec, sessionId),
     });
     return {
       success: true,
@@ -299,6 +303,8 @@ function addHeldSession(held) {
     type: 'custom',
     createdAt: hello.createdAt,
     held: true,
+    // the holder reports the pane id it started the agent with; an older holder says nothing
+    paneEnvSet: hello.envPaneId === undefined ? undefined : hello.envPaneId === paneIdOf(hello.id),
     backlog: hello.backlog,
     cols: hello.cols,
     rows: hello.rows,
@@ -485,6 +491,7 @@ export function getAllPtySessions() {
     pid: session.pty?.pid,
     createdAt: session.createdAt,
     outputAt: session.outputAt ?? null,
+    paneEnvSet: session.paneEnvSet,
   }));
 }
 
