@@ -254,6 +254,30 @@ describe('orchestrator profile', () => {
     expect(claudeCalls()[0]).toEqual(['respawn', '--all']);
   });
 
+  it('start: resuming a marked orchestrator (resume picker) adds the profile, others resume bare', async () => {
+    marked(['uuid-orch']);
+    await dispatch(
+      { resume: 'uuid-orch', cwd: project },
+      { allowedDirs: [project], unsafeAllowed: false }
+    );
+    await dispatch(
+      { resume: 'uuid-other', cwd: project },
+      { allowedDirs: [project], unsafeAllowed: false }
+    );
+    const [orch, other] = claudeCalls();
+    expect(orch).toEqual(['--bg', '--resume', 'uuid-orch', '--settings', ORCHESTRATOR_SETTINGS]);
+    expect(other).toEqual(['--bg', '--resume', 'uuid-other']);
+  });
+
+  it('a home orchestrator pane (--session-id, marked before start) gets the profile', () => {
+    expect(
+      interactiveOrchestratorArgs(
+        ['--session-id', 'uuid-1', '--remote-control', 'home-orchestrator'],
+        { orchestrators: ['uuid-1'] }
+      )
+    ).toEqual(['--settings', ORCHESTRATOR_SETTINGS]);
+  });
+
   it('interactive resume of a marked orchestrator adds --remote-control and the profile', () => {
     const settings = {
       orchestrators: ['uuid-1', 'uuid-2'],
@@ -272,7 +296,7 @@ describe('orchestrator profile', () => {
       ORCHESTRATOR_SETTINGS,
     ]);
     expect(interactiveOrchestratorArgs(['--resume', 'uuid-3'], settings)).toEqual([]);
-    expect(interactiveOrchestratorArgs(['--session-id', 'uuid-1'], settings)).toEqual([]);
+    expect(interactiveOrchestratorArgs(['--continue'], settings)).toEqual([]);
     expect(
       interactiveOrchestratorArgs(
         ['--resume', 'uuid-1', '--remote-control', 'x', '--settings', '{}'],

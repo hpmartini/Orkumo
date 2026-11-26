@@ -263,12 +263,13 @@ function orchestratorRespawnFlags(session, respawnFlags = []) {
 }
 
 /**
- * Extra PTY args for `claude --resume <id>` in a pane: a marked orchestrator gets
- * `--remote-control <role|orchestrator>` and the orchestrator profile again (interactive sessions
- * keep no flags of their own); flags already on the command line are not repeated.
+ * Extra PTY args for `claude --resume <id>` or `--session-id <id>` (the home orchestrator, marked
+ * before it starts) in a pane: a marked orchestrator gets `--remote-control <role|orchestrator>`
+ * and the orchestrator profile (interactive sessions keep no flags of their own); flags already on
+ * the command line are not repeated.
  */
 export function interactiveOrchestratorArgs(args, { orchestrators = [], orchestratorRoles = {} }) {
-  const at = args.indexOf('--resume');
+  const at = args.findIndex((arg) => arg === '--resume' || arg === '--session-id');
   const sessionId = at === -1 ? null : args[at + 1];
   if (!sessionId || !orchestrators.includes(sessionId)) return [];
   return [
@@ -1041,7 +1042,17 @@ export async function dispatch(opts = {}, context = {}) {
     unsafeAllowed: context.unsafeAllowed ?? isUnsafeFlagsAllowed(),
   });
   const cwd = safe.cwd;
-  const args = buildDispatchArgs({ ...safe, prompt, exec });
+  // resuming a marked orchestrator (resume picker, `/resume <uuid>`): its role profile, as on reply
+  // and respawn
+  const { orchestrators } = settingsService.getAgentViewSettings();
+  const profile =
+    safe.profile ??
+    (safe.resume &&
+    !safe.settings &&
+    isOrchestratorSession({ sessionId: safe.resume }, orchestrators)
+      ? 'orchestrator'
+      : undefined);
+  const args = buildDispatchArgs({ ...safe, profile, prompt, exec });
   const result = await runClaude(args, { cwd, timeout: 90000 });
   const parsed = parseDispatchOutput(`${result.stdout}\n${result.stderr}`);
   if (result.code !== 0 && !parsed.id) {
