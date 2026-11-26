@@ -877,6 +877,8 @@ const logGeo = (page, where) =>
         anchor: getComputedStyle(log).overflowAnchor,
         box: { x: r.x, y: r.y, w: r.width, h: r.height },
         probeTop: probe ? probe.getBoundingClientRect().top : null,
+        // in the log: a bar above it (start prompts of a page not loaded again) moves the log, not the place
+        probeInLog: probe ? probe.getBoundingClientRect().top - r.top : null,
         probeConnected: probe ? probe.isConnected && log.contains(probe) : false,
         probeText: probe ? (probe.textContent || '').slice(0, 40) : null,
         button: [...pane.querySelectorAll('button')].some(
@@ -1324,7 +1326,7 @@ async function f6(page) {
     const restart = errors.splice(n);
     fs.writeFileSync(`${OUT}/${tag}-f6-restart-errors.json`, JSON.stringify(restart, null, 1));
     console.log(`  f6 reconnect: ${restart.length} console errors during the restart window (20 s), kept apart`);
-    const old404 = restart.filter((e) => /404/.test(e) && /\/api\/agents\/chat\/[\w-]+\/status/.test(e));
+    const old404 = restart.filter((e) => /status of 404/.test(e) && /\/api\/agents\/chat\/[\w-]+\/status/.test(e));
     check('f6/item 8: no status poll of a gone chat id (404) in the restart window', old404.length === 0, JSON.stringify(old404.slice(0, 3)));
     const tAgain = await logGeo(page, 'thread');
     check(
@@ -1339,9 +1341,9 @@ async function f6(page) {
     const again = await logGeo(page, 'main');
     await shot(page, 'f6-reconnect-scrolled-up');
     check(
-      'f6: after a server restart (reconnect) the same first row within 2 px, still scrolled up',
-      !!again && Math.abs(again.probeTop - before.probeTop) <= 2 && again.fromBottom > 40,
-      JSON.stringify({ before: before.probeTop, after: again?.probeTop, connected: again?.probeConnected, fromBottom: again?.fromBottom })
+      'f6: after a server restart (reconnect) the same first row within 2 px of the log top, still scrolled up',
+      !!again && again.probeConnected && Math.abs(again.probeInLog - before.probeInLog) <= 2 && again.fromBottom > 40,
+      JSON.stringify({ before: before.probeInLog, after: again?.probeInLog, screen: [before.probeTop, again?.probeTop], connected: again?.probeConnected, fromBottom: again?.fromBottom })
     );
   } else console.log('  f6: reconnect check skipped (RESTART_SERVER unset)');
   // at the end: it stays at the end
