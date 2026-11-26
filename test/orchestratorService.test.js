@@ -429,6 +429,7 @@ describe('projectList', () => {
 describe('startAgentPane', () => {
   const paneDeps = () => ({
     workspace: '/data/orchestrator',
+    orchestratorSettings: '/home/.claude/profiles/orchestrator.json',
     openAgentPty: vi.fn(async () => ({ success: true })),
     killPanePtys: vi.fn(),
     resolveBinary: () => '/bin/omp',
@@ -452,21 +453,24 @@ describe('startAgentPane', () => {
       pathPrefix: ['/data/orchestrator-bin'],
       env: { ORKUMO_CLI: '/data/orchestrator-bin/orkumo', ORKUMO_WORKSPACE: '/data/orchestrator' },
     });
-    // Remote Control: orchestrators stay reachable from the Claude app, workers do not
+    // Remote Control and the role profile: orchestrators only
     expect(options.args).toEqual([
       '--session-id',
       result.sessionId,
       '--remote-control',
       'orchestrator',
+      '--settings',
+      '/home/.claude/profiles/orchestrator.json',
       '--',
       'survey',
     ]);
   });
 
-  it('starts a worker Claude pane without Remote Control', async () => {
+  it('starts a worker Claude pane without Remote Control and without the orchestrator profile', async () => {
     const deps = paneDeps();
     await startAgentPane({ harness: 'claude', cwd: '/p/app', prompt: 'fix it' }, deps);
     expect(deps.openAgentPty.mock.calls[0][4].args).not.toContain('--remote-control');
+    expect(deps.openAgentPty.mock.calls[0][4].args).not.toContain('--settings');
   });
 
   it('an omp orchestrator pane gets no Remote Control flag (Claude Code only)', async () => {

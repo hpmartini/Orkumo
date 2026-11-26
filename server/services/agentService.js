@@ -1170,15 +1170,27 @@ export async function stopSession(id) {
   return { output: result.stdout.trim() };
 }
 
-export async function respawnSession(id) {
-  if (id !== '--all') {
-    const file = path.join(jobDir(id), 'state.json');
-    const state = await readJson(file, null);
-    // `claude respawn` starts the job with its stored respawnFlags (tried on a real job)
-    const flags =
-      state && orchestratorRespawnFlags({ id, sessionId: state.sessionId }, state.respawnFlags);
-    if (flags) await writeJsonAtomic(file, { ...state, respawnFlags: flags });
+/** Writes the orchestrator profile into a job's respawnFlags: `claude respawn` starts the job with them (tried on a real job) */
+async function migrateRespawnFlags(id) {
+  const file = path.join(jobDir(id), 'state.json');
+  const state = await readJson(file, null);
+  const flags =
+    state && orchestratorRespawnFlags({ id, sessionId: state.sessionId }, state.respawnFlags);
+  if (flags) await writeJsonAtomic(file, { ...state, respawnFlags: flags });
+}
+
+async function jobIds() {
+  try {
+    return (await fsp.readdir(JOBS_DIR, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && SHORT_ID_RE.test(entry.name))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
   }
+}
+
+export async function respawnSession(id) {
+  for (const job of id === '--all' ? await jobIds() : [id]) await migrateRespawnFlags(job);
   const args = id === '--all' ? ['respawn', '--all'] : ['respawn', id];
   const result = await runClaude(args, { timeout: 30000 });
   if (result.code !== 0)

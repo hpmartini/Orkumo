@@ -234,6 +234,26 @@ describe('orchestrator profile', () => {
     expect(readFlags('job99999')).toEqual(['--name', 'w']);
   });
 
+  it('respawn --all: every orchestrator job gets the profile before the CLI restarts them', async () => {
+    marked(['job22222']);
+    writeJob('job11111', {
+      sessionId: 'sess-1',
+      respawnFlags: ['--settings', LEGACY_ORCHESTRATOR_SETTINGS],
+    });
+    writeJob('job22222', { sessionId: 'sess-2', respawnFlags: ['--name', 'main-orchestrator'] });
+    writeJob('job33333', { sessionId: 'sess-3', respawnFlags: ['--name', 'w'] });
+    await respawnSession('--all');
+    expect(readFlags('job11111')).toEqual(['--settings', ORCHESTRATOR_SETTINGS]);
+    expect(readFlags('job22222')).toEqual([
+      '--name',
+      'main-orchestrator',
+      '--settings',
+      ORCHESTRATOR_SETTINGS,
+    ]);
+    expect(readFlags('job33333')).toEqual(['--name', 'w']);
+    expect(claudeCalls()[0]).toEqual(['respawn', '--all']);
+  });
+
   it('interactive resume of a marked orchestrator adds --remote-control and the profile', () => {
     const settings = {
       orchestrators: ['uuid-1', 'uuid-2'],
