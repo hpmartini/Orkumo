@@ -176,7 +176,7 @@ export function createPaneLookup({
         harness: 'claude',
         cwd: job.cwd || pty?.cwd,
         sessionId: job.sessionId ?? null,
-        working: isWorking(job),
+        working: isJobWorking(job),
         paneEnv: true,
         background: true,
       };
@@ -223,20 +223,24 @@ export function createPaneLookup({
 const isWorking = (row) => TURN_ACTIVE.has(row.status) || TURN_ACTIVE_DISPLAY.has(row.displayState);
 
 /**
+ * A background job's turn runs while its `status` is busy or waiting, or a dialog waits (`waitingFor`).
+ * Its `displayState` is no turn signal: `state: 'blocked'` always shows as needs-input, also when
+ * the agent has ended its turn and waits for Hape (status idle), which is where the skill ends.
+ */
+const isJobWorking = (job) => TURN_ACTIVE.has(job.status) || !!job.waitingFor;
+
+/**
  * `type(paneId, text, { background })` for the job service: into the pane's terminal; a background
  * job without an open attach pane through `replyToJob(jobId, text)` (a hidden `claude attach`
- * typing like keystrokes, so `/clear` works too). true when delivered.
+ * typing like keystrokes, so `/clear` works too). true when delivered, false when a non-job pane
+ * has no terminal; a failing `replyToJob` throws, so its reason reaches the job.
  */
 export function createPaneTyper({ typeIntoPane, replyToJob }) {
   return async (paneId, text, { background = false } = {}) => {
     if (typeIntoPane(paneId, text)) return true;
     if (!background) return false;
-    try {
-      await replyToJob(paneId, text);
-      return true;
-    } catch {
-      return false;
-    }
+    await replyToJob(paneId, text);
+    return true;
   };
 }
 
@@ -315,7 +319,13 @@ export function createHandoffReset({
     const context = { background: !!entry.pane.background };
     const typeStep = async (text) => {
       alive();
-      if (!(await type(paneId, text, context))) throw new Error('The agent in this pane is gone');
+      let delivered;
+      try {
+        delivered = await type(paneId, text, context);
+      } catch (error) {
+        throw new Error(`Typing into the session failed: ${error.message}`);
+      }
+      if (!delivered) throw new Error('The agent in this pane is gone');
     };
     /** Polls `check` until it returns a truthy value; null at the deadline */
     const until = async (limitMs, check) => {
@@ -434,7 +444,7 @@ export function createHandoffReset({
         if (steps.observeReset && !pane.sessionId) {
           throw httpError(
             400,
-            `The session of this ${pane.harness} pane is not known (yet); try again in a moment. Panes that only attach to a background job have none`
+            `The session of this ${pane.harness} pane is not known (yet); try again in a moment`
           );
         }
         const started = now();

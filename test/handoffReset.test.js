@@ -591,10 +591,13 @@ describe('marker key parity with handoff.py', () => {
 });
 
 describe('real handoff.py', () => {
-  const HANDOFF_PY = path.join(
-    os.homedir(),
-    'PROJECTS/hape-skills/plugins/hape-skills/skills/handoff-reset/scripts/handoff.py'
-  );
+  // HANDOFF_PY=<checkout>/plugins/hape-skills/skills/handoff-reset/scripts/handoff.py tests another version
+  const HANDOFF_PY =
+    process.env.HANDOFF_PY ||
+    path.join(
+      os.homedir(),
+      'PROJECTS/hape-skills/plugins/hape-skills/skills/handoff-reset/scripts/handoff.py'
+    );
   const hasKeyOption =
     fs.existsSync(HANDOFF_PY) && fs.readFileSync(HANDOFF_PY, 'utf8').includes('--reset-id');
   const run = (home, file, args, env = {}) =>
@@ -677,6 +680,59 @@ describe('real handoff.py', () => {
       expect(fs.readFileSync(marker, 'utf8')).toBe(`${file}\nr-2\n`);
     }
   });
+
+  // handoff.py >= 2.4.2: a Claude background job session has no ORKUMO_PANE_ID but CLAUDE_JOB_DIR
+  const hasJobDir = hasKeyOption && fs.readFileSync(HANDOFF_PY, 'utf8').includes('CLAUDE_JOB_DIR');
+  it.skipIf(!hasJobDir)(
+    'a background job session: CLAUDE_JOB_DIR gives paneKey(jobId) for mark and the SessionStart hook; its children do not',
+    () => {
+      const home = path.join(root, 'home3');
+      const sessions = path.join(home, '.claude', 'sessions');
+      fs.mkdirSync(sessions, { recursive: true });
+      fs.writeFileSync(
+        path.join(sessions, '4242.json'),
+        JSON.stringify({ pid: 4242, kind: 'bg', jobId: '13c54a91' })
+      );
+      fs.writeFileSync(
+        path.join(sessions, '5555.json'),
+        JSON.stringify({ pid: 5555, kind: 'sdk' })
+      );
+      const file = handoffFile();
+      const pending = path.join(home, '.claude', 'handoffs', '.pending');
+      const job = { CLAUDE_JOB_DIR: '/Users/x/.claude/jobs/13c54a91', CLAUDE_PID: '4242' };
+      const hook = (env, source) =>
+        spawnSync('python3', ['-I', HANDOFF_PY, 'claude-hook'], {
+          env: { PATH: process.env.PATH, HOME: home, ...env },
+          input: JSON.stringify({ cwd, source }),
+          encoding: 'utf8',
+        });
+
+      const marked = run(home, file, ['--reset-id', 'job-r-1'], job);
+      expect(marked.status, marked.stderr).toBe(0);
+      const marker = path.join(pending, paneKey('13c54a91'));
+      expect(fs.readFileSync(marker, 'utf8')).toBe(`${file}\njob-r-1\n`);
+      // Orkumo types --key paneKey(jobId): the same file
+      const viaKey = run(home, file, ['--key', paneKey('13c54a91'), '--reset-id', 'job-r-2']);
+      expect(viaKey.status, viaKey.stderr).toBe(0);
+      expect(fs.readFileSync(marker, 'utf8')).toBe(`${file}\njob-r-2\n`);
+
+      // children of the job: omp (inherits CLAUDE_PID) and claude -p (own CLAUDE_PID)
+      for (const child of [
+        { ...job, PI_SESSION_ID: 's1' },
+        { ...job, CLAUDE_PID: '5555' },
+      ]) {
+        expect(hook(child, 'clear').stdout).toBe('');
+        const out = run(home, file, ['--reset-id', 'child'], child);
+        expect(out.status, out.stderr).toBe(0);
+        expect(fs.readFileSync(marker, 'utf8')).toBe(`${file}\njob-r-2\n`);
+      }
+      // not at startup; at /clear the hook takes it, which is what the job waits for
+      expect(hook(job, 'startup').stdout).toBe('');
+      expect(fs.existsSync(marker)).toBe(true);
+      expect(hook(job, 'clear').stdout).toContain('ziel: x');
+      expect(fs.existsSync(marker)).toBe(false);
+    }
+  );
 });
 
 describe('createPaneLookup', () => {
@@ -822,6 +878,28 @@ describe('createPaneLookup', () => {
       });
     });
 
+    it('a job that waits for Hape (state blocked, status idle, needs-input) has ended its turn', async () => {
+      const lookup = lookupWith([
+        { ...job, state: 'blocked', status: 'idle', displayState: 'needs-input' },
+      ]);
+      expect((await lookup(job.id)).working).toBe(false);
+    });
+
+    it('a job is working only while its status is busy or waiting or a dialog waits', async () => {
+      for (const [patch, working] of [
+        [{ status: 'busy', displayState: 'working' }, true],
+        [{ status: 'busy', state: 'blocked', displayState: 'needs-input' }, true],
+        [{ status: 'waiting', displayState: 'needs-input' }, true],
+        [{ status: 'idle', waitingFor: 'permission', displayState: 'needs-input' }, true],
+        [{ status: 'idle', state: 'working', displayState: 'idle' }, false],
+        [{ status: 'idle', state: 'done', displayState: 'idle' }, false],
+        [{ status: null, displayState: 'idle' }, false],
+      ]) {
+        const lookup = lookupWith([{ ...job, ...patch }]);
+        expect((await lookup(job.id)).working, JSON.stringify(patch)).toBe(working);
+      }
+    });
+
     it('a job that is not running is refused with its state', async () => {
       const lookup = lookupWith([{ ...job, pid: null, status: null, displayState: 'completed' }]);
       expect((await lookup(job.id)).refusal).toBe(
@@ -901,10 +979,13 @@ describe('createPaneLookup', () => {
       ]);
     });
 
-    it('a failed reply or a non-job pane is not delivered', async () => {
-      expect(await make({ pane: false, replyOk: false }).type('j', 'x', { background: true })).toBe(
-        false
-      );
+    it('a failed reply is not swallowed: its reason reaches the caller', async () => {
+      await expect(
+        make({ pane: false, replyOk: false }).type('j', 'x', { background: true })
+      ).rejects.toThrow('attach failed');
+    });
+
+    it('a non-job pane is not delivered', async () => {
       const plain = make({ pane: false });
       expect(await plain.type('orch-1', 'x', { background: false })).toBe(false);
       expect(plain.calls).toEqual([['pane', 'orch-1', 'x']]);
@@ -924,7 +1005,7 @@ describe('createPaneLookup', () => {
 
   describe('background flow with fakes (lookup + typer + liveness + job)', () => {
     const JOB = '13c54a91';
-    const flow = ({ openPane }) => {
+    const flow = ({ openPane, replyError = null }) => {
       let clock = 5_000_000;
       const events = [];
       const row = {
@@ -933,14 +1014,21 @@ describe('createPaneLookup', () => {
         sessionId: OLD,
         cwd,
         pid: 12950,
+        state: 'blocked',
         status: 'idle',
-        displayState: 'idle',
+        displayState: 'needs-input',
         name: 'main-orchestrator',
       };
       const delivered = [];
       const at = (ms, fn) => events.push({ at: clock + ms, fn });
       const react = (text) => {
         delivered.push(text);
+        // the agent answers: busy while it works, then waiting for Hape (state blocked, status idle)
+        if (text.startsWith('/hape-skills:handoff-reset ')) {
+          row.status = 'busy';
+          row.displayState = 'working';
+          at(6000, () => Object.assign(row, { status: 'idle', displayState: 'needs-input' }));
+        }
         if (text.startsWith('/hape-skills:handoff-reset ')) {
           // what handoff.py mark does with `--key K --reset-id R`
           const key = /--key (\S+)/.exec(text)[1];
@@ -974,6 +1062,7 @@ describe('createPaneLookup', () => {
           },
           replyToJob: async (id, text) => {
             expect(id).toBe(JOB);
+            if (replyError) throw new Error(replyError);
             react(text);
           },
         }),
@@ -1027,6 +1116,20 @@ describe('createPaneLookup', () => {
         phase: 'error',
         error: 'The agent in this pane is gone',
       });
+    });
+
+    it('a failing hidden attach ends the job with its real reason, not "gone"', async () => {
+      const { svc, delivered } = flow({
+        openPane: false,
+        replyError: 'Timed out delivering reply',
+      });
+      await svc.start(JOB);
+      await settled(svc);
+      expect(svc.get(JOB)).toMatchObject({
+        phase: 'error',
+        error: 'Typing into the session failed: Timed out delivering reply',
+      });
+      expect(delivered).toEqual([]);
     });
   });
 
