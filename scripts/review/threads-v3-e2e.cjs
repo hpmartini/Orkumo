@@ -857,6 +857,8 @@ function ac14Place(before, after, msg, label = 'ac14: delivered thread message a
       jMsg === iMsg &&
       jCmd > jMsg &&
       JSON.stringify(kept) === JSON.stringify(rest) &&
+      // between them only the agent's answer (a row opened by the harness name)
+      after.slice(jMsg + 1, jCmd).every((t) => /^(Claude Code|Oh My Pi|Codex)/.test(t)) &&
       JSON.stringify(side(after, jMsg, jCmd)) === JSON.stringify(side(before, iMsg, iCmd)),
     `msg ${iMsg} -> ${jMsg}, cmd ${iCmd} -> ${jCmd}, between ${JSON.stringify(after.slice(jMsg + 1, jCmd).map((t) => t.slice(0, 40)))}`
   );
@@ -1415,7 +1417,11 @@ const statusOk = [];
 (async () => {
   if (process.env.FAULT === 'n6') {
     // the answer to the message comes before the command: the right place (PASS)
-    ac14Place(['a', 'thread msg', '/status-report'], ['a', 'thread msg', 'answer', '/status-report'], 'thread msg', 'n6 synthetic: new answer between (must PASS)');
+    ac14Place(['a', 'thread msg', '/status-report'], ['a', 'thread msg', 'Claude Codeclaude-opus-5-5Reply02:14 Thi', '/status-report'], 'thread msg', 'n6 synthetic: the answer between, as seen live (must PASS)');
+    // a new row that is no answer (a leaked prompt) between: must FAIL
+    ac14Place(['a', 'thread msg', '/status-report'], ['a', 'thread msg', 'Main queued control', '/status-report'], 'thread msg', 'n6 synthetic: a new non-answer row between (must FAIL)');
+    // the exact index the review asked for, on the live pair: the answer moves the command 1 -> 2
+    console.log('  live pair (r3-corch.log): msg 0 -> 0, cmd 1 -> 2, between ["Claude Codeclaude-opus-5-5Reply02:14 Thi"]; jCmd === iCmd would FAIL it');
     // a row that was there before moved between message and command: must FAIL
     ac14Place(['a', 'thread msg', '/status-report', 'z'], ['a', 'thread msg', 'z', '/status-report'], 'thread msg', 'n6 synthetic: old row moved above the command (must FAIL)');
     // the message moved: must FAIL
