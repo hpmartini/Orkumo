@@ -49,7 +49,7 @@ function makeWorld({ harness = 'claude', timeouts = {}, react = {}, paneEnv = tr
     svc: null,
     resetIds: [],
   };
-  const marker = path.join(pendingDir, paneEnv ? paneKey(PANE) : markerKey(cwd));
+  const marker = path.join(pendingDir, paneEnv === false ? markerKey(cwd) : paneKey(PANE));
   world.marker = marker;
   // what the typed skill command carries, as handoff.py mark would read it
   world.args = () => {
@@ -262,6 +262,60 @@ describe('Handoff + Reset job', () => {
     expect(world.typed[0]).not.toContain('--key');
   });
 
+  it('env unknown: types --key anyway and takes the pane marker', async () => {
+    const world = makeWorld({ paneEnv: null });
+    await world.svc.start(PANE);
+    await finished(world);
+    expect(world.typed[0]).toBe(
+      `/hape-skills:handoff-reset --key ${paneKey(PANE)} --reset-id reset-1`
+    );
+    expect(world.svc.get(PANE)).toMatchObject({
+      phase: 'done',
+      keyMode: 'pane',
+      markerKey: paneKey(PANE),
+    });
+  });
+
+  it('env unknown: a marker under the cwd key with this reset id completes the job', async () => {
+    const cwdMarker = path.join(pendingDir, markerKey(cwd));
+    const world = makeWorld({
+      paneEnv: null,
+      react: {
+        skill: (w) => w.events.push({ at: w.clock + 3000, fn: () => w.writeMarker(cwdMarker) }),
+        weiter: (w) =>
+          w.events.push({ at: w.clock + 2000, fn: () => fs.rmSync(cwdMarker, { force: true }) }),
+      },
+    });
+    // an unrelated pane-key marker with another reset id must not count
+    fs.writeFileSync(path.join(pendingDir, paneKey(PANE)), '/stale.md\nold-reset\n');
+    await world.svc.start(PANE);
+    await finished(world);
+    expect(world.svc.get(PANE)).toMatchObject({
+      phase: 'done',
+      keyMode: 'cwd',
+      markerKey: markerKey(cwd),
+      handoffFile: `${root}/handoff.md`,
+    });
+    // taken-check follows the matched file: the stale pane marker stays and does not block
+    expect(fs.existsSync(path.join(pendingDir, paneKey(PANE)))).toBe(true);
+  });
+
+  it('env unknown: the matched marker must go; a cwd marker still pending is an error', async () => {
+    const cwdMarker = path.join(pendingDir, markerKey(cwd));
+    const world = makeWorld({
+      paneEnv: null,
+      react: {
+        skill: (w) => w.events.push({ at: w.clock + 3000, fn: () => w.writeMarker(cwdMarker) }),
+        weiter: () => {},
+      },
+    });
+    await world.svc.start(PANE);
+    await finished(world);
+    expect(world.svc.get(PANE).error).toBe(
+      `The new session did not take the handoff (marker still pending: ${cwdMarker})`
+    );
+  });
+
   it('every job gets a fresh reset id', async () => {
     const world = makeWorld();
     await world.svc.start(PANE);
@@ -410,16 +464,17 @@ describe('Handoff + Reset job', () => {
 });
 
 describe('paneKey', () => {
-  it('prefixes the pane id and keeps only [A-Za-z0-9-]', () => {
+  it('normalises like handoff.py: runs collapse to one dash, edge dashes go', () => {
     expect(paneKey('orch-3f2a')).toBe('orkumo-pane-orch-3f2a');
     expect(paneKey('work-1234')).toBe('orkumo-pane-work-1234');
-    for (const id of ['a.b:c', 'x_y', 'ä ö/..', '--a--', 'q'.repeat(200)]) {
-      expect(paneKey(id)).toMatch(/^orkumo-pane-[A-Za-z0-9-]*$/);
-    }
     expect(paneKey('a.b:c')).toBe('orkumo-pane-a-b-c');
-    expect(paneKey('x__y')).toBe('orkumo-pane-x--y');
-    expect(paneKey('äö/..')).toBe('orkumo-pane------');
-    expect(paneKey('..a..')).toBe('orkumo-pane---a--');
+    expect(paneKey('x__y')).toBe('orkumo-pane-x-y');
+    expect(paneKey('x.-_y')).toBe('orkumo-pane-x-y');
+    expect(paneKey('äö/..')).toBe('orkumo-pane');
+    expect(paneKey('..a..')).toBe('orkumo-pane-a');
+    for (const id of ['a.b:c', 'x_y', 'ä ö/..', '--a--', 'q'.repeat(200)]) {
+      expect(paneKey(id)).toMatch(/^orkumo-pane[A-Za-z0-9-]*$/);
+    }
   });
 });
 
@@ -473,6 +528,95 @@ describe('marker key parity with handoff.py', () => {
   });
 });
 
+describe('real handoff.py', () => {
+  const HANDOFF_PY = path.join(
+    os.homedir(),
+    'PROJECTS/hape-skills/plugins/hape-skills/skills/handoff-reset/scripts/handoff.py'
+  );
+  const hasKeyOption =
+    fs.existsSync(HANDOFF_PY) && fs.readFileSync(HANDOFF_PY, 'utf8').includes('--reset-id');
+  const run = (home, file, args, env = {}) =>
+    spawnSync('python3', ['-I', HANDOFF_PY, 'mark', file, ...args], {
+      env: { PATH: process.env.PATH, HOME: home, ...env },
+      encoding: 'utf8',
+    });
+  const handoffFile = () => {
+    const file = path.join(root, 'ziel.md');
+    fs.writeFileSync(
+      file,
+      '---\nziel: x\nstand: y\nnaechster_schritt: z\nalte_session: omp:1\n---\n\nBody\n'
+    );
+    return file;
+  };
+
+  it.skipIf(!hasKeyOption)(
+    'the job detects the marker handoff.py mark writes for its key and reset id',
+    async () => {
+      const home = path.join(root, 'home');
+      fs.mkdirSync(home);
+      const file = handoffFile();
+      const pending = path.join(home, '.claude', 'handoffs', '.pending');
+      const world = makeWorld({ paneEnv: true });
+      let sessionId = OLD;
+      world.svc = createHandoffReset({
+        lookupPane: async () => ({
+          harness: 'claude',
+          cwd,
+          sessionId,
+          working: false,
+          paneEnv: true,
+        }),
+        paneRunning: () => true,
+        type: (paneId, text) => {
+          world.typed.push(text);
+          if (text.startsWith('/hape-skills:handoff-reset ')) {
+            // what the skill does with the typed arguments
+            const { key, resetId } = world.args();
+            const out = run(home, file, ['--key', key, '--reset-id', resetId]);
+            expect(out.status, out.stderr).toBe(0);
+          } else if (text === '/clear') sessionId = NEW;
+          else if (text === 'weiter') fs.rmSync(path.join(pending, paneKey(PANE)), { force: true });
+          return true;
+        },
+        newResetId: () => 'real-reset-7',
+        pendingDir: pending,
+        now: () => world.clock,
+        sleep: world.sleep,
+        locate: () => () => sessionId,
+        timeouts: { markerMs: 60_000, resetMs: 10_000, takeMs: 10_000 },
+      });
+      await world.svc.start(PANE);
+      await finished(world);
+      expect(world.svc.get(PANE)).toMatchObject({
+        phase: 'done',
+        handoffFile: file,
+        resetId: 'real-reset-7',
+        markerKey: paneKey(PANE),
+      });
+      expect(world.typed[0]).toBe(
+        `/hape-skills:handoff-reset --key ${paneKey(PANE)} --reset-id real-reset-7`
+      );
+    }
+  );
+
+  it.skipIf(!hasKeyOption)('paneKey equals the file name handoff.py writes (--key and env)', () => {
+    const home = path.join(root, 'home2');
+    fs.mkdirSync(home);
+    const file = handoffFile();
+    for (const id of ['orch-3f2a-4b', 'work-1234', 'quick-9', 'a__b', 'x.-_y', '..odd id..']) {
+      const key = paneKey(id);
+      const marker = path.join(home, '.claude', 'handoffs', '.pending', key);
+      const viaKey = run(home, file, ['--key', key, '--reset-id', 'r-1']);
+      expect(viaKey.status, viaKey.stderr).toBe(0);
+      expect(fs.readFileSync(marker, 'utf8')).toBe(`${file}\nr-1\n`);
+      // the env route (hook, or a skill run without --key) lands on the same name
+      const viaEnv = run(home, file, ['--reset-id', 'r-2'], { ORKUMO_PANE_ID: id });
+      expect(viaEnv.status, viaEnv.stderr).toBe(0);
+      expect(fs.readFileSync(marker, 'utf8')).toBe(`${file}\nr-2\n`);
+    }
+  });
+});
+
 describe('createPaneLookup', () => {
   const pty = (id, extra = {}) => ({
     id,
@@ -514,20 +658,28 @@ describe('createPaneLookup', () => {
     expect((await lookup(PANE)).working).toBe(true);
   });
 
-  it("paneEnv only for the pane's own ORKUMO_PANE_ID", async () => {
+  it('paneEnv: true for its own id, false when the env is readable without it, else unknown', async () => {
     let env = '';
     const lookup = createPaneLookup({
       listRows: async () => [{ paneId: PANE, kind: 'interactive', sessionId: OLD }],
       ptySessions: () => [pty(`agent-${PANE}-1`)],
       envOf: async () => env,
     });
-    expect((await lookup(PANE)).paneEnv).toBe(false);
-    env = `x X_ORKUMO_PANE_ID=${PANE} y`;
-    expect((await lookup(PANE)).paneEnv).toBe(false);
-    env = `x ORKUMO_PANE_ID=other y`;
-    expect((await lookup(PANE)).paneEnv).toBe(false);
-    env = `x ORKUMO_PANE_ID=${PANE}`;
-    expect((await lookup(PANE)).paneEnv).toBe(true);
+    const paneEnv = async () => (await lookup(PANE)).paneEnv;
+    env = null; // ps failed or timed out
+    expect(await paneEnv()).toBeNull();
+    env = ''; // nothing readable
+    expect(await paneEnv()).toBeNull();
+    env = 'claude --flag'; // environment hidden
+    expect(await paneEnv()).toBeNull();
+    env = 'claude HOME=/h PATH=/bin';
+    expect(await paneEnv()).toBe(false);
+    env = `x X_ORKUMO_PANE_ID=${PANE} PATH=/bin y`;
+    expect(await paneEnv()).toBe(false);
+    env = `x ORKUMO_PANE_ID=other PATH=/bin y`;
+    expect(await paneEnv()).toBeNull();
+    env = `x PATH=/bin ORKUMO_PANE_ID=${PANE}`;
+    expect(await paneEnv()).toBe(true);
   });
 
   it('falls back to the pane process (pi) and its terminal activity', async () => {
@@ -537,7 +689,7 @@ describe('createPaneLookup', () => {
       listRows: async () => [],
       ptySessions: () => sessions,
       commandOf: async (pid) => (pid === 42 ? '/opt/bin/pi' : ''),
-      envOf: async () => 'pi HOME=/h',
+      envOf: async () => 'pi HOME=/h PATH=/bin',
       now: () => now,
     });
     expect(await lookup(PANE)).toEqual({

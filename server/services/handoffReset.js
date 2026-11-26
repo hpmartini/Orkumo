@@ -74,8 +74,12 @@ export const markerKey = (cwd) =>
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'root';
 
-/** File name of a pane's marker: `orkumo-pane-` + the pane id, every character outside [A-Za-z0-9] as `-` */
-export const paneKey = (paneId) => 'orkumo-pane-' + paneId.replace(/[^A-Za-z0-9]/g, '-');
+/**
+ * File name of a pane's marker: `orkumo-pane-` + the pane id, normalised like handoff.py's
+ * `normalisieren` (runs of characters outside [A-Za-z0-9] become one `-`, edge dashes go)
+ */
+export const paneKey = (paneId) =>
+  `orkumo-pane-${paneId}`.replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 
 /** Marker content: line 1 the handoff file, line 2 the reset id of the job that asked for it */
 function readMarker(file) {
@@ -104,14 +108,14 @@ const defaultCommandOf = (pid) =>
     );
   });
 
-/** Environment of a process (macOS `ps -E`; empty where it is not readable) */
+/** Environment of a process (macOS `ps -E`); null where `ps` fails (Linux, timeout under load) */
 const defaultEnvOf = (pid) =>
   new Promise((resolve) => {
     execFile(
       '/bin/ps',
       ['-E', '-ww', '-o', 'command=', '-p', String(pid)],
       { timeout: 3000, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout) => resolve(error ? '' : String(stdout))
+      (error, stdout) => resolve(error ? null : String(stdout))
     );
   });
 
@@ -121,10 +125,23 @@ const TURN_ACTIVE_DISPLAY = new Set(['working', 'needs-input']);
 const PTY_QUIET_MS = 3000;
 
 /**
+ * Does the process have `ORKUMO_PANE_ID=<paneId>`? true: yes; false: its environment was read
+ * (it has a PATH) and the variable is not in it; null: unknown (`ps` failed, or hides the
+ * environment of the process).
+ */
+function paneEnvOf(envText, paneId) {
+  if (typeof envText !== 'string' || !envText) return null;
+  const own = new RegExp(`(?:^|\\s)ORKUMO_PANE_ID=${paneId.replace(/\W/g, '\\$&')}(?:\\s|$)`);
+  if (own.test(envText)) return true;
+  return /(?:^|\s)PATH=/.test(envText) && !/(?:^|\s)ORKUMO_PANE_ID=/.test(envText) ? false : null;
+}
+
+/**
  * `lookupPane(paneId)` for the job service: `{ harness, cwd, sessionId, working, paneEnv }` of the
- * agent in a pane, null when no agent PTY runs there. `paneEnv`: its process has
- * `ORKUMO_PANE_ID=<paneId>` (panes started before that env existed do not; unreadable = false). Claude and omp panes come from the agent rows (the
- * row of the pane names harness, cwd and session); any other pane (pi) from its process.
+ * agent in a pane, null when no agent PTY runs there. `paneEnv`: true / false / null (unknown), see
+ * `paneEnvOf` (panes started before the env existed lack it). Claude and omp panes come from the
+ * agent rows (the row of the pane names harness, cwd and session); any other pane (pi) from its
+ * process.
  * @param {{ listRows: () => Promise<object[]>, ptySessions: () => object[], commandOf?: (pid: number) => Promise<string>, envOf?: (pid: number) => Promise<string>, now?: () => number }} deps
  */
 export function createPaneLookup({
@@ -139,11 +156,7 @@ export function createPaneLookup({
       .filter((s) => paneIdOf(s.id) === paneId)
       .sort((a, b) => b.createdAt - a.createdAt)[0];
     if (!pty) return null;
-    const paneEnv = pty.pid
-      ? new RegExp(`(?:^|\\s)ORKUMO_PANE_ID=${paneId.replace(/\W/g, '\\$&')}(?:\\s|$)`).test(
-          await envOf(pty.pid)
-        )
-      : false;
+    const paneEnv = pty.pid ? paneEnvOf(await envOf(pty.pid), paneId) : null;
     const rows = await listRows().catch(() => []);
     const row = rows.find((r) => r.paneId === paneId && r.kind === 'interactive');
     if (row) {
@@ -217,7 +230,7 @@ export function createHandoffReset({
 
   const isActive = (entry) => !!entry && ACTIVE.has(entry.job.phase);
 
-  async function run(entry, file) {
+  async function run(entry, candidates) {
     const { job, ctl } = entry;
     const { paneId } = job;
     const steps = HARNESS_STEPS[job.harness];
@@ -254,19 +267,29 @@ export function createHandoffReset({
       locate,
     });
 
-    // Only a marker carrying this job's reset id is this handoff; older ones (any age) never count
+    // Only a marker carrying this job's reset id is this handoff; older ones (any age) never count.
+    // Env presence unknown: handoff.py gets --key anyway and both marker files are watched.
     typeStep(
-      job.keyMode === 'pane'
-        ? `${steps.skill} --key ${job.markerKey} --reset-id ${job.resetId}`
-        : `${steps.skill} --reset-id ${job.resetId}`
+      job.keyMode === 'cwd'
+        ? `${steps.skill} --reset-id ${job.resetId}`
+        : `${steps.skill} --key ${paneKey(paneId)} --reset-id ${job.resetId}`
     );
+    let file = null; // the marker of this job, once it is written
     const marked = await until(t.markerMs, () => {
-      const marker = readMarker(file);
-      return marker?.handoffFile && marker.resetId === job.resetId ? marker.handoffFile : null;
+      for (const candidate of candidates) {
+        const marker = readMarker(path.join(pendingDir, candidate.key));
+        if (marker?.handoffFile && marker.resetId === job.resetId) {
+          file = path.join(pendingDir, candidate.key);
+          job.markerKey = candidate.key;
+          job.keyMode = candidate.mode;
+          return marker.handoffFile;
+        }
+      }
+      return null;
     });
     if (!marked) {
       throw new Error(
-        `Timed out after ${Math.round(t.markerMs / 60_000)} min waiting for the handoff (no marker at ${file})`
+        `Timed out after ${Math.round(t.markerMs / 60_000)} min waiting for the handoff (no marker at ${candidates.map((c) => path.join(pendingDir, c.key)).join(' or ')})`
       );
     }
     job.handoffFile = marked;
@@ -323,6 +346,9 @@ export function createHandoffReset({
       if (isActive(jobs.get(paneId)) || starting.has(paneId)) {
         throw httpError(409, 'Handoff + Reset already runs in this pane');
       }
+      for (const [id, old] of jobs) {
+        if (!isActive(old) && now() - old.job.updatedAt > t.retainMs) jobs.delete(id);
+      }
       starting.add(paneId);
       let entry;
       try {
@@ -333,10 +359,14 @@ export function createHandoffReset({
           throw httpError(400, `Handoff + Reset is not supported for ${pane.harness}`);
         }
         if (steps.observeReset && !pane.sessionId) {
-          throw httpError(400, 'The session of this pane is not known yet; try again in a moment');
+          throw httpError(
+            400,
+            `The session of this ${pane.harness} pane is not known (yet); try again in a moment. Panes that only attach to a background job have none`
+          );
         }
         const started = now();
         entry = {
+          pane,
           ctl: { cancelled: false },
           job: {
             paneId,
@@ -349,8 +379,9 @@ export function createHandoffReset({
             newSessionId: null,
             handoffFile: null,
             resetId: newResetId(),
-            keyMode: pane.paneEnv ? 'pane' : 'cwd',
-            markerKey: pane.paneEnv ? paneKey(paneId) : markerKey(pane.cwd),
+            // Until the marker shows which file it is: the pane key unless the env is known absent
+            keyMode: pane.paneEnv === false ? 'cwd' : 'pane',
+            markerKey: pane.paneEnv === false ? markerKey(pane.cwd) : paneKey(paneId),
             error: null,
           },
         };
@@ -358,8 +389,12 @@ export function createHandoffReset({
       } finally {
         starting.delete(paneId);
       }
-      const file = path.join(pendingDir, entry.job.markerKey);
-      run(entry, file).catch((error) => {
+      const { paneEnv, cwd } = entry.pane;
+      const candidates = [
+        ...(paneEnv === false ? [] : [{ key: paneKey(paneId), mode: 'pane' }]),
+        ...(paneEnv === true ? [] : [{ key: markerKey(cwd), mode: 'cwd' }]),
+      ];
+      run(entry, candidates).catch((error) => {
         if (error instanceof Cancelled || entry.ctl.cancelled) return;
         entry.job.phase = 'error';
         entry.job.error = error.message;
