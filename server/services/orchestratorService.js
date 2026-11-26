@@ -551,6 +551,50 @@ export function roleHeldRefusal(role, { sessions, settings, livePanes, pending =
   };
 }
 
+/**
+ * Marks and roles the server wrote (pane follower, a started orchestrator) that no client has read
+ * yet. A page that did not know of them PUTs its own copy of `orchestrators` / `orchestratorRoles`
+ * and would undo them: `reconcile` maps keys the follower moved (a stale copy still has the old
+ * session id) and keeps the unread keys. A client read (`seen`) ends the protection: from then on
+ * a missing key is the user's decision. [shortcut: one reader assumed; a second open page that has
+ * not read yet keeps the keys once more]
+ */
+export function createMarkGuard() {
+  let unseen = { marks: new Set(), roles: {}, moved: {} };
+  return {
+    /** @param {{ marks?: string[], roles?: Record<string,string>, moved?: Record<string,string> }} change */
+    written({ marks = [], roles = {}, moved = {} }) {
+      for (const [from, to] of Object.entries(unseen.moved))
+        if (to in moved) unseen.moved[from] = moved[to];
+      Object.assign(unseen.moved, moved);
+      // a key that was moved on again is no longer the server's to protect
+      for (const from of Object.keys(moved)) {
+        unseen.marks.delete(from);
+        delete unseen.roles[from];
+      }
+      for (const key of marks) unseen.marks.add(key);
+      Object.assign(unseen.roles, roles);
+    },
+    seen() {
+      unseen = { marks: new Set(), roles: {}, moved: {} };
+    },
+    /** The PUT body with the server's unread changes applied; fields it does not carry stay out */
+    reconcile(partial) {
+      const out = { ...partial };
+      const key = (k) => unseen.moved[k] ?? k;
+      if (Array.isArray(partial.orchestrators))
+        out.orchestrators = [...new Set([...partial.orchestrators.map(key), ...unseen.marks])];
+      if (partial.orchestratorRoles && typeof partial.orchestratorRoles === 'object') {
+        const roles = {};
+        for (const [k, role] of Object.entries(partial.orchestratorRoles))
+          if (!(key(k) in roles) || key(k) === k) roles[key(k)] = role;
+        out.orchestratorRoles = { ...unseen.roles, ...roles };
+      }
+      return out;
+    },
+  };
+}
+
 // ---------------------------------------------------------------------------------------------
 // C4: an orchestrator's identity follows its pane
 // ---------------------------------------------------------------------------------------------
@@ -577,7 +621,7 @@ const sameProcess = (tracked, row) => !!tracked.pid && tracked.pid === row.pid;
  * - the pane has no live row (omp has not written the new session yet): it waits,
  * - the old session was unmarked meanwhile.
  * @param {{ file: string, getSettings: () => { orchestrators?: string[], orchestratorRoles?: object },
- *   setSettings: (partial: object) => void, threads: { moveOwner: Function },
+ *   setSettings: (partial: object, moved: Record<string, string>) => void, threads: { moveOwner: Function },
  *   reports: { get: Function, rekey: Function } }} deps
  */
 export function createPaneFollower({ file, getSettings, setSettings, threads, reports }) {
@@ -630,7 +674,10 @@ export function createPaneFollower({ file, getSettings, setSettings, threads, re
     const movedRole = gone.map((key) => orchestratorRoles[key]).find(Boolean);
     if (movedRole && !sessionRole(next, roles)) roles[newKey] = movedRole;
     if (marks !== orchestrators || gone.some((key) => key in orchestratorRoles))
-      setSettings({ orchestrators: marks, orchestratorRoles: roles });
+      setSettings(
+        { orchestrators: marks, orchestratorRoles: roles },
+        Object.fromEntries(gone.map((key) => [key, newKey]))
+      );
 
     threads.moveOwner(
       threadOwnerKey({ id: t.rowId, sessionId: t.sessionId }),

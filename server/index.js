@@ -1580,6 +1580,8 @@ app.get('/api/agents/stream', (req, res) => {
   const onSessions = (sessions) => send('sessions', sessions);
   const onNotify = (notification) => send('notify', notification);
   const onError = (error) => send('agent-error', error);
+  const onSettings = () => send('settings', {});
+  agentService.agentEvents.on('settings', onSettings);
   agentService.agentEvents.on('sessions', onSessions);
   agentService.agentEvents.on('notify', onNotify);
   agentService.agentEvents.on('error', onError);
@@ -1592,6 +1594,7 @@ app.get('/api/agents/stream', (req, res) => {
   const cleanup = () => {
     clearInterval(heartbeat);
     unsubscribe();
+    agentService.agentEvents.off('settings', onSettings);
     agentService.agentEvents.off('sessions', onSessions);
     agentService.agentEvents.off('notify', onNotify);
     agentService.agentEvents.off('error', onError);
@@ -2337,12 +2340,30 @@ const reportsDir = path.join(path.dirname(orchestrator.orchestratorDir()), 'orch
 const reportStore = orchestratorReports.createReportStore(reportsDir);
 const threadStore = orchestratorThreads.createThreadStore(reportsDir);
 
+// Marks and roles the server writes: remembered until a client has read them (a stale PUT must
+// not undo them) and announced on the agents stream, so an open page refetches the settings
+const markGuard = orchestrator.createMarkGuard();
+function writeMarks(partial, moved = {}) {
+  const before = settingsService.getAgentViewSettings();
+  const next = settingsService.updateAgentViewSettings(partial);
+  markGuard.written({
+    marks: (next.orchestrators ?? []).filter((k) => !(before.orchestrators ?? []).includes(k)),
+    roles: Object.fromEntries(
+      Object.entries(next.orchestratorRoles ?? {}).filter(
+        ([k, role]) => before.orchestratorRoles?.[k] !== role
+      )
+    ),
+    moved,
+  });
+  agentService.agentEvents.emit('settings');
+  return next;
+}
 // C4: an orchestrator's identity follows its pane through /clear, /new and /resume. Fed by every
 // agents listing (below) and by the orchestrator routes' reads, so it needs no open UI view.
 const paneFollower = orchestrator.createPaneFollower({
   file: path.join(reportsDir, 'pane-sessions.json'),
   getSettings: () => settingsService.getAgentViewSettings(),
-  setSettings: (partial) => settingsService.updateAgentViewSettings(partial),
+  setSettings: (partial, moved) => writeMarks(partial, moved),
   threads: threadStore,
   reports: reportStore,
 });
@@ -2404,7 +2425,7 @@ async function refuseRespawnAll(req, res) {
 /** The server marks an orchestrator it started (a pane by its pane id: it follows the pane; a job by its id), with its role */
 function markOrchestrator(key, role) {
   const { orchestrators = [], orchestratorRoles = {} } = settingsService.getAgentViewSettings();
-  settingsService.updateAgentViewSettings({
+  writeMarks({
     orchestrators: [...new Set([...orchestrators, key])],
     ...(role ? { orchestratorRoles: { ...orchestratorRoles, [key]: role } } : {}),
   });
@@ -2413,10 +2434,41 @@ function markOrchestrator(key, role) {
 // returns before it lists the job, and a second start in that window must still see the holder
 const PENDING_HOLDER_MS = 2 * 60_000;
 const pendingHolders = new Map();
+// Orchestrator panes the server started, by pane id with their role: a pane whose agent runs holds
+// its role whether or not a row shows up (a trust prompt can keep it away) and whatever a client
+// wrote to the settings. Persisted: the agent outlives the server.
+const startedPanesFile = path.join(reportsDir, 'started-panes.json');
+let startedPanes = null;
+function readStartedPanes() {
+  if (startedPanes) return startedPanes;
+  try {
+    startedPanes = JSON.parse(fs.readFileSync(startedPanesFile, 'utf8')) ?? {};
+  } catch {
+    startedPanes = {};
+  }
+  return startedPanes;
+}
+function recordStartedPane(paneId, role) {
+  if (!role) return;
+  readStartedPanes()[paneId] = { role };
+  saveStartedPanes();
+}
+function saveStartedPanes() {
+  fs.mkdirSync(reportsDir, { recursive: true });
+  fs.writeFileSync(startedPanesFile, JSON.stringify(startedPanes));
+}
 async function roleHeldRefusalNow(label) {
   const sessions = await orchestratorSessions().catch(() => []);
   const listed = new Set(sessions.map((s) => s.id));
   const pending = [];
+  const live = agentService.livePaneIds();
+  const panes = readStartedPanes();
+  let ended = false;
+  for (const [paneId, { role }] of Object.entries(panes)) {
+    if (live.has(paneId)) pending.push({ name: role, who: `pane ${paneId}` });
+    else ended = delete panes[paneId] || ended;
+  }
+  if (ended) saveStartedPanes();
   for (const [id, { name, at }] of pendingHolders) {
     if (listed.has(id) || Date.now() - at > PENDING_HOLDER_MS) pendingHolders.delete(id);
     else pending.push({ name, who: `${name} (job ${id})` });
@@ -3359,6 +3411,7 @@ app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, (req, res) => {
         orchestratorPaneDeps(dir)
       );
       markOrchestrator(started.paneId, role);
+      recordStartedPane(started.paneId, role);
       res.status(201).json(started);
     } catch (error) {
       res.status(error.status || 500).json({ error: error.message });
@@ -4074,6 +4127,7 @@ app.post(
  */
 app.get('/api/settings/agent-view', (req, res) => {
   try {
+    markGuard.seen();
     res.json(settingsService.getAgentViewSettings());
   } catch (error) {
     sendAgentError(res, error);
@@ -4089,7 +4143,7 @@ app.put('/api/settings/agent-view', validate(agentViewSettingsSchema), (req, res
         'Scope directory'
       );
     }
-    res.json(settingsService.updateAgentViewSettings(req.body));
+    res.json(settingsService.updateAgentViewSettings(markGuard.reconcile(req.body)));
   } catch (error) {
     sendAgentError(res, error);
   }

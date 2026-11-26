@@ -380,6 +380,7 @@ export function subscribeToAgents(handlers: {
   onNotify?: (notification: AgentNotification) => void;
   onError?: (message: string) => void;
   onConnectionChange?: (connected: boolean) => void;
+  onSettingsChanged?: () => void;
 }): () => void {
   let eventSource: EventSource | null = null;
   let attempts = 0;
@@ -408,6 +409,8 @@ export function subscribeToAgents(handlers: {
         console.error('Failed to parse agents notify event', err);
       }
     });
+    // the server moved an orchestrator mark / role along with its pane: the page's copy is stale
+    eventSource.addEventListener('settings', () => handlers.onSettingsChanged?.());
     eventSource.addEventListener('agent-error', (event) => {
       try {
         handlers.onError?.(JSON.parse((event as MessageEvent).data).message);

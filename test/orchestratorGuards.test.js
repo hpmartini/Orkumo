@@ -9,6 +9,7 @@ import {
   roleHeldRefusal,
   endsSession,
   transcriptSessionIds,
+  createMarkGuard,
 } from '../server/services/orchestratorService.js';
 import * as remoteAccess from '../server/services/remoteAccess.js';
 
@@ -154,6 +155,40 @@ describe('pending holders', () => {
       'Role racer is already held by racer (job j1). Use that session; reset it with Handoff + Reset instead of starting a second one.'
     );
     expect(roleHeldRefusal('other', { sessions: [], settings: {}, pending })).toBeNull();
+  });
+});
+
+describe('createMarkGuard (a stale client PUT must not undo the server’s keys)', () => {
+  it('maps keys the follower moved, keeps unseen server keys, then lets go once a client read them', () => {
+    const g = createMarkGuard();
+    g.written({ marks: ['uuid-B'], roles: { 'uuid-B': 'ceo' }, moved: { 'uuid-A': 'uuid-B' } });
+    // the open page still has A and does not know B
+    expect(
+      g.reconcile({ orchestrators: ['uuid-A', 'x'], orchestratorRoles: { 'uuid-A': 'ceo' } })
+    ).toEqual({ orchestrators: ['uuid-B', 'x'], orchestratorRoles: { 'uuid-B': 'ceo' } });
+    // fields the PUT does not carry stay out of it
+    expect(g.reconcile({ chatShowSteps: true })).toEqual({ chatShowSteps: true });
+    g.seen();
+    // the client has read the new state: an unmark is its own decision
+    expect(g.reconcile({ orchestrators: [], orchestratorRoles: {} })).toEqual({
+      orchestrators: [],
+      orchestratorRoles: {},
+    });
+  });
+  it('chained moves A -> B -> C map A to C', () => {
+    const g = createMarkGuard();
+    g.written({ marks: ['B'], roles: {}, moved: { A: 'B' } });
+    g.written({ marks: ['C'], roles: {}, moved: { B: 'C' } });
+    expect(g.reconcile({ orchestrators: ['A'] }).orchestrators).toEqual(['C']);
+  });
+});
+
+describe('started panes hold their role without a row (E2E D2)', () => {
+  it('a recorded live orch- pane holds the role; a dead one does not', () => {
+    const pending = [{ name: 'role-b', who: 'pane orch-9' }];
+    expect(roleHeldRefusal('role-b', { sessions: [], settings: {}, pending }).error).toContain(
+      'held by pane orch-9'
+    );
   });
 });
 
@@ -408,6 +443,72 @@ describe('race, daemon stop, pane messages, env (server)', () => {
     for (let i = 0; i < 70; i++)
       statuses.push((await call('GET', '/agents/panes/work-poll/handoff-reset')).status);
     expect(statuses).not.toContain(429);
+  });
+});
+
+describe('E2E D1/D2 (server)', () => {
+  const settingsPut = (body) =>
+    call('PUT', '/settings/agent-view', { headers: asUi, body }).then((r) => r.json());
+  const start = (headers) =>
+    call('POST', '/orchestrator/start', { headers, body: { role: 'ops' } });
+
+  beforeAll(() => {
+    fs.writeFileSync(path.join(data, 'orchestrator', 'roles', 'ops.md'), '# ops\n');
+  });
+  afterAll(async () => {
+    // the marks of the other describes
+    await call('GET', '/settings/agent-view');
+    await settingsPut({ orchestrators: ['chiefjob'], orchestratorRoles: { chiefjob: 'ceo' } });
+  });
+
+  it('a UI-started orchestrator pane holds its role although no row ever shows up and the client overwrote the settings', async () => {
+    const first = await start(asUi);
+    expect(first.status).toBe(201);
+    const { paneId } = await first.json();
+    // the page reads the settings (it now knows the server's pane key), then writes its own copy
+    await call('GET', '/settings/agent-view');
+    const saved = await settingsPut({ orchestrators: ['uuid-client'], orchestratorRoles: {} });
+    expect(saved.orchestrators).toEqual(['uuid-client']);
+    const second = await start({});
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toContain(`Role ops is already held by pane ${paneId}`);
+  });
+
+  it('a stale PUT keeps the pane-id mark and role the server wrote; after a read it may drop them', async () => {
+    fs.writeFileSync(path.join(data, 'orchestrator', 'roles', 'ops2.md'), '# ops2\n');
+    const started = await call('POST', '/orchestrator/start', {
+      headers: asUi,
+      body: { role: 'ops2' },
+    });
+    const { paneId } = await started.json();
+    const stale = await settingsPut({
+      orchestrators: ['uuid-client'],
+      orchestratorRoles: { 'uuid-client': 'ops2' },
+    });
+    expect(stale.orchestrators).toEqual(expect.arrayContaining(['uuid-client', paneId]));
+    expect(stale.orchestratorRoles[paneId]).toBe('ops2');
+    await call('GET', '/settings/agent-view');
+    const own = await settingsPut({ orchestrators: [], orchestratorRoles: {} });
+    expect(own.orchestrators).toEqual([]);
+  });
+
+  it('the agents stream tells an open page when the server changed the marks', async () => {
+    const res = await fetch(`${api}/agents/stream`);
+    const reader = res.body.getReader();
+    const seen = [];
+    const pump = (async () => {
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) return;
+        seen.push(Buffer.from(value).toString());
+        if (seen.join('').includes('event: settings')) return;
+      }
+    })();
+    fs.writeFileSync(path.join(data, 'orchestrator', 'roles', 'ops3.md'), '# ops3\n');
+    await call('POST', '/orchestrator/start', { headers: asUi, body: { role: 'ops3' } });
+    await Promise.race([pump, new Promise((r) => setTimeout(r, 4000))]);
+    await reader.cancel();
+    expect(seen.join('')).toContain('event: settings');
   });
 });
 
