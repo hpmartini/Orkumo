@@ -1994,7 +1994,13 @@ app.get('/api/agents/servers/orphans', agentLimiter, async (req, res) => {
 // this far as the Electron renderer or a paired app (the gate after cors).
 const sameSiteOnly = (req, res, next) => {
   const origin = req.get('origin');
-  if (origin && !isOpaqueRequest(req) && !isAllowedOrigin(origin))
+  // the remote web UI (token + its own host as Origin) is same-site for the proxy's host
+  if (
+    origin &&
+    !isOpaqueRequest(req) &&
+    !isAllowedOrigin(origin) &&
+    !remoteAccess.isRemoteUiRequest(req)
+  )
     return res.status(403).json({ error: 'Cross-origin request refused' });
   next();
 };
