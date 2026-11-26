@@ -233,6 +233,36 @@ describe('agentService - agent pane activity', () => {
   });
 });
 
+describe('agentService - withPane', () => {
+  const panes = new Map([
+    [4242, { paneId: 'orch-abc', active: true }],
+    [77, { paneId: 'work-def', active: false }],
+  ]);
+
+  it('an app (remote control) row whose pid runs in an Orkumo pane names that pane', () => {
+    const row = { id: 'interactive-4242', kind: 'app', pid: 4242, displayState: 'idle' };
+    expect(mod.withPane(row, panes)).toEqual({ ...row, paneId: 'orch-abc' });
+  });
+
+  it('an app row outside every pane has no pane', () => {
+    const row = { id: 'interactive-9', kind: 'app', pid: 9, displayState: 'idle' };
+    expect(mod.withPane(row, panes)).toEqual({ ...row, paneId: null });
+  });
+
+  it('a terminal row still takes its pane and activity', () => {
+    const row = { id: 'interactive-77', kind: 'interactive', pid: 77, status: 'idle' };
+    expect(mod.withPane(row, panes)).toMatchObject({
+      paneId: 'work-def',
+      displayState: 'interactive',
+    });
+  });
+
+  it('background rows are left alone (their pane is the attach pane named after the job)', () => {
+    const row = { id: 'ab12cd34', kind: 'background', pid: 4242 };
+    expect(mod.withPane(row, panes)).toBe(row);
+  });
+});
+
 describe('agentService - dispatch safety', () => {
   const { assertAllowedPath, sanitizeDispatchOptions } = mod;
 

@@ -40,7 +40,12 @@ import {
 } from './services/ptyService.js';
 import { startQuickAgent } from './services/quickAgent.js';
 import { listOmpSessions } from './services/ompSessions.js';
-import { createHandoffReset, createPaneLookup } from './services/handoffReset.js';
+import {
+  createHandoffReset,
+  createPaneLookup,
+  createPaneRunning,
+  createPaneTyper,
+} from './services/handoffReset.js';
 import { paneIdOf } from '../config/ptyEnv.js';
 import * as orchestrator from './services/orchestratorService.js';
 import * as orchestratorReports from './services/orchestratorReports.js';
@@ -2236,8 +2241,18 @@ const handoffReset = createHandoffReset({
     listRows: () => agentService.currentSessions(),
     ptySessions: getAllPtySessions,
   }),
-  paneRunning: (paneId) => getAllPtySessions().some((s) => paneIdOf(s.id) === paneId),
-  type: typeIntoPanePty,
+  paneRunning: createPaneRunning({
+    paneAlive: (paneId) => getAllPtySessions().some((s) => paneIdOf(s.id) === paneId),
+    jobAlive: async (id) =>
+      (await agentService.currentSessions()).some(
+        (s) => s.kind === 'background' && s.id === id && s.pid
+      ),
+  }),
+  // a background job without an open attach pane is typed into like any reply to it
+  type: createPaneTyper({
+    typeIntoPane: typeIntoPanePty,
+    replyToJob: (id, text) => agentService.replySession(id, text, { mode: 'attach' }),
+  }),
 });
 const handoffResetRoute = (action, status = 200, limit = [agentLimiter]) => [
   ...limit,

@@ -867,8 +867,16 @@ export function agentPanes(now = Date.now()) {
 /** Panes whose agent PTY runs now (orchestrator identity follows these, orchestratorService.js) */
 export const livePaneIds = () => new Set([...agentPanes().values()].map((pane) => pane.paneId));
 
-/** A Claude terminal row (of an earlier listing, too) with the current pane (activity) of its pid */
-function withPane(session, panes) {
+/**
+ * A Claude terminal row (of an earlier listing, too) with the current pane (activity) of its pid.
+ * An app row (remote control, `claude --remote-control` in an Orkumo pane) names its pane too, so
+ * attach, stop, orchestrator mark and Handoff + Reset work on it like on a terminal row.
+ */
+export function withPane(session, panes) {
+  if (session.kind === 'app') {
+    const pane = session.pid ? panes.get(session.pid) : null;
+    return { ...session, paneId: pane?.paneId || null };
+  }
   if (session.kind !== 'interactive') return session;
   const pane = session.pid ? panes.get(session.pid) : null;
   return {
@@ -924,7 +932,7 @@ async function listClaudeSessions(options, panes) {
     raw.map(async (entry) => {
       if (entry.kind !== 'background' || !entry.id) {
         const appSession = await toAppSession(entry);
-        if (appSession) return appSession;
+        if (appSession) return withPane(appSession, panes);
         // A terminal started in an Orkumo pane: its row names the pane, so the pane finds its session
         return withPane(
           {

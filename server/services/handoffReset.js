@@ -136,12 +136,16 @@ function paneEnvOf(envText, paneId) {
 }
 
 /**
- * `lookupPane(paneId)` for the job service: `{ harness, cwd, sessionId, working, paneEnv }` of the
- * agent in a pane, null when no agent PTY runs there. `paneEnv`: true / false / null (unknown), see
- * `paneEnvOf` (panes started before the env existed lack it). Claude and omp panes come from the
- * agent rows (the row of the pane names harness, cwd and session); any other pane (pi) from its
- * process.
- * @param {{ listRows: () => Promise<object[]>, ptySessions: () => object[], commandOf?: (pid: number) => Promise<string>, envOf?: (pid: number) => Promise<string>, now?: () => number }} deps
+ * `lookupPane(paneId)` for the job service: `{ harness, cwd, sessionId, working, paneEnv,
+ * background? }` of the agent behind `paneId`, `{ refusal }` for a session that cannot be reset
+ * (the start answers 400 with that text), null when nothing runs there. `paneEnv`: true / false /
+ * null (unknown), see `paneEnvOf` (panes started before the env existed lack it). Claude (also its
+ * app / remote-control rows) and omp panes come from the agent rows (the row of the pane names
+ * harness, cwd and session); any other pane (pi) from its process. A Claude background job is
+ * addressed by its job id (its attach pane is `agent-<jobId>-<ts>`; the pane need not be open):
+ * its row gives the session, and the daemon-run session never has the pane env (`claude --bg`
+ * does not hand its environment on, verified), so it always gets the cwd marker.
+ * @param {{ listRows: () => Promise<object[]>, ptySessions: () => object[], commandOf?: (pid: number) => Promise<string>, envOf?: (pid: number) => Promise<string|null>, now?: () => number }} deps
  */
 export function createPaneLookup({
   listRows,
@@ -154,7 +158,31 @@ export function createPaneLookup({
     const pty = ptySessions()
       .filter((s) => paneIdOf(s.id) === paneId)
       .sort((a, b) => b.createdAt - a.createdAt)[0];
-    if (!pty) return null;
+    const rows = await listRows().catch(() => []);
+    const job = rows.find((r) => r.kind === 'background' && r.id === paneId);
+    if (job) {
+      if (!job.pid) {
+        return {
+          refusal: `Background job ${job.name || job.id} (${job.id}) is not running (${job.displayState || job.state || 'stopped'}): nothing to reset`,
+        };
+      }
+      return {
+        harness: 'claude',
+        cwd: job.cwd || pty?.cwd,
+        sessionId: job.sessionId ?? null,
+        working: isWorking(job),
+        paneEnv: false,
+        background: true,
+      };
+    }
+    if (!pty) {
+      const known = rows.find((r) => r.id === paneId);
+      return known
+        ? {
+            refusal: `${known.name || known.id} (${known.id}) was not started in an Orkumo pane: Handoff + Reset needs an agent pane or a running background job`,
+          }
+        : null;
+    }
     // the server recorded at spawn that it set the env (also in the holder of a restored PTY);
     // `ps` only for a PTY that predates that record
     const paneEnv =
@@ -163,14 +191,15 @@ export function createPaneLookup({
         : pty.pid
           ? paneEnvOf(await envOf(pty.pid), paneId)
           : null;
-    const rows = await listRows().catch(() => []);
-    const row = rows.find((r) => r.paneId === paneId && r.kind === 'interactive');
+    const row = rows.find(
+      (r) => r.paneId === paneId && (r.kind === 'interactive' || r.kind === 'app')
+    );
     if (row) {
       return {
         harness: row.ptyCommand === 'omp' ? 'omp' : 'claude',
         cwd: row.cwd || pty.cwd,
         sessionId: row.sessionId ?? null,
-        working: TURN_ACTIVE.has(row.status) || TURN_ACTIVE_DISPLAY.has(row.displayState),
+        working: isWorking(row),
         paneEnv,
       };
     }
@@ -183,6 +212,35 @@ export function createPaneLookup({
       paneEnv,
     };
   };
+}
+
+const isWorking = (row) => TURN_ACTIVE.has(row.status) || TURN_ACTIVE_DISPLAY.has(row.displayState);
+
+/**
+ * `type(paneId, text, { background })` for the job service: into the pane's terminal; a background
+ * job without an open attach pane through `replyToJob(jobId, text)` (a hidden `claude attach`
+ * typing like keystrokes, so `/clear` works too). true when delivered.
+ */
+export function createPaneTyper({ typeIntoPane, replyToJob }) {
+  return async (paneId, text, { background = false } = {}) => {
+    if (typeIntoPane(paneId, text)) return true;
+    if (!background) return false;
+    try {
+      await replyToJob(paneId, text);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+}
+
+/**
+ * `paneRunning(paneId, { background })`: an agent PTY runs in the pane; a background job lives on
+ * without one, while its row has a process (`jobAlive(jobId)`).
+ */
+export function createPaneRunning({ paneAlive, jobAlive }) {
+  return async (paneId, { background = false } = {}) =>
+    paneAlive(paneId) || (background && (await jobAlive(paneId)));
 }
 
 const defaultLocate = (harness, sessionId) =>
@@ -216,8 +274,8 @@ export function createSessionTracker({
  * @typedef {'writing'|'resetting'|'continuing'|'done'|'error'} HandoffResetPhase
  * @param {object} deps
  * @param {(paneId: string) => Promise<{harness: string, cwd: string, sessionId: string|null, working: boolean}|null>} deps.lookupPane
- * @param {(paneId: string) => boolean} deps.paneRunning an agent PTY still runs in the pane
- * @param {(paneId: string, text: string) => boolean} deps.type types and submits `text` into the pane
+ * @param {(paneId: string, context: { background: boolean }) => boolean|Promise<boolean>} deps.paneRunning the agent behind the pane still runs
+ * @param {(paneId: string, text: string, context: { background: boolean }) => boolean|Promise<boolean>} deps.type types and submits `text` into the pane
  */
 export function createHandoffReset({
   lookupPane,
@@ -248,9 +306,10 @@ export function createHandoffReset({
       job.phase = name;
       job.updatedAt = now();
     };
-    const typeStep = (text) => {
+    const context = { background: !!entry.pane.background };
+    const typeStep = async (text) => {
       alive();
-      if (!type(paneId, text)) throw new Error('The agent in this pane is gone');
+      if (!(await type(paneId, text, context))) throw new Error('The agent in this pane is gone');
     };
     /** Polls `check` until it returns a truthy value; null at the deadline */
     const until = async (limitMs, check) => {
@@ -259,7 +318,8 @@ export function createHandoffReset({
         alive();
         const value = await check();
         if (value) return value;
-        if (!paneRunning(paneId)) throw new Error('The agent in this pane is gone');
+        if (!(await paneRunning(paneId, context)))
+          throw new Error('The agent in this pane is gone');
         if (now() >= end) return null;
         await sleep(t.pollMs);
       }
@@ -275,7 +335,7 @@ export function createHandoffReset({
 
     // Only a marker carrying this job's reset id is this handoff; older ones (any age) never count.
     // Env presence unknown (a legacy PTY `ps` could not read): --key anyway, handoff.py honours it.
-    typeStep(
+    await typeStep(
       job.keyMode === 'cwd'
         ? `${steps.skill} --reset-id ${job.resetId}`
         : `${steps.skill} --key ${paneKey(paneId)} --reset-id ${job.resetId}`
@@ -314,7 +374,7 @@ export function createHandoffReset({
     }
 
     phase('resetting');
-    typeStep(steps.reset);
+    await typeStep(steps.reset);
     if (steps.observeReset) {
       const next = await until(t.resetMs, async () => {
         const id = await track();
@@ -332,7 +392,7 @@ export function createHandoffReset({
     await sleep(t.afterResetMs);
 
     phase('continuing');
-    typeStep(CONTINUE_TEXT);
+    await typeStep(CONTINUE_TEXT);
     // Taken: the marker is gone (or a later job already wrote its own)
     const taken = await until(t.takeMs, () => {
       const marker = readMarker(file);
@@ -360,6 +420,7 @@ export function createHandoffReset({
       try {
         const pane = await lookupPane(paneId);
         if (!pane) throw httpError(400, `No agent runs in pane ${paneId}`);
+        if (pane.refusal) throw httpError(400, pane.refusal);
         const steps = HARNESS_STEPS[pane.harness];
         if (!steps) {
           throw httpError(400, `Handoff + Reset is not supported for ${pane.harness}`);
@@ -369,6 +430,16 @@ export function createHandoffReset({
             400,
             `The session of this ${pane.harness} pane is not known (yet); try again in a moment. Panes that only attach to a background job have none`
           );
+        }
+        // Panes without the pane env share the folder's marker: two jobs there would take each other's
+        const shared = pane.paneEnv === false ? markerKey(pane.cwd) : paneKey(paneId);
+        for (const [id, other] of jobs) {
+          if (id !== paneId && isActive(other) && other.job.markerKey === shared) {
+            throw httpError(
+              409,
+              `Handoff + Reset already runs for ${id} in the same folder (shared marker); wait until it is done`
+            );
+          }
         }
         const started = now();
         entry = {
@@ -387,7 +458,7 @@ export function createHandoffReset({
             resetId: newResetId(),
             // Until the marker shows which file it is: the pane key unless the env is known absent
             keyMode: pane.paneEnv === false ? 'cwd' : 'pane',
-            markerKey: pane.paneEnv === false ? markerKey(pane.cwd) : paneKey(paneId),
+            markerKey: shared,
             error: null,
           },
         };
