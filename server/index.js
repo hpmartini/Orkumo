@@ -2188,6 +2188,7 @@ const orchestratorTranscriptDeps = {
 };
 const orchestratorPaneDeps = (cwd) => ({
   workspace: orchestrator.orchestratorDir(),
+  orchestratorSettings: agentService.ORCHESTRATOR_SETTINGS,
   openAgentPty,
   killPanePtys,
   resolveBinary: resolveHarnessBinary,
@@ -4334,7 +4335,7 @@ wss.on('connection', (ws, req) => {
         command === 'claude'
           ? [
               ...parsedArgs,
-              ...agentService.interactiveRemoteControlArgs(
+              ...agentService.interactiveOrchestratorArgs(
                 parsedArgs,
                 settingsService.getAgentViewSettings()
               ),

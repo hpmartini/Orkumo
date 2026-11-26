@@ -210,13 +210,17 @@ const WORKER_MCP_CONFIG = JSON.stringify({
   },
 });
 /**
- * `orchestrator` (New agent "Orchestrator", `orkumo start --orchestrator`): Remote Control on, so
- * the session shows up in the Claude app although ~/.claude/settings.json turns it off for all
- * others. The CLI stores the flag in the job's respawnFlags: respawn and resume keep it.
+ * `orchestrator` (New agent "Orchestrator", `orkumo start --orchestrator`):
+ * ~/.claude/profiles/orchestrator.json turns Remote Control on, so the session shows up in the
+ * Claude app although ~/.claude/settings.json turns it off for all others, and keeps the fixed
+ * prompt load small (no Workflow/ScheduleWakeup tools, fewer connectors, a short skill listing).
+ * The CLI stores the flag in the job's respawnFlags: respawn and resume keep it.
  */
-export const REMOTE_CONTROL_SETTINGS = JSON.stringify({ remoteControlAtStartup: true });
+export const ORCHESTRATOR_SETTINGS = path.join(CLAUDE_HOME, 'profiles', 'orchestrator.json');
+/** What `--orchestrator` passed before the profile file; respawn and resume swap in the file */
+export const LEGACY_ORCHESTRATOR_SETTINGS = JSON.stringify({ remoteControlAtStartup: true });
 export const DISPATCH_PROFILES = {
-  orchestrator: () => ['--settings', REMOTE_CONTROL_SETTINGS],
+  orchestrator: () => ['--settings', ORCHESTRATOR_SETTINGS],
   worker: () => [
     '--settings',
     path.join(CLAUDE_HOME, 'profiles', 'worker.json'),
@@ -241,27 +245,39 @@ export function resumeProfileArgs(respawnFlags = []) {
 }
 
 /**
- * Respawn flags of a session marked as orchestrator (`agentView.orchestrators`) that was started
- * without Remote Control (e.g. before the global setting went off): the flag added, or null when
- * nothing changes (not marked, or a `--settings` of its own, which a second one would clash with).
+ * Respawn flags of an orchestrator, or null when nothing changes: a session started with the
+ * legacy inline settings gets the profile file instead; a session marked as orchestrator
+ * (`agentView.orchestrators`) that was started without `--settings` gets it added. A session
+ * with a `--settings` of its own stays as it is (a second one would clash).
  */
 function orchestratorRespawnFlags(session, respawnFlags = []) {
+  const at = respawnFlags.indexOf('--settings');
+  if (at !== -1 && respawnFlags[at + 1] === LEGACY_ORCHESTRATOR_SETTINGS) {
+    const flags = [...respawnFlags];
+    flags[at + 1] = ORCHESTRATOR_SETTINGS;
+    return flags;
+  }
   const { orchestrators } = settingsService.getAgentViewSettings();
-  if (!isOrchestratorSession(session, orchestrators) || respawnFlags.includes('--settings'))
-    return null;
-  return [...respawnFlags, '--settings', REMOTE_CONTROL_SETTINGS];
+  if (at !== -1 || !isOrchestratorSession(session, orchestrators)) return null;
+  return [...respawnFlags, '--settings', ORCHESTRATOR_SETTINGS];
 }
 
 /**
- * Extra PTY args for `claude --resume <id>` in a pane: a marked orchestrator gets
- * `--remote-control <role|orchestrator>` again (interactive sessions keep no flags of their own).
+ * Extra PTY args for `claude --resume <id>` or `--session-id <id>` (the home orchestrator, marked
+ * before it starts) in a pane: a marked orchestrator gets `--remote-control <role|orchestrator>`
+ * and the orchestrator profile (interactive sessions keep no flags of their own); flags already on
+ * the command line are not repeated.
  */
-export function interactiveRemoteControlArgs(args, { orchestrators = [], orchestratorRoles = {} }) {
-  const at = args.indexOf('--resume');
+export function interactiveOrchestratorArgs(args, { orchestrators = [], orchestratorRoles = {} }) {
+  const at = args.findIndex((arg) => arg === '--resume' || arg === '--session-id');
   const sessionId = at === -1 ? null : args[at + 1];
-  if (!sessionId || args.includes('--remote-control') || !orchestrators.includes(sessionId))
-    return [];
-  return ['--remote-control', orchestratorRoles[sessionId] || 'orchestrator'];
+  if (!sessionId || !orchestrators.includes(sessionId)) return [];
+  return [
+    ...(args.includes('--remote-control')
+      ? []
+      : ['--remote-control', orchestratorRoles[sessionId] || 'orchestrator']),
+    ...(args.includes('--settings') ? [] : ['--settings', ORCHESTRATOR_SETTINGS]),
+  ];
 }
 
 export function isUnsafeFlagsAllowed() {
@@ -1026,7 +1042,17 @@ export async function dispatch(opts = {}, context = {}) {
     unsafeAllowed: context.unsafeAllowed ?? isUnsafeFlagsAllowed(),
   });
   const cwd = safe.cwd;
-  const args = buildDispatchArgs({ ...safe, prompt, exec });
+  // resuming a marked orchestrator (resume picker, `/resume <uuid>`): its role profile, as on reply
+  // and respawn
+  const { orchestrators } = settingsService.getAgentViewSettings();
+  const profile =
+    safe.profile ??
+    (safe.resume &&
+    !safe.settings &&
+    isOrchestratorSession({ sessionId: safe.resume }, orchestrators)
+      ? 'orchestrator'
+      : undefined);
+  const args = buildDispatchArgs({ ...safe, profile, prompt, exec });
   const result = await runClaude(args, { cwd, timeout: 90000 });
   const parsed = parseDispatchOutput(`${result.stdout}\n${result.stderr}`);
   if (result.code !== 0 && !parsed.id) {
@@ -1155,15 +1181,27 @@ export async function stopSession(id) {
   return { output: result.stdout.trim() };
 }
 
-export async function respawnSession(id) {
-  if (id !== '--all') {
-    const file = path.join(jobDir(id), 'state.json');
-    const state = await readJson(file, null);
-    // `claude respawn` starts the job with its stored respawnFlags (tried on a real job)
-    const flags =
-      state && orchestratorRespawnFlags({ id, sessionId: state.sessionId }, state.respawnFlags);
-    if (flags) await writeJsonAtomic(file, { ...state, respawnFlags: flags });
+/** Writes the orchestrator profile into a job's respawnFlags: `claude respawn` starts the job with them (tried on a real job) */
+async function migrateRespawnFlags(id) {
+  const file = path.join(jobDir(id), 'state.json');
+  const state = await readJson(file, null);
+  const flags =
+    state && orchestratorRespawnFlags({ id, sessionId: state.sessionId }, state.respawnFlags);
+  if (flags) await writeJsonAtomic(file, { ...state, respawnFlags: flags });
+}
+
+async function jobIds() {
+  try {
+    return (await fsp.readdir(JOBS_DIR, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory() && SHORT_ID_RE.test(entry.name))
+      .map((entry) => entry.name);
+  } catch {
+    return [];
   }
+}
+
+export async function respawnSession(id) {
+  for (const job of id === '--all' ? await jobIds() : [id]) await migrateRespawnFlags(job);
   const args = id === '--all' ? ['respawn', '--all'] : ['respawn', id];
   const result = await runClaude(args, { timeout: 30000 });
   if (result.code !== 0)

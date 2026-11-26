@@ -439,7 +439,8 @@ export function projectList(apps, sessions, now = Date.now()) {
  * CLI on PATH. Same start as a quick window agent (quickAgent.js).
  * @param {{ harness: string, cwd: string, prompt: string, orchestrator?: boolean, name?: string|null, model?: string|null,
  *   permissionMode?: string|null }} opts
- * @param {object} deps - startQuickAgent's deps, plus `workspace`
+ * @param {object} deps - startQuickAgent's deps, plus `workspace` and `orchestratorSettings` (the
+ *   Claude Code role profile of an orchestrator, agentService.js ORCHESTRATOR_SETTINGS)
  */
 export function startAgentPane(opts, deps) {
   if (!QUICK_HARNESSES.includes(opts.harness)) {
@@ -456,6 +457,7 @@ export function startAgentPane(opts, deps) {
       permissionMode: opts.permissionMode ?? null,
       paneId: `${opts.orchestrator ? 'orch' : 'work'}-${crypto.randomUUID()}`,
       remoteControl: opts.orchestrator ? opts.name || 'orchestrator' : null,
+      settings: opts.orchestrator ? deps.orchestratorSettings : null,
       ...(opts.orchestrator
         ? {
             pathPrefix: [orchestratorBinDir(dir)],

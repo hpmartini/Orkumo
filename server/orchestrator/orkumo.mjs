@@ -678,7 +678,7 @@ export async function run(argv, deps = {}) {
             prompt,
             cwd,
             // worker: no dialog/plan/remote/artifact tools, strict MCP; orchestrator: Remote
-            // Control (agentService.js DISPATCH_PROFILES)
+            // Control and a small fixed prompt load (agentService.js DISPATCH_PROFILES)
             profile: flags.orchestrator ? 'orchestrator' : 'worker',
             ...(flags.name ? { name: String(flags.name) } : {}),
           });

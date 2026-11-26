@@ -81,6 +81,7 @@ describe('roles', () => {
   it('a Claude orchestrator with a role is named after it', async () => {
     const deps = {
       workspace: dir,
+      orchestratorSettings: '/home/.claude/profiles/orchestrator.json',
       openAgentPty: vi.fn(async () => ({ success: true })),
       killPanePtys: vi.fn(),
     };
@@ -95,6 +96,8 @@ describe('roles', () => {
       'board-orchestrator',
       '--remote-control',
       'board-orchestrator',
+      '--settings',
+      '/home/.claude/profiles/orchestrator.json',
       '--',
       'go',
     ]);
