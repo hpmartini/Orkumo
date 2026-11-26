@@ -7,8 +7,14 @@ import path from 'path';
 // node-pty is a native module - keep it out of the unit test
 vi.mock('node-pty', () => ({ spawn: vi.fn() }));
 
-const { createHandoffReset, createPaneLookup, createSessionTracker, markerKey, HARNESS_STEPS } =
-  await import('../server/services/handoffReset.js');
+const {
+  createHandoffReset,
+  createPaneLookup,
+  createSessionTracker,
+  markerKey,
+  paneKey,
+  HARNESS_STEPS,
+} = await import('../server/services/handoffReset.js');
 const { TRANSCRIPT_READERS } = await import('../server/services/chatTranscripts.js');
 
 const PANE = 'work-1234';
@@ -31,7 +37,7 @@ afterEach(() => fs.rmSync(root, { recursive: true, force: true }));
  * A pane with a scripted agent on a fake clock: `sleep` advances the clock and fires the events
  * the typed commands scheduled (marker written, session switched, marker taken).
  */
-function makeWorld({ harness = 'claude', timeouts = {}, react = {} } = {}) {
+function makeWorld({ harness = 'claude', timeouts = {}, react = {}, paneEnv = true } = {}) {
   const world = {
     clock: 1_000_000,
     typed: [],
@@ -41,12 +47,26 @@ function makeWorld({ harness = 'claude', timeouts = {}, react = {} } = {}) {
     working: false,
     running: true,
     svc: null,
+    resetIds: [],
   };
-  const marker = path.join(pendingDir, markerKey(cwd));
+  const marker = path.join(pendingDir, paneEnv ? paneKey(PANE) : markerKey(cwd));
   world.marker = marker;
+  // what the typed skill command carries, as handoff.py mark would read it
+  world.args = () => {
+    const skill = world.typed[0] ?? '';
+    return {
+      key: /--key (\S+)/.exec(skill)?.[1] ?? null,
+      resetId: /--reset-id (\S+)/.exec(skill)?.[1] ?? '',
+    };
+  };
+  world.writeMarker = (
+    file = marker,
+    resetId = world.args().resetId,
+    handoff = `${root}/handoff.md`
+  ) => fs.writeFileSync(file, `${handoff}\n${resetId}\n`);
   const at = (delayMs, fn) => world.events.push({ at: world.clock + delayMs, fn });
   const behave = {
-    skill: () => at(5000, () => fs.writeFileSync(marker, `${root}/handoff.md\n`)),
+    skill: () => at(5000, () => world.writeMarker()),
     reset: () => at(2000, () => (world.sessionId = NEW)),
     weiter: () => at(3000, () => fs.rmSync(marker, { force: true })),
     ...react,
@@ -54,7 +74,7 @@ function makeWorld({ harness = 'claude', timeouts = {}, react = {} } = {}) {
   const steps = HARNESS_STEPS[harness];
   world.type = (paneId, text) => {
     world.typed.push(text);
-    if (text === steps.skill) behave.skill(world);
+    if (text.startsWith(`${steps.skill} `)) behave.skill(world);
     else if (text === steps.reset) behave.reset(world);
     else if (text === 'weiter') behave.weiter(world);
     return world.running;
@@ -68,9 +88,19 @@ function makeWorld({ harness = 'claude', timeouts = {}, react = {} } = {}) {
     await new Promise((resolve) => setTimeout(resolve, 0));
   };
   world.svc = createHandoffReset({
-    lookupPane: async () => ({ harness, cwd, sessionId: world.sessionId, working: world.working }),
+    lookupPane: async () => ({
+      harness,
+      cwd,
+      sessionId: world.sessionId,
+      working: world.working,
+      paneEnv,
+    }),
     paneRunning: () => world.running,
     type: world.type,
+    newResetId: () => {
+      world.resetIds.push(`reset-${world.resetIds.length + 1}`);
+      return world.resetIds.at(-1);
+    },
     pendingDir,
     now: () => world.clock,
     sleep: world.sleep,
@@ -109,8 +139,13 @@ describe('Handoff + Reset job', () => {
       expect(done.error).toBeNull();
       expect(done.handoffFile).toBe(`${root}/handoff.md`);
       expect(done.newSessionId).toBe(NEW);
+      expect(done).toMatchObject({
+        resetId: 'reset-1',
+        markerKey: paneKey(PANE),
+        keyMode: 'pane',
+      });
       expect(world.typed).toEqual([
-        harness === 'claude' ? '/hape-skills:handoff-reset' : '/skill:handoff-reset',
+        `${harness === 'claude' ? '/hape-skills:handoff-reset' : '/skill:handoff-reset'} --key ${paneKey(PANE)} --reset-id reset-1`,
         harness === 'claude' ? '/clear' : '/new',
         'weiter',
       ]);
@@ -121,9 +156,16 @@ describe('Handoff + Reset job', () => {
   it('pi: reset is not observable, it waits and continues', async () => {
     const world = makeWorld({ harness: 'pi' });
     world.svc = createHandoffReset({
-      lookupPane: async () => ({ harness: 'pi', cwd, sessionId: null, working: false }),
+      lookupPane: async () => ({
+        harness: 'pi',
+        cwd,
+        sessionId: null,
+        working: false,
+        paneEnv: true,
+      }),
       paneRunning: () => true,
       type: world.type,
+      newResetId: () => 'reset-1',
       pendingDir,
       now: () => world.clock,
       sleep: world.sleep,
@@ -132,20 +174,103 @@ describe('Handoff + Reset job', () => {
     await world.svc.start(PANE);
     await finished(world);
     expect(world.svc.get(PANE)).toMatchObject({ phase: 'done', newSessionId: null });
-    expect(world.typed).toEqual(['/skill:handoff-reset', '/new', 'weiter']);
+    expect(world.typed).toEqual([
+      `/skill:handoff-reset --key ${paneKey(PANE)} --reset-id reset-1`,
+      '/new',
+      'weiter',
+    ]);
   });
 
-  it('ignores a marker that was there before the start', async () => {
+  it('ignores markers of an older job and of other panes: only the own reset id counts', async () => {
     const world = makeWorld();
-    const old = new Date(Date.now() - 3_600_000);
-    fs.writeFileSync(world.marker, '/stale/handoff.md\n');
-    fs.utimesSync(world.marker, old, old);
+    const otherPane = path.join(pendingDir, paneKey('orch-other'));
+    fs.writeFileSync(otherPane, `${root}/other-handoff.md\nsomeone-elses-reset\n`);
+    // same key, old reset id (e.g. a handoff of an earlier job, even a fresh one) and no id at all
+    fs.writeFileSync(world.marker, '/stale/handoff.md\nold-reset\n');
+    world.events.push({
+      at: world.clock + 2000,
+      fn: () => fs.writeFileSync(world.marker, '/stale/other.md\nanother-reset\n'),
+    });
+    world.events.push({
+      at: world.clock + 3000,
+      fn: () => fs.writeFileSync(world.marker, '/stale/no-id.md\n'),
+    });
     await world.svc.start(PANE);
     await finished(world);
     const done = world.svc.get(PANE);
-    expect(done.handoffFile).toBe(`${root}/handoff.md`);
     expect(done.phase).toBe('done');
+    expect(done.handoffFile).toBe(`${root}/handoff.md`);
     expect(world.typed).toHaveLength(3);
+    // the other pane's marker was never touched
+    expect(fs.readFileSync(otherPane, 'utf8')).toBe(
+      `${root}/other-handoff.md\nsomeone-elses-reset\n`
+    );
+  });
+
+  it("a marker that never gets this job's reset id times out", async () => {
+    const world = makeWorld({
+      react: {
+        skill: (w) =>
+          w.events.push({ at: w.clock + 2000, fn: () => w.writeMarker(undefined, 'old-reset') }),
+      },
+      timeouts: { markerMs: 10_000 },
+    });
+    await world.svc.start(PANE);
+    await finished(world);
+    expect(world.svc.get(PANE).error).toMatch(/Timed out/);
+    expect(world.typed).toHaveLength(1);
+  });
+
+  it('two panes in one cwd: the clicked pane completes with its own reset id', async () => {
+    const other = 'orch-other';
+    const world = makeWorld();
+    // the other pane (same cwd) had a handoff written for its own job meanwhile
+    const otherFile = path.join(pendingDir, paneKey(other));
+    fs.writeFileSync(otherFile, `${root}/other.md\nreset-of-other-pane\n`);
+    await world.svc.start(PANE);
+    await finished(world);
+    expect(world.svc.get(PANE)).toMatchObject({ phase: 'done', handoffFile: `${root}/handoff.md` });
+    expect(fs.existsSync(otherFile)).toBe(true);
+    expect(fs.existsSync(world.marker)).toBe(false);
+  });
+
+  it('a marker with another reset id after the reset counts as taken', async () => {
+    const world = makeWorld({
+      react: {
+        weiter: (w) =>
+          w.events.push({ at: w.clock + 2000, fn: () => w.writeMarker(undefined, 'next-job') }),
+      },
+    });
+    await world.svc.start(PANE);
+    await finished(world);
+    expect(world.svc.get(PANE).phase).toBe('done');
+  });
+
+  it('cwd key mode when the pane has no ORKUMO_PANE_ID: only --reset-id, marker under the cwd key', async () => {
+    const world = makeWorld({ paneEnv: false });
+    await world.svc.start(PANE);
+    await finished(world);
+    const done = world.svc.get(PANE);
+    expect(done).toMatchObject({
+      phase: 'done',
+      keyMode: 'cwd',
+      markerKey: markerKey(cwd),
+      resetId: 'reset-1',
+    });
+    expect(world.marker).toBe(path.join(pendingDir, markerKey(cwd)));
+    expect(world.typed[0]).toBe('/hape-skills:handoff-reset --reset-id reset-1');
+    expect(world.typed[0]).not.toContain('--key');
+  });
+
+  it('every job gets a fresh reset id', async () => {
+    const world = makeWorld();
+    await world.svc.start(PANE);
+    await finished(world);
+    world.typed.length = 0;
+    await world.svc.start(PANE);
+    await finished(world);
+    expect(world.svc.get(PANE).resetId).toBe('reset-2');
+    expect(world.typed[0]).toContain('--reset-id reset-2');
   });
 
   it('waits for the agent turn to end before typing the reset', async () => {
@@ -166,7 +291,9 @@ describe('Handoff + Reset job', () => {
     await finished(world);
     expect(world.svc.get(PANE)).toMatchObject({ phase: 'error' });
     expect(world.svc.get(PANE).error).toMatch(/did not finish its turn/);
-    expect(world.typed).toEqual(['/hape-skills:handoff-reset']);
+    expect(world.typed).toEqual([
+      `/hape-skills:handoff-reset --key ${paneKey(PANE)} --reset-id reset-1`,
+    ]);
   });
 
   it('errors when no marker appears', async () => {
@@ -176,7 +303,9 @@ describe('Handoff + Reset job', () => {
     const job = world.svc.get(PANE);
     expect(job.phase).toBe('error');
     expect(job.error).toMatch(/Timed out .*waiting for the handoff/);
-    expect(world.typed).toEqual(['/hape-skills:handoff-reset']);
+    expect(world.typed).toEqual([
+      `/hape-skills:handoff-reset --key ${paneKey(PANE)} --reset-id reset-1`,
+    ]);
   });
 
   it('errors when the reset is not observed', async () => {
@@ -186,7 +315,10 @@ describe('Handoff + Reset job', () => {
     const job = world.svc.get(PANE);
     expect(job.phase).toBe('error');
     expect(job.error).toMatch(/Reset not observed/);
-    expect(world.typed).toEqual(['/hape-skills:handoff-reset', '/clear']);
+    expect(world.typed).toEqual([
+      `/hape-skills:handoff-reset --key ${paneKey(PANE)} --reset-id reset-1`,
+      '/clear',
+    ]);
   });
 
   it('errors when the new session does not take the marker', async () => {
@@ -223,7 +355,7 @@ describe('Handoff + Reset job', () => {
     await vi.waitFor(() => expect(cancelled).toBeDefined());
     expect(cancelled).toMatchObject({ phase: 'error', error: 'Cancelled' });
     const typed = [...world.typed];
-    fs.writeFileSync(world.marker, `${root}/handoff.md\n`);
+    world.writeMarker();
     await new Promise((resolve) => setTimeout(resolve, 50));
     expect(world.svc.get(PANE)).toMatchObject({ phase: 'error', error: 'Cancelled' });
     expect(world.typed).toEqual(typed);
@@ -274,6 +406,20 @@ describe('Handoff + Reset job', () => {
     expect(world.svc.get(PANE)?.phase).toBe('done');
     world.clock += 2 * 60_000;
     expect(world.svc.get(PANE)).toBeNull();
+  });
+});
+
+describe('paneKey', () => {
+  it('prefixes the pane id and keeps only [A-Za-z0-9-]', () => {
+    expect(paneKey('orch-3f2a')).toBe('orkumo-pane-orch-3f2a');
+    expect(paneKey('work-1234')).toBe('orkumo-pane-work-1234');
+    for (const id of ['a.b:c', 'x_y', 'ä ö/..', '--a--', 'q'.repeat(200)]) {
+      expect(paneKey(id)).toMatch(/^orkumo-pane-[A-Za-z0-9-]*$/);
+    }
+    expect(paneKey('a.b:c')).toBe('orkumo-pane-a-b-c');
+    expect(paneKey('x__y')).toBe('orkumo-pane-x--y');
+    expect(paneKey('äö/..')).toBe('orkumo-pane------');
+    expect(paneKey('..a..')).toBe('orkumo-pane---a--');
   });
 });
 
@@ -345,12 +491,14 @@ describe('createPaneLookup', () => {
     const lookup = createPaneLookup({
       listRows: async () => rows,
       ptySessions: () => [pty(`agent-${PANE}-1700000000000`)],
+      envOf: async () => `claude --foo HOME=/h ORKUMO_PANE_ID=${PANE} PATH=/bin`,
     });
     expect(await lookup(PANE)).toEqual({
       harness: 'claude',
       cwd: '/row',
       sessionId: OLD,
       working: true,
+      paneEnv: true,
     });
     rows[1] = {
       paneId: PANE,
@@ -366,6 +514,22 @@ describe('createPaneLookup', () => {
     expect((await lookup(PANE)).working).toBe(true);
   });
 
+  it("paneEnv only for the pane's own ORKUMO_PANE_ID", async () => {
+    let env = '';
+    const lookup = createPaneLookup({
+      listRows: async () => [{ paneId: PANE, kind: 'interactive', sessionId: OLD }],
+      ptySessions: () => [pty(`agent-${PANE}-1`)],
+      envOf: async () => env,
+    });
+    expect((await lookup(PANE)).paneEnv).toBe(false);
+    env = `x X_ORKUMO_PANE_ID=${PANE} y`;
+    expect((await lookup(PANE)).paneEnv).toBe(false);
+    env = `x ORKUMO_PANE_ID=other y`;
+    expect((await lookup(PANE)).paneEnv).toBe(false);
+    env = `x ORKUMO_PANE_ID=${PANE}`;
+    expect((await lookup(PANE)).paneEnv).toBe(true);
+  });
+
   it('falls back to the pane process (pi) and its terminal activity', async () => {
     let now = 10_000;
     const sessions = [pty(`agent-${PANE}-1`, { outputAt: 9_000 })];
@@ -373,6 +537,7 @@ describe('createPaneLookup', () => {
       listRows: async () => [],
       ptySessions: () => sessions,
       commandOf: async (pid) => (pid === 42 ? '/opt/bin/pi' : ''),
+      envOf: async () => 'pi HOME=/h',
       now: () => now,
     });
     expect(await lookup(PANE)).toEqual({
@@ -380,6 +545,7 @@ describe('createPaneLookup', () => {
       cwd: '/w',
       sessionId: null,
       working: true,
+      paneEnv: false,
     });
     now = 20_000;
     expect((await lookup(PANE)).working).toBe(false);

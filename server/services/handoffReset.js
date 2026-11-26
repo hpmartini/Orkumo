@@ -1,10 +1,12 @@
 /**
  * Handoff + Reset of an agent pane: the agent writes a handoff file (skill `handoff-reset` of
  * hape-skills), the pane is reset (`/clear`, omp `/new`) and the new session continues from the
- * file. The skill's script `handoff.py mark` puts a marker `~/.claude/handoffs/.pending/<key(cwd)>`
- * (content: the handoff file path) and the new session's start hook takes (deletes) it: marker
- * there = handoff written, marker gone after the reset = taken. This service types the three steps
- * into the pane PTY and watches both signals; one in-memory job per pane.
+ * file. The skill's script `handoff.py mark` puts a marker `~/.claude/handoffs/.pending/<K>`
+ * (line 1: the handoff file path, line 2: the reset id the job passed) and the new session's start
+ * hook takes (deletes) it: marker with this job's reset id = handoff written, marker gone after the
+ * reset = taken. K is the pane key (`orkumo-pane-<paneId>`; every agent pane PTY has env
+ * `ORKUMO_PANE_ID`), or, for a pane started before that env existed, the cwd key. This service
+ * types the three steps into the pane PTY and watches both signals; one in-memory job per pane.
  *
  * Everything outside (clock, PTY, pane lookup, pending dir) is injected, so tests run with fakes.
  */
@@ -12,6 +14,7 @@ import { execFile } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { randomUUID } from 'crypto';
 import { TRANSCRIPT_READERS } from './chatTranscripts.js';
 
 /**
@@ -71,6 +74,19 @@ export const markerKey = (cwd) =>
     .replace(/[^A-Za-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '') || 'root';
 
+/** File name of a pane's marker: `orkumo-pane-` + the pane id, every character outside [A-Za-z0-9] as `-` */
+export const paneKey = (paneId) => 'orkumo-pane-' + paneId.replace(/[^A-Za-z0-9]/g, '-');
+
+/** Marker content: line 1 the handoff file, line 2 the reset id of the job that asked for it */
+function readMarker(file) {
+  try {
+    const [handoffFile = '', resetId = ''] = fs.readFileSync(file, 'utf8').split('\n');
+    return { handoffFile: handoffFile.trim(), resetId: resetId.trim() };
+  } catch {
+    return null;
+  }
+}
+
 function httpError(status, message) {
   const error = new Error(message);
   error.status = status;
@@ -88,21 +104,34 @@ const defaultCommandOf = (pid) =>
     );
   });
 
+/** Environment of a process (macOS `ps -E`; empty where it is not readable) */
+const defaultEnvOf = (pid) =>
+  new Promise((resolve) => {
+    execFile(
+      '/bin/ps',
+      ['-E', '-ww', '-o', 'command=', '-p', String(pid)],
+      { timeout: 3000, maxBuffer: 4 * 1024 * 1024 },
+      (error, stdout) => resolve(error ? '' : String(stdout))
+    );
+  });
+
 const TURN_ACTIVE = new Set(['busy', 'waiting']);
 const TURN_ACTIVE_DISPLAY = new Set(['working', 'needs-input']);
 /** A pane without a row (pi) counts as working while its terminal printed this recently */
 const PTY_QUIET_MS = 3000;
 
 /**
- * `lookupPane(paneId)` for the job service: `{ harness, cwd, sessionId, working }` of the agent in
- * a pane, null when no agent PTY runs there. Claude and omp panes come from the agent rows (the
+ * `lookupPane(paneId)` for the job service: `{ harness, cwd, sessionId, working, paneEnv }` of the
+ * agent in a pane, null when no agent PTY runs there. `paneEnv`: its process has
+ * `ORKUMO_PANE_ID=<paneId>` (panes started before that env existed do not; unreadable = false). Claude and omp panes come from the agent rows (the
  * row of the pane names harness, cwd and session); any other pane (pi) from its process.
- * @param {{ listRows: () => Promise<object[]>, ptySessions: () => object[], commandOf?: (pid: number) => Promise<string>, now?: () => number }} deps
+ * @param {{ listRows: () => Promise<object[]>, ptySessions: () => object[], commandOf?: (pid: number) => Promise<string>, envOf?: (pid: number) => Promise<string>, now?: () => number }} deps
  */
 export function createPaneLookup({
   listRows,
   ptySessions,
   commandOf = defaultCommandOf,
+  envOf = defaultEnvOf,
   now = Date.now,
 }) {
   return async (paneId) => {
@@ -110,6 +139,11 @@ export function createPaneLookup({
       .filter((s) => paneIdOf(s.id) === paneId)
       .sort((a, b) => b.createdAt - a.createdAt)[0];
     if (!pty) return null;
+    const paneEnv = pty.pid
+      ? new RegExp(`(?:^|\\s)ORKUMO_PANE_ID=${paneId.replace(/\W/g, '\\$&')}(?:\\s|$)`).test(
+          await envOf(pty.pid)
+        )
+      : false;
     const rows = await listRows().catch(() => []);
     const row = rows.find((r) => r.paneId === paneId && r.kind === 'interactive');
     if (row) {
@@ -118,6 +152,7 @@ export function createPaneLookup({
         cwd: row.cwd || pty.cwd,
         sessionId: row.sessionId ?? null,
         working: TURN_ACTIVE.has(row.status) || TURN_ACTIVE_DISPLAY.has(row.displayState),
+        paneEnv,
       };
     }
     const command = pty.pid ? await commandOf(pty.pid) : '';
@@ -126,6 +161,7 @@ export function createPaneLookup({
       cwd: pty.cwd,
       sessionId: null,
       working: !!pty.outputAt && now() - pty.outputAt < PTY_QUIET_MS,
+      paneEnv,
     };
   };
 }
@@ -173,20 +209,13 @@ export function createHandoffReset({
   sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
   timeouts = {},
   locate = defaultLocate,
+  newResetId = randomUUID,
 }) {
   const t = { ...TIMEOUTS, ...timeouts };
   const jobs = new Map(); // paneId -> { job, ctl }
   const starting = new Set();
 
   const isActive = (entry) => !!entry && ACTIVE.has(entry.job.phase);
-
-  const markerMtime = (file) => {
-    try {
-      return fs.statSync(file).mtimeMs;
-    } catch {
-      return null;
-    }
-  };
 
   async function run(entry, file) {
     const { job, ctl } = entry;
@@ -217,8 +246,6 @@ export function createHandoffReset({
       }
     };
 
-    // Before the skill runs: a marker older than this start is a leftover, not this handoff
-    const baseline = markerMtime(file);
     const track = createSessionTracker({
       harness: job.harness,
       sessionId: job.oldSessionId,
@@ -227,15 +254,15 @@ export function createHandoffReset({
       locate,
     });
 
-    typeStep(steps.skill);
+    // Only a marker carrying this job's reset id is this handoff; older ones (any age) never count
+    typeStep(
+      job.keyMode === 'pane'
+        ? `${steps.skill} --key ${job.markerKey} --reset-id ${job.resetId}`
+        : `${steps.skill} --reset-id ${job.resetId}`
+    );
     const marked = await until(t.markerMs, () => {
-      const mtime = markerMtime(file);
-      if (mtime === null || (baseline !== null && !(mtime > baseline))) return null;
-      try {
-        return fs.readFileSync(file, 'utf8').trim() || null;
-      } catch {
-        return null;
-      }
+      const marker = readMarker(file);
+      return marker?.handoffFile && marker.resetId === job.resetId ? marker.handoffFile : null;
     });
     if (!marked) {
       throw new Error(
@@ -277,7 +304,11 @@ export function createHandoffReset({
 
     phase('continuing');
     typeStep(CONTINUE_TEXT);
-    const taken = await until(t.takeMs, () => markerMtime(file) === null);
+    // Taken: the marker is gone (or a later job already wrote its own)
+    const taken = await until(t.takeMs, () => {
+      const marker = readMarker(file);
+      return !marker || marker.resetId !== job.resetId;
+    });
     if (!taken) {
       throw new Error(`The new session did not take the handoff (marker still pending: ${file})`);
     }
@@ -317,6 +348,9 @@ export function createHandoffReset({
             oldSessionId: pane.sessionId,
             newSessionId: null,
             handoffFile: null,
+            resetId: newResetId(),
+            keyMode: pane.paneEnv ? 'pane' : 'cwd',
+            markerKey: pane.paneEnv ? paneKey(paneId) : markerKey(pane.cwd),
             error: null,
           },
         };
@@ -324,7 +358,7 @@ export function createHandoffReset({
       } finally {
         starting.delete(paneId);
       }
-      const file = path.join(pendingDir, markerKey(entry.job.cwd));
+      const file = path.join(pendingDir, entry.job.markerKey);
       run(entry, file).catch((error) => {
         if (error instanceof Cancelled || entry.ctl.cancelled) return;
         entry.job.phase = 'error';
