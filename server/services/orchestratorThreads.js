@@ -116,8 +116,6 @@ export function repoAgents(report, projectId, sessions, contexts, orchestratorSe
 /** Command marks kept per thread: older ones have claimed their turn long ago */
 const MAX_COMMANDS = 100;
 
-export { threadOwnerKey } from './orchestratorService.js';
-
 /** Tidy-up actions an orchestrator can take back (`orkumo thread undo`, "Undo tidy-up") */
 const UNDO_MAX = 20;
 const MIN_REF = 4;
@@ -227,9 +225,21 @@ export function createThreadStore(dir) {
       const source = load(from);
       change(to, (doc) => {
         const have = new Set(doc.threads.map((t) => t.id));
-        doc.threads.push(...source.threads.filter((t) => !have.has(t.id)));
+        for (const thread of source.threads.filter((t) => !have.has(t.id))) {
+          // a tag the target has already (same name made in both): numbered, never dropped
+          const taken = new Set(doc.threads.flatMap((t) => [t.tag, tagOf(t.name)]));
+          if (!taken.has(thread.tag)) {
+            doc.threads.push(thread);
+            continue;
+          }
+          let name = thread.name;
+          for (let i = 2; taken.has(tagOf(name)); i++)
+            name = { ...thread.name, task: `${thread.name.task} ${i}` };
+          doc.threads.push({ ...thread, name, tag: tagOf(name) });
+        }
         doc.overrides.entries = { ...source.overrides.entries, ...doc.overrides.entries };
         doc.overrides.merged = { ...source.overrides.merged, ...doc.overrides.merged };
+        doc.undo = [...source.undo, ...doc.undo].slice(-UNDO_MAX);
       });
       fs.rmSync(fileOf(from), { force: true });
       return true;

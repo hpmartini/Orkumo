@@ -79,3 +79,14 @@ describe('PTY env when the server was launched from an agent or CI shell', () =>
     expect(spawn.mock.calls.at(-1)[2].env.NO_COLOR).toBe('1');
   });
 });
+
+const { paneEnv, paneIdOf } = await import('../config/ptyEnv.js');
+
+describe('paneEnv (pty-host and ptyService share it)', () => {
+  it('names the pane of an agent PTY id, nothing for other PTYs', () => {
+    expect(paneIdOf('agent-orch-abc-1700')).toBe('orch-abc');
+    expect(paneEnv('agent-orch-abc-1700')).toEqual({ ORKUMO_PANE_ID: 'orch-abc' });
+    expect(paneEnv('session-17')).toEqual({});
+    expect(paneEnv(undefined)).toEqual({});
+  });
+});

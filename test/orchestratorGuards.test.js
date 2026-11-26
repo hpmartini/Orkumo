@@ -4,7 +4,12 @@ import fs from 'fs';
 import net from 'net';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { stopRefusal, roleHeldRefusal } from '../server/services/orchestratorService.js';
+import {
+  stopRefusal,
+  roleHeldRefusal,
+  endsSession,
+  transcriptSessionIds,
+} from '../server/services/orchestratorService.js';
 import * as remoteAccess from '../server/services/remoteAccess.js';
 
 // C4: one live holder per role, and agents cannot stop an orchestrator; only the UI (or the
@@ -120,6 +125,38 @@ describe('roleHeldRefusal', () => {
   });
 });
 
+describe('endsSession', () => {
+  it('/exit and /quit end an agent; ordinary text and other commands do not', () => {
+    for (const t of ['/exit', ' /quit ', '/EXIT now', '\n/exit']) expect(endsSession(t)).toBe(true);
+    for (const t of [
+      'please /exit',
+      '/exiting',
+      '/clear',
+      'Survey the agents',
+      '[from agent x]\n\n/exit',
+    ])
+      expect(endsSession(t)).toBe(false);
+  });
+});
+
+describe('transcriptSessionIds', () => {
+  it('earlier sessions of the pane first, then the current one, each once', () => {
+    expect(transcriptSessionIds({ sessionId: 'c' }, ['a', 'b', 'c'])).toEqual(['a', 'b', 'c']);
+    expect(transcriptSessionIds({ sessionId: null }, ['a'])).toEqual(['a']);
+    expect(transcriptSessionIds({ sessionId: 'c' })).toEqual(['c']);
+  });
+});
+
+describe('pending holders', () => {
+  it('a start the listing does not show yet still holds its name', () => {
+    const pending = [{ name: 'Racer', who: 'racer (job j1)' }];
+    expect(roleHeldRefusal('racer', { sessions: [], settings: {}, pending }).error).toBe(
+      'Role racer is already held by racer (job j1). Use that session; reset it with Handoff + Reset instead of starting a second one.'
+    );
+    expect(roleHeldRefusal('other', { sessions: [], settings: {}, pending })).toBeNull();
+  });
+});
+
 describe('isUiRequest', () => {
   const SECRET = 'x'.repeat(40);
   const req = (headers) => ({ headers });
@@ -199,7 +236,7 @@ beforeAll(async () => {
     path.join(home, 'claude'),
     // `claude agents|respawn|stop|--bg …` answer at once (sessions: $HOME/sessions.json); the pane start
     // (an orchestrator session) stays up a moment
-    `#!/bin/sh\ncase " $* " in\n  *" --bg "*) echo "backgrounded · newjob1 · bg" ;;\n  *" stop "*) echo stopped ;;\n  *" agents "*|*" respawn "*) cat "$HOME/sessions.json" ;;\n  *) exec sleep 3 ;;\nesac\n`,
+    `#!/bin/sh\ncase " $* " in\n  *" --bg "*) echo "pane=$ORKUMO_PANE_ID" > "$HOME/bg-env"; echo "backgrounded · newjob1 · bg" ;;\n  *" stop "*) echo stopped ;;\n  *" agents "*|*" respawn "*) cat "$HOME/sessions.json" ;;\n  *) exec sleep 3 ;;\nesac\n`,
     { mode: 0o755 }
   );
   writeSessions(SESSIONS);
@@ -225,6 +262,8 @@ beforeAll(async () => {
       SERVER_PORT: String(port),
       DEVORBIT_DATA_PATH: data,
       DEVORBIT_RENDERER_SECRET: SECRET,
+      // the server was started from an agent pane: background jobs must not inherit its pane id
+      ORKUMO_PANE_ID: 'orch-launcher',
       CLAUDE_CLI_PATH: path.join(home, 'claude'),
       DEVHUB_PREMIUM_DIR: '/nonexistent-orkumo-modules',
     },
@@ -311,6 +350,64 @@ describe('a second orchestrator under the name of a live one (dispatch, 25.11.)'
     );
     expect(run.status).toBe(1);
     expect(run.stderr).toContain(heldBy('playmaker', 'playmaker'));
+  });
+});
+
+describe('race, daemon stop, pane messages, env (server)', () => {
+  const dispatch = (body, headers = {}) =>
+    call('POST', '/agents/dispatch', {
+      headers,
+      body: { cwd: tmp, prompt: 'Survey the agents in Orkumo', ...body },
+    });
+
+  it('two orchestrator dispatches under one name back to back: the second is a 409 at once', async () => {
+    writeSessions(SESSIONS); // the stub names every new job `newjob1`: not listed yet
+    const first = await dispatch({ profile: 'orchestrator', name: 'racer' });
+    expect(first.status).toBe(201);
+    // the stub listing does not show it: only the server's own record can know
+    const second = await dispatch({ profile: 'orchestrator', name: 'RACER' });
+    expect(second.status).toBe(409);
+    expect((await second.json()).error).toMatch(/^Role RACER is already held by racer/);
+    expect((await dispatch({ profile: 'orchestrator', name: 'racer' }, asUi)).status).toBe(201);
+  });
+
+  it('daemon stop ends background sessions: refused for agents while an orchestrator job lives', async () => {
+    const stop = (body, headers) => call('POST', '/agents/daemon/stop', { headers, body });
+    const refused = await stop({});
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toContain('is an orchestrator; agents may not stop it');
+    expect((await stop({ any: true })).status).toBe(403);
+    // --keep-workers leaves detached sessions running; the UI may do anything
+    expect((await stop({ keepWorkers: true })).status).toBe(200);
+    expect((await stop({}, asUi)).status).toBe(200);
+  });
+
+  it('text that ends an orchestrator pane (/exit, /quit) is refused for agents like a stop', async () => {
+    const type = (text, headers = {}) =>
+      call('POST', '/agents/panes/orch-msgtest/message', { headers, body: { text } });
+    const refused = await type('/exit');
+    expect(refused.status).toBe(403);
+    expect((await refused.json()).error).toContain('agents may not stop it');
+    expect((await type('/quit', { 'X-Orkumo-Pane': 'work-other' })).status).toBe(403);
+    // not refused (the pane runs nothing here: 404): the UI, the pane itself, ordinary text
+    expect((await type('/exit', asUi)).status).toBe(404);
+    expect((await type('/exit', { 'X-Orkumo-Pane': 'orch-msgtest' })).status).toBe(404);
+    expect((await type('Please survey the agents')).status).toBe(404);
+    // a worker pane may be told anything
+    expect(
+      (await call('POST', '/agents/panes/work-msgtest/message', { body: { text: '/exit' } })).status
+    ).toBe(404);
+  });
+
+  it('background jobs do not inherit the server’s own ORKUMO_PANE_ID', () => {
+    expect(fs.readFileSync(path.join(home, 'bg-env'), 'utf8').trim()).toBe('pane=');
+  });
+
+  it('the handoff-reset poll (every 2 s) is not rate limited with the CLI’s budget', async () => {
+    const statuses = [];
+    for (let i = 0; i < 70; i++)
+      statuses.push((await call('GET', '/agents/panes/work-poll/handoff-reset')).status);
+    expect(statuses).not.toContain(429);
   });
 });
 

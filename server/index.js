@@ -200,6 +200,9 @@ const isAllowedOrigin = (origin) => {
 // Read once and dropped from the env, so PTYs and agents do not inherit it.
 remoteAccess.setRendererSecret(process.env.DEVORBIT_RENDERER_SECRET ?? '');
 delete process.env.DEVORBIT_RENDERER_SECRET;
+// A server started from an agent pane (dev server) must not hand that pane's identity to the
+// background jobs and PTYs it starts: only a pane's own agent names the pane (X-Orkumo-Pane)
+delete process.env.ORKUMO_PANE_ID;
 const { hasRendererSecret } = remoteAccess;
 const isOpaqueRequest = (req) => {
   const origin = req.headers.origin;
@@ -1609,15 +1612,14 @@ app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), as
   const start = async () => {
     const refusal =
       asOrchestrator && opts.name && !agentCaller(req).ui
-        ? orchestrator.roleHeldRefusal(opts.name, {
-            sessions: await orchestratorSessions().catch(() => []),
-            settings: settingsService.getAgentViewSettings(),
-            livePanes: agentService.livePaneIds(),
-          })
+        ? await roleHeldRefusalNow(opts.name)
         : null;
     if (refusal) throw Object.assign(new Error(refusal.error), { status: refusal.status });
     const started = await agentService.dispatch(opts);
-    if (asOrchestrator) markOrchestrator(started.id);
+    if (asOrchestrator) {
+      markOrchestrator(started.id);
+      if (opts.name) pendingHolders.set(started.id, { name: opts.name, at: Date.now() });
+    }
     return started;
   };
   try {
@@ -1947,6 +1949,8 @@ app.post(
   validate(z.object({ any: z.boolean().optional(), keepWorkers: z.boolean().optional() })),
   async (req, res) => {
     try {
+      // ends every background session (orchestrator jobs too) unless the workers are kept
+      if (!req.body.keepWorkers && (await refuseRespawnAll(req, res))) return;
       res.json(await agentService.daemonStop(req.body));
     } catch (error) {
       sendAgentError(res, error);
@@ -2189,7 +2193,13 @@ app.post(
   sameSiteOnly,
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
   validate(z.object({ text: typedTextSchema(100000) })),
-  (req, res) => {
+  async (req, res) => {
+    // `/exit` ends the agent like a stop does
+    if (
+      orchestrator.endsSession(req.body.text) &&
+      (await refuseEnding(req, res, { paneId: req.params.paneId }))
+    )
+      return;
     if (!typeIntoPanePty(req.params.paneId, req.body.text))
       return res.status(404).json({ error: 'No agent runs in this pane' });
     res.json({ delivered: true });
@@ -2206,8 +2216,8 @@ const handoffReset = createHandoffReset({
   paneRunning: (paneId) => getAllPtySessions().some((s) => paneIdOf(s.id) === paneId),
   type: typeIntoPanePty,
 });
-const handoffResetRoute = (action, status = 200) => [
-  agentLimiter,
+const handoffResetRoute = (action, status = 200, limit = [agentLimiter]) => [
+  ...limit,
   sameSiteOnly,
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
   async (req, res) => {
@@ -2219,7 +2229,8 @@ const handoffResetRoute = (action, status = 200) => [
   },
 ];
 app.post('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.start, 202));
-app.get('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.get));
+// the UI polls this every 2 s while a job runs: not on the budget of the CLI's agent calls
+app.get('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.get, 200, []));
 app.delete('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.cancel));
 
 // ---------------------------------------------------------------------------
@@ -2372,7 +2383,7 @@ async function refuseEnding(req, res, { ref, paneId }) {
   if (refusal) res.status(refusal.status).json({ error: refusal.error });
   return !!refusal;
 }
-/** `claude respawn --all` restarts every background session: refused while it would restart an orchestrator */
+/** `claude respawn --all` / `daemon stop` end or restart every background session: refused while that would hit an orchestrator */
 async function refuseRespawnAll(req, res) {
   const caller = agentCaller(req);
   if (caller.ui) return false;
@@ -2390,6 +2401,25 @@ function markOrchestrator(key, role) {
   settingsService.updateAgentViewSettings({
     orchestrators: [...new Set([...orchestrators, key])],
     ...(role ? { orchestratorRoles: { ...orchestratorRoles, [key]: role } } : {}),
+  });
+}
+// Orchestrator jobs started by dispatch under a name, until a listing shows them: `claude --bg`
+// returns before it lists the job, and a second start in that window must still see the holder
+const PENDING_HOLDER_MS = 2 * 60_000;
+const pendingHolders = new Map();
+async function roleHeldRefusalNow(label) {
+  const sessions = await orchestratorSessions().catch(() => []);
+  const listed = new Set(sessions.map((s) => s.id));
+  const pending = [];
+  for (const [id, { name, at }] of pendingHolders) {
+    if (listed.has(id) || Date.now() - at > PENDING_HOLDER_MS) pendingHolders.delete(id);
+    else pending.push({ name, who: `${name} (job ${id})` });
+  }
+  return orchestrator.roleHeldRefusal(label, {
+    sessions,
+    settings: settingsService.getAgentViewSettings(),
+    livePanes: agentService.livePaneIds(),
+    pending,
   });
 }
 // Starts of orchestrators one at a time: the role check of the second sees the first's mark
@@ -2636,7 +2666,7 @@ app.post(
         settingsService.getAgentViewSettings()
       );
       if (!session) return res.status(409).json({ error: 'The orchestrator is not running' });
-      const thread = threadStore.create(orchestratorThreads.threadOwnerKey(session), bound);
+      const thread = threadStore.create(orchestrator.threadOwnerKey(session), bound);
       // the tag, the header (title, refs), 8000 characters of text and ten attachment lines
       const refused = await deliverToOrchestrator(
         req.params.id,
@@ -2662,7 +2692,7 @@ async function chatOrchestrator(ref) {
   const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
   if (!session || !orchestrator.isOrchestratorSession(session, orchestrators)) return null;
   return {
-    id: orchestratorThreads.threadOwnerKey(session),
+    id: orchestrator.threadOwnerKey(session),
     report: orchestrator.sessionRole(session, orchestratorRoles) ?? session.id,
     session,
     sessions,
@@ -2685,7 +2715,7 @@ async function returnMisplacedThreads(owner) {
           orchestrator.sessionRole(s, orchestratorRoles) === owner.report
       )
       .map(async (s) => ({
-        key: orchestratorThreads.threadOwnerKey(s),
+        key: orchestrator.threadOwnerKey(s),
         transcripts: await orchestrator.sessionTranscriptFiles(s, orchestratorTranscriptDeps),
       }))
   );
@@ -2764,19 +2794,31 @@ async function openAgentThread(sender, { agents, cwd, name, now }) {
 const transcriptSenders = orchestratorThreads.createSenderScanner();
 const transcriptEntries = orchestratorThreads.createEntryScanner();
 
-/** The orchestrator's transcript file and its reader; null while it has none */
-async function ownTranscript(owner) {
+/**
+ * The orchestrator's transcript files (oldest first) and their reader: its pane's earlier sessions
+ * (`/clear`, `/new` moved on; their threads moved along and their entries are in those files),
+ * then its own; [] while it has none
+ */
+async function ownTranscripts(owner) {
   const own = owner.session;
   const reader = TRANSCRIPT_READERS[own.id.startsWith('omp-') ? 'omp' : 'claude'];
-  if (!own.sessionId || !reader.idRe.test(own.sessionId)) return null;
-  const file = await reader.findTranscript(own.sessionId, own.cwd);
-  return file ? { file, reader } : null;
+  const earlier = own.paneId ? paneFollower.previousSessions(own.paneId) : [];
+  const found = await Promise.all(
+    orchestrator
+      .transcriptSessionIds(own, earlier)
+      .filter((id) => reader.idRe.test(id))
+      .map(async (id) => {
+        const file = await reader.findTranscript(id, own.cwd);
+        return file ? { file, reader } : null;
+      })
+  );
+  return found.filter(Boolean);
 }
 
-/** Chat items of the orchestrator's transcript (orchestratorThreads.createEntryScanner) */
+/** Chat items of the orchestrator's transcripts (orchestratorThreads.createEntryScanner) */
 async function ownEntries(owner) {
-  const found = await ownTranscript(owner);
-  return found ? transcriptEntries(found.file, found.reader) : [];
+  const files = await ownTranscripts(owner);
+  return (await Promise.all(files.map((f) => transcriptEntries(f.file, f.reader)))).flat();
 }
 
 /**
@@ -2785,10 +2827,11 @@ async function ownEntries(owner) {
  * they are. The scanner reads only what the transcript gained since the last poll
  */
 async function backfillAgentThreads(owner, registry) {
-  const found = await ownTranscript(owner);
-  if (!found) return;
+  const files = await ownTranscripts(owner);
+  if (!files.length) return;
   const wanted = [];
-  for (const { id, name, ts } of (await transcriptSenders(found.file)).values()) {
+  const senders = await Promise.all(files.map((f) => transcriptSenders(f.file)));
+  for (const { id, name, ts } of senders.flatMap((m) => [...m.values()])) {
     const session = orchestrator.findSessionByRef(owner.sessions, id);
     if (session?.id === owner.session.id) continue;
     wanted.push({
@@ -3293,14 +3336,7 @@ app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, (req, res) => {
       const { dir } = ensureOrchestratorWorkspace();
       const role = req.body?.role == null ? null : orchestrator.assertRole(req.body.role, dir);
       // One live holder per role: only the UI (Hape) may start a second one
-      const refusal =
-        role && !agentCaller(req).ui
-          ? orchestrator.roleHeldRefusal(role, {
-              sessions: await orchestratorSessions().catch(() => []),
-              settings: settingsService.getAgentViewSettings(),
-              livePanes: agentService.livePaneIds(),
-            })
-          : null;
+      const refusal = role && !agentCaller(req).ui ? await roleHeldRefusalNow(role) : null;
       if (refusal) return res.status(refusal.status).json({ error: refusal.error });
       const started = await orchestrator.startAgentPane(
         {
