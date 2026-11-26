@@ -32,6 +32,7 @@ import type {
   ChatStatus,
   ChatSummary,
   ClaudeArtifact,
+  HandoffResetJob,
   QuickAgent,
 } from '@hpmartini/agents-ui';
 
@@ -221,6 +222,39 @@ export function sendToPane(paneId: string, text: string): Promise<{ delivered: b
   );
 }
 
+const handoffResetPath = (paneId: string) =>
+  `/agents/panes/${encodeURIComponent(paneId)}/handoff-reset`;
+
+/** Handoff + Reset: the agent in pane `paneId` writes a handoff, the pane is reset and continues (server job) */
+export async function startHandoffReset(paneId: string): Promise<HandoffResetJob> {
+  const { job } = await request<{ job: HandoffResetJob }>(
+    handoffResetPath(paneId),
+    { method: 'POST' },
+    paneId
+  );
+  return job;
+}
+
+/** The pane's last Handoff + Reset job (kept a while after it ended); null when there is none */
+export async function fetchHandoffReset(paneId: string): Promise<HandoffResetJob | null> {
+  const { job } = await request<{ job: HandoffResetJob | null }>(
+    handoffResetPath(paneId),
+    undefined,
+    paneId
+  );
+  return job;
+}
+
+/** Cancels the pane's active Handoff + Reset job */
+export async function cancelHandoffReset(paneId: string): Promise<HandoffResetJob> {
+  const { job } = await request<{ job: HandoffResetJob }>(
+    handoffResetPath(paneId),
+    { method: 'DELETE' },
+    paneId
+  );
+  return job;
+}
+
 /** Quick window (#251): starts the default harness in ~ with `prompt` as its first message */
 export function startQuickAgent(prompt: string): Promise<QuickAgent> {
   return request('/agents/quick', { method: 'POST', body: JSON.stringify({ prompt }) });
@@ -346,6 +380,7 @@ export function subscribeToAgents(handlers: {
   onNotify?: (notification: AgentNotification) => void;
   onError?: (message: string) => void;
   onConnectionChange?: (connected: boolean) => void;
+  onSettingsChanged?: () => void;
 }): () => void {
   let eventSource: EventSource | null = null;
   let attempts = 0;
@@ -374,6 +409,8 @@ export function subscribeToAgents(handlers: {
         console.error('Failed to parse agents notify event', err);
       }
     });
+    // the server moved an orchestrator mark / role along with its pane: the page's copy is stale
+    eventSource.addEventListener('settings', () => handlers.onSettingsChanged?.());
     eventSource.addEventListener('agent-error', (event) => {
       try {
         handlers.onError?.(JSON.parse((event as MessageEvent).data).message);

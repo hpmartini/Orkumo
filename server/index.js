@@ -36,9 +36,17 @@ import {
   typeIntoPanePty,
   ptyEvents,
   detectClaudeCLI,
+  getAllPtySessions,
 } from './services/ptyService.js';
 import { startQuickAgent } from './services/quickAgent.js';
 import { listOmpSessions } from './services/ompSessions.js';
+import {
+  createHandoffReset,
+  createPaneLookup,
+  createPaneRunning,
+  createPaneTyper,
+} from './services/handoffReset.js';
+import { paneIdOf } from '../config/ptyEnv.js';
 import * as orchestrator from './services/orchestratorService.js';
 import * as orchestratorReports from './services/orchestratorReports.js';
 import { parseReport } from './services/orchestratorReport.js';
@@ -198,6 +206,9 @@ const isAllowedOrigin = (origin) => {
 // Read once and dropped from the env, so PTYs and agents do not inherit it.
 remoteAccess.setRendererSecret(process.env.DEVORBIT_RENDERER_SECRET ?? '');
 delete process.env.DEVORBIT_RENDERER_SECRET;
+// A server started from an agent pane (dev server) must not hand that pane's identity to the
+// background jobs and PTYs it starts: only a pane's own agent names the pane (X-Orkumo-Pane)
+delete process.env.ORKUMO_PANE_ID;
 const { hasRendererSecret } = remoteAccess;
 const isOpaqueRequest = (req) => {
   const origin = req.headers.origin;
@@ -1465,7 +1476,14 @@ const agentDispatchSchema = z.object({
     .optional(),
 });
 const agentReplySchema = z.object({
-  text: z.string().min(1).max(20000),
+  // typed into the agent like a pane message: no control characters besides tab / newline (an ESC or
+  // Ctrl-D would end the paste and act as keys)
+  text: z
+    .string()
+    .min(1)
+    .max(20000)
+    // eslint-disable-next-line no-control-regex
+    .refine((t) => !/[\x00-\x08\x0b-\x1f\x7f]/.test(t), 'Text must not contain control characters'),
   mode: z.enum(['auto', 'attach', 'resume']).optional(),
 });
 const agentRemoveSchema = z.object({
@@ -1575,6 +1593,8 @@ app.get('/api/agents/stream', (req, res) => {
   const onSessions = (sessions) => send('sessions', sessions);
   const onNotify = (notification) => send('notify', notification);
   const onError = (error) => send('agent-error', error);
+  const onSettings = () => send('settings', {});
+  agentService.agentEvents.on('settings', onSettings);
   agentService.agentEvents.on('sessions', onSessions);
   agentService.agentEvents.on('notify', onNotify);
   agentService.agentEvents.on('error', onError);
@@ -1587,6 +1607,7 @@ app.get('/api/agents/stream', (req, res) => {
   const cleanup = () => {
     clearInterval(heartbeat);
     unsubscribe();
+    agentService.agentEvents.off('settings', onSettings);
     agentService.agentEvents.off('sessions', onSessions);
     agentService.agentEvents.off('notify', onNotify);
     agentService.agentEvents.off('error', onError);
@@ -1601,8 +1622,24 @@ app.get('/api/agents/stream', (req, res) => {
 app.post('/api/agents/dispatch', agentLimiter, validate(agentDispatchSchema), async (req, res) => {
   const now = Date.now();
   const { orchestrator: sender, ...opts } = req.body;
+  const asOrchestrator = opts.profile === 'orchestrator';
+  // An orchestrator started under the name (or role) of a live one is a second holder: only the UI
+  // (Hape) may; workers keep any name. Marked here, so the next start sees it before the UI does.
+  const start = async () => {
+    const refusal =
+      asOrchestrator && opts.name && !agentCaller(req).ui
+        ? await roleHeldRefusalNow(opts.name)
+        : null;
+    if (refusal) throw Object.assign(new Error(refusal.error), { status: refusal.status });
+    const started = await agentService.dispatch(opts);
+    if (asOrchestrator) {
+      markOrchestrator(started.id);
+      if (opts.name) pendingHolders.set(started.id, { name: opts.name, at: Date.now() });
+    }
+    return started;
+  };
   try {
-    const result = await agentService.dispatch(opts);
+    const result = await (asOrchestrator ? oneStartAtATime(start) : start());
     await openAgentThread(sender, {
       agents: [result.id],
       cwd: opts.cwd,
@@ -1885,6 +1922,7 @@ app.put(
 
 app.post('/api/agents/respawn-all', agentLimiter, async (req, res) => {
   try {
+    if (await refuseRespawnAll(req, res)) return;
     res.json(await agentService.respawnSession('--all'));
   } catch (error) {
     sendAgentError(res, error);
@@ -1927,6 +1965,8 @@ app.post(
   validate(z.object({ any: z.boolean().optional(), keepWorkers: z.boolean().optional() })),
   async (req, res) => {
     try {
+      // ends every background session (orchestrator jobs too) unless the workers are kept
+      if (!req.body.keepWorkers && (await refuseRespawnAll(req, res))) return;
       res.json(await agentService.daemonStop(req.body));
     } catch (error) {
       sendAgentError(res, error);
@@ -1970,7 +2010,13 @@ app.get('/api/agents/servers/orphans', agentLimiter, async (req, res) => {
 // this far as the Electron renderer or a paired app (the gate after cors).
 const sameSiteOnly = (req, res, next) => {
   const origin = req.get('origin');
-  if (origin && !isOpaqueRequest(req) && !isAllowedOrigin(origin))
+  // the remote web UI (token + its own host as Origin) is same-site for the proxy's host
+  if (
+    origin &&
+    !isOpaqueRequest(req) &&
+    !isAllowedOrigin(origin) &&
+    !remoteAccess.isRemoteUiRequest(req)
+  )
     return res.status(403).json({ error: 'Cross-origin request refused' });
   next();
 };
@@ -2078,6 +2124,12 @@ app.post(
   validate(agentReplySchema),
   async (req, res) => {
     try {
+      // `/exit` or a `!` shell line typed into an orchestrator ends it like a stop does
+      if (
+        orchestrator.endsOrRunsShell(req.body.text) &&
+        (await refuseEnding(req, res, { ref: req.params.id }))
+      )
+        return;
       res.json(
         await agentService.replySession(req.params.id, req.body.text, {
           mode: req.body.mode || 'auto',
@@ -2097,6 +2149,7 @@ app.post(
   validateParams(agentIdSchema),
   async (req, res) => {
     try {
+      if (await refuseEnding(req, res, { ref: req.params.id })) return;
       res.json(await agentService.stopSession(req.params.id));
     } catch (error) {
       sendAgentError(res, error);
@@ -2110,7 +2163,8 @@ app.post(
   agentLimiter,
   sameSiteOnly,
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
-  (req, res) => {
+  async (req, res) => {
+    if (await refuseEnding(req, res, { paneId: req.params.paneId })) return;
     res.json({ stopped: killPanePtys(req.params.paneId) });
   }
 );
@@ -2167,12 +2221,55 @@ app.post(
   sameSiteOnly,
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
   validate(z.object({ text: typedTextSchema(100000) })),
-  (req, res) => {
+  async (req, res) => {
+    // `/exit` or a `!` shell line ends the agent like a stop does
+    if (
+      orchestrator.endsOrRunsShell(req.body.text) &&
+      (await refuseEnding(req, res, { paneId: req.params.paneId }))
+    )
+      return;
     if (!typeIntoPanePty(req.params.paneId, req.body.text))
       return res.status(404).json({ error: 'No agent runs in this pane' });
     res.json({ delivered: true });
   }
 );
+
+// Handoff + Reset (server/services/handoffReset.js): the agent writes a handoff file, the pane is
+// reset and the new session continues from it; one in-memory job per pane
+const handoffReset = createHandoffReset({
+  lookupPane: createPaneLookup({
+    listRows: () => agentService.currentSessions(),
+    ptySessions: getAllPtySessions,
+  }),
+  paneRunning: createPaneRunning({
+    paneAlive: (paneId) => getAllPtySessions().some((s) => paneIdOf(s.id) === paneId),
+    jobAlive: async (id) =>
+      (await agentService.currentSessions()).some(
+        (s) => s.kind === 'background' && s.id === id && s.pid
+      ),
+  }),
+  // a background job without an open attach pane is typed into like any reply to it
+  type: createPaneTyper({
+    typeIntoPane: typeIntoPanePty,
+    replyToJob: (id, text) => agentService.replySession(id, text, { mode: 'attach' }),
+  }),
+});
+const handoffResetRoute = (action, status = 200, limit = [agentLimiter]) => [
+  ...limit,
+  sameSiteOnly,
+  validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
+  async (req, res) => {
+    try {
+      res.status(status).json({ job: await action(req.params.paneId) });
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.message });
+    }
+  },
+];
+app.post('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.start, 202));
+// the UI polls this every 2 s while a job runs: not on the budget of the CLI's agent calls
+app.get('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.get, 200, []));
+app.delete('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.cancel));
 
 // ---------------------------------------------------------------------------
 // Orchestrators: sessions that hand out and watch work through the `orkumo` CLI
@@ -2211,7 +2308,7 @@ const panePromptSchema = z
 app.get('/api/orchestrator/overview', async (req, res) => {
   try {
     const [sessions, contexts] = await Promise.all([
-      agentService.currentSessions(),
+      orchestratorSessions(),
       getAgentContexts().catch(() => ({})),
     ]);
     res.json(
@@ -2238,10 +2335,7 @@ app.get(
   async (req, res) => {
     try {
       const last = Math.min(100, Math.max(1, parseInt(String(req.query.last || '10'), 10) || 10));
-      const session = orchestrator.findSessionByRef(
-        await agentService.currentSessions(),
-        req.params.id
-      );
+      const session = orchestrator.findSessionByRef(await orchestratorSessions(), req.params.id);
       if (!session) return res.status(404).json({ error: 'No agent with this id' });
       res.json({
         agent: { id: session.id, name: session.name || null },
@@ -2259,7 +2353,7 @@ app.get(
 
 app.get('/api/orchestrator/projects', async (req, res) => {
   try {
-    const sessions = await agentService.currentSessions().catch(() => []);
+    const sessions = await orchestratorSessions().catch(() => []);
     res.json({
       projects: orchestrator.projectList(await scanAllDirectories(), sessions),
       defaultHarness: settingsService.getAgentViewSettings().dispatch.harness,
@@ -2275,10 +2369,164 @@ const reportsDir = path.join(path.dirname(orchestrator.orchestratorDir()), 'orch
 const reportStore = orchestratorReports.createReportStore(reportsDir);
 const threadStore = orchestratorThreads.createThreadStore(reportsDir);
 
+// Marks and roles the server writes: logged by settings revision (a PUT based on an older one is
+// rebased over them, createMarkLog) and announced on the agents stream, so an open page refetches
+const markLog = orchestrator.createMarkLog();
+function writeMarks(partial, moved = {}) {
+  const before = settingsService.getAgentViewSettings();
+  const next = settingsService.updateAgentViewSettings(partial);
+  markLog.written({
+    marks: (next.orchestrators ?? []).filter((k) => !(before.orchestrators ?? []).includes(k)),
+    roles: Object.fromEntries(
+      Object.entries(next.orchestratorRoles ?? {}).filter(
+        ([k, role]) => before.orchestratorRoles?.[k] !== role
+      )
+    ),
+    moved,
+  });
+  agentService.agentEvents.emit('settings');
+  return next;
+}
+// C4: an orchestrator's identity follows its pane through /clear, /new and /resume. Fed by every
+// agents listing (below) and by the orchestrator routes' reads, so it needs no open UI view.
+const paneFollower = orchestrator.createPaneFollower({
+  file: path.join(reportsDir, 'pane-sessions.json'),
+  getSettings: () => settingsService.getAgentViewSettings(),
+  setSettings: (partial, moved) => writeMarks(partial, moved),
+  threads: threadStore,
+  reports: reportStore,
+});
+const followPanes = (sessions, livePanes) => {
+  try {
+    paneFollower.observe(sessions, livePanes);
+  } catch (error) {
+    console.warn('[orchestrator] following panes:', error.message);
+  }
+};
+agentService.agentEvents.on('refresh', ({ sessions, livePanes }) =>
+  followPanes(sessions, livePanes)
+);
+/** The agents listing orchestrator routes read; panes of orchestrators are followed first */
+async function orchestratorSessions() {
+  const sessions = await agentService.currentSessions();
+  followPanes(sessions, agentService.livePaneIds());
+  return sessions;
+}
+
+// C4 guards. UI = the renderer secret or a loopback page origin (remoteAccess.isUiRequest); every
+// other caller (CLI, curl) is an agent, naming its pane in X-Orkumo-Pane (ORKUMO_PANE_ID)
+const agentCaller = (req) => {
+  const pane = req.get('x-orkumo-pane');
+  return {
+    ui: remoteAccess.isUiRequest(req),
+    paneId: pane && /^[\w.:-]{1,200}$/.test(pane) ? pane : null,
+  };
+};
+/** Answers 403 and returns true when the caller may not end the session `ref` / the pane `paneId` runs */
+async function refuseEnding(req, res, { ref, paneId }) {
+  const caller = agentCaller(req);
+  if (caller.ui) return false;
+  const sessions = await orchestratorSessions().catch(() => []);
+  const session = paneId
+    ? (sessions.find((s) => s.paneId === paneId) ?? null)
+    : orchestrator.findSessionByRef(sessions, ref);
+  const refusal = orchestrator.stopRefusal({
+    session,
+    paneId: paneId ?? session?.paneId,
+    caller,
+    settings: settingsService.getAgentViewSettings(),
+  });
+  if (refusal) res.status(refusal.status).json({ error: refusal.error });
+  return !!refusal;
+}
+/** `claude respawn --all` / `daemon stop` end or restart every background session: refused while that would hit an orchestrator */
+async function refuseRespawnAll(req, res) {
+  const caller = agentCaller(req);
+  if (caller.ui) return false;
+  const settings = settingsService.getAgentViewSettings();
+  const refusal = (await orchestratorSessions().catch(() => []))
+    .filter((s) => s.kind === 'background')
+    .map((session) => orchestrator.stopRefusal({ session, caller, settings }))
+    .find(Boolean);
+  if (refusal) res.status(refusal.status).json({ error: refusal.error });
+  return !!refusal;
+}
+/** The server marks an orchestrator it started (a pane by its pane id: it follows the pane; a job by its id), with its role */
+function markOrchestrator(key, role) {
+  const { orchestrators = [], orchestratorRoles = {} } = settingsService.getAgentViewSettings();
+  writeMarks({
+    orchestrators: [...new Set([...orchestrators, key])],
+    ...(role ? { orchestratorRoles: { ...orchestratorRoles, [key]: role } } : {}),
+  });
+}
+// Orchestrator jobs started by dispatch under a name, until a listing shows them: `claude --bg`
+// returns before it lists the job, and a second start in that window must still see the holder
+const PENDING_HOLDER_MS = 2 * 60_000;
+const pendingHolders = new Map();
+// Orchestrator panes the server started, by pane id with their role: a pane whose agent runs holds
+// its role whether or not a row shows up (a trust prompt can keep it away) and whatever a client
+// wrote to the settings. Persisted: the agent outlives the server.
+const startedPanesFile = path.join(reportsDir, 'started-panes.json');
+let startedPanes = null;
+function readStartedPanes() {
+  if (startedPanes) return startedPanes;
+  try {
+    startedPanes = JSON.parse(fs.readFileSync(startedPanesFile, 'utf8')) ?? {};
+  } catch {
+    startedPanes = {};
+  }
+  return startedPanes;
+}
+function recordStartedPane(paneId, role) {
+  if (!role) return;
+  readStartedPanes()[paneId] = { role };
+  saveStartedPanes();
+}
+function saveStartedPanes() {
+  fs.mkdirSync(reportsDir, { recursive: true });
+  const tmp = `${startedPanesFile}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(startedPanes));
+  fs.renameSync(tmp, startedPanesFile);
+}
+async function roleHeldRefusalNow(label) {
+  const sessions = await orchestratorSessions().catch(() => []);
+  const listed = new Set(sessions.map((s) => s.id));
+  const pending = [];
+  const live = agentService.livePaneIds();
+  const panes = readStartedPanes();
+  const { orchestrators = [], orchestratorRoles = {} } = settingsService.getAgentViewSettings();
+  let ended = false;
+  for (const [paneId, { role }] of Object.entries(panes)) {
+    if (!live.has(paneId)) ended = delete panes[paneId] || ended;
+    // held while the pane is still marked with that role: unmarking it or giving it another role
+    // (the UI's decision) releases the role
+    else if (orchestrators.includes(paneId) && orchestratorRoles[paneId] === role)
+      pending.push({ name: role, who: `pane ${paneId}` });
+  }
+  if (ended) saveStartedPanes();
+  for (const [id, { name, at }] of pendingHolders) {
+    if (listed.has(id) || Date.now() - at > PENDING_HOLDER_MS) pendingHolders.delete(id);
+    else pending.push({ name, who: `${name} (job ${id})` });
+  }
+  return orchestrator.roleHeldRefusal(label, {
+    sessions,
+    settings: settingsService.getAgentViewSettings(),
+    livePanes: agentService.livePaneIds(),
+    pending,
+  });
+}
+// Starts of orchestrators one at a time: the role check of the second sees the first's mark
+let orchestratorStarts = Promise.resolve();
+const oneStartAtATime = (task) => {
+  const run = orchestratorStarts.then(task, task);
+  orchestratorStarts = run.catch(() => {});
+  return run;
+};
+
 /** Agents with display state, activity and PRs: what the stale check and the sender check read */
 async function reportAgents() {
   const [sessions, contexts] = await Promise.all([
-    agentService.currentSessions(),
+    orchestratorSessions(),
     getAgentContexts().catch(() => ({})),
   ]);
   const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
@@ -2401,7 +2649,7 @@ async function deliverToOrchestrator(id, state, text, max) {
   const session = orchestratorReports.orchestratorSessionOf(
     id,
     state.report.orchestrator.agentId,
-    await agentService.currentSessions(),
+    await orchestratorSessions(),
     settingsService.getAgentViewSettings()
   );
   if (!session) return { status: 409, error: 'The orchestrator is not running' };
@@ -2507,11 +2755,11 @@ app.post(
       const session = orchestratorReports.orchestratorSessionOf(
         req.params.id,
         state.report.orchestrator.agentId,
-        await agentService.currentSessions(),
+        await orchestratorSessions(),
         settingsService.getAgentViewSettings()
       );
       if (!session) return res.status(409).json({ error: 'The orchestrator is not running' });
-      const thread = threadStore.create(orchestratorThreads.threadOwnerKey(session), bound);
+      const thread = threadStore.create(orchestrator.threadOwnerKey(session), bound);
       // the tag, the header (title, refs), 8000 characters of text and ten attachment lines
       const refused = await deliverToOrchestrator(
         req.params.id,
@@ -2532,12 +2780,12 @@ app.post(
  * its role (shared by every session of the role), else the session; null for any other session
  */
 async function chatOrchestrator(ref) {
-  const sessions = await agentService.currentSessions();
+  const sessions = await orchestratorSessions();
   const session = orchestrator.findSessionByRef(sessions, ref);
   const { orchestrators, orchestratorRoles } = settingsService.getAgentViewSettings();
   if (!session || !orchestrator.isOrchestratorSession(session, orchestrators)) return null;
   return {
-    id: orchestratorThreads.threadOwnerKey(session),
+    id: orchestrator.threadOwnerKey(session),
     report: orchestrator.sessionRole(session, orchestratorRoles) ?? session.id,
     session,
     sessions,
@@ -2560,7 +2808,7 @@ async function returnMisplacedThreads(owner) {
           orchestrator.sessionRole(s, orchestratorRoles) === owner.report
       )
       .map(async (s) => ({
-        key: orchestratorThreads.threadOwnerKey(s),
+        key: orchestrator.threadOwnerKey(s),
         transcripts: await orchestrator.sessionTranscriptFiles(s, orchestratorTranscriptDeps),
       }))
   );
@@ -2639,19 +2887,31 @@ async function openAgentThread(sender, { agents, cwd, name, now }) {
 const transcriptSenders = orchestratorThreads.createSenderScanner();
 const transcriptEntries = orchestratorThreads.createEntryScanner();
 
-/** The orchestrator's transcript file and its reader; null while it has none */
-async function ownTranscript(owner) {
+/**
+ * The orchestrator's transcript files (oldest first) and their reader: its pane's earlier sessions
+ * (`/clear`, `/new` moved on; their threads moved along and their entries are in those files),
+ * then its own; [] while it has none
+ */
+async function ownTranscripts(owner) {
   const own = owner.session;
   const reader = TRANSCRIPT_READERS[own.id.startsWith('omp-') ? 'omp' : 'claude'];
-  if (!own.sessionId || !reader.idRe.test(own.sessionId)) return null;
-  const file = await reader.findTranscript(own.sessionId, own.cwd);
-  return file ? { file, reader } : null;
+  const earlier = own.paneId ? paneFollower.previousSessions(own.paneId) : [];
+  const found = await Promise.all(
+    orchestrator
+      .transcriptSessionIds(own, earlier)
+      .filter((id) => reader.idRe.test(id))
+      .map(async (id) => {
+        const file = await reader.findTranscript(id, own.cwd);
+        return file ? { file, reader } : null;
+      })
+  );
+  return found.filter(Boolean);
 }
 
-/** Chat items of the orchestrator's transcript (orchestratorThreads.createEntryScanner) */
+/** Chat items of the orchestrator's transcripts (orchestratorThreads.createEntryScanner) */
 async function ownEntries(owner) {
-  const found = await ownTranscript(owner);
-  return found ? transcriptEntries(found.file, found.reader) : [];
+  const files = await ownTranscripts(owner);
+  return (await Promise.all(files.map((f) => transcriptEntries(f.file, f.reader)))).flat();
 }
 
 /**
@@ -2660,10 +2920,11 @@ async function ownEntries(owner) {
  * they are. The scanner reads only what the transcript gained since the last poll
  */
 async function backfillAgentThreads(owner, registry) {
-  const found = await ownTranscript(owner);
-  if (!found) return;
+  const files = await ownTranscripts(owner);
+  if (!files.length) return;
   const wanted = [];
-  for (const { id, name, ts } of (await transcriptSenders(found.file)).values()) {
+  const senders = await Promise.all(files.map((f) => transcriptSenders(f.file)));
+  for (const { id, name, ts } of senders.flatMap((m) => [...m.values()])) {
     const session = orchestrator.findSessionByRef(owner.sessions, id);
     if (session?.id === owner.session.id) continue;
     wanted.push({
@@ -3160,14 +3421,17 @@ app.post(
 );
 
 /** "New orchestrator": the default harness (Claude Code when it has no pane) in the workspace; `role` names a roles/<role>.md */
-app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, async (req, res) => {
+app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, (req, res) => {
   if (isRunningInDocker) return res.status(501).json({ error: 'Not available in Docker' });
   const { harness, model, permissionMode } = settingsService.getAgentViewSettings().dispatch;
-  try {
-    const { dir } = ensureOrchestratorWorkspace();
-    const role = req.body?.role == null ? null : orchestrator.assertRole(req.body.role, dir);
-    res.status(201).json(
-      await orchestrator.startAgentPane(
+  return oneStartAtATime(async () => {
+    try {
+      const { dir } = ensureOrchestratorWorkspace();
+      const role = req.body?.role == null ? null : orchestrator.assertRole(req.body.role, dir);
+      // One live holder per role: only the UI (Hape) may start a second one
+      const refusal = role && !agentCaller(req).ui ? await roleHeldRefusalNow(role) : null;
+      if (refusal) return res.status(refusal.status).json({ error: refusal.error });
+      const started = await orchestrator.startAgentPane(
         {
           harness: orchestrator.PANE_HARNESSES.includes(harness) ? harness : 'claude',
           cwd: dir,
@@ -3180,11 +3444,14 @@ app.post('/api/orchestrator/start', agentLimiter, sameSiteOnly, async (req, res)
           orchestrator: true,
         },
         orchestratorPaneDeps(dir)
-      )
-    );
-  } catch (error) {
-    res.status(error.status || 500).json({ error: error.message });
-  }
+      );
+      markOrchestrator(started.paneId, role);
+      recordStartedPane(started.paneId, role);
+      res.status(201).json(started);
+    } catch (error) {
+      res.status(error.status || 500).json({ error: error.message });
+    }
+  });
 });
 
 app.post(
@@ -3193,6 +3460,7 @@ app.post(
   validateParams(agentIdSchema),
   async (req, res) => {
     try {
+      if (await refuseEnding(req, res, { ref: req.params.id })) return;
       res.json(await agentService.respawnSession(req.params.id));
     } catch (error) {
       sendAgentError(res, error);
@@ -3207,6 +3475,7 @@ app.delete(
   validate(agentRemoveSchema),
   async (req, res) => {
     try {
+      if (await refuseEnding(req, res, { ref: req.params.id })) return;
       const result = await agentService.removeSession(req.params.id, req.body);
       res.status(result.removed ? 200 : 409).json(result);
     } catch (error) {
@@ -3893,13 +4162,20 @@ app.post(
  */
 app.get('/api/settings/agent-view', (req, res) => {
   try {
-    res.json(settingsService.getAgentViewSettings());
+    res.json({ ...settingsService.getAgentViewSettings(), revision: markLog.revision() });
   } catch (error) {
     sendAgentError(res, error);
   }
 });
 
-app.put('/api/settings/agent-view', validate(agentViewSettingsSchema), (req, res) => {
+// `revision`: the settings revision the page's copy was read at (GET), not a setting itself
+const takeRevision = (req, res, next) => {
+  const { revision, ...rest } = req.body ?? {};
+  req.settingsRevision = typeof revision === 'string' ? revision.slice(0, 100) : undefined;
+  req.body = rest;
+  next();
+};
+app.put('/api/settings/agent-view', takeRevision, validate(agentViewSettingsSchema), (req, res) => {
   try {
     if (req.body.scopeCwd) {
       req.body.scopeCwd = agentService.assertAllowedPath(
@@ -3908,7 +4184,11 @@ app.put('/api/settings/agent-view', validate(agentViewSettingsSchema), (req, res
         'Scope directory'
       );
     }
-    res.json(settingsService.updateAgentViewSettings(req.body));
+    const saved = settingsService.updateAgentViewSettings(
+      markLog.rebase(req.body, req.settingsRevision)
+    );
+    markLog.bump();
+    res.json({ ...saved, revision: markLog.revision() });
   } catch (error) {
     sendAgentError(res, error);
   }

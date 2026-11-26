@@ -468,3 +468,314 @@ export function startAgentPane(opts, deps) {
     deps
   );
 }
+
+/**
+ * Key of an orchestrator's threads: its session id; a Claude terminal's row id is its pid (new on
+ * every restart), so its transcript uuid
+ */
+export const threadOwnerKey = (session) =>
+  (session.id.startsWith('interactive-') && session.sessionId) || session.id;
+
+// ---------------------------------------------------------------------------------------------
+// C4 guards: one live holder per role; agents cannot end an orchestrator
+// ---------------------------------------------------------------------------------------------
+
+/** Pane ids of orchestrators the server started (startAgentPane): an orchestrator before it is marked */
+export const ORCHESTRATOR_PANE_PREFIX = 'orch-';
+
+/**
+ * Why a caller may not end `session` (stop, pane stop, delete, respawn); null when it may.
+ * Only the UI (Hape) can end an orchestrator, and the orchestrator itself (`caller.paneId` is the
+ * pane it runs in, sent by the CLI as X-Orkumo-Pane). Workers and finished sessions are free.
+ * @param {{ session: object|null, paneId?: string|null, caller: { ui: boolean, paneId?: string|null },
+ *   settings: { orchestrators?: string[] } }} opts - `paneId`: the pane a pane route names
+ */
+export function stopRefusal({ session, paneId = session?.paneId, caller, settings }) {
+  if (caller.ui || (session && isFinished(session))) return null;
+  const marked = !!session && isOrchestratorSession(session, settings.orchestrators);
+  if (!marked && !paneId?.startsWith(ORCHESTRATOR_PANE_PREFIX)) return null;
+  if (caller.paneId && caller.paneId === paneId) return null;
+  const name = session?.name || session?.id || paneId;
+  return {
+    status: 403,
+    error: `${name} is an orchestrator; agents may not stop it. Only Hape can, in the Orkumo UI.`,
+  };
+}
+
+/** Typed text that runs a shell line in the agent (`! kill …`: Claude Code's bash mode, omp's too) */
+export const startsShell = (text) => /^\s*!/.test(String(text));
+
+/** Typed text that ends the agent or can: no stop route sees it */
+export const endsOrRunsShell = (text) => endsSession(text) || startsShell(text);
+
+/** Typed text that ends the agent (`/exit`, `/quit`): a way to stop it that no stop route sees */
+export const endsSession = (text) => /^\s*\/(?:exit|quit)\b(?![\w-])/i.test(String(text));
+
+/** Transcripts of an orchestrator's chat: the pane's earlier sessions (oldest first), then its own */
+export const transcriptSessionIds = (session, earlier = []) => [
+  ...new Set([...earlier, session.sessionId].filter(Boolean)),
+];
+
+const sameLabel = (a, b) =>
+  !!a && !!b && String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
+
+/**
+ * Why a second session may not take `role` (a live orchestrator holds it); null when it is free.
+ * A role is also a name: `role` matches the role id OR the name of a live orchestrator (a marked
+ * session or a server-started `orch-` pane), case-insensitively: stopping `playmaker` and starting
+ * `--name playmaker` is a second holder. A role key that is the id of a pane whose agent still runs
+ * (`livePanes`) holds the role too: the server marks a new orchestrator pane at start, before its
+ * row is listed
+ * `pending`: orchestrators the server started that no listing shows yet (`{ name, who }`): a second
+ * start right behind the first must see it
+ * @param {{ sessions: object[], settings: { orchestrators?: string[], orchestratorRoles?: object },
+ *   livePanes?: Set<string>, pending?: { name: string, who: string }[] }} opts
+ */
+export function roleHeldRefusal(role, { sessions, settings, livePanes, pending = [] }) {
+  const { orchestrators = [], orchestratorRoles = {} } = settings;
+  const session = sessions.find(
+    (s) =>
+      !isFinished(s) &&
+      (isOrchestratorSession(s, orchestrators) || s.paneId?.startsWith(ORCHESTRATOR_PANE_PREFIX)) &&
+      (sameLabel(sessionRole(s, orchestratorRoles), role) || sameLabel(s.name, role))
+  );
+  const paneId =
+    session?.paneId ??
+    Object.keys(orchestratorRoles).find(
+      (key) => sameLabel(orchestratorRoles[key], role) && livePanes?.has(key)
+    );
+  const waiting = pending.find((p) => sameLabel(p.name, role));
+  if (!session && !paneId && !waiting) return null;
+  const who = session
+    ? `${session.name || session.id}${session.paneId ? ` (pane ${session.paneId})` : ''}`
+    : paneId
+      ? `pane ${paneId}`
+      : waiting.who;
+  return {
+    status: 409,
+    error: `Role ${role} is already held by ${who}. Use that session; reset it with Handoff + Reset instead of starting a second one.`,
+  };
+}
+
+/**
+ * Revisions of the view settings, for the marks and roles the server writes itself (pane follower,
+ * a started orchestrator). A page PUTs its own copy of `orchestrators` / `orchestratorRoles` and
+ * would undo such a write it has not read yet. So GET hands out a revision and a PUT names the one
+ * it was based on:
+ * - based on the current revision: the page saw everything, the PUT is taken as written (an unmark
+ *   by the user sticks);
+ * - based on an older one (or another server run): `rebase` replays what the server wrote since,
+ *   keys the follower moved are mapped and the keys it added are kept;
+ * - no revision (curl, an older client): taken as written.
+ * @param {{ keep?: number, boot?: string }} [options] `keep`: server writes remembered
+ */
+export function createMarkLog({ keep = 200, boot = crypto.randomUUID().slice(0, 8) } = {}) {
+  let n = 0;
+  let log = [];
+  const revision = () => `${boot}.${n}`;
+
+  /** What the entries amount to: old key -> final key, marks and roles still the server's */
+  function fold(entries) {
+    const moved = {};
+    const marks = new Set();
+    const roles = {};
+    for (const e of entries) {
+      for (const [from, to] of Object.entries(moved)) if (to in e.moved) moved[from] = e.moved[to];
+      Object.assign(moved, e.moved);
+      // a key that moved on again is no longer the server's to keep
+      for (const from of Object.keys(e.moved)) {
+        marks.delete(from);
+        delete roles[from];
+      }
+      for (const key of e.marks) marks.add(key);
+      Object.assign(roles, e.roles);
+    }
+    return { moved, marks, roles };
+  }
+
+  return {
+    revision,
+    /** @param {{ marks?: string[], roles?: Record<string,string>, moved?: Record<string,string> }} change */
+    written({ marks = [], roles = {}, moved = {} }) {
+      n += 1;
+      log = [...log, { n, marks, roles, moved }].slice(-keep);
+    },
+    /** A client's PUT was stored: the revision moves on, nothing for a later rebase to replay */
+    bump() {
+      n += 1;
+    },
+    /** The PUT body as it should be stored, for a PUT based on revision `base` */
+    rebase(partial, base) {
+      if (!base || base === revision()) return partial;
+      const [run, at] = String(base).split('.');
+      const known =
+        run === boot && Number.isInteger(Number(at)) && Number(at) >= (log[0]?.n ?? 1) - 1;
+      // another run or a revision older than the log: replay everything it holds
+      const {
+        moved,
+        marks,
+        roles: added,
+      } = fold(known ? log.filter((e) => e.n > Number(at)) : log);
+      const out = { ...partial };
+      const key = (k) => moved[k] ?? k;
+      if (Array.isArray(partial.orchestrators))
+        out.orchestrators = [...new Set([...partial.orchestrators.map(key), ...marks])];
+      if (partial.orchestratorRoles && typeof partial.orchestratorRoles === 'object') {
+        const roles = {};
+        for (const [k, role] of Object.entries(partial.orchestratorRoles))
+          if (!(key(k) in roles) || key(k) === k) roles[key(k)] = role;
+        out.orchestratorRoles = { ...added, ...roles };
+      }
+      return out;
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------------------------
+// C4: an orchestrator's identity follows its pane
+// ---------------------------------------------------------------------------------------------
+
+const newestFirst = (a, b) => activityMs(b) - activityMs(a);
+
+/**
+ * A new row in the pane is the same agent when the same process runs it (`/clear`, `/new`,
+ * `/resume`). Without a pid nothing is known (every orchestrator shares one cwd): not followed
+ */
+const sameProcess = (tracked, row) => !!tracked.pid && tracked.pid === row.pid;
+
+/**
+ * Follows orchestrator panes across new session ids. The agents refresh feeds `observe` every
+ * listing (and orchestrator routes on a lazy read), so it works without an open UI view.
+ *
+ * Per pane with a marked terminal row it remembers `{ rowId, sessionId, pid, cwd }` (persisted:
+ * the agent runs in a holder process and can switch while the server is down). When the pane's
+ * live row has another session id and the same process (pid), the old session's keys move:
+ * marks and roles (keys that are not the pane id or still valid for the new row), the threads
+ * file (owner key) and a row-keyed status report. Nothing moves when
+ * - the pane's PTY is gone (pane closed: the entry is dropped, a later reuse of the id is a new
+ *   agent), or another process (pid) runs in it now,
+ * - the pane has no live row (omp has not written the new session yet): it waits,
+ * - the old session was unmarked meanwhile.
+ * @param {{ file: string, getSettings: () => { orchestrators?: string[], orchestratorRoles?: object },
+ *   setSettings: (partial: object, moved: Record<string, string>) => void, threads: { moveOwner: Function },
+ *   reports: { get: Function, rekey: Function } }} deps
+ */
+export function createPaneFollower({ file, getSettings, setSettings, threads, reports }) {
+  let tracked = null;
+  const load = () => {
+    if (tracked) return tracked;
+    try {
+      tracked = JSON.parse(fs.readFileSync(file, 'utf8')) ?? {};
+    } catch {
+      tracked = {};
+    }
+    return tracked;
+  };
+  const save = () => {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    const tmp = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(tmp, JSON.stringify(tracked));
+    fs.renameSync(tmp, file);
+  };
+  // `previous`: the sessions the pane had before (oldest first): the transcripts that hold the
+  // entries of the threads that moved along
+  const track = (row, previous = []) => ({
+    rowId: row.id,
+    sessionId: row.sessionId ?? null,
+    pid: row.pid ?? null,
+    cwd: row.cwd ?? null,
+    previous,
+  });
+  const same = (t, row) => row.id === t.rowId && (row.sessionId ?? null) === t.sessionId;
+
+  /** Moves what the session `t` owned to `next` */
+  function follow(paneId, t, next) {
+    const settings = getSettings();
+    const { orchestrators = [], orchestratorRoles = {} } = settings;
+    const before = { id: t.rowId, sessionId: t.sessionId, paneId };
+    if (!isOrchestratorSession(before, orchestrators)) return false;
+
+    const newKey = next.sessionId || next.paneId || next.id;
+    const stillValid = new Set([next.id, next.sessionId, next.paneId]);
+    const gone = [t.rowId, t.sessionId].filter((key) => key && !stillValid.has(key));
+
+    let marks = orchestrators;
+    if (gone.some((key) => marks.includes(key))) {
+      marks = marks.filter((key) => !gone.includes(key));
+      if (!isOrchestratorSession(next, marks)) marks = [...marks, newKey];
+    }
+    const roles = Object.fromEntries(
+      Object.entries(orchestratorRoles).filter(([key]) => !gone.includes(key))
+    );
+    const movedRole = gone.map((key) => orchestratorRoles[key]).find(Boolean);
+    if (movedRole && !sessionRole(next, roles)) roles[newKey] = movedRole;
+    if (marks !== orchestrators || gone.some((key) => key in orchestratorRoles))
+      setSettings(
+        { orchestrators: marks, orchestratorRoles: roles },
+        Object.fromEntries(gone.map((key) => [key, newKey]))
+      );
+
+    threads.moveOwner(
+      threadOwnerKey({ id: t.rowId, sessionId: t.sessionId }),
+      threadOwnerKey(next)
+    );
+    const reportBefore = sessionRole(before, orchestratorRoles) ?? t.rowId;
+    const agentId = reports.get(reportBefore)?.report.orchestrator.agentId;
+    reports.rekey(reportBefore, sessionRole(next, roles) ?? next.id, {
+      agentId: agentId === t.rowId ? next.id : agentId === t.sessionId ? next.sessionId : undefined,
+    });
+    return true;
+  }
+
+  return {
+    /** Sessions the pane had before its current one, oldest first */
+    previousSessions: (paneId) => load()[paneId]?.previous ?? [],
+    /**
+     * @param {object[]} sessions the agents listing
+     * @param {Set<string>|null} livePanes panes whose agent PTY runs; null: unknown
+     */
+    observe(sessions, livePanes = null) {
+      const map = load();
+      let dirty = false;
+      for (const [paneId, t] of Object.entries(map)) {
+        if (livePanes && !livePanes.has(paneId)) {
+          delete map[paneId];
+          dirty = true;
+          continue;
+        }
+        const here = sessions.filter((s) => s.paneId === paneId && !isFinished(s));
+        if (!here.length) continue;
+        const current = here.find((row) => same(t, row));
+        if (current) {
+          if ((current.pid ?? null) !== t.pid) {
+            map[paneId] = track(current, t.previous);
+            dirty = true;
+          }
+          continue;
+        }
+        const next = [...here].sort(newestFirst)[0];
+        delete map[paneId]; // a new agent in the pane is tracked below when its row is marked
+        if (sameProcess(t, next) && follow(paneId, t, next))
+          map[paneId] = track(
+            next,
+            [...(t.previous ?? []), t.sessionId].filter(Boolean).slice(-20)
+          );
+        dirty = true;
+      }
+      const { orchestrators = [] } = getSettings();
+      for (const s of sessions) {
+        if (
+          s.paneId &&
+          s.kind === 'interactive' &&
+          !isFinished(s) &&
+          !map[s.paneId] &&
+          isOrchestratorSession(s, orchestrators)
+        ) {
+          map[s.paneId] = track(s);
+          dirty = true;
+        }
+      }
+      if (dirty) save();
+    },
+  };
+}

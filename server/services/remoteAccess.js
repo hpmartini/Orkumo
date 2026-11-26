@@ -96,6 +96,31 @@ export function hasRendererSecret(req) {
 export const isLocalAdmin = (req) =>
   isLocalRequest(req) && (isLoopbackOrigin(req.headers.origin) || hasRendererSecret(req));
 
+/**
+ * The web UI reached through `tailscale serve`: a valid pairing token AND a page Origin of the same
+ * host the request names (the proxy keeps the tailnet name as Host). The token alone is no proof:
+ * the `orkumo` CLI sends it too (orkumo.json), but never an Origin.
+ */
+export function isRemoteUiRequest(req) {
+  const origin = req.headers.origin;
+  if (!origin || !hasValidToken(req)) return false;
+  try {
+    return new URL(origin).host === req.headers.host;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Orkumo's own UI: the Electron renderer (secret), a page on a loopback origin, or the remote web
+ * UI (isRemoteUiRequest). A request without Origin (the `orkumo` CLI, curl) is an agent's. Tells UI
+ * from agent for the C4 guards; an agent that forges these headers passes: this is no login.
+ */
+export const isUiRequest = (req) =>
+  hasRendererSecret(req) ||
+  (!!req.headers.origin && isLoopbackOrigin(req.headers.origin)) ||
+  isRemoteUiRequest(req);
+
 const secrets = new Map();
 
 /** Random secret, created on first use and kept in the data dir (mode 600). */

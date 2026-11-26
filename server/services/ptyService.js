@@ -9,7 +9,7 @@ import * as pty from 'node-pty';
 import fs from 'fs';
 import { EventEmitter } from 'events';
 import { exec } from 'child_process';
-import { ptyBaseEnv } from '../../config/ptyEnv.js';
+import { paneEnv, paneIdOf, ptyBaseEnv } from '../../config/ptyEnv.js';
 import { connectHeldPty, heldPtySockets, removeStaleSocket, spawnHeldPty } from './heldPty.js';
 
 // Store active PTY sessions
@@ -88,9 +88,11 @@ console.log(`[PTY] Service initialized with default shell: ${defaultShell}`);
 
 /**
  * What a PTY runs: `options.command` or the login shell, in `cwd` (a missing one falls back to
- * /tmp or $HOME), with an env for an interactive xterm.js color terminal.
+ * /tmp or $HOME), with an env for an interactive xterm.js color terminal. An agent pane's PTY
+ * (`sessionId` = `agent-<pane>-<ts>`) gets ORKUMO_PANE_ID=<pane>, whatever it runs: the `orkumo`
+ * CLI names its pane to the server (X-Orkumo-Pane), the handoff marker is keyed by it.
  */
-function spawnSpec(cwd, options = {}) {
+function spawnSpec(cwd, options = {}, sessionId = '') {
   let workingDir = cwd;
   if (!fs.existsSync(workingDir)) {
     console.warn(`[PTY] CWD ${workingDir} doesn't exist, using fallback`);
@@ -166,6 +168,7 @@ function spawnSpec(cwd, options = {}) {
   const ptyEnv = {
     ...ptyBaseEnv(),
     ...options.env,
+    ...paneEnv(sessionId),
     // options.pathPrefix: dirs searched first (orchestrator panes find the `orkumo` CLI)
     PATH: [...(options.pathPrefix || []), enhancedPath].join(':'),
     TERM: 'xterm-256color',
@@ -203,6 +206,9 @@ function spawnErrorMessage(command, error) {
 }
 
 /** Registers `session` (its `pty` local or held) and relays its output and exit as ptyEvents */
+/** The env of `spec` carries this PTY's pane id (recorded: whether the agent's env has it) */
+const paneEnvSetBy = (spec, sessionId) => spec.env.ORKUMO_PANE_ID === paneIdOf(sessionId);
+
 function addSession(session) {
   const { id: sessionId, pty: ptyProcess } = session;
   // A reconnect reuses the sessionId and replaces this PTY; a replaced PTY must not
@@ -254,7 +260,7 @@ export function createPtySession(
   }
 
   try {
-    const spec = spawnSpec(cwd, options);
+    const spec = spawnSpec(cwd, options, sessionId);
     const ptyProcess = pty.spawn(spec.file, spec.args, {
       name: 'xterm-256color',
       cols,
@@ -270,6 +276,7 @@ export function createPtySession(
       type: spec.type,
       createdAt: Date.now(),
       held: false,
+      paneEnvSet: paneEnvSetBy(spec, sessionId),
     });
     return {
       success: true,
@@ -296,6 +303,8 @@ function addHeldSession(held) {
     type: 'custom',
     createdAt: hello.createdAt,
     held: true,
+    // the holder reports the pane id it started the agent with; an older holder says nothing
+    paneEnvSet: hello.envPaneId === undefined ? undefined : hello.envPaneId === paneIdOf(hello.id),
     backlog: hello.backlog,
     cols: hello.cols,
     rows: hello.rows,
@@ -305,7 +314,7 @@ function addHeldSession(held) {
 
 async function startHeldSession(sessionId, cwd, cols, rows, options) {
   try {
-    const spec = spawnSpec(cwd, options);
+    const spec = spawnSpec(cwd, options, sessionId);
     const held = await spawnHeldPty({
       id: sessionId,
       file: spec.file,
@@ -330,8 +339,6 @@ async function startHeldSession(sessionId, cwd, cols, rows, options) {
     return { success: false, error: spawnErrorMessage(options.command, error) };
   }
 }
-
-const paneIdOf = (sessionId) => /^agent-(.+)-\d+$/.exec(sessionId)?.[1] ?? null;
 
 /** The running agent PTY of pane `paneId` (PTY ids are `agent-<pane>-<ts>`), null when none runs */
 function runningPanePty(paneId) {
@@ -484,6 +491,7 @@ export function getAllPtySessions() {
     pid: session.pty?.pid,
     createdAt: session.createdAt,
     outputAt: session.outputAt ?? null,
+    paneEnvSet: session.paneEnvSet,
   }));
 }
 

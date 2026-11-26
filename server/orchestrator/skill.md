@@ -127,6 +127,13 @@ orkumo stop <id>
 
 Stops a background job, an Oh My Pi session or the agent of an Orkumo pane.
 
+Workers are yours to stop. **An orchestrator is not**: `orkumo stop <orchestrator>` is refused
+("agents may not stop it", exit 1), as are deleting or respawning one; only Hape stops it, in the
+Orkumo UI. You may stop yourself. Never stop or start an orchestrator to reset it: a session is
+reset with the **Handoff + Reset** button in its pane (Hape clicks it); it keeps its role, threads
+and status report. A role has one live holder: starting a second session for a held role is
+refused (409): use the session that holds it.
+
 ## projects
 
 ```

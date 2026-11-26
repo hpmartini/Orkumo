@@ -33,6 +33,7 @@ import {
 } from './ompSessions.js';
 import { getAllPtySessions, ptyEvents, PTY_ACTIVE_MS } from './ptyService.js';
 import { settingsService } from './settingsService.js';
+import { paneIdOf } from '../../config/ptyEnv.js';
 import { keepMainAgentAlive } from './mainAgent.js';
 import { orchestratorDir, isOrchestratorSession } from './orchestratorService.js';
 import { chatsDir } from './orkumoChats.js';
@@ -855,16 +856,27 @@ async function toAppSession(entry) {
 export function agentPanes(now = Date.now()) {
   const panes = new Map();
   for (const { id, pid, outputAt } of getAllPtySessions()) {
-    const match = /^agent-(.+)-\d+$/.exec(id);
-    if (match && pid) {
-      panes.set(pid, { paneId: match[1], active: !!outputAt && now - outputAt < PTY_ACTIVE_MS });
+    const paneId = paneIdOf(id);
+    if (paneId && pid) {
+      panes.set(pid, { paneId, active: !!outputAt && now - outputAt < PTY_ACTIVE_MS });
     }
   }
   return panes;
 }
 
-/** A Claude terminal row (of an earlier listing, too) with the current pane (activity) of its pid */
-function withPane(session, panes) {
+/** Panes whose agent PTY runs now (orchestrator identity follows these, orchestratorService.js) */
+export const livePaneIds = () => new Set([...agentPanes().values()].map((pane) => pane.paneId));
+
+/**
+ * A Claude terminal row (of an earlier listing, too) with the current pane (activity) of its pid.
+ * An app row (remote control, `claude --remote-control` in an Orkumo pane) names its pane too, so
+ * attach, stop, orchestrator mark and Handoff + Reset work on it like on a terminal row.
+ */
+export function withPane(session, panes) {
+  if (session.kind === 'app') {
+    const pane = session.pid ? panes.get(session.pid) : null;
+    return { ...session, paneId: pane?.paneId || null };
+  }
   if (session.kind !== 'interactive') return session;
   const pane = session.pid ? panes.get(session.pid) : null;
   return {
@@ -920,7 +932,7 @@ async function listClaudeSessions(options, panes) {
     raw.map(async (entry) => {
       if (entry.kind !== 'background' || !entry.id) {
         const appSession = await toAppSession(entry);
-        if (appSession) return appSession;
+        if (appSession) return withPane(appSession, panes);
         // A terminal started in an Orkumo pane: its row names the pane, so the pane finds its session
         return withPane(
           {
@@ -1919,6 +1931,9 @@ async function refreshOmpSessions() {
 function publishSessions(sessions) {
   try {
     latestSessions = sessions;
+    // every listing, also when nothing the UI shows changed: a new session id in a pane is not in
+    // snapshotKey, orchestrators follow it (orchestratorService.js createPaneFollower)
+    agentEvents.emit('refresh', { sessions, livePanes: livePaneIds() });
     const next = new Map(sessions.map((s) => [s.id, s]));
     const notifications = [];
     for (const session of sessions) {

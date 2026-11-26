@@ -8,6 +8,8 @@ import os from 'os';
 import path from 'path';
 import * as agentService from './agentService.js';
 import { listChats } from './chatService.js';
+import { piSessionsDir } from './chatTranscripts.js';
+import { findOmpSessionFile, ompSessionsDir, readContextTokens } from './ompSessions.js';
 import {
   mainCheckoutOf,
   projectCatalog,
@@ -351,6 +353,23 @@ export async function sessionCache(session, model) {
     };
   }
   return null;
+}
+
+/**
+ * Tokens in the model context of a session's latest turn, null when unknown. Claude: the last
+ * turn of the prompt-cache stats; omp and pi: the newest assistant usage of the session file.
+ * `harness` is set on chat panes; a listed omp row says `ptyCommand: 'omp'`.
+ */
+export async function sessionContextTokens(
+  session,
+  cache,
+  { ompDir = ompSessionsDir(), piDir = piSessionsDir() } = {}
+) {
+  if (typeof cache?.cachedTokens === 'number') return cache.cachedTokens;
+  const harness = session.harness ?? (session.ptyCommand === 'omp' ? 'omp' : null);
+  if (harness !== 'omp' && harness !== 'pi') return null;
+  const file = await findOmpSessionFile(session.sessionId, harness === 'pi' ? piDir : ompDir);
+  return file ? readContextTokens(file).catch(() => null) : null;
 }
 
 const CI_FAIL = new Set([
@@ -877,6 +896,7 @@ async function computeAgentContexts() {
   const chats = listChats().map((c) => ({
     id: c.id,
     sessionId: c.sessionId,
+    harness: c.harness,
     cwd: c.cwd,
     kind: 'interactive',
     chatModel: c.model,
@@ -915,11 +935,13 @@ async function computeAgentContexts() {
       const remote = repo?.slug ? remotes.get(repo.slug) : null;
       const model =
         (await sessionModel(s)) ?? modelFromFlags(s.respawnFlags) ?? s.chatModel ?? null;
+      const cache = await sessionCache(s, model).catch(() => null);
       contexts[s.id] = {
         repo,
         projectId: projectIdFor(projects, { root: repo?.root, dirs: [s.worktree, s.cwd] }),
         model,
-        cache: await sessionCache(s, model).catch(() => null),
+        cache,
+        contextTokens: await sessionContextTokens(s, cache).catch(() => null),
         issues: remote?.issues || null,
         pulls: remote?.pulls || null,
         servers: resolved.filter((l) => owner.get(l) === s.id).map(publicServer),

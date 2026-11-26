@@ -507,6 +507,37 @@ describe('commands', () => {
     expect((await cli(['stop', 'interactive-88'])).err).toMatch(/PID 88/);
   });
 
+  it('sends its pane in X-Orkumo-Pane (ORKUMO_PANE_ID), and none outside a pane', async () => {
+    const routes = { 'POST /agents/omp-u3/stop': () => [200, { output: '' }] };
+    const inPane = await cli(['stop', 'omp-u3'], routes, { env: { ORKUMO_PANE_ID: 'orch-9' } });
+    expect(inPane.calls[1].headers['X-Orkumo-Pane']).toBe('orch-9');
+    const outside = await cli(['stop', 'omp-u3'], routes);
+    expect(outside.calls[1].headers).not.toHaveProperty('X-Orkumo-Pane');
+  });
+
+  it('stop: a refused stop prints the server message and exits 1', async () => {
+    const message =
+      'omp is an orchestrator; agents may not stop it. Only Hape can, in the Orkumo UI.';
+    const { code, err, out } = await cli(['stop', 'omp-u3'], {
+      'POST /agents/omp-u3/stop': () => [403, { error: message }],
+    });
+    expect(code).toBe(1);
+    expect(err).toContain(message);
+    expect(out).toBe('');
+  });
+
+  it('start --orchestrator: a refused second holder prints the server message and exits 1', async () => {
+    const message =
+      'Role playmaker is already held by playmaker. Use that session; reset it with Handoff + Reset instead of starting a second one.';
+    const { code, err, out } = await cli(
+      ['start', '--project', 'app', '--orchestrator', '--name', 'playmaker', 'do it now'],
+      { 'POST /agents/dispatch': () => [409, { error: message }] }
+    );
+    expect(code).toBe(1);
+    expect(err).toContain(message);
+    expect(out).toBe('');
+  });
+
   it('projects: lists name, path and agent count', async () => {
     const { out } = await cli(['projects']);
     expect(out).toBe('App  /p/app  (1 agent)\nApi  /p/api');

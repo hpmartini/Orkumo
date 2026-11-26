@@ -532,3 +532,56 @@ export async function readOmpTranscriptTail(file, limit = 40, { maxChars = 4000 
     await handle.close();
   }
 }
+
+/** Bytes scanned at most for the context size: one tool result can be megabytes */
+const CONTEXT_SCAN_MAX = 8 * 1024 * 1024;
+/** Files kept in the context-size cache: the listed sessions (MAX_LISTED) plus chat panes */
+export const CONTEXT_TOKENS_CACHE_MAX = 200;
+const contextTokensCache = new Map(); // file -> { size, mtimeMs, tokens }; oldest read first
+export const contextTokensCacheSize = () => contextTokensCache.size;
+
+/**
+ * Tokens in the model context of the session's latest turn: `input + cacheRead + cacheWrite` of the
+ * newest assistant message that carries usage (pi session v3 `message.usage`; `totalTokens` adds
+ * the output, which is not in the context yet). Failed calls report zeros and are skipped.
+ * null when the tail holds none.
+ */
+export async function readContextTokens(file) {
+  const { size, mtimeMs } = await fsp.stat(file);
+  const cached = contextTokensCache.get(file);
+  if (cached && cached.size === size && cached.mtimeMs === mtimeMs) return cached.tokens;
+  const handle = await fsp.open(file, 'r');
+  let tokens = null;
+  try {
+    await scanLinesBackward(
+      handle,
+      size,
+      { chunk: TURN_SCAN_CHUNK, max: CONTEXT_SCAN_MAX },
+      (line) => {
+        let record;
+        try {
+          record = JSON.parse(line);
+        } catch {
+          return true;
+        }
+        const usage = record?.type === 'message' ? record.message?.usage : null;
+        if (record?.message?.role !== 'assistant' || !usage) return true;
+        const total =
+          (Number(usage.input) || 0) +
+          (Number(usage.cacheRead) || 0) +
+          (Number(usage.cacheWrite) || 0);
+        if (total <= 0) return true;
+        tokens = total;
+        return false;
+      }
+    );
+  } finally {
+    await handle.close();
+  }
+  contextTokensCache.delete(file);
+  contextTokensCache.set(file, { size, mtimeMs, tokens });
+  if (contextTokensCache.size > CONTEXT_TOKENS_CACHE_MAX) {
+    contextTokensCache.delete(contextTokensCache.keys().next().value);
+  }
+  return tokens;
+}

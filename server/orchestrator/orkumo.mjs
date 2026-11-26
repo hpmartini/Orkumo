@@ -163,8 +163,12 @@ export function isLoopbackUrl(url) {
   return host === 'localhost' || host === '[::1]' || /^127(\.\d{1,3}){3}$/.test(host);
 }
 
-/** `api(method, route, body?)` against the local Orkumo API; errors become CliErrors */
-export function createApi({ apiUrl, token, fetch = globalThis.fetch }) {
+/**
+ * `api(method, route, body?)` against the local Orkumo API; errors become CliErrors. `paneId`
+ * (ORKUMO_PANE_ID, set on every agent pane): sent as X-Orkumo-Pane so the server knows the caller
+ * is an agent and which pane, e.g. to let an orchestrator end itself but no other
+ */
+export function createApi({ apiUrl, token, fetch = globalThis.fetch, paneId }) {
   // The pairing token unlocks the whole Orkumo API: never hand it to another host
   if (token && !isLoopbackUrl(apiUrl)) {
     throw new CliError(
@@ -179,6 +183,7 @@ export function createApi({ apiUrl, token, fetch = globalThis.fetch }) {
         headers: {
           'Content-Type': 'application/json',
           ...(token ? { 'X-DevOrbit-Token': token } : {}),
+          ...(paneId ? { 'X-Orkumo-Pane': paneId } : {}),
         },
         body: body === undefined ? undefined : JSON.stringify(body),
       });
@@ -593,7 +598,11 @@ export async function run(argv, deps = {}) {
       err(message);
       return 2; // Claude Code: exit 2 blocks the tool call and shows stderr to the model
     }
-    const api = createApi({ ...config, fetch: deps.fetch });
+    const api = createApi({
+      ...config,
+      fetch: deps.fetch,
+      paneId: (deps.env ?? process.env).ORKUMO_PANE_ID,
+    });
     /** Prints `data` as JSON; the exit code */
     const json = (data) => {
       out(JSON.stringify(data, null, 2));

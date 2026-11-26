@@ -93,6 +93,9 @@ export const orkumoTransport: AgentsTransport = {
     replyToAgent: api.replyToAgent,
     sendToPane: api.sendToPane,
     stopPane: api.stopPane,
+    startHandoffReset: api.startHandoffReset,
+    fetchHandoffReset: api.fetchHandoffReset,
+    cancelHandoffReset: api.cancelHandoffReset,
   },
   contexts: { fetchAgentContexts: api.fetchAgentContexts },
   discovery: {
