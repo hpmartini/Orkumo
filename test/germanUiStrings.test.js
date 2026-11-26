@@ -22,6 +22,8 @@ const ALLOW = {
   'server/services/chatHistoryService.js': 'German stop words for topic detection, data not UI',
   'server/services/projectContexts.js: Alle':
     'old stored default context name, mapped to "All" on read',
+  'server/services/handoffReset.js: weiter':
+    "protocol text typed into the pane: the handoff convention's first prompt of the new session, not UI",
 };
 
 const GERMAN_WORDS = new Set(
