@@ -5,7 +5,7 @@
     "": {
       "name": "orkumo",
       "dependencies": {
-        "@hpmartini/agents-ui": "github:hpmartini/agents-ui#91daeffc18664b9da1c82b196e9c0e42045f68d5",
+        "@hpmartini/agents-ui": "github:hpmartini/agents-ui#v0.4.62",
         "@tanstack/react-virtual": "^3.13.15",
         "@xterm/addon-fit": "^0.11.0",
         "@xterm/addon-image": "0.9.0",
