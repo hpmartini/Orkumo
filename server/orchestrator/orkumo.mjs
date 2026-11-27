@@ -802,6 +802,12 @@ export async function run(argv, deps = {}) {
           running = null; // the GET is only a hint; the POST decides
         }
         if (running) {
+          // A child session that only inherited the pane id is not the owner of that job: exit 2,
+          // so its compaction runs (exit 3 would block it and wait for the parent's job).
+          const session = body.session;
+          if (session && ![running.oldSessionId, running.newSessionId].includes(session)) {
+            throw new CliError(`Caller session ${session} is not the session of pane ${pane}.`, 2);
+          }
           throw new CliError(
             `Handoff + Reset already runs in ${pane} (phase ${running.phase}).`,
             3

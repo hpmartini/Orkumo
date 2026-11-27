@@ -595,7 +595,7 @@ describe('commands', () => {
     const routes = {
       'GET /agents/panes/work-1/handoff-reset': () => [
         200,
-        { job: { paneId: 'work-1', phase: 'writing', active: true } },
+        { job: { paneId: 'work-1', phase: 'writing', active: true, oldSessionId: 'sess-1' } },
       ],
       'POST /agents/panes/work-1/handoff-reset': () => [
         202,
@@ -610,6 +610,59 @@ describe('commands', () => {
     // the GET comes first and the POST is spared
     expect(calls[0]).toMatchObject({ method: 'GET', route: '/agents/panes/work-1/handoff-reset' });
     expect(calls.some((c) => c.method === 'POST')).toBe(false);
+  });
+
+  it('handoff-reset: a running job of another session: exit 2, no POST', async () => {
+    const routes = {
+      'GET /agents/panes/work-1/handoff-reset': () => [
+        200,
+        {
+          job: {
+            paneId: 'work-1',
+            phase: 'writing',
+            active: true,
+            oldSessionId: 'sess-parent',
+            newSessionId: null,
+          },
+        },
+      ],
+      'POST /agents/panes/work-1/handoff-reset': () => [
+        202,
+        { job: { paneId: 'work-1', phase: 'writing', resetId: 'reset-6' } },
+      ],
+    };
+    // a child session that inherits the pane id must not wait for the job of its parent
+    const { code, err, calls } = await cli(['handoff-reset', '--session', 'sess-child'], routes, {
+      env: { ORKUMO_PANE_ID: 'work-1' },
+    });
+    expect(code).toBe(2);
+    expect(err).toContain('sess-child');
+    expect(err).toContain('not the session of pane work-1');
+    expect(calls.some((c) => c.method === 'POST')).toBe(false);
+  });
+
+  it('handoff-reset: a running job of the own session: exit 3', async () => {
+    const routes = {
+      'GET /agents/panes/work-1/handoff-reset': () => [
+        200,
+        {
+          job: {
+            paneId: 'work-1',
+            phase: 'writing',
+            active: true,
+            oldSessionId: 'sess-1',
+            newSessionId: 'sess-2',
+          },
+        },
+      ],
+    };
+    for (const session of ['sess-1', 'sess-2']) {
+      const { code, calls } = await cli(['handoff-reset', '--session', session], routes, {
+        env: { ORKUMO_PANE_ID: 'work-1' },
+      });
+      expect(code).toBe(3);
+      expect(calls.some((c) => c.method === 'POST')).toBe(false);
+    }
   });
 
   it('handoff-reset: a background job names its pane by CLAUDE_JOB_DIR', async () => {

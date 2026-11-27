@@ -258,6 +258,47 @@ describe('Handoff + Reset job', () => {
     await finished(world);
   });
 
+  it('the session of the caller is checked before the 409 of a running job', async () => {
+    const world = makeWorld({ react: { skill: () => {} } });
+    await world.svc.start(PANE, { session: OLD });
+    await vi.waitFor(() => expect(world.svc.get(PANE).phase).toBe('writing'), { timeout: 5000 });
+    // a child session (it inherits the pane id) is told that it is not the session of the pane:
+    // a 409 would make it wait for the job of its parent instead of compacting
+    await expect(world.svc.start(PANE, { session: 'child-session' })).rejects.toMatchObject({
+      status: 400,
+      message: `Caller session child-session is not the session of pane ${PANE}`,
+    });
+    // the session that owns the job gets the 409
+    await expect(world.svc.start(PANE, { session: OLD })).rejects.toMatchObject({ status: 409 });
+    await world.svc.cancel(PANE);
+  });
+
+  it('after the reset the new session of the pane owns the running job', async () => {
+    // "weiter" never takes the marker and the take wait is long: the job stays in continuing
+    const world = makeWorld({
+      react: { weiter: () => {} },
+      timeouts: { takeMs: 10 * 60 * 60_000 },
+    });
+    await world.svc.start(PANE, { session: OLD });
+    await vi.waitFor(() => expect(world.svc.get(PANE).phase).toBe('continuing'), { timeout: 5000 });
+    expect(world.svc.get(PANE).newSessionId).toBe(NEW);
+    // the job runs on: the new session of the pane gets the 409, a child session the 400
+    await expect(world.svc.start(PANE, { session: NEW })).rejects.toMatchObject({ status: 409 });
+    await expect(world.svc.start(PANE, { session: 'child-session' })).rejects.toMatchObject({
+      status: 400,
+    });
+    await world.svc.cancel(PANE);
+  });
+
+  it('without a running job a foreign session is refused before anything is typed', async () => {
+    const world = makeWorld();
+    await expect(world.svc.start(PANE, { session: 'child-session' })).rejects.toMatchObject({
+      status: 400,
+      message: `Caller session child-session is not the session of pane ${PANE}`,
+    });
+    expect(world.svc.get(PANE)).toBeNull();
+  });
+
   it('an automatic job that was cancelled cools the pane down (429), a manual one does not', async () => {
     const world = makeWorld({ react: { skill: () => {} } });
     await world.svc.start(PANE, { trigger: 'auto' });

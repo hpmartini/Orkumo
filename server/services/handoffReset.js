@@ -459,11 +459,24 @@ export function createHandoffReset({
      * caller, 409 active, 429 auto cooling down)
      * `trigger` is 'manual' (a person pressed the button) or 'auto' (the compaction threshold
      * fired): an automatic job waits for the running turn to end before it types the skill.
-     * `session` is the caller's session id: it must be the session that runs in the pane, so a
-     * child session (a subagent that inherits the pane id) cannot reset the pane of its parent.
+     * `session` is the caller's session id: it must be the session that runs in the pane (or the
+     * one the running job of that pane belongs to), so a child session (a subagent that inherits
+     * the pane id) cannot reset the pane of its parent. The check comes before the 409 of a
+     * running job: a child session must not wait for the job of its parent.
      */
     async start(paneId, { trigger = 'manual', session = null } = {}) {
-      if (isActive(jobs.get(paneId)) || starting.has(paneId)) {
+      const running = jobs.get(paneId);
+      // A child session that inherits the pane id must not be told "a job runs" (409): it would
+      // wait for the job of its parent. It gets the 400 of a foreign session instead.
+      if (session && isActive(running)) {
+        const owners = new Set(
+          [running.job.oldSessionId, running.job.newSessionId].filter(Boolean)
+        );
+        if (!owners.has(session)) {
+          throw httpError(400, `Caller session ${session} is not the session of pane ${paneId}`);
+        }
+      }
+      if (isActive(running) || starting.has(paneId)) {
         throw httpError(409, 'Handoff + Reset already runs in this pane');
       }
       for (const [id, old] of jobs) {
