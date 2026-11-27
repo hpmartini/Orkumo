@@ -3,6 +3,7 @@ import { spawnSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
+import { fileURLToPath } from 'url';
 
 // node-pty is a native module - keep it out of the unit test
 vi.mock('node-pty', () => ({ spawn: vi.fn() }));
@@ -16,6 +17,7 @@ const {
   markerKey,
   paneKey,
   HARNESS_STEPS,
+  ACTIVE_PHASES,
 } = await import('../server/services/handoffReset.js');
 const { TRANSCRIPT_READERS } = await import('../server/services/chatTranscripts.js');
 
@@ -50,6 +52,7 @@ function makeWorld({
   const world = {
     clock: 1_000_000,
     typed: [],
+    typedAt: [],
     phases: [],
     events: [],
     sessionId: OLD,
@@ -85,6 +88,7 @@ function makeWorld({
   world.type = (paneId, text, context) => {
     world.typed.push(text);
     world.contexts.push(context);
+    world.typedAt.push(world.clock);
     if (text.startsWith(`${steps.skill} `)) behave.skill(world);
     else if (text === steps.reset) behave.reset(world);
     else if (text === 'weiter') behave.weiter(world);
@@ -202,14 +206,32 @@ describe('Handoff + Reset job', () => {
     // the turn ends 3 s later
     world.events.push({ at: world.clock + 3000, fn: () => (world.working = false) });
     const job = await world.svc.start(PANE, { trigger: 'auto' });
-    expect(job).toMatchObject({ trigger: 'auto', phase: 'waiting' });
+    // agents-ui (v0.4.63) knows only writing/resetting/continuing: the wait is a field
+    expect(job).toMatchObject({ trigger: 'auto', phase: 'writing', waitingForTurn: true });
     await finished(world);
     const done = world.svc.get(PANE);
-    expect(done).toMatchObject({ phase: 'done', trigger: 'auto' });
+    expect(done).toMatchObject({ phase: 'done', trigger: 'auto', waitingForTurn: false });
     expect(world.typed[0]).toBe(
       `/hape-skills:handoff-reset --key ${paneKey(PANE)} --reset-id reset-1`
     );
-    expect(world.phases).toContain('waiting');
+    expect(world.phases).not.toContain('waiting');
+  });
+
+  it('auto: the wait needs two idle observations in a row', async () => {
+    const world = makeWorld();
+    world.working = true;
+    // the agent is idle for one poll only, then works again: the wait must go on
+    world.events.push({ at: world.clock + 2000, fn: () => (world.working = false) });
+    world.events.push({ at: world.clock + 3000, fn: () => (world.working = true) });
+    world.events.push({ at: world.clock + 6000, fn: () => (world.working = false) });
+    const start = world.clock;
+    await world.svc.start(PANE, { trigger: 'auto' });
+    await vi.waitFor(() => expect(world.typed.length).toBeGreaterThan(0), { timeout: 5000 });
+    // nothing was typed while the agent worked again: the wait started at the second idle spell
+    expect(world.typedAt[0]).toBeGreaterThanOrEqual(start + 6000);
+    expect(world.typed[0]).toBe(
+      `/hape-skills:handoff-reset --key ${paneKey(PANE)} --reset-id reset-1`
+    );
   });
 
   it('auto: a turn that never ends times out with a clear error', async () => {
@@ -221,6 +243,47 @@ describe('Handoff + Reset job', () => {
     expect(job.phase).toBe('error');
     expect(job.error).toMatch(/did not finish its turn/);
     expect(world.typed).toHaveLength(0);
+  });
+
+  it('a caller session that is not the session of the pane is refused (400)', async () => {
+    const world = makeWorld();
+    await expect(world.svc.start(PANE, { session: 'someone-else' })).rejects.toMatchObject({
+      status: 400,
+      message: `Caller session someone-else is not the session of pane ${PANE}`,
+    });
+    // the session of the pane is accepted
+    await expect(world.svc.start(PANE, { session: OLD })).resolves.toMatchObject({
+      phase: 'writing',
+    });
+    await finished(world);
+  });
+
+  it('an automatic job that was cancelled cools the pane down (429), a manual one does not', async () => {
+    const world = makeWorld({ react: { skill: () => {} } });
+    await world.svc.start(PANE, { trigger: 'auto' });
+    await vi.waitFor(() => expect(world.svc.get(PANE).phase).toBe('writing'), { timeout: 5000 });
+    world.svc.cancel(PANE);
+    await expect(world.svc.start(PANE, { trigger: 'auto' })).rejects.toMatchObject({
+      status: 429,
+      message: expect.stringMatching(/auto handoff cooled down/),
+    });
+    // the manual start stays possible
+    await expect(world.svc.start(PANE)).resolves.toMatchObject({ phase: 'writing' });
+  });
+
+  it('an automatic job that failed cools the pane down (429) until the cooldown is over', async () => {
+    const world = makeWorld({ timeouts: { autoWaitMs: 20_000, retainMs: 60_000 } });
+    world.working = true;
+    await world.svc.start(PANE, { trigger: 'auto' });
+    await finished(world);
+    expect(world.svc.get(PANE).phase).toBe('error');
+    await expect(world.svc.start(PANE, { trigger: 'auto' })).rejects.toMatchObject({
+      status: 429,
+    });
+    world.clock += 61_000;
+    await expect(world.svc.start(PANE, { trigger: 'auto' })).resolves.toMatchObject({
+      phase: 'writing',
+    });
   });
 
   it('manual: the trigger stays manual and types right away', async () => {
@@ -558,6 +621,24 @@ describe('Handoff + Reset job', () => {
     expect(world.svc.get(PANE)?.phase).toBe('done');
     world.clock += 2 * 60_000;
     expect(world.svc.get(PANE)).toBeNull();
+  });
+});
+
+describe('the phases agents-ui knows', () => {
+  const CONTROL = path.join(
+    path.dirname(fileURLToPath(import.meta.url)),
+    '../node_modules/@hpmartini/agents-ui/dist/components/AgentsView/HandoffResetControl.js'
+  );
+
+  it('every phase the server runs in is polled by the UI and offers Cancel', () => {
+    const source = fs.readFileSync(CONTROL, 'utf8');
+    const active = /const isActive = \(job\) =>([^\n]*)/.exec(source)?.[1] ?? '';
+    for (const phase of ACTIVE_PHASES) {
+      expect(active).toContain(`'${phase}'`);
+    }
+    // a phase the UI does not know would stop the polling and hide the Cancel button
+    expect(active).not.toContain("'waiting'");
+    expect(source).toContain('control.cancel');
   });
 });
 

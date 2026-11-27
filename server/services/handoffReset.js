@@ -48,7 +48,9 @@ export const TIMEOUTS = Object.freeze({
   retainMs: 10 * 60_000,
 });
 
-const ACTIVE = new Set(['waiting', 'writing', 'resetting', 'continuing']);
+/** Phases a running job goes through; agents-ui knows these (it polls and shows Cancel) */
+export const ACTIVE_PHASES = Object.freeze(['writing', 'resetting', 'continuing']);
+const ACTIVE = new Set(ACTIVE_PHASES);
 
 export const defaultPendingDir = (home = os.homedir()) =>
   path.join(home, '.claude', 'handoffs', '.pending');
@@ -283,7 +285,7 @@ export function createSessionTracker({
 }
 
 /**
- * @typedef {'waiting'|'writing'|'resetting'|'continuing'|'done'|'error'} HandoffResetPhase
+ * @typedef {'writing'|'resetting'|'continuing'|'done'|'error'} HandoffResetPhase
  * @param {object} deps
  * @param {(paneId: string) => Promise<{harness: string, cwd: string, sessionId: string|null, working: boolean}|null>} deps.lookupPane
  * @param {(paneId: string, context: { background: boolean }) => boolean|Promise<boolean>} deps.paneRunning the agent behind the pane still runs
@@ -303,6 +305,8 @@ export function createHandoffReset({
   const t = { ...TIMEOUTS, ...timeouts };
   const jobs = new Map(); // paneId -> { job, ctl }
   const starting = new Set();
+  // paneId -> until when an automatic job may start again (after a cancelled or failed one)
+  const autoCooldown = new Map();
 
   const isActive = (entry) => !!entry && ACTIVE.has(entry.job.phase);
 
@@ -353,17 +357,22 @@ export function createHandoffReset({
 
     // An automatic handoff (compaction threshold) starts while the agent is still working: wait
     // for the turn to end before typing anything, so the skill command is not read as input.
+    // The phase stays 'writing' (the phase agents-ui knows: it polls and offers Cancel) and the
+    // job says `waitingForTurn` while the wait lasts.
     if (job.trigger === 'auto') {
-      phase('waiting');
-      const idle = await until(t.autoWaitMs, async () => {
+      let idle = 0;
+      const ready = await until(t.autoWaitMs, async () => {
         const pane = await lookupPane(paneId);
-        return pane ? pane.working === false : false;
+        idle = pane && pane.working === false ? idle + 1 : 0;
+        return idle >= 2 ? true : null;
       });
-      if (!idle) {
+      if (!ready) {
         throw new Error(
           `The agent did not finish its turn within ${Math.round(t.autoWaitMs / 60_000)} min; the automatic handoff was not started`
         );
       }
+      job.waitingForTurn = false;
+      job.updatedAt = now();
     }
     phase('writing');
 
@@ -438,20 +447,30 @@ export function createHandoffReset({
     phase('done');
   }
 
-  const snapshot = (entry) => ({ ...entry.job });
+  /** The job as the client sees it; `active` says whether it still runs (the UI polls it) */
+  const snapshot = (entry) => ({ ...entry.job, active: isActive(entry) });
+
+  /** An automatic job that was cancelled or failed cools the pane down: no new auto job until then */
+  const coolDown = (paneId) => autoCooldown.set(paneId, now() + t.retainMs);
 
   return {
     /**
-     * Starts a job for the pane; throws errors with `status` (400 unknown pane / harness, 409 active)
+     * Starts a job for the pane; throws errors with `status` (400 unknown pane / harness / wrong
+     * caller, 409 active, 429 auto cooling down)
      * `trigger` is 'manual' (a person pressed the button) or 'auto' (the compaction threshold
      * fired): an automatic job waits for the running turn to end before it types the skill.
+     * `session` is the caller's session id: it must be the session that runs in the pane, so a
+     * child session (a subagent that inherits the pane id) cannot reset the pane of its parent.
      */
-    async start(paneId, { trigger = 'manual' } = {}) {
+    async start(paneId, { trigger = 'manual', session = null } = {}) {
       if (isActive(jobs.get(paneId)) || starting.has(paneId)) {
         throw httpError(409, 'Handoff + Reset already runs in this pane');
       }
       for (const [id, old] of jobs) {
         if (!isActive(old) && now() - old.job.updatedAt > t.retainMs) jobs.delete(id);
+      }
+      for (const [id, until] of autoCooldown) {
+        if (now() >= until) autoCooldown.delete(id);
       }
       starting.add(paneId);
       let entry;
@@ -469,6 +488,16 @@ export function createHandoffReset({
             `The session of this ${pane.harness} pane is not known (yet); try again in a moment`
           );
         }
+        if (session && pane.sessionId !== session) {
+          throw httpError(400, `Caller session ${session} is not the session of pane ${paneId}`);
+        }
+        const cooledUntil = autoCooldown.get(paneId);
+        if (trigger === 'auto' && cooledUntil && now() < cooledUntil) {
+          throw httpError(
+            429,
+            'auto handoff cooled down: the last automatic Handoff + Reset in this pane failed or was cancelled; try again later or start it manually'
+          );
+        }
         const started = now();
         entry = {
           pane,
@@ -478,7 +507,10 @@ export function createHandoffReset({
             harness: pane.harness,
             cwd: pane.cwd,
             trigger,
-            phase: trigger === 'auto' ? 'waiting' : 'writing',
+            // agents-ui (v0.4.63) knows the phases writing/resetting/continuing: it polls them
+            // and shows Cancel. The wait for the turn end is a field, not a phase of its own.
+            phase: 'writing',
+            waitingForTurn: trigger === 'auto',
             startedAt: started,
             updatedAt: started,
             oldSessionId: pane.sessionId,
@@ -507,7 +539,10 @@ export function createHandoffReset({
         if (error instanceof Cancelled || entry.ctl.cancelled) return;
         entry.job.phase = 'error';
         entry.job.error = error.message;
+        entry.job.waitingForTurn = false;
         entry.job.updatedAt = now();
+        // a failed automatic handoff must not be retried on every compaction until it succeeds
+        if (trigger === 'auto') coolDown(paneId);
       });
       return snapshot(entry);
     },
@@ -530,7 +565,10 @@ export function createHandoffReset({
       entry.ctl.cancelled = true;
       entry.job.phase = 'error';
       entry.job.error = 'Cancelled';
+      entry.job.waitingForTurn = false;
       entry.job.updatedAt = now();
+      // a cancelled automatic handoff cools the pane down: the next compaction runs normally
+      if (entry.job.trigger === 'auto') coolDown(paneId);
       return snapshot(entry);
     },
   };

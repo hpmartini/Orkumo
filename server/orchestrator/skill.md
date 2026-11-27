@@ -137,14 +137,17 @@ refused (409): use the session that holds it.
 ## handoff-reset
 
 ```
-orkumo handoff-reset [--pane <id>] [--auto] [--json]
+orkumo handoff-reset [--pane <id>] [--auto] [--session <id>] [--json]
 ```
 
 Starts Handoff + Reset in a pane: the agent writes a handoff file, the pane is reset (`/clear`,
 omp `/new`) and the new session continues from the file. The pane is `--pane`, else the pane of
 this session (`ORKUMO_PANE_ID`), else the background job of this session (`CLAUDE_JOB_DIR`).
 `--auto` says the compaction threshold fired: the job then waits for the running turn to end.
-Exit 0 started, 3 a job is already running, 2 the pane cannot be reset, 1 Orkumo is unreachable.
+`--session <id>` names the session of the caller: the server refuses the start when that is not
+the session running in the pane (a child session that inherits the pane id must not reset the
+pane of its parent). Exit 0 started, 3 a job is already running, 2 the pane cannot be reset,
+1 Orkumo is unreachable or the automatic handoff of this pane is cooling down.
 Use it when a session is too full to continue; Hape clicks the same thing in the UI.
 
 ## projects

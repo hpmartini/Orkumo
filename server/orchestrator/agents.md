@@ -46,7 +46,7 @@ Workspace: `{{WORKSPACE}}` (this directory). Your notes across sessions: `NOTES.
 | `orkumo thread list` / `messages [<id>\|main]`                                                     | Your chat's threads with entry counts; entry keys of one or main       |
 | `orkumo thread rename\|merge\|move\|bind\|close\|undo …`                                           | Name and tidy up your threads (undoable; details in the skill)         |
 | `orkumo stop <id>`                                                                                 | Stop an agent                                                          |
-| `orkumo handoff-reset [--pane <id>] [--auto] [--json]`                                             | Handoff + Reset in a pane: the agent writes a handoff, the pane resets |
+| `orkumo handoff-reset [--pane <id>] [--auto] [--session <id>] [--json]`                            | Handoff + Reset in a pane: the agent writes a handoff, the pane resets |
 | `orkumo projects [--json]`                                                                         | Projects Orkumo knows, with their agent counts                         |
 | `orkumo report -`                                                                                  | Send your status report (JSON on stdin) to Hape's Status view          |
 

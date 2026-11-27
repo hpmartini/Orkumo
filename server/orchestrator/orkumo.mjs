@@ -47,10 +47,12 @@ export const HELP = `orkumo: hand out and watch work of the agents running in Or
   orkumo thread undo                      take back the last rename/merge/move/bind/close
                                           (thread ids: the full id or a unique prefix)
   orkumo stop <id>                        stop an agent
-  orkumo handoff-reset [--pane <id>] [--auto] [--json]
+  orkumo handoff-reset [--pane <id>] [--auto] [--session <id>] [--json]
                                           start Handoff + Reset in a pane (the agent writes a
                                           handoff file, the pane is reset and continues);
-                                          --auto: the compaction threshold fired
+                                          --auto: the compaction threshold fired;
+                                          --session: the session of the caller (it must be the
+                                          session running in that pane)
   orkumo projects [--json]                projects Orkumo knows
   orkumo report <file|->                  send your status report (JSON, schema: report.schema.json)
 
@@ -65,7 +67,7 @@ const COMMANDS = {
   send: {},
   start: { project: false, harness: false, name: false, orchestrator: true, json: true },
   stop: {},
-  'handoff-reset': { pane: false, auto: true, json: true },
+  'handoff-reset': { pane: false, auto: true, json: true, session: false },
   projects: { json: true },
   report: {},
   thread: { json: true, agent: false, status: false },
@@ -787,9 +789,27 @@ export async function run(argv, deps = {}) {
           );
         }
         const trigger = flags.auto ? 'auto' : 'manual';
+        const body = { trigger };
+        // The caller's session: the server refuses it when it is not the session of that pane
+        // (a child session that inherits the pane id must not reset the pane of its parent).
+        if (flags.session) body.session = String(flags.session);
+        // Ask first (the GET is not on the agent budget): a running job needs no POST.
+        let running = null;
+        try {
+          const state = await api('GET', `/agents/panes/${enc(pane)}/handoff-reset`);
+          running = state?.job?.active ? state.job : null;
+        } catch {
+          running = null; // the GET is only a hint; the POST decides
+        }
+        if (running) {
+          throw new CliError(
+            `Handoff + Reset already runs in ${pane} (phase ${running.phase}).`,
+            3
+          );
+        }
         let data;
         try {
-          data = await api('POST', `/agents/panes/${enc(pane)}/handoff-reset`, { trigger });
+          data = await api('POST', `/agents/panes/${enc(pane)}/handoff-reset`, body);
         } catch (error) {
           // 409 = a job is already running, 400/404 = the pane cannot be reset: own exit codes
           if (error instanceof CliError && error.status) {
