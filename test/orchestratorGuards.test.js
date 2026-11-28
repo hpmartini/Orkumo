@@ -506,6 +506,31 @@ describe('race, daemon stop, pane messages, env (server)', () => {
       statuses.push((await call('GET', '/agents/panes/work-poll/handoff-reset')).status);
     expect(statuses).not.toContain(429);
   });
+
+  it('the handoff-reset start does not spend the shared agent budget', async () => {
+    // the agent routes share 60/min; the compaction threshold of many sessions posts here
+    const statuses = [];
+    for (let i = 0; i < 70; i++)
+      statuses.push((await call('POST', '/agents/panes/work-poll/handoff-reset')).status);
+    expect(statuses).not.toContain(429);
+  });
+
+  it('the handoff-reset route takes the trigger and refuses an unknown one', async () => {
+    const auto = await call('POST', '/agents/panes/no-such-pane/handoff-reset', {
+      body: { trigger: 'auto' },
+    });
+    expect(auto.status).toBe(400);
+    expect((await auto.json()).error).toContain('No agent runs in pane');
+    const bad = await call('POST', '/agents/panes/no-such-pane/handoff-reset', {
+      body: { trigger: 'nonsense' },
+    });
+    expect(bad.status).toBe(400);
+    expect((await bad.json()).error).toBe('Validation failed');
+    // no body at all: the manual trigger
+    const plain = await call('POST', '/agents/panes/no-such-pane/handoff-reset');
+    expect(plain.status).toBe(400);
+    expect((await plain.json()).error).toContain('No agent runs in pane');
+  });
 });
 
 describe('E2E D1/D2 (server)', () => {

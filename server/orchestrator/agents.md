@@ -36,18 +36,19 @@ Workspace: `{{WORKSPACE}}` (this directory). Your notes across sessions: `NOTES.
 `orkumo` is on PATH in orchestrator sessions Orkumo started. If the shell does not find it, use
 `"$ORKUMO_CLI"` or the absolute path `"{{CLI}}"`. Details: the `orkumo-orchestrator` skill.
 
-| Command                                                                                            | What it does                                                          |
-| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- |
-| `orkumo agents [--all] [--json]`                                                                   | Agents with state, project, branch, waiting-for, PRs, last answer     |
-| `orkumo show <id> [--last N]`                                                                      | Recent transcript turns of one agent                                  |
-| `orkumo send <id> <message>`                                                                       | Message a running agent (background job or Orkumo pane)               |
-| `orkumo start --project <path\|name> [--harness claude\|omp] [--name n] [--orchestrator] <prompt>` | Start a new agent; `--orchestrator`: with Remote Control (Claude app) |
-| `orkumo thread open "<title>"`                                                                     | Open a thread in your chat for a topic without an agent               |
-| `orkumo thread list` / `messages [<id>\|main]`                                                     | Your chat's threads with entry counts; entry keys of one or main      |
-| `orkumo thread rename\|merge\|move\|bind\|close\|undo …`                                           | Name and tidy up your threads (undoable; details in the skill)        |
-| `orkumo stop <id>`                                                                                 | Stop an agent                                                         |
-| `orkumo projects [--json]`                                                                         | Projects Orkumo knows, with their agent counts                        |
-| `orkumo report -`                                                                                  | Send your status report (JSON on stdin) to Hape's Status view         |
+| Command                                                                                            | What it does                                                           |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `orkumo agents [--all] [--json]`                                                                   | Agents with state, project, branch, waiting-for, PRs, last answer      |
+| `orkumo show <id> [--last N]`                                                                      | Recent transcript turns of one agent                                   |
+| `orkumo send <id> <message>`                                                                       | Message a running agent (background job or Orkumo pane)                |
+| `orkumo start --project <path\|name> [--harness claude\|omp] [--name n] [--orchestrator] <prompt>` | Start a new agent; `--orchestrator`: with Remote Control (Claude app)  |
+| `orkumo thread open "<title>"`                                                                     | Open a thread in your chat for a topic without an agent                |
+| `orkumo thread list` / `messages [<id>\|main]`                                                     | Your chat's threads with entry counts; entry keys of one or main       |
+| `orkumo thread rename\|merge\|move\|bind\|close\|undo …`                                           | Name and tidy up your threads (undoable; details in the skill)         |
+| `orkumo stop <id>`                                                                                 | Stop an agent                                                          |
+| `orkumo handoff-reset [--pane <id>] [--auto] [--session <id>] [--json]`                            | Handoff + Reset in a pane: the agent writes a handoff, the pane resets |
+| `orkumo projects [--json]`                                                                         | Projects Orkumo knows, with their agent counts                         |
+| `orkumo report -`                                                                                  | Send your status report (JSON on stdin) to Hape's Status view          |
 
 ## Workflow
 

@@ -2254,22 +2254,47 @@ const handoffReset = createHandoffReset({
     replyToJob: (id, text) => agentService.replySession(id, text, { mode: 'attach' }),
   }),
 });
-const handoffResetRoute = (action, status = 200, limit = [agentLimiter]) => [
+// The trigger says who started the job: 'manual' (a person pressed the button) or 'auto' (the
+// compaction threshold fired); an automatic job waits for the running turn to end before it types.
+// `session` is the caller's session id: the server refuses it when it is not the session of that
+// pane (a child session that inherits the pane id must not reset the pane of its parent).
+const handoffResetTriggerSchema = z
+  .object({
+    trigger: z.enum(['manual', 'auto']).optional(),
+    session: z.string().max(200).optional(),
+  })
+  .default({});
+// The handoff-reset routes have their own budget: every compaction threshold of every session
+// posts here, and the shared agent budget (60/min) would throttle the other agent operations.
+const handoffResetLimiter = rateLimit({
+  windowMs: RATE_LIMIT.windowMs,
+  max: 600,
+  message: { error: 'Too many handoff + reset operations, please slow down' },
+});
+const handoffResetRoute = (action, status = 200, limit = [handoffResetLimiter], body = null) => [
   ...limit,
   sameSiteOnly,
   validateParams(z.string().regex(/^[\w.:-]{1,200}$/)),
+  ...(body ? [validate(body)] : []),
   async (req, res) => {
     try {
-      res.status(status).json({ job: await action(req.params.paneId) });
+      res.status(status).json({ job: await action(req.params.paneId, req.body) });
     } catch (error) {
       res.status(error.status || 500).json({ error: error.message });
     }
   },
 ];
-app.post('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.start, 202));
+app.post(
+  '/api/agents/panes/:paneId/handoff-reset',
+  ...handoffResetRoute(handoffReset.start, 202, [handoffResetLimiter], handoffResetTriggerSchema)
+);
 // the UI polls this every 2 s while a job runs: not on the budget of the CLI's agent calls
 app.get('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.get, 200, []));
-app.delete('/api/agents/panes/:paneId/handoff-reset', ...handoffResetRoute(handoffReset.cancel));
+// the UI cancels with it
+app.delete(
+  '/api/agents/panes/:paneId/handoff-reset',
+  ...handoffResetRoute(handoffReset.cancel, 200, [handoffResetLimiter])
+);
 
 // ---------------------------------------------------------------------------
 // Orchestrators: sessions that hand out and watch work through the `orkumo` CLI
